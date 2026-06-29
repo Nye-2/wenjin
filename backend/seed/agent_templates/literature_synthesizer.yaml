@@ -23,7 +23,7 @@ default_skills:
 tool_affinity:
   preferred:
     - library_read
-    - document_read
+    - prism_file_read
   can_request:
     - citation_parser
     - artifact_create

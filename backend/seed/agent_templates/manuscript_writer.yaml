@@ -22,11 +22,11 @@ default_skills:
   - style-polisher
 tool_affinity:
   preferred:
-    - document_read
+    - prism_file_read
     - prism_read
   can_request:
     - library_read
-    - memory_read
+    - workspace_memory_read
     - prism_change_staged
     - artifact_create
 risk_profile:

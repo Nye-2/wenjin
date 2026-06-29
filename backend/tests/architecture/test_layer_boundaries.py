@@ -65,7 +65,6 @@ class TestRouterRegistration:
             "executions",
             "latex",
             "mcp",
-            "memory",
             "models",
             "references",
             "runs",

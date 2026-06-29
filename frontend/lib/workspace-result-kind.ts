@@ -11,6 +11,7 @@ export interface WorkspaceResultKindMeta {
 }
 
 type KnownResultKind = WorkspaceResultPreview["kind"] | "sandbox";
+const HIDDEN_RESULT_KINDS = new Set<string>(["memory_fact"]);
 
 const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
   library_item: {
@@ -23,18 +24,18 @@ const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
     order: 10,
   },
   document: {
-    label: "文档产物",
-    shortLabel: "文档",
-    groupLabel: "文档产物",
+    label: "Prism 文件",
+    shortLabel: "文件",
+    groupLabel: "Prism 文件",
     accent: "#2563eb",
     tint: "rgba(37, 99, 235, 0.08)",
     border: "rgba(37, 99, 235, 0.24)",
     order: 20,
   },
   figure: {
-    label: "图表产物",
+    label: "图表文件",
     shortLabel: "图表",
-    groupLabel: "图表产物",
+    groupLabel: "图表文件",
     accent: "#7c3aed",
     tint: "rgba(124, 58, 237, 0.08)",
     border: "rgba(124, 58, 237, 0.22)",
@@ -86,9 +87,9 @@ const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
     order: 56,
   },
   artifact: {
-    label: "实验产物",
-    shortLabel: "产物",
-    groupLabel: "实验产物",
+    label: "实验结果",
+    shortLabel: "实验",
+    groupLabel: "实验结果",
     accent: "#6d28d9",
     tint: "rgba(109, 40, 217, 0.08)",
     border: "rgba(109, 40, 217, 0.22)",
@@ -137,6 +138,16 @@ export function getWorkspaceResultKindMeta(
   kind: string,
 ): WorkspaceResultKindMeta {
   return KIND_META[kind as KnownResultKind] ?? FALLBACK_META;
+}
+
+export function isWorkspaceResultKindVisibleToUser(kind: string): boolean {
+  return !HIDDEN_RESULT_KINDS.has(kind);
+}
+
+export function filterVisibleWorkspaceResultItems<T extends { kind: string }>(
+  items: T[],
+): T[] {
+  return items.filter((item) => isWorkspaceResultKindVisibleToUser(item.kind));
 }
 
 export function groupWorkspaceResultPreviews<T extends { kind: string }>(

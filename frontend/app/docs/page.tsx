@@ -56,7 +56,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Workspace",
         title: "一个项目一个研究空间",
         body:
-          "每个 workspace 都沉淀文献、文档、决策、记忆、运行历史、实验环境、任务和设置，保证长程研究上下文连续。",
+          "每个 workspace 都沉淀文献、Prism 文件、决策、运行历史、实验环境、任务、设置，以及后台隐藏维护的一份 workspace memory，保证长程研究上下文连续。",
       },
       {
         label: "Agent Team",
@@ -66,9 +66,9 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       },
       {
         label: "Confirm",
-        title: "结果先进入确认，再写回房间",
+        title: "结果自动写回，再支持撤回",
         body:
-          "执行产出以 result_card 暂存，用户默认全选、一键接受，也可以取消部分条目后再提交。",
+          "执行产出会自动写入 Prism 文件、资料库、决策或任务；用户可以在运行面板里查看写入状态并撤回本次保存。",
       },
     ],
     contract: {
@@ -77,7 +77,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       body:
         "无论扩充团队角色、调整提示词、改进工作流，最终都应回到这些稳定对象，避免功能越做越散。",
       items: [
-        "8 个 workspace 房间：Library、Documents、Decisions、Memory、Run History、实验环境、Tasks、Settings。",
+        "Workspace 持久层：Library、Prism 文件、Decisions、Run History、实验环境、Tasks、Settings，以及后台隐藏维护的一份 workspace memory。",
         "7 种消息 block：text、thinking、status_line、question_card、result_card、tool_invocation、tool_result。",
         "Capability 数据驱动：YAML seed + DB 配置，管理员可在后台调整。",
         "实验环境单 workspace 单实例，随任务复用，启动按积分计费。",
@@ -124,7 +124,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Workspace",
         title: "One research space per project",
         body:
-          "Each workspace stores library items, documents, decisions, memory, run history, experiment-environment state, tasks, and settings for long-running continuity.",
+          "Each workspace stores library items, Prism files, decisions, run history, experiment-environment state, tasks, settings, and one hidden workspace memory document for long-running continuity.",
       },
       {
         label: "Agent Team",
@@ -145,7 +145,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       body:
         "New team roles, prompts, and workflows should converge on the same product objects instead of creating scattered feature paths.",
       items: [
-        "8 workspace rooms: Library, Documents, Decisions, Memory, Run History, Experiment Environment, Tasks, Settings.",
+        "Workspace persistence: Library, Prism files, Decisions, Run History, Experiment Environment, Tasks, Settings, plus one hidden workspace memory document.",
         "7 message blocks: text, thinking, status_line, question_card, result_card, tool_invocation, tool_result.",
         "Data-driven capabilities: YAML seeds plus DB-backed runtime configuration.",
         "One experiment environment per workspace, reused across experiments, with startup billed in credits.",

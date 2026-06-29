@@ -2,7 +2,6 @@ import { apiClient } from "@/lib/api/client";
 import type {
   Artifact,
   DashboardData,
-  MemoryResponse,
   ReferenceBibtexResponse,
   ReferenceBibtexValidationResponse,
   ReferenceCountResponse,
@@ -16,6 +15,8 @@ import type {
   WorkspaceActivityResponse,
   WorkspaceCapability,
   WorkspaceCreate,
+  WorkspacePrismFileContent,
+  WorkspacePrismFileWrite,
   WorkspacePrismEnsureResponse,
   WorkspacePrismSurfaceResponse,
   WorkspaceExecutionsResponse,
@@ -44,6 +45,44 @@ export async function getWorkspacePrismSurface(
   workspaceId: string
 ): Promise<WorkspacePrismSurfaceResponse> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/prism`);
+  return response.data;
+}
+
+export async function createWorkspacePrismFile(
+  workspaceId: string,
+  data: {
+    path: string;
+    content_inline?: string;
+    file_role?: string;
+    mime_type?: string | null;
+  },
+): Promise<WorkspacePrismFileWrite> {
+  const response = await apiClient.post(`/workspaces/${workspaceId}/prism/files`, {
+    path: data.path,
+    content_inline: data.content_inline ?? "",
+    file_role: data.file_role ?? "manual",
+    mime_type: data.mime_type ?? undefined,
+  });
+  return response.data;
+}
+
+export async function getWorkspacePrismFile(
+  workspaceId: string,
+  fileId: string,
+): Promise<WorkspacePrismFileContent> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/prism/files/${fileId}`);
+  return response.data;
+}
+
+export async function saveWorkspacePrismFile(
+  workspaceId: string,
+  fileId: string,
+  data: {
+    content_inline: string;
+    expected_current_hash?: string | null;
+  },
+): Promise<WorkspacePrismFileWrite> {
+  const response = await apiClient.put(`/workspaces/${workspaceId}/prism/files/${fileId}`, data);
   return response.data;
 }
 
@@ -363,15 +402,6 @@ export async function listArtifacts(
   }
   const response = await apiClient.get(`/workspaces/${workspaceId}/artifacts`, {
     params,
-  });
-  return response.data;
-}
-
-export async function getWorkspaceMemory(
-  workspaceId: string
-): Promise<MemoryResponse> {
-  const response = await apiClient.get("/memory", {
-    params: { workspace_id: workspaceId },
   });
   return response.data;
 }

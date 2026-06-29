@@ -1781,7 +1781,7 @@ class SciLiteratureTeamCatalogClient(FakeTeamCatalogClient):
                 category="research",
                 default_skills=["literature-synthesizer"],
                 tool_affinity={
-                    "preferred": ["library_read", "document_read"],
+                    "preferred": ["library_read", "prism_file_read"],
                     "can_request": ["citation_parser", "artifact_create"],
                 },
                 risk_profile={"room_write": "staged_only"},
@@ -2403,7 +2403,7 @@ async def test_team_kernel_runtime_supplies_query_and_business_tools_to_sci_lite
             "allowed_tools": [
                 "web_search",
                 "library_read",
-                "document_read",
+                "prism_file_read",
                 "citation_parser",
                 "artifact_create",
             ],
@@ -2418,7 +2418,7 @@ async def test_team_kernel_runtime_supplies_query_and_business_tools_to_sci_lite
                 "capability_tools": [
                     "web_search",
                     "library_read",
-                    "document_read",
+                    "prism_file_read",
                     "citation_parser",
                     "artifact_create",
                 ],
@@ -2462,7 +2462,7 @@ async def test_team_kernel_runtime_supplies_query_and_business_tools_to_sci_lite
     assert scout.inputs["task_focus"]
     assert {
         "library_read",
-        "document_read",
+        "prism_file_read",
         "citation_parser",
         "artifact_create",
     }.issubset(set(synthesizer.tools))

@@ -26,7 +26,7 @@ tool_affinity:
     - library_read
     - citation_parser
   can_request:
-    - document_read
+    - prism_file_read
     - artifact_create
 risk_profile:
   network: normal

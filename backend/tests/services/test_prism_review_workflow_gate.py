@@ -168,11 +168,6 @@ class _FakeDataServiceClient:
         _ = workspace_id
         return []
 
-    async def list_room_memory_facts(self, *, workspace_id: str, limit: int = 5):
-        _ = workspace_id
-        _ = limit
-        return []
-
     async def list_executions(self, *, workspace_id: str, limit: int = 5):
         _ = workspace_id
         _ = limit

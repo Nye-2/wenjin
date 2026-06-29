@@ -31,30 +31,23 @@ test("workspace Prism surface stays usable on mobile without extra room reloads"
     "aria-selected",
     "true",
   );
-  const assistButton = page.getByRole("button", { name: /AI 改稿/ });
-  await expect(assistButton).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "AI 改稿" })).toHaveCount(0);
-  await assistButton.click();
-  await expect(page.getByRole("dialog", { name: "AI 改稿" })).toBeVisible();
-  await expect(page.getByText("待确认写入")).toBeVisible();
-  await expect(page.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "对照", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "审阅", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "专注", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "打开 PDF 对照" })).toBeVisible();
-  await expect(page.locator(".monaco-editor")).toBeVisible();
+  await expect(page.getByTestId("prism-workspace-shell")).toBeVisible();
+  await expect(page.getByRole("button", { name: /论文框架大纲\.md/ })).toBeVisible();
+  await expect(page.getByTestId("prism-file-editor")).toBeVisible();
+  await expect(page.getByTestId("prism-file-preview")).toBeVisible();
+  await expect(page.getByTestId("prism-file-preview").getByText("系统设计")).toBeVisible();
   await expect
     .poll(() =>
       page
-        .locator(".monaco-editor")
+        .getByTestId("prism-file-editor")
         .evaluate((element) => element.getBoundingClientRect().height),
     )
-    .toBeGreaterThan(240);
+    .toBeGreaterThan(180);
 
   expect(requestedPaths).toContain("/api/workspaces/ws-1/events");
   expect(
     requestedPaths.filter((path) =>
-      /\/api\/workspaces\/ws-1\/(documents|library|tasks|memory|decisions|runs|settings)/.test(
+      /\/api\/workspaces\/ws-1\/(library|tasks|decisions|runs|settings)/.test(
         path,
       ),
     ),

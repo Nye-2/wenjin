@@ -116,13 +116,6 @@ class _FakeDataServiceClient:
         await self._db.execute(None)
         return []
 
-    async def list_room_memory_facts(self, *, workspace_id: str, limit: int = 15, category: str | None = None):
-        _ = workspace_id
-        _ = limit
-        _ = category
-        result = await self._db.execute(None)
-        return result.scalars().all()
-
     async def list_executions(self, *, workspace_id: str, limit: int = 5, **_kwargs: object):
         _ = workspace_id
         _ = limit

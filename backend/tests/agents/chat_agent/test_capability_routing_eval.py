@@ -1,6 +1,12 @@
 """Deterministic route/UX checks for Chat Agent capability routing guidance."""
 
-from src.agents.chat_agent.agent import _render_workspace_capability_route_cards
+from types import SimpleNamespace
+
+from src.agents.chat_agent import agent as chat_agent_module
+from src.agents.chat_agent.agent import (
+    _render_workspace_capability_route_cards,
+    _supports_tool_calling,
+)
 
 
 def _sci_literature_capability() -> dict:
@@ -98,3 +104,45 @@ def test_routing_prompt_guides_ambiguity_as_two_natural_choices() -> None:
     assert "先找研究空白" in prompt
     assert "直接进入初稿" in prompt
     assert "route confidence" not in prompt
+
+
+def test_routing_prompt_requires_intake_spec_for_super_workflows() -> None:
+    prompt = _render_workspace_capability_route_cards(
+        [
+            {
+                "id": "software_copyright_application_pack",
+                "display_name": "软著申报材料包",
+                "tier": "primary",
+                "routing": {
+                    "when_to_use": ["用户需要生成软件著作权申报材料包"],
+                    "minimum_context": {"software_name": "required"},
+                },
+                "definition_json": {"display": {"entry_tier": "primary"}},
+            },
+            {
+                "id": "math_modeling_paper_pack",
+                "display_name": "数学建模论文生成",
+                "tier": "primary",
+                "routing": {
+                    "when_to_use": ["用户需要根据数模题目生成完整论文和图表"],
+                    "minimum_context": {"problem_statement": "required"},
+                },
+                "definition_json": {"display": {"entry_tier": "primary"}},
+            },
+        ],
+    )
+
+    assert "draft_intake_spec" in prompt
+    assert "software_copyright_application_pack" in prompt
+    assert "math_modeling_paper_pack" in prompt
+    assert "launch_feature" in prompt
+
+
+def test_tool_binding_respects_model_catalog_support_flag(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chat_agent_module,
+        "get_model_config",
+        lambda model_name: SimpleNamespace(id=model_name, supports_tools=False),
+    )
+
+    assert _supports_tool_calling("gpt-5.3-codex-spark") is False

@@ -21,12 +21,10 @@ from .document_v2 import DocumentV2
 from .execution import ExecutionRecord
 from .execution_node import ExecutionNodeRecord
 from .generation import GenerationRecord
-from .knowledge import KnowledgeCategory, UserKnowledge
 from .latex_compile_history import LatexCompileHistory
 from .latex_project import LatexProject
 from .latex_template import LatexTemplate
 from .library_item import LibraryItem
-from .memory_fact import MemoryFact
 from .model_catalog import (
     ModelCatalogEntry,
     ModelCategory,
@@ -86,9 +84,6 @@ __all__ = [
     "PricingPolicyKind",
     # Thread
     "Thread",
-    # Knowledge
-    "UserKnowledge",
-    "KnowledgeCategory",
     # Latex
     "LatexProject",
     "LatexTemplate",
@@ -109,8 +104,6 @@ __all__ = [
     "DocumentV2",
     # Room: Decisions
     "Decision",
-    # Room: Memory
-    "MemoryFact",
     # Referral
     "Referral",
     # Room: Run History

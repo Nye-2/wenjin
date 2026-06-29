@@ -150,15 +150,6 @@ class _DbBackedDataServiceClient:
 
         return await RoomsDataService(self.db, autocommit=False).list_active_decisions(workspace_id)
 
-    async def list_room_memory_facts(self, *, workspace_id: str, limit: int = 15, category: str | None = None):
-        from src.dataservice.rooms_api import RoomsDataService
-
-        return await RoomsDataService(self.db, autocommit=False).list_memory_facts(
-            workspace_id=workspace_id,
-            limit=limit,
-            category=category,
-        )
-
     async def list_executions(self, *, workspace_id: str, limit: int = 5, **_kwargs: object):
         result = await self.db.execute(
             text(
@@ -963,20 +954,6 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     await db.execute(
         text(
             """
-            insert into memory_facts (
-                id, workspace_id, category, content, confidence, reference_count
-            )
-            values (
-                'memory-1', :workspace_id, 'writing_style',
-                'Prefer concise topic sentences', 0.9, 3
-            )
-            """
-        ),
-        {"workspace_id": workspace.id},
-    )
-    await db.execute(
-        text(
-            """
             insert into run_history (
                 id, workspace_id, execution_id, capability_id, title, summary,
                 status, artifact_count, duration_seconds
@@ -1030,15 +1007,13 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     assert projection["source_links"][0]["citation_key"] == "doe2026"
     assert projection["protected_sections"][0]["reason"] == "user_protected"
     assert projection["decisions"][0]["key"] == "citation_style"
-    assert projection["memory_preferences"][0]["content"] == (
-        "Prefer concise topic sentences"
-    )
+    assert projection["memory_preferences"] == []
     activity_titles = {item["title"] for item in projection["recent_activity"]}
     assert "Intro drafting" in activity_titles
     assert "待确认稿件修改: Intro rewrite" in activity_titles
     assert projection["context_summary"] == {
         "decision_count": 1,
-        "memory_preference_count": 1,
+        "memory_preference_count": 0,
         "recent_activity_count": 2,
     }
 

@@ -1,5 +1,6 @@
 """Workspaces router for workspace management API endpoints."""
 
+import hashlib
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,6 +8,10 @@ from fastapi.responses import StreamingResponse
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.prism import (
+    PrismFileContentUpdatePayload,
+    PrismWorkspaceFileUpsertPayload,
+)
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
@@ -22,6 +27,10 @@ from src.gateway.routers.workspaces_contracts import (
     UpdateWorkspaceRequest,
     WorkspaceActivityResponse,
     WorkspaceExecutionsResponse,
+    WorkspacePrismFileContentResponse,
+    WorkspacePrismFileSaveRequest,
+    WorkspacePrismFileUpsertRequest,
+    WorkspacePrismFileWriteResponse,
     WorkspacePrismEnsureResponse,
     WorkspacePrismSurfaceResponse,
     WorkspaceResponse,
@@ -47,6 +56,11 @@ from src.services.workspace_summary_service import WorkspaceSummaryService
 from src.workspace_events import stream_workspace_events
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+def _workspace_prism_content_hash(content: str) -> str:
+    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+
 
 @router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
@@ -146,14 +160,14 @@ async def ensure_workspace_prism_project(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    linked_project = await WorkspacePrismService(dataservice=dataservice).ensure_primary_project(
+    projection = await WorkspacePrismService(dataservice=dataservice).ensure_surface_projection(
         workspace_id=workspace_id,
         user_id=str(current_user.id),
         project_name=str(workspace.name or ""),
     )
-    latex_project_id = str(linked_project.id)
     return WorkspacePrismEnsureResponse(
-        latex_project_id=latex_project_id,
+        latex_project_id=projection.get("latex_project_id"),
+        prism_project_id=projection.get("prism_project_id"),
         url=f"/workspaces/{workspace_id}/prism",
         sync_status="ready",
     )
@@ -186,6 +200,107 @@ async def get_workspace_prism_surface(
             detail="Workspace Prism surface not found",
         ) from exc
     return WorkspacePrismSurfaceResponse(**projection)
+
+
+@router.post(
+    "/{workspace_id}/prism/files",
+    response_model=WorkspacePrismFileWriteResponse,
+)
+async def upsert_workspace_prism_file(
+    workspace_id: str,
+    request: WorkspacePrismFileUpsertRequest,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> WorkspacePrismFileWriteResponse:
+    """Create or replace a text-backed file in the workspace Prism surface."""
+    await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    content_hash = _workspace_prism_content_hash(request.content_inline)
+    result = await dataservice.upsert_prism_workspace_file(
+        workspace_id,
+        PrismWorkspaceFileUpsertPayload(
+            path=request.path,
+            file_role=request.file_role,
+            mime_type=request.mime_type,
+            content_inline=request.content_inline,
+            content_hash=content_hash,
+            created_by=str(current_user.id),
+            metadata_json={"source": "user_edit"},
+        ),
+    )
+    return WorkspacePrismFileWriteResponse(**result.model_dump(mode="json"))
+
+
+@router.get(
+    "/{workspace_id}/prism/files/{file_id}",
+    response_model=WorkspacePrismFileContentResponse,
+)
+async def get_workspace_prism_file(
+    workspace_id: str,
+    file_id: str,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> WorkspacePrismFileContentResponse:
+    """Read current Prism file content for the editor."""
+    await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    record = await dataservice.get_prism_workspace_file(workspace_id, file_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Prism file not found",
+        )
+    return WorkspacePrismFileContentResponse(**record.model_dump(mode="json"))
+
+
+@router.put(
+    "/{workspace_id}/prism/files/{file_id}",
+    response_model=WorkspacePrismFileWriteResponse,
+)
+async def save_workspace_prism_file(
+    workspace_id: str,
+    file_id: str,
+    request: WorkspacePrismFileSaveRequest,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> WorkspacePrismFileWriteResponse:
+    """Autosave text content into a new Prism file version."""
+    await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    result = await dataservice.update_prism_workspace_file(
+        workspace_id,
+        file_id,
+        PrismFileContentUpdatePayload(
+            content_inline=request.content_inline,
+            content_hash=_workspace_prism_content_hash(request.content_inline),
+            created_by=str(current_user.id),
+            expected_current_hash=request.expected_current_hash,
+            metadata_json={"source": "user_autosave"},
+        ),
+    )
+    if result.skipped_reason == "not_found":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Prism file not found",
+        )
+    if result.skipped_reason == "hash_mismatch":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Prism file changed before save",
+        )
+    return WorkspacePrismFileWriteResponse(**result.model_dump(mode="json"))
 
 
 @router.put("/{workspace_id}", response_model=WorkspaceResponse)

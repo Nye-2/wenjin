@@ -44,9 +44,9 @@ test("result cards can commit all staged outputs in one click", async ({
 
   await installWorkspaceRouteMocks(page, context, {
     commitResponse: {
-      committed: { documents: 1, tasks: 1 },
+      committed: { prism: 1, tasks: 1 },
       room_targets: {
-        documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+        prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
         library: [],
       },
     },
@@ -63,7 +63,7 @@ test("result cards can commit all staged outputs in one click", async ({
               execution_id: "ex-1",
               capability_name: "论文分析",
               status: "completed",
-              narrative: "已生成可提交的分析产物。",
+              narrative: "已生成可提交的分析结果。",
               outputs: [
                 {
                   id: "doc-1",
@@ -101,9 +101,8 @@ test("result cards can commit all staged outputs in one click", async ({
 
   await expect(page.getByText("论文分析报告").first()).toBeVisible();
   await expect(page.getByText("补充对比实验").first()).toBeVisible();
-  await page.getByRole("button", { name: "保存到工作区" }).click();
 
-  await expect(page.getByText("已保存到工作区")).toBeVisible();
+  await expect(page.getByText("2 项结果已写入")).toBeVisible();
   await expect(
     page.getByRole("link", { name: "打开已保存的 论文分析报告" }),
   ).toBeVisible();
@@ -132,9 +131,9 @@ test("Prism review links open the workspace surface before committing room outpu
         "\\documentclass{article}\\begin{document}Generated workspace manuscript\\end{document}",
     },
     commitResponse: {
-      committed: { documents: 1 },
+      committed: { prism: 1 },
       room_targets: {
-        documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+        prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
         library: [],
       },
     },
@@ -234,38 +233,26 @@ test("Prism review links open the workspace surface before committing room outpu
   await expect(page).toHaveURL(
     /\/workspaces\/ws-1\/prism\?focus=file_changes&review_item_id=section%3Aintroduction&logical_key=section%3Aintroduction/,
   );
-  await expect(page.getByRole("dialog", { name: "AI 改稿" })).toBeVisible();
-  await expect(page.getByText("待确认写入")).toBeVisible();
-  await expect(page.getByText("main.tex").first()).toBeVisible();
-  await expect(page.getByText(/Generated workspace manuscript/).first()).toBeVisible();
-
-  await page.getByRole("button", { name: /^应用$/ }).click();
-
-  await expect(page.getByText("已写入变更")).toBeVisible();
-  await expect(page.getByText("已写入稿件修改: main.tex")).toBeVisible();
-
-  await page.getByRole("button", { name: "保护当前文件" }).click();
-  await expect(page.getByText("当前文件已保护")).toBeVisible();
-  await expect(page.getByText("保护段落")).toBeVisible();
+  await expect(page.getByTestId("prism-workspace-shell")).toBeVisible();
+  await expect(page.getByText("docs/论文框架大纲.md")).toBeVisible();
 
   await page.goto(workbenchUrl);
-  await page.getByRole("button", { name: "保存到工作区" }).click();
 
-  await expect(page.getByText("已保存到工作区")).toBeVisible();
+  await expect(page.getByText("1 项结果已写入")).toBeVisible();
   await expect
     .poll(() => commitPayload)
     .toEqual({ accept_all: true });
 });
 
-test("saved result links open the document drawer without resetting the chat state", async ({
+test("saved result links open Prism without resetting the chat state", async ({
   page,
   context,
 }) => {
   await installWorkspaceRouteMocks(page, context, {
     commitResponse: {
-      committed: { documents: 1 },
+      committed: { prism: 1 },
       room_targets: {
-        documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+        prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
         library: [],
       },
     },
@@ -279,7 +266,7 @@ test("saved result links open the document drawer without resetting the chat sta
               execution_id: "ex-1",
               capability_name: "论文分析",
               status: "completed",
-              narrative: "已生成可提交的分析产物。",
+              narrative: "已生成可提交的分析结果。",
               outputs: [
                 {
                   id: "doc-1",
@@ -302,54 +289,16 @@ test("saved result links open the document drawer without resetting the chat sta
     ]),
   });
 
-  await page.route("**/api/workspaces/ws-1/documents", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        {
-          id: "saved-doc-1",
-          name: "论文分析报告",
-          mime_type: "text/markdown",
-          doc_kind: "draft",
-          size_bytes: 128,
-          created_at: "2026-05-19T00:00:00Z",
-          updated_at: "2026-05-19T00:00:00Z",
-        },
-      ]),
-    });
-  });
-
-  await page.route("**/api/workspaces/ws-1/documents/saved-doc-1", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "saved-doc-1",
-        name: "论文分析报告",
-        mime_type: "text/markdown",
-        doc_kind: "draft",
-        size_bytes: 128,
-        created_at: "2026-05-19T00:00:00Z",
-        updated_at: "2026-05-19T00:00:00Z",
-        metadata_json: {
-          content: "# 论文分析报告\n\n## 研究方法\n- 对比实验",
-        },
-      }),
-    });
-  });
-
   await page.goto(
     "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
   );
 
-  await page.getByRole("button", { name: "保存到工作区" }).click();
+  await expect(page.getByText("1 项结果已写入")).toBeVisible();
   await page.getByRole("link", { name: "打开已保存的 论文分析报告" }).click();
 
-  await expect(page.getByTestId("documents-drawer")).toBeVisible();
-  await expect(page.getByText("研究方法")).toBeVisible();
-  await expect(page.getByText("对比实验")).toBeVisible();
-  await expect(page.getByText("已生成可提交的分析产物。")).toBeVisible();
+  await expect(page.getByTestId("prism-workspace-shell")).toBeVisible();
+  await expect(page.getByTestId("prism-file-preview").getByText("研究方法")).toBeVisible();
+  await expect(page.getByTestId("prism-file-preview").getByText("对比实验")).toBeVisible();
 });
 
 test("markdown links inside result previews open workspace rooms without resetting the current thread", async ({
@@ -431,13 +380,13 @@ test("markdown links inside result previews open workspace rooms without resetti
     "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
   );
 
-  await page.getByRole("button", { name: "查看详情" }).click();
+  await page.getByRole("button", { name: "查看运行" }).click();
+  await page.getByRole("button", { name: "查看证据" }).click();
   await expect(page.getByRole("link", { name: "核心参考文献" })).toBeVisible();
   await page.getByRole("link", { name: "核心参考文献" }).click();
 
   await expect(page.getByTestId("library-drawer")).toBeVisible();
   await expect(page.getByText("A compact survey of deep learning systems.")).toBeVisible();
-  await expect(page.getByRole("region", { name: "候选结果详情" })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "论文分析报告" }),
   ).toBeVisible();

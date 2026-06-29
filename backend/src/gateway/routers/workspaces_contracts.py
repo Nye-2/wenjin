@@ -151,9 +151,76 @@ class ResolveCapabilityActionResponse(BaseModel):
 class WorkspacePrismEnsureResponse(BaseModel):
     """Workspace Prism linkage payload."""
 
-    latex_project_id: str
+    latex_project_id: str | None = None
+    prism_project_id: str | None = None
     url: str
     sync_status: str
+
+
+class WorkspacePrismFileResponse(BaseModel):
+    """Prism file metadata shown in the file workspace."""
+
+    id: str
+    workspace_id: str
+    document_id: str
+    path: str
+    file_role: str
+    mime_type: str | None = None
+    current_version_id: str | None = None
+    content_hash: str | None = None
+    sort_order: int = 0
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    deleted_at: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class WorkspacePrismFileVersionResponse(BaseModel):
+    """Current Prism file version content."""
+
+    id: str
+    workspace_id: str
+    file_id: str
+    version_no: int
+    review_item_id: str | None = None
+    content_inline: str | None = None
+    content_asset_id: str | None = None
+    content_hash: str
+    created_by: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class WorkspacePrismFileContentResponse(BaseModel):
+    """Prism file plus current version."""
+
+    file: WorkspacePrismFileResponse
+    current_version: WorkspacePrismFileVersionResponse | None = None
+
+
+class WorkspacePrismFileUpsertRequest(BaseModel):
+    """Create or replace a workspace Prism file path."""
+
+    path: str = Field(min_length=1, max_length=1024)
+    content_inline: str = ""
+    file_role: str = Field(default="manual", max_length=50)
+    mime_type: str | None = Field(default=None, max_length=100)
+
+
+class WorkspacePrismFileSaveRequest(BaseModel):
+    """Autosave text content for an existing Prism file."""
+
+    content_inline: str
+    expected_current_hash: str | None = Field(default=None, max_length=128)
+
+
+class WorkspacePrismFileWriteResponse(BaseModel):
+    """Prism file write result."""
+
+    file: WorkspacePrismFileResponse
+    version: WorkspacePrismFileVersionResponse | None = None
+    changed: bool = False
+    skipped_reason: str | None = None
 
 
 class WorkspacePrismSurfaceResponse(BaseModel):
@@ -199,7 +266,10 @@ class WorkspacePrismSurfaceResponse(BaseModel):
     )
 
     workspace_id: str
-    latex_project_id: str
+    prism_project_id: str | None = None
+    prism_document_id: str | None = None
+    prism_files: list[WorkspacePrismFileResponse] = Field(default_factory=list)
+    latex_project_id: str | None = None
     surface_role: str
     url: str
     main_file: str | None = None

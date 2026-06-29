@@ -124,6 +124,19 @@ def test_lead_agent_can_call_launch_feature_tool():
     assert "params" in field_names
 
 
+def test_chat_agent_exposes_draft_intake_spec_tool():
+    """Super workflows need a durable spec card before launch."""
+    from src.agents.chat_agent.agent import get_available_tools
+
+    tools = get_available_tools()
+    by_name = {getattr(t, "name", ""): t for t in tools}
+    assert "draft_intake_spec" in by_name
+    schema = getattr(by_name["draft_intake_spec"], "args_schema", None)
+    assert schema is not None
+    field_names = set(schema.model_fields.keys()) if hasattr(schema, "model_fields") else set()
+    assert {"workspace_type", "capability_id", "markdown", "params"}.issubset(field_names)
+
+
 # ---------------------------------------------------------------------------
 # Closed-loop chain: preload middleware → prompt render → launch_feature
 # ---------------------------------------------------------------------------

@@ -177,9 +177,17 @@ def _action_href(action: Mapping[str, Any], payload: Mapping[str, Any]) -> str |
         return f"/workspaces/{workspace_id}?{suffix}" if suffix else f"/workspaces/{workspace_id}"
 
     if action_name == "open_artifact":
-        room = _artifact_room(str(action.get("artifact_kind") or "").strip())
+        artifact_kind = str(action.get("artifact_kind") or "").strip()
         title = str(action.get("title") or "").strip()
         artifact_id = str(action.get("artifact_id") or "").strip()
+        file_id = str(action.get("file_id") or artifact_id).strip()
+        if artifact_kind == "document":
+            query: list[tuple[str, str]] = []
+            if file_id:
+                query.append(("file_id", file_id))
+            suffix = urlencode(query, doseq=True)
+            return f"/workspaces/{workspace_id}/prism?{suffix}" if suffix else f"/workspaces/{workspace_id}/prism"
+        room = _artifact_room(artifact_kind)
         if not room:
             return None
         query: list[tuple[str, str]] = [("room", room)]
@@ -193,8 +201,6 @@ def _action_href(action: Mapping[str, Any], payload: Mapping[str, Any]) -> str |
 
 
 def _artifact_room(artifact_kind: str) -> str | None:
-    if artifact_kind == "document":
-        return "documents"
     if artifact_kind == "library_item":
         return "library"
     return None

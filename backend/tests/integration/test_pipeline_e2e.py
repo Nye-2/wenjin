@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.agents.chat_agent.agent import build_pipeline
-from src.config.config_loader import MemoryConfig, MiddlewaresConfig, SummarizationConfig
+from src.config.config_loader import MiddlewaresConfig, SummarizationConfig
 
 
 def _mock_app_config(summarization_enabled: bool = False):
@@ -46,31 +46,31 @@ class TestPipelineE2E:
 
     @pytest.mark.asyncio
     async def test_memory_integrates(self):
-        """Memory system should format canonical persisted knowledge without file storage."""
+        """Memory system should format workspace-bound hidden memory."""
         from unittest.mock import AsyncMock
 
-        from src.services.user_memory_service import build_memory_context
+        from src.dataservice.domains.workspace_memory.contracts import WorkspaceMemoryDocumentProjection
+        from src.services.workspace_memory_service import build_workspace_memory_context
 
-        config = MemoryConfig(enabled=True, injection_enabled=True, max_injection_tokens=128)
-        with patch(
-            "src.services.user_memory_service._load_memory_config",
-            return_value=config,
-        ), patch(
-            "src.services.user_memory_service.load_user_memory",
-            AsyncMock(
-                return_value=[
-                    {
-                        "category": "context",
-                        "content": "正在撰写 LLM 综述",
-                        "confidence": 0.9,
-                        "workspace_context": "ws-1",
-                    }
-                ]
-            ),
-        ):
-            memory = await build_memory_context("user-1", "ws-1")
+        dataservice = AsyncMock()
+        dataservice.get_workspace_memory_document = AsyncMock(
+            return_value=WorkspaceMemoryDocumentProjection(
+                id="memory-doc-1",
+                workspace_id="ws-1",
+                content_markdown="## 上下文\n- 正在撰写 LLM 综述",
+                content_hash="hash",
+                revision=1,
+                updated_by="test",
+            )
+        )
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=dataservice)
+        context.__aexit__ = AsyncMock(return_value=None)
 
-        assert "<academic_memory>" in memory
+        with patch("src.services.workspace_memory_service.dataservice_client", return_value=context):
+            memory = await build_workspace_memory_context("ws-1")
+
+        assert "<workspace_memory>" in memory
         assert "正在撰写 LLM 综述" in memory
 
     def test_reflection_resolves_module(self):

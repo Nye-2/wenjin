@@ -223,6 +223,7 @@ async def test_launch_feature_creates_execution_and_dispatches():
                     "workspace_id": "ws-1",
                     "thread_id": "th-1",
                     "user_id": "user-1",
+                    "model_name": "gpt-5.3-codex-spark",
                 }
             },
         )
@@ -236,6 +237,7 @@ async def test_launch_feature_creates_execution_and_dispatches():
     assert create_kwargs["thread_id"] == "th-1"
     assert create_kwargs["display_name"] == "Idea To Thesis Manuscript"
     assert create_kwargs["commit"] is False
+    assert create_kwargs["params"]["brief"]["brief"]["model_id"] == "gpt-5.3-codex-spark"
     fake_celery_app.send_task.assert_called_once_with(
         "src.task.tasks.execute_execution",
         args=["exec-1"],

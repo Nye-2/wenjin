@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
+from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -30,6 +31,7 @@ from src.application.results import (
     ThreadTurnAttachment,
     ThreadTurnRequest,
 )
+from src.agents.contracts.intake_spec import IntakeSpecV1
 from src.config import get_model_config
 from src.config.config_loader import get_app_config
 from src.config.llm_config import LLMSettings
@@ -37,7 +39,6 @@ from src.models import model_supports_vision, route_chat_model
 from src.models.router import InvalidRequestedModelError
 from src.services import ThreadAccessError, ThreadService
 from src.services.credit_service import CreditService
-from src.services.memory_capture_service import get_memory_capture_service
 from src.services.thread_billing import (
     extract_usage_from_agent_result,
     normalize_token_usage,
@@ -55,7 +56,6 @@ if TYPE_CHECKING:
 
 _THREAD_VIRTUAL_ROOT = "/mnt/user-data/"
 _THREAD_UPLOADS_VIRTUAL_ROOT = "/mnt/user-data/uploads/"
-_MEMORY_CAPTURE_MAX_MESSAGE_CHARS = 2200
 _MAX_VIEWED_IMAGE_BYTES = 5 * 1024 * 1024
 _EXECUTION_ID_RECEIPT_RE = re.compile(
     r"(?:执行\s*ID|execution[\s_-]*id)\s*[:：]?\s*"
@@ -65,6 +65,29 @@ _EXECUTION_ID_RECEIPT_RE = re.compile(
 _LAUNCH_RECEIPT_RE = re.compile(
     r"(?:已(?:经)?(?:为你)?启动|已发起|开始执行|正在执行|launched|started)",
     re.IGNORECASE,
+)
+_INTAKE_GATED_FEATURE_IDS = {
+    "software_copyright_application_pack",
+    "math_modeling_paper_pack",
+}
+_INTAKE_WORKSPACE_BY_FEATURE_ID = {
+    "software_copyright_application_pack": "software_copyright",
+    "math_modeling_paper_pack": "math_modeling",
+}
+_INTAKE_FEATURE_BY_WORKSPACE_TYPE = {
+    value: key for key, value in _INTAKE_WORKSPACE_BY_FEATURE_ID.items()
+}
+_INTAKE_TRIGGER_TERMS = (
+    "spec",
+    "澄清",
+    "软著申请材料包",
+    "软著申报",
+    "数学建模论文包",
+    "数学建模",
+    "开始写",
+    "开始做",
+    "按这个",
+    "执行",
 )
 
 
@@ -118,6 +141,10 @@ def _extract_launch_feature_id_from_metadata(
 ) -> str | None:
     if not isinstance(metadata, Mapping):
         return None
+    intake_spec_launch = metadata.get("intake_spec_launch")
+    has_intake_spec_approval = isinstance(intake_spec_launch, Mapping) and bool(
+        str(intake_spec_launch.get("spec_id") or "").strip()
+    )
     for bucket_name, key_name in (
         ("orchestration", "feature_id"),
         ("entry_seed", "feature_id"),
@@ -126,10 +153,429 @@ def _extract_launch_feature_id_from_metadata(
         bucket = metadata.get(bucket_name)
         if not isinstance(bucket, Mapping):
             continue
+        if bucket_name == "workbench_launch":
+            mode = str(bucket.get("mode") or "").strip().lower()
+            if mode == "intake":
+                continue
         feature_id = str(bucket.get(key_name) or "").strip()
         if feature_id:
+            if (
+                feature_id in _INTAKE_GATED_FEATURE_IDS
+                and not has_intake_spec_approval
+            ):
+                continue
             return feature_id
     return None
+
+
+def _extract_intake_feature_id_from_metadata(
+    metadata: Mapping[str, Any] | None,
+) -> str | None:
+    if not isinstance(metadata, Mapping):
+        return None
+    for bucket_name, key_name in (
+        ("workbench_launch", "capability_id"),
+        ("orchestration", "feature_id"),
+        ("entry_seed", "feature_id"),
+    ):
+        bucket = metadata.get(bucket_name)
+        if not isinstance(bucket, Mapping):
+            continue
+        feature_id = str(bucket.get(key_name) or "").strip()
+        if feature_id in _INTAKE_GATED_FEATURE_IDS:
+            return feature_id
+    return None
+
+
+def _workspace_type_for_intake(
+    *,
+    thread: Any,
+    feature_id: str | None,
+) -> str | None:
+    if feature_id in _INTAKE_WORKSPACE_BY_FEATURE_ID:
+        return _INTAKE_WORKSPACE_BY_FEATURE_ID[feature_id]
+    workspace_type = str(getattr(thread, "workspace_type", "") or "").strip()
+    if workspace_type in _INTAKE_FEATURE_BY_WORKSPACE_TYPE:
+        return workspace_type
+    return None
+
+
+def _recent_user_text(
+    *,
+    request: ThreadTurnRequest,
+    conversation_messages: list[dict[str, Any]] | None,
+    limit: int = 8,
+) -> str:
+    texts: list[str] = []
+    for message in list(conversation_messages or [])[-limit:]:
+        if not isinstance(message, Mapping):
+            continue
+        if str(message.get("role") or "").strip() != "user":
+            continue
+        content = str(message.get("content") or "").strip()
+        if content:
+            texts.append(content)
+    if request.message.strip() and request.message.strip() not in texts:
+        texts.append(request.message.strip())
+    return "\n".join(texts[-limit:]).strip()
+
+
+def _looks_like_intake_turn(
+    *,
+    request: ThreadTurnRequest,
+    thread: Any,
+    conversation_messages: list[dict[str, Any]] | None,
+) -> tuple[str, str] | None:
+    feature_id = _extract_intake_feature_id_from_metadata(request.metadata)
+    workspace_type = _workspace_type_for_intake(thread=thread, feature_id=feature_id)
+    if workspace_type is None:
+        return None
+    feature_id = feature_id or _INTAKE_FEATURE_BY_WORKSPACE_TYPE.get(workspace_type)
+    if not feature_id:
+        return None
+
+    if _extract_intake_feature_id_from_metadata(request.metadata):
+        return workspace_type, feature_id
+
+    text = _recent_user_text(request=request, conversation_messages=conversation_messages)
+    normalized = text.lower()
+    if any(term.lower() in normalized for term in _INTAKE_TRIGGER_TERMS):
+        return workspace_type, feature_id
+    return None
+
+
+def _first_regex_group(pattern: str, text: str) -> str | None:
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    value = str(match.group(1) or "").strip()
+    return value.strip(" ：:，,。.;；") or None
+
+
+def _last_regex_group(pattern: str, text: str) -> str | None:
+    matches = list(re.finditer(pattern, text, flags=re.IGNORECASE))
+    if not matches:
+        return None
+    value = str(matches[-1].group(1) or "").strip()
+    return value.strip(" ：:，,。.;；") or None
+
+
+def _split_feature_points(value: str | None) -> list[str]:
+    if not value:
+        return []
+    normalized = re.sub(r"[。.\n].*$", "", value).strip()
+    parts = re.split(r"[、,，;；]|以及|和", normalized)
+    return [part.strip() for part in parts if part.strip()][:12]
+
+
+def _software_intake_params(text: str) -> tuple[dict[str, Any], list[str], list[str]]:
+    quoted_name = _last_regex_group(r"《([^》]+)》", text)
+    software_name = (
+        _last_regex_group(r"软件(?:名称|全称)?\s*[:：]\s*([^。\n；;]+)", text)
+        or quoted_name
+    )
+    software_name = software_name.strip() if software_name else ""
+
+    lowered = text.lower()
+    app_type = "web" if "web" in lowered else "app" if "app" in lowered else ""
+    backend_language = ""
+    for language in ("java", "python", "go", "node", "typescript", "php", "c#"):
+        if language in lowered:
+            backend_language = "Node.js" if language == "node" else language.upper() if language == "go" else language.title()
+            if language == "java":
+                backend_language = "Java"
+            if language == "python":
+                backend_language = "Python"
+            break
+
+    target_users = _last_regex_group(r"面向([^。；;\n]+)", text) or ""
+    feature_points = _split_feature_points(
+        _last_regex_group(r"(?:核心功能(?:包括|有)?|功能(?:包括|有)?)\s*[：:,，]?\s*([^。\n]+)", text)
+    )
+
+    missing_fields: list[str] = []
+    if not software_name:
+        missing_fields.append("software_name")
+    if not app_type:
+        missing_fields.append("software_type")
+    if not feature_points:
+        missing_fields.append("core_features")
+
+    assumptions: list[str] = []
+    if not backend_language:
+        backend_language = "Java"
+        assumptions.append("未明确后端语言时，软著材料按 Java 后端 mock 代码组织。")
+    if not app_type:
+        app_type = "web"
+        assumptions.append("未明确 Web/App 时，先按 Web 系统和静态前端截图组织界面证据。")
+
+    params = {
+        "software_name": software_name,
+        "software_type": app_type,
+        "backend_language": backend_language,
+        "target_users": target_users,
+        "core_features": feature_points,
+        "evidence_strategy": {
+            "backend_code": "mock_backend_code",
+            "ui_evidence": "static_frontend_screenshot",
+        },
+        "visual_strategy": {
+            "ui_screenshots": "static_frontend_screenshot",
+            "architecture_diagrams": "engineering_diagram",
+        },
+    }
+    return params, missing_fields, assumptions
+
+
+def _software_intake_markdown(
+    *,
+    title: str,
+    params: Mapping[str, Any],
+    missing_fields: list[str],
+    assumptions: list[str],
+) -> str:
+    features = params.get("core_features")
+    feature_lines = "\n".join(
+        f"- {item}" for item in features if isinstance(item, str) and item.strip()
+    ) or "- 待补充核心功能点"
+    missing = "\n".join(f"- {item}" for item in missing_fields) or "- 无"
+    assumption_lines = "\n".join(f"- {item}" for item in assumptions) or "- 无"
+    return "\n".join(
+        [
+            f"# {title}",
+            "",
+            "## 目标",
+            f"- 生成软件著作权申报材料包，软件名称：{params.get('software_name') or '待补充'}。",
+            "- 交付申请表填报素材、软件说明、功能模块说明、用户手册/说明书摘要、材料清单和证据整理建议。",
+            "",
+            "## 技术与证据口径",
+            f"- 系统类型：{params.get('software_type') or '待补充'}",
+            f"- 后端代码：{params.get('backend_language') or '待补充'} mock 后端代码",
+            "- 应用页面证据：静态前端页面构建与截图，不使用 AI 生成 UI 图作为申报证据。",
+            "",
+            "## 核心功能",
+            feature_lines,
+            "",
+            "## 缺失信息",
+            missing,
+            "",
+            "## 暂定假设",
+            assumption_lines,
+        ]
+    )
+
+
+def _math_intake_params(text: str, attachments: tuple[ThreadTurnAttachment, ...]) -> tuple[dict[str, Any], list[str], list[str]]:
+    problem_statement = (
+        _first_regex_group(r"(?:赛题|题目|题面|problem)\s*[:：]\s*([\s\S]+)", text)
+        or text.strip()
+    )
+    if len(problem_statement) < 30 and not attachments:
+        problem_statement = ""
+
+    missing_fields: list[str] = []
+    if not problem_statement:
+        missing_fields.append("problem_statement")
+
+    assumptions = [
+        "数模编程统一使用 Python，不再询问编程语言。",
+        "论文格式按高教社杯全国大学生数学建模竞赛常见 LaTeX 规范组织。",
+    ]
+    params = {
+        "problem_statement": problem_statement,
+        "programming_language": "python",
+        "competition_standard": "高教社杯全国大学生数学建模竞赛",
+        "has_data_attachments": bool(attachments),
+        "deliverables": [
+            "建模思路",
+            "Python 求解脚本",
+            "论文图表",
+            "LaTeX 论文初稿",
+            "格式检查清单",
+        ],
+        "figure_style": {
+            "palette": "academic_blue_orange",
+            "output_format": "pdf_png",
+        },
+    }
+    return params, missing_fields, assumptions
+
+
+def _math_intake_markdown(
+    *,
+    title: str,
+    params: Mapping[str, Any],
+    missing_fields: list[str],
+    assumptions: list[str],
+) -> str:
+    missing = "\n".join(f"- {item}" for item in missing_fields) or "- 无"
+    assumption_lines = "\n".join(f"- {item}" for item in assumptions) or "- 无"
+    problem = str(params.get("problem_statement") or "待补充赛题题面").strip()
+    return "\n".join(
+        [
+            f"# {title}",
+            "",
+            "## 目标",
+            "- 输入赛题后生成建模方案、Python 求解脚本、图表、LaTeX 论文初稿和格式检查包。",
+            "",
+            "## 赛题摘要",
+            problem[:1800],
+            "",
+            "## 执行约束",
+            "- 编程语言：Python",
+            "- 格式规范：高教社杯全国大学生数学建模竞赛常见论文规范",
+            "- 图表风格：学术蓝橙配色，输出 PDF/PNG 级别图件",
+            "",
+            "## 缺失信息",
+            missing,
+            "",
+            "## 暂定假设",
+            assumption_lines,
+        ]
+    )
+
+
+def _build_intake_spec_fallback(
+    *,
+    request: ThreadTurnRequest,
+    thread: Any,
+    conversation_messages: list[dict[str, Any]] | None,
+) -> IntakeSpecV1 | None:
+    intake = _looks_like_intake_turn(
+        request=request,
+        thread=thread,
+        conversation_messages=conversation_messages,
+    )
+    if intake is None:
+        return None
+    workspace_type, feature_id = intake
+    text = _recent_user_text(request=request, conversation_messages=conversation_messages)
+    workspace_id = (
+        str(getattr(thread, "workspace_id", "") or "").strip()
+        or str(request.workspace_id or "").strip()
+    )
+    if not workspace_id:
+        return None
+
+    if workspace_type == "software_copyright":
+        params, missing_fields, assumptions = _software_intake_params(text)
+        software_name = str(params.get("software_name") or "").strip()
+        title = f"{software_name or '软件著作权'}申报材料包 Spec"
+        markdown = _software_intake_markdown(
+            title=title,
+            params=params,
+            missing_fields=missing_fields,
+            assumptions=assumptions,
+        )
+    else:
+        params, missing_fields, assumptions = _math_intake_params(text, request.attachments)
+        title = "数学建模论文包执行 Spec"
+        markdown = _math_intake_markdown(
+            title=title,
+            params=params,
+            missing_fields=missing_fields,
+            assumptions=assumptions,
+        )
+
+    status = "ready" if not missing_fields else "draft"
+    try:
+        return IntakeSpecV1(
+            spec_id=f"intake-{uuid4().hex}",
+            revision=1,
+            workspace_id=workspace_id,
+            workspace_type=cast(Any, workspace_type),
+            capability_id=cast(Any, feature_id),
+            title=title,
+            status=cast(Any, status),
+            markdown=markdown,
+            params=params,
+            missing_fields=missing_fields,
+            assumptions=assumptions,
+        )
+    except Exception:
+        logger.debug("Failed to build deterministic intake spec fallback", exc_info=True)
+        return None
+
+
+def _intake_spec_tool_result_block(spec: IntakeSpecV1) -> dict[str, Any]:
+    return {
+        "kind": "tool_result",
+        "tool": "draft_intake_spec",
+        "status": spec.status,
+        "tool_call_id": f"intake_fallback_{uuid4().hex}",
+        "output": {
+            "status": spec.status,
+            "intake_spec": spec.model_dump(mode="json"),
+            "fallback": True,
+        },
+    }
+
+
+def _reply_has_intake_spec(reply: GeneratedThreadReply) -> bool:
+    for block in reply.blocks if isinstance(reply.blocks, list) else []:
+        if not isinstance(block, Mapping):
+            continue
+        payload = block.get("output")
+        payload = payload if isinstance(payload, Mapping) else block
+        intake_spec = payload.get("intake_spec") if isinstance(payload, Mapping) else None
+        if isinstance(intake_spec, Mapping) and intake_spec.get("schema_version") == "wenjin.intake_spec.v1":
+            return True
+    return False
+
+
+def _maybe_attach_intake_spec_fallback(
+    reply: GeneratedThreadReply,
+    *,
+    request: ThreadTurnRequest,
+    thread: Any,
+    conversation_messages: list[dict[str, Any]] | None,
+) -> GeneratedThreadReply:
+    if _reply_has_intake_spec(reply):
+        return reply
+    spec = _build_intake_spec_fallback(
+        request=request,
+        thread=thread,
+        conversation_messages=conversation_messages,
+    )
+    if spec is None:
+        return reply
+
+    reply.blocks = [*list(reply.blocks or []), _intake_spec_tool_result_block(spec)]
+    reply.metadata = dict(reply.metadata or {})
+    reply.metadata["intake_spec_fallback"] = {
+        "spec_id": spec.spec_id,
+        "status": spec.status,
+    }
+    if not reply.content.strip():
+        reply.content = (
+            f"已整理好「{spec.title}」。请先查看澄清 Spec，确认后再开始执行。"
+        )
+    return reply
+
+
+def _build_intake_spec_fallback_reply(
+    *,
+    request: ThreadTurnRequest,
+    thread: Any,
+    conversation_messages: list[dict[str, Any]] | None,
+) -> GeneratedThreadReply | None:
+    spec = _build_intake_spec_fallback(
+        request=request,
+        thread=thread,
+        conversation_messages=conversation_messages,
+    )
+    if spec is None:
+        return None
+    return GeneratedThreadReply(
+        content=f"已整理好「{spec.title}」。请先查看澄清 Spec，确认后再开始执行。",
+        blocks=[_intake_spec_tool_result_block(spec)],
+        metadata={
+            "intake_spec_fallback": {
+                "spec_id": spec.spec_id,
+                "status": spec.status,
+            }
+        },
+    )
 
 
 def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
@@ -910,28 +1356,6 @@ def _normalize_reply_orchestration_metadata(
     return reply
 
 
-def _build_incremental_memory_capture_messages(
-    *,
-    user_message: str,
-    assistant_message: Mapping[str, Any],
-) -> list[dict[str, str]]:
-    """Build a compact per-turn capture payload for long-term memory extraction."""
-    capture_messages: list[dict[str, str]] = []
-
-    normalized_user = _truncate_text(str(user_message or "").strip(), _MEMORY_CAPTURE_MAX_MESSAGE_CHARS)
-    if normalized_user:
-        capture_messages.append({"role": "user", "content": normalized_user})
-
-    assistant_text = _truncate_text(
-        _stringify_persisted_message_content(assistant_message).strip(),
-        _MEMORY_CAPTURE_MAX_MESSAGE_CHARS,
-    )
-    if assistant_text:
-        capture_messages.append({"role": "assistant", "content": assistant_text})
-
-    return capture_messages
-
-
 def _build_recursion_guard_reply(
     *,
     request: ThreadTurnRequest,
@@ -1643,18 +2067,6 @@ class ThreadTurnHandler:
             blocks=reply.blocks,
             metadata=reply.metadata,
         )
-        capture_messages = _build_incremental_memory_capture_messages(
-            user_message=user_message,
-            assistant_message=assistant_message,
-        )
-        if capture_messages:
-            await get_memory_capture_service().capture_messages(
-                thread_id=thread.id,
-                user_id=actor_id,
-                workspace_id=thread.workspace_id,
-                messages=capture_messages,
-                source="thread.handler",
-            )
         await self.thread_service.set_title_if_empty(thread, user_message)
         await publish_thread_updated(thread)
         await set_thread_status(
@@ -1979,11 +2391,26 @@ def stream_thread_response(
                     request_metadata=request.metadata,
                     execution_id=execution_id,
                 )
+                reply = _maybe_attach_intake_spec_fallback(
+                    reply,
+                    request=request,
+                    thread=thread,
+                    conversation_messages=conversation_messages,
+                )
                 reasoning_text = _reply_reasoning_text(reply)
                 if reasoning_text:
                     yield ThreadStreamDelta(kind="reasoning", text=reasoning_text)
                 if reply.content:
                     yield ThreadStreamDelta(kind="content", text=reply.content)
+                for block in reply.blocks:
+                    if not isinstance(block, Mapping) or block.get("kind") != "tool_result":
+                        continue
+                    data = {
+                        str(key): value
+                        for key, value in block.items()
+                        if key != "kind"
+                    }
+                    yield ThreadStreamDelta(kind="tool_result", data=data)
                 if not reply_future.done():
                     reply_future.set_result(reply)
                 return
@@ -1993,6 +2420,7 @@ def stream_thread_response(
                 config=runtime.config,
                 stream_mode=["messages", "values"],
             )
+            emitted_tool_result = False
             async with asyncio.timeout(LLMSettings.AGENT_TIMEOUT):
                 async for mode, payload in stream_run:
                     if mode != "messages":
@@ -2001,6 +2429,8 @@ def stream_thread_response(
                     for delta in _stream_deltas_from_chunk(chunk, metadata):
                         if delta.kind in {"tool_invocation", "tool_result"}:
                             emitted_any_delta = True
+                            if delta.kind == "tool_result":
+                                emitted_tool_result = True
                             yield delta
                             continue
                         if delta.kind == "reasoning":
@@ -2029,9 +2459,22 @@ def stream_thread_response(
                         "Agent recursion guard triggered for thread %s (stream result)",
                         thread.id,
                     )
-                    reply = _build_recursion_guard_reply(request=request)
+                    reply = _build_intake_spec_fallback_reply(
+                        request=request,
+                        thread=thread,
+                        conversation_messages=conversation_messages,
+                    ) or _build_recursion_guard_reply(request=request)
                     if reply.content:
                         yield ThreadStreamDelta(kind="content", text=reply.content)
+                    for block in reply.blocks:
+                        if not isinstance(block, Mapping) or block.get("kind") != "tool_result":
+                            continue
+                        data = {
+                            str(key): value
+                            for key, value in block.items()
+                            if key != "kind"
+                        }
+                        yield ThreadStreamDelta(kind="tool_result", data=data)
                     if not reply_future.done():
                         reply_future.set_result(reply)
                     return
@@ -2047,12 +2490,33 @@ def stream_thread_response(
                 request_metadata=request.metadata,
                 execution_id=execution_id,
             )
+            reply = _maybe_attach_intake_spec_fallback(
+                reply,
+                request=request,
+                thread=thread,
+                conversation_messages=conversation_messages,
+            )
+            emitted_reply_tool_result = False
+            if not emitted_tool_result:
+                for block in reply.blocks:
+                    if not isinstance(block, Mapping) or block.get("kind") != "tool_result":
+                        continue
+                    data = {
+                        str(key): value
+                        for key, value in block.items()
+                        if key != "kind"
+                    }
+                    yield ThreadStreamDelta(kind="tool_result", data=data)
+                    emitted_tool_result = True
+                    emitted_reply_tool_result = True
             if not emitted_any_delta:
                 for block in reply.blocks:
                     if not isinstance(block, Mapping):
                         continue
                     kind = block.get("kind")
                     if kind in {"tool_invocation", "tool_result"}:
+                        if kind == "tool_result" and emitted_reply_tool_result:
+                            continue
                         data = {
                             str(key): value
                             for key, value in block.items()
@@ -2064,6 +2528,29 @@ def stream_thread_response(
                     yield ThreadStreamDelta(kind="reasoning", text=reasoning_text)
                 if reply.content:
                     yield ThreadStreamDelta(kind="content", text=reply.content)
+            if not reply_future.done():
+                reply_future.set_result(reply)
+        except GraphRecursionError:
+            logger.warning(
+                "Agent recursion guard triggered for thread %s (streaming)",
+                thread.id,
+            )
+            reply = _build_intake_spec_fallback_reply(
+                request=request,
+                thread=thread,
+                conversation_messages=conversation_messages,
+            ) or _build_recursion_guard_reply(request=request)
+            if reply.content:
+                yield ThreadStreamDelta(kind="content", text=reply.content)
+            for block in reply.blocks:
+                if not isinstance(block, Mapping) or block.get("kind") != "tool_result":
+                    continue
+                data = {
+                    str(key): value
+                    for key, value in block.items()
+                    if key != "kind"
+                }
+                yield ThreadStreamDelta(kind="tool_result", data=data)
             if not reply_future.done():
                 reply_future.set_result(reply)
         except TimeoutError:

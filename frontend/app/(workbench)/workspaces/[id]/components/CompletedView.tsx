@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveExecutionNextActionPresentation } from "@/lib/block-actions";
 import {
   buildCommittedRoomLinks,
@@ -9,14 +9,17 @@ import {
   commitStateFromCommitResponse,
   commitStateRoomTargets,
   isExecutionDiscarded,
+  isExecutionReverted,
   readCommitStateFromResult,
   type ExecutionCommitState,
+  undoExecutionCommit,
 } from "@/lib/execution-commit";
 import {
   recoverableOutputRefCount,
   runtimeStatusLabel,
   safeRuntimeText,
 } from "@/lib/runtime-payload-safety";
+import { filterVisibleWorkspaceResultItems } from "@/lib/workspace-result-kind";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import {
   PrismReviewList,
@@ -24,7 +27,6 @@ import {
 } from "@/components/prism/PrismReviewList";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import { useExecutionStore } from "@/stores/execution-store";
-import { CommitActionBar } from "./result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
 import { ResultPreviewList } from "./result-preview/ResultPreviewList";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
@@ -76,9 +78,13 @@ export function CompletedView({
     () => outputsWithSafeDefaults(taskReport?.outputs, allowAcceptAll),
     [allowAcceptAll, taskReport?.outputs],
   );
-  const previews = useMemo(
+  const rawPreviews = useMemo(
     () => buildWorkspaceResultPreviewsFromOutputs(taskOutputs),
     [taskOutputs],
+  );
+  const previews = useMemo(
+    () => filterVisibleWorkspaceResultItems(rawPreviews),
+    [rawPreviews],
   );
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   useEffect(() => {
@@ -96,14 +102,16 @@ export function CompletedView({
     previews.find((preview) => preview.id === selectedPreviewId) ??
     previews[0] ??
     null;
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [localCommitState, setLocalCommitState] =
     useState<ExecutionCommitState | null>(null);
   const [committing, setCommitting] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const effectiveCommitState = durableCommitState ?? localCommitState;
+  const autoCommitAttemptedRef = useRef<Set<string>>(new Set());
+  const effectiveCommitState = localCommitState ?? durableCommitState;
   const commitFinal = Boolean(effectiveCommitState);
   const discarded = isExecutionDiscarded(effectiveCommitState);
+  const reverted = isExecutionReverted(effectiveCommitState);
   const commitLinks = useMemo(
     () =>
       buildCommittedRoomLinks({
@@ -114,17 +122,9 @@ export function CompletedView({
     [effectiveCommitState, previews, workspaceId],
   );
   useEffect(() => {
-    setCheckedIds(
-      new Set(
-        previews
-          .filter((preview) => preview.defaultChecked)
-          .map((preview) => preview.id),
-      ),
-    );
-  }, [previews]);
-  useEffect(() => {
     setLocalCommitState(null);
     setCommitting(false);
+    setReverting(false);
     setCommitError(null);
   }, [executionId]);
   const taskErrors = taskReport?.errors;
@@ -153,7 +153,7 @@ export function CompletedView({
   });
 
   async function commit(body: Record<string, unknown>) {
-    if (!executionId || commitFinal || committing) {
+    if (!executionId || commitFinal || committing || reverting) {
       return;
     }
     setCommitError(null);
@@ -192,6 +192,67 @@ export function CompletedView({
     }
   }
 
+  useEffect(() => {
+    if (
+      !executionId ||
+      !allowAcceptAll ||
+      commitFinal ||
+      committing ||
+      reverting ||
+      previews.length === 0
+    ) {
+      return;
+    }
+    const attempted = autoCommitAttemptedRef.current;
+    if (attempted.has(executionId)) {
+      return;
+    }
+    attempted.add(executionId);
+    void commit({ accept_all: true });
+  }, [allowAcceptAll, commitFinal, committing, executionId, previews.length, reverting]);
+
+  async function undoCommit() {
+    if (
+      !executionId ||
+      committing ||
+      reverting ||
+      !effectiveCommitState ||
+      effectiveCommitState.status !== "committed"
+    ) {
+      return;
+    }
+    setCommitError(null);
+    setReverting(true);
+    try {
+      const response = await undoExecutionCommit({ executionId });
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setLocalCommitState(null);
+        setCommitError(COMMIT_STATE_SYNC_ERROR);
+        return;
+      }
+      setLocalCommitState(nextCommitState);
+      const currentRecord = useExecutionStore.getState().executions.get(executionId);
+      if (currentRecord) {
+        upsertExecution({
+          ...currentRecord,
+          result: {
+            ...(currentRecord.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
+    } catch (error) {
+      setCommitError(
+        error instanceof Error && !error.message.startsWith("Failed")
+          ? error.message
+          : "撤回保存失败，请稍后重试",
+      );
+    } finally {
+      setReverting(false);
+    }
+  }
+
   return (
     <div
       style={{
@@ -224,22 +285,7 @@ export function CompletedView({
             previews={previews}
             selectedId={selectedPreview?.id ?? null}
             onSelect={setSelectedPreviewId}
-            checkedIds={executionId ? checkedIds : undefined}
-            onToggleChecked={
-              executionId
-                ? (id) =>
-                    setCheckedIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(id)) {
-                        next.delete(id);
-                      } else {
-                        next.add(id);
-                      }
-                      return next;
-                    })
-                : undefined
-            }
-            disabled={commitFinal}
+            disabled={commitFinal || allowAcceptAll}
           />
           <ResultPreviewDetail
             preview={selectedPreview}
@@ -258,36 +304,52 @@ export function CompletedView({
                           marginBottom: 8,
                         }}
                       >
-                        保存到工作区
+                        工作区写入
                       </div>
                       {!allowAcceptAll ? (
                         <div style={styles.partialNotice}>
-                          本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。
+                          本次运行未完整完成，候选结果只作为证据预览；需要继续处理时，请在左侧补充指令。
                         </div>
                       ) : null}
-                      <CommitActionBar
-                        committed={commitFinal}
-                        committing={committing}
-                        allowAcceptAll={allowAcceptAll}
-                        selectedCount={checkedIds.size}
-                        onAcceptAll={() =>
-                          commit(
-                            allowAcceptAll
-                              ? { accept_all: true }
-                              : { accepted_ids: Array.from(checkedIds) },
-                          )
-                        }
-                        onAcceptSelected={() =>
-                          commit({ accepted_ids: Array.from(checkedIds) })
-                        }
-                        onDiscard={() => commit({ accepted_ids: [] })}
-                        acceptAllLabel="保存到工作区"
-                        acceptSelectedLabel="仅保存勾选项"
-                        discardLabel="暂不保存"
-                        committedLabel={
-                          discarded ? "已暂不保存" : "已保存到工作区"
-                        }
-                      />
+                      {allowAcceptAll ? (
+                        <div style={styles.autoCommitStatus}>
+                          <span style={styles.autoCommitLabel}>
+                            {reverting
+                              ? "正在撤回本次保存..."
+                              : reverted
+                                ? "已撤回本次保存"
+                                : discarded
+                                  ? "已暂不保存"
+                                  : commitFinal
+                                    ? "已写入工作区"
+                                    : committing
+                                      ? "正在自动写入工作区..."
+                                      : commitError
+                                        ? "自动写入失败"
+                                        : "等待自动写入"}
+                          </span>
+                          {effectiveCommitState?.status === "committed" ? (
+                            <button
+                              type="button"
+                              onClick={undoCommit}
+                              disabled={reverting}
+                              style={styles.inlineGhostButton}
+                            >
+                              {reverting ? "撤回中..." : "撤回本次保存"}
+                            </button>
+                          ) : null}
+                          {!commitFinal && commitError ? (
+                            <button
+                              type="button"
+                              onClick={() => commit({ accept_all: true })}
+                              disabled={committing}
+                              style={styles.inlineGhostButton}
+                            >
+                              重试写入
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {commitError ? (
                         <div style={styles.commitError}>{commitError}</div>
                       ) : null}
@@ -571,7 +633,7 @@ function buildCompletedResultStatusLines({
   );
   return [
     `状态：${runtimeStatusLabel(taskStatus)}`,
-    outputCount > 0 ? `候选产物：${outputCount} 项` : null,
+    outputCount > 0 ? `候选结果：${outputCount} 项` : null,
     refCount > 0 ? `可恢复引用：${refCount} 个` : null,
     errorCount > 0 ? `需处理事项：${errorCount} 项` : null,
   ].filter((line): line is string => Boolean(line));
@@ -695,6 +757,29 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11.5,
     lineHeight: 1.45,
     marginBottom: 10,
+  },
+  autoCommitStatus: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    minHeight: 30,
+  },
+  autoCommitLabel: {
+    color: "var(--wjn-success)",
+    fontSize: 12,
+    fontWeight: 650,
+  },
+  inlineGhostButton: {
+    height: 28,
+    padding: "0 9px",
+    borderRadius: "var(--wjn-radius-pill)",
+    border: "1px solid rgba(20,20,30,0.1)",
+    background: "rgba(255,255,255,0.72)",
+    color: "var(--wjn-text-secondary)",
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: "pointer",
   },
   reviewActionLink: {
     display: "inline-flex",

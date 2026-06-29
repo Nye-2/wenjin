@@ -11,9 +11,12 @@ from pydantic import ValidationError
 
 from src.database.base import Base
 from src.dataservice.domains.prism.contracts import (
+    PrismFileContentUpdateCommand,
+    PrismFileRestoreCommand,
     PrismFileVersionCreateCommand,
     PrismPrimaryProjectCommand,
     PrismProtectedScopeUpsertCommand,
+    PrismWorkspaceFileUpsertCommand,
 )
 from src.dataservice.domains.prism.models import (
     PrismDocumentRecord,
@@ -122,6 +125,38 @@ class FakePrismRepository:
     async def get_file(self, file_id: str) -> SimpleNamespace | None:
         return self.files.get(file_id)
 
+    async def get_file_for_workspace(self, *, workspace_id: str, file_id: str) -> SimpleNamespace | None:
+        record = self.files.get(file_id)
+        if record is None or record.workspace_id != workspace_id or record.deleted_at is not None:
+            return None
+        return record
+
+    async def get_file_version(self, version_id: str) -> SimpleNamespace | None:
+        return self.versions.get(version_id)
+
+    async def get_current_file_version(self, file_record: SimpleNamespace) -> SimpleNamespace | None:
+        if not file_record.current_version_id:
+            return None
+        return self.versions.get(file_record.current_version_id)
+
+    async def get_previous_file_version(
+        self,
+        *,
+        file_id: str,
+        before_version_no: int,
+    ) -> SimpleNamespace | None:
+        candidates = [
+            record
+            for record in self.versions.values()
+            if record.file_id == file_id and record.version_no < before_version_no
+        ]
+        candidates.sort(key=lambda record: record.version_no, reverse=True)
+        return candidates[0] if candidates else None
+
+    def soft_delete_file(self, file_record: SimpleNamespace) -> None:
+        file_record.deleted_at = datetime.now(UTC)
+        file_record.updated_at = datetime.now(UTC)
+
     async def get_protected_scope(
         self,
         *,
@@ -194,6 +229,17 @@ def test_file_version_requires_exactly_one_content_pointer() -> None:
         )
 
 
+def test_file_version_allows_empty_inline_content() -> None:
+    command = PrismFileVersionCreateCommand(
+        file_id="file-1",
+        content_hash="sha256:empty",
+        content_inline="",
+    )
+
+    assert command.content_inline == ""
+    assert command.content_asset_id is None
+
+
 @pytest.mark.asyncio
 async def test_ensure_primary_project_creates_project_document_and_root_file() -> None:
     service, repository, session = _service()
@@ -244,6 +290,140 @@ async def test_append_file_version_updates_current_file_pointer() -> None:
     assert repository.files[file_id].current_version_id == version.id
     assert repository.files[file_id].content_hash == "hash-1"
     assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_upsert_workspace_file_appends_initial_content_and_reads_current_version() -> None:
+    service, repository, session = _service()
+
+    write = await service.upsert_workspace_file(
+        workspace_id="ws-1",
+        command=PrismWorkspaceFileUpsertCommand(
+            path="docs/software-copyright/application.md",
+            content_inline="# Application",
+            content_hash="hash-1",
+            created_by="execution:run-1",
+        ),
+    )
+
+    assert write.changed is True
+    assert write.file.path == "docs/software-copyright/application.md"
+    assert write.version is not None
+    assert write.version.version_no == 1
+    content = await service.get_workspace_file_content(
+        workspace_id="ws-1",
+        file_id=write.file.id,
+    )
+    assert content is not None
+    assert content.current_version is not None
+    assert content.current_version.content_inline == "# Application"
+    assert repository.files[write.file.id].current_version_id == write.version.id
+    assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_append_file_content_skips_unchanged_hash() -> None:
+    service, repository, _session = _service()
+    initial = await service.upsert_workspace_file(
+        workspace_id="ws-1",
+        command=PrismWorkspaceFileUpsertCommand(
+            path="paper/main.tex",
+            content_inline="hello",
+            content_hash="hash-1",
+        ),
+    )
+
+    second = await service.append_file_content(
+        workspace_id="ws-1",
+        file_id=initial.file.id,
+        command=PrismFileContentUpdateCommand(
+            content_inline="hello",
+            content_hash="hash-1",
+            created_by="user",
+        ),
+    )
+
+    assert second.changed is False
+    assert second.skipped_reason == "unchanged"
+    assert len(repository.versions) == 1
+
+
+@pytest.mark.asyncio
+async def test_restore_file_version_requires_matching_current_hash() -> None:
+    service, _repository, _session = _service()
+    initial = await service.upsert_workspace_file(
+        workspace_id="ws-1",
+        command=PrismWorkspaceFileUpsertCommand(
+            path="paper/main.tex",
+            content_inline="old",
+            content_hash="hash-old",
+        ),
+    )
+    updated = await service.append_file_content(
+        workspace_id="ws-1",
+        file_id=initial.file.id,
+        command=PrismFileContentUpdateCommand(
+            content_inline="new",
+            content_hash="hash-new",
+            created_by="user",
+        ),
+    )
+
+    skipped = await service.restore_file_version(
+        workspace_id="ws-1",
+        file_id=initial.file.id,
+        command=PrismFileRestoreCommand(
+            version_id=initial.version.id if initial.version else "",
+            expected_current_hash="other-hash",
+        ),
+    )
+    restored = await service.restore_file_version(
+        workspace_id="ws-1",
+        file_id=initial.file.id,
+        command=PrismFileRestoreCommand(
+            version_id=initial.version.id if initial.version else "",
+            expected_current_hash=updated.file.content_hash,
+        ),
+    )
+
+    assert skipped.changed is False
+    assert skipped.skipped_reason == "hash_mismatch"
+    assert restored.changed is True
+    assert restored.file.content_hash == "hash-old"
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_workspace_file_rejects_unsafe_path_and_hash_mismatch() -> None:
+    service, repository, _session = _service()
+    with pytest.raises(ValueError):
+        await service.upsert_workspace_file(
+            workspace_id="ws-1",
+            command=PrismWorkspaceFileUpsertCommand(path="../memory/workspace.md"),
+        )
+    write = await service.upsert_workspace_file(
+        workspace_id="ws-1",
+        command=PrismWorkspaceFileUpsertCommand(
+            path="docs/math-modeling/paper-draft.md",
+            content_inline="draft",
+            content_hash="hash-1",
+        ),
+    )
+
+    skipped = await service.soft_delete_workspace_file(
+        workspace_id="ws-1",
+        file_id=write.file.id,
+        expected_current_hash="other",
+    )
+    deleted = await service.soft_delete_workspace_file(
+        workspace_id="ws-1",
+        file_id=write.file.id,
+        expected_current_hash="hash-1",
+    )
+
+    assert skipped.changed is False
+    assert skipped.skipped_reason == "hash_mismatch"
+    assert deleted.changed is True
+    assert repository.files[write.file.id].deleted_at is not None
 
 
 @pytest.mark.asyncio

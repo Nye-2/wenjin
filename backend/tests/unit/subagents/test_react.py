@@ -20,9 +20,11 @@ from src.subagents.v2.types.react import (
     ReactSubagent,
     _build_default_user_payload,
     _build_degraded_react_text,
+    _is_transient_model_error,
     _parse_output,
     _patch_dangling_tool_messages,
     _react_pre_model_hook,
+    _react_agent_timeout_seconds,
     _render_user_message,
     _resolve_tools,
     _run_react_loop,
@@ -45,11 +47,12 @@ def _make_ctx(
     invocation: dict | None = None,
     publish_event=None,
 ) -> SubagentContext:
+    safe_inputs = {"model_id": "test-model", **(inputs or {})}
     return SubagentContext(
         workspace_id="ws-test",
         execution_id="exec-test",
         prompt=prompt,
-        inputs=inputs or {},
+        inputs=safe_inputs,
         tools=tools or [],
         workspace_data=workspace_data or {},
         capability_policy=capability_policy or {},
@@ -71,6 +74,14 @@ def _make_skill(
     skill.resources = resources or []
     skill.allowed_tools = allowed_tools or []
     return skill
+
+
+@pytest.fixture(autouse=True)
+def _stable_react_model_router(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.subagents.v2.types.react.route_writing_model",
+        lambda *, requested_model=None: requested_model or "test-model",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +452,24 @@ class TestParseOutput:
 
 
 class TestDegradedOutput:
+    def test_timed_out_runtime_error_is_transient_model_error(self):
+        assert _is_transient_model_error(
+            RuntimeError("React direct model timed out after 120s")
+        )
+
+    def test_react_timeout_reads_sandbox_resource_limits(self):
+        ctx = _make_ctx(
+            capability_policy={
+                "sandbox_policy": {
+                    "resource_limits": {
+                        "react_timeout_seconds": 35,
+                    }
+                }
+            }
+        )
+
+        assert _react_agent_timeout_seconds(ctx) == 35
+
     def test_manuscript_writer_degraded_output_uses_library_citations(self):
         ctx = _make_ctx(
             inputs={
@@ -632,7 +661,7 @@ class TestMockLLM:
                 },
             },
             skill=skill,
-            tools=["library_read", "document_read"],
+            tools=["library_read", "prism_file_read"],
         )
 
         with (
@@ -678,7 +707,7 @@ class TestMockLLM:
         ctx = _make_ctx(
             inputs={"topic": "Federated LoRA"},
             skill=skill,
-            tools=["document_read", "memory_read"],
+            tools=["prism_file_read", "workspace_memory_read"],
         )
 
         with (

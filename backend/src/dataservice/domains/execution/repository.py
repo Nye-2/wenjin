@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -14,6 +15,14 @@ from src.database.models.execution import ExecutionRecord
 from src.database.models.execution_node import ExecutionNodeRecord
 from src.database.models.generation import GenerationRecord
 from src.dataservice.domains.execution.models import ExecutionEventRecord
+
+
+def _postgres_json_path_text(*path: str):
+    return ExecutionRecord.params.op("#>>")(postgresql.array(list(path)))
+
+
+def _sqlite_json_path_text(*path: str):
+    return func.json_extract(ExecutionRecord.params, "$." + ".".join(path))
 
 
 class ExecutionRepository:
@@ -182,6 +191,9 @@ class ExecutionRepository:
         capability_id: str,
         launch_idempotency_key: str,
     ) -> ExecutionRecord | None:
+        bind = self.session.get_bind()
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+        path_text = _sqlite_json_path_text if dialect_name == "sqlite" else _postgres_json_path_text
         result = await self.session.execute(
             select(ExecutionRecord)
             .where(ExecutionRecord.workspace_id == workspace_id)
@@ -191,12 +203,10 @@ class ExecutionRepository:
             .where(ExecutionRecord.execution_type == "feature")
             .where(
                 or_(
-                    ExecutionRecord.params["launch_idempotency_key"].as_string()
+                    path_text("launch_idempotency_key") == launch_idempotency_key,
+                    path_text("orchestration", "launch_idempotency_key")
                     == launch_idempotency_key,
-                    ExecutionRecord.params["orchestration"]["launch_idempotency_key"].as_string()
-                    == launch_idempotency_key,
-                    ExecutionRecord.params["billing"]["launch_idempotency_key"].as_string()
-                    == launch_idempotency_key,
+                    path_text("billing", "launch_idempotency_key") == launch_idempotency_key,
                 )
             )
             .order_by(ExecutionRecord.created_at.desc())

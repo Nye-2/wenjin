@@ -1,10 +1,9 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useOptionalI18n } from "@/components/i18n-provider";
-import { LatexEditorShell } from "@/components/latex/LatexEditorShell";
 import { WorkspaceSurfaceState } from "@/components/workspace/WorkspaceSurfaceState";
 import {
   ensureWorkspacePrismProject,
@@ -15,6 +14,7 @@ import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { PrismContextRail } from "./PrismContextRail";
+import { PrismWorkspaceShell } from "./PrismWorkspaceShell";
 import { WorkspaceChrome } from "../components/shell/WorkspaceChrome";
 import {
   WorkspaceHubDrawer,
@@ -39,6 +39,7 @@ export default function WorkspacePrismPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const i18n = useOptionalI18n();
   const t = i18n?.t;
   const [loadState, setLoadState] = useState<PrismSurfaceLoadState>({
@@ -58,6 +59,7 @@ export default function WorkspacePrismPage({
 
   const surface = loadState.workspaceId === id ? loadState.surface : null;
   const error = loadState.workspaceId === id ? loadState.error : null;
+  const initialFileId = searchParams?.get("file_id")?.trim() || null;
   const typeConfig = workspace
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
     : null;
@@ -151,18 +153,17 @@ export default function WorkspacePrismPage({
         onRoomSelect={openWorkbenchRoom}
       />
       <div className="min-h-0 flex-1 overflow-hidden">
-        {surface?.latex_project_id ? (
+        {surface ? (
           <div
             data-testid="prism-studio-shell"
             className="wjn-prism-studio flex h-full min-h-0 flex-col"
           >
             <PrismContextRail surface={surface} />
-            <LatexEditorShell
-              projectId={surface.latex_project_id}
+            <PrismWorkspaceShell
               workspaceId={id}
-              initialFileChanges={surface.file_changes ?? []}
-              initialAppliedFileChanges={surface.applied_file_changes ?? []}
-              onReviewStateChanged={refreshSurface}
+              surface={surface}
+              initialFileId={initialFileId}
+              onSurfaceChanged={refreshSurface}
             />
           </div>
         ) : error ? (
@@ -173,18 +174,6 @@ export default function WorkspacePrismPage({
               "Unable to open Prism manuscript surface"
             }
             description={error}
-          />
-        ) : surface ? (
-          <WorkspaceSurfaceState
-            tone="empty"
-            title={
-              t?.("workspaceSurfaces.prismEmptyTitle") ??
-              "还没有绑定写作项目"
-            }
-            description={
-              t?.("workspaceSurfaces.prismEmptyDescription") ??
-              "从 Workbench 启动论文写作任务后，这里会自动打开主稿。"
-            }
           />
         ) : (
           <WorkspaceSurfaceState

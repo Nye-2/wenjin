@@ -1,7 +1,7 @@
 import {
   Activity,
-  CheckCircle2,
   Database,
+  FileText,
   History,
   MoreHorizontal,
   Maximize2,
@@ -21,16 +21,16 @@ const TABS: Array<{
   primary?: boolean;
 }> = [
   { key: "overview", label: "总览", icon: Activity, primary: true },
+  { key: "spec", label: "Spec", icon: FileText },
   { key: "evidence", label: "证据", icon: Database, primary: true },
-  { key: "review", label: "待确认", icon: CheckCircle2, primary: true },
   { key: "run", label: "进展", icon: History },
 ];
 
 export function WorkbenchHeader({
   activeTab,
-  pendingReviewCount,
   evidenceCount,
   showProgressTab,
+  showSpecTab,
   hasRunHistory,
   isFullscreen,
   canInterrupt,
@@ -41,9 +41,9 @@ export function WorkbenchHeader({
   onToggleIntervention,
 }: {
   activeTab: WorkbenchTab;
-  pendingReviewCount: number;
   evidenceCount: number;
   showProgressTab: boolean;
+  showSpecTab: boolean;
   hasRunHistory: boolean;
   isFullscreen: boolean;
   canInterrupt: boolean;
@@ -53,7 +53,13 @@ export function WorkbenchHeader({
   onToggleFullscreen: () => void;
   onToggleIntervention: () => void;
 }) {
-  const visibleTabs = TABS.filter((tab) => tab.primary || showProgressTab || activeTab === tab.key);
+  const visibleTabs = TABS.filter(
+    (tab) =>
+      tab.primary ||
+      (tab.key === "run" && showProgressTab) ||
+      (tab.key === "spec" && showSpecTab) ||
+      activeTab === tab.key,
+  );
   return (
     <div style={styles.header}>
       <div style={{ minWidth: 0 }}>
@@ -63,12 +69,7 @@ export function WorkbenchHeader({
       <div style={styles.headerMiddle}>
         {visibleTabs.map((tab) => {
           const Icon = tab.icon;
-          const count =
-            tab.key === "evidence"
-              ? evidenceCount
-              : tab.key === "review"
-                ? pendingReviewCount
-                : 0;
+          const count = tab.key === "evidence" ? evidenceCount : 0;
           return (
             <button
               key={tab.key}

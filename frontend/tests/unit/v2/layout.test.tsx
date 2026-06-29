@@ -93,9 +93,9 @@ describe("V2 Workspace page", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "资料库" }));
-    fireEvent.click(screen.getByRole("button", { name: "文档成果" }));
+    fireEvent.click(screen.getByRole("button", { name: "文献资料" }));
 
-    expect(screen.getByTestId("documents-drawer")).toBeInTheDocument();
+    expect(screen.getByTestId("library-drawer")).toBeInTheDocument();
   });
 
   it("shows the running status once through the unified workspace chrome", async () => {
@@ -116,7 +116,7 @@ describe("V2 Workspace page", () => {
   });
 
   it("opens the requested room from the URL seed", async () => {
-    mockUseSearchParams.mockReturnValue(new URLSearchParams("room=documents"));
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("room=library"));
 
     await act(async () => {
       render(
@@ -126,12 +126,12 @@ describe("V2 Workspace page", () => {
       );
     });
 
-    expect(screen.getByTestId("documents-drawer")).toBeInTheDocument();
+    expect(screen.getByTestId("library-drawer")).toBeInTheDocument();
   });
 
   it("passes room route seeds down to the opened drawer", async () => {
     mockUseSearchParams.mockReturnValue(
-      new URLSearchParams("room=documents&item_id=doc-2&query=outline"),
+      new URLSearchParams("room=library&item_id=lib-2&query=outline"),
     );
 
     await act(async () => {
@@ -144,6 +144,21 @@ describe("V2 Workspace page", () => {
 
     const searchInput = screen.getByTestId("drawer-search") as HTMLInputElement;
     expect(searchInput.value).toBe("outline");
+  });
+
+  it("ignores removed documents room URL seeds", async () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("room=documents"));
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    expect(screen.queryByTestId("documents-drawer")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("library-drawer")).not.toBeInTheDocument();
   });
 
   it("hides chat completely when the workbench is fullscreen", async () => {

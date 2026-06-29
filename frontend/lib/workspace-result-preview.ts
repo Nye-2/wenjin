@@ -26,7 +26,7 @@ type PreviewKind =
   | "warning";
 
 export interface WorkspaceRoomTarget {
-  room: "documents" | "library";
+  room: "prism" | "library";
   itemId?: string | null;
   query?: string | null;
 }
@@ -290,7 +290,7 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
     const rawSummary = readString(item.summary);
     const title =
       safeRuntimeText(rawTitle) ??
-      (rawTitle ? "图表产物" : pathBasename(previewPath) ?? "图表产物");
+      (rawTitle ? "图表结果" : pathBasename(previewPath) ?? "图表结果");
     const summary = safeRuntimeText(rawSummary);
     const mimeType = readString(preview?.mime_type);
     const contentHash = firstNonNull(
@@ -336,7 +336,7 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
         },
         previewMode: "image",
         previewPath,
-        previewText: summary ?? (rawSummary ? "待确认产物" : previewPath),
+        previewText: summary ?? (rawSummary ? "待确认结果" : previewPath),
         metadata,
         metadataLines,
         defaultChecked: false,
@@ -459,7 +459,7 @@ export function buildDocumentRoomPreview(
     canCommit: false,
     canOpenRoom: false,
     roomTarget: {
-      room: "documents",
+      room: "prism",
       itemId: readString(document.id),
       query: readString(document.name),
     },
@@ -526,7 +526,7 @@ function buildDocumentPreview(options: {
     canCommit: true,
     canOpenRoom: true,
     roomTarget: {
-      room: "documents",
+      room: "prism",
       query: firstNonNull(preview, name),
     },
   };
@@ -609,7 +609,7 @@ function buildFigurePreview(options: {
     canCommit: true,
     canOpenRoom: true,
     roomTarget: {
-      room: "documents",
+      room: "prism",
       query: title,
     },
   };
@@ -733,7 +733,7 @@ function reviewPacketKindLabel(kind: PreviewKind): string {
     case "dataset":
       return "数据";
     case "artifact":
-      return "产物";
+      return "结果";
     case "prism_change":
       return "改稿";
     case "warning":
@@ -818,7 +818,7 @@ function buildReviewPacketMetadataLines(options: {
     riskLevel ? `风险 ${riskLevel}` : null,
     options.claimRefs.length ? `论断 ${options.claimRefs.length}` : null,
     options.evidenceRefs.length ? `证据 ${options.evidenceRefs.length}` : null,
-    options.artifactRefs.length ? `产物 ${options.artifactRefs.length}` : null,
+    options.artifactRefs.length ? `结果 ${options.artifactRefs.length}` : null,
     options.qualitySurfaces.length ? `质量面 ${options.qualitySurfaces.length}` : null,
   ].filter((value): value is string => Boolean(value));
 }

@@ -6,13 +6,13 @@ import { WorkspaceActionLink } from "@/app/(workbench)/workspaces/[id]/component
 describe("WorkspaceActionLink", () => {
   it("keeps workspace-internal hrefs as in-app navigation links", () => {
     render(
-      <WorkspaceActionLink href="/workspaces/ws-1?room=documents">
+      <WorkspaceActionLink href="/workspaces/ws-1/prism?file_id=file-1">
         打开文档
       </WorkspaceActionLink>,
     );
 
     const link = screen.getByRole("link", { name: "打开文档" });
-    expect(link).toHaveAttribute("href", "/workspaces/ws-1?room=documents");
+    expect(link).toHaveAttribute("href", "/workspaces/ws-1/prism?file_id=file-1");
     expect(link).not.toHaveAttribute("target");
   });
 

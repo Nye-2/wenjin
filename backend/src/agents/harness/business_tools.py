@@ -21,8 +21,8 @@ from .args_summary import summarize_tool_args
 BUSINESS_TOOL_NAMES = frozenset(
     {
         "library_read",
-        "document_read",
-        "memory_read",
+        "prism_file_read",
+        "workspace_memory_read",
         "prism_read",
         "citation_parser",
         "artifact_create",
@@ -39,12 +39,12 @@ class LibraryReadInput(BaseModel):
     limit: int = Field(default=20, ge=1, le=50)
 
 
-class DocumentReadInput(BaseModel):
+class PrismFileReadInput(BaseModel):
     query: str | None = None
     limit: int = Field(default=10, ge=1, le=30)
 
 
-class MemoryReadInput(BaseModel):
+class WorkspaceMemoryReadInput(BaseModel):
     query: str | None = None
     limit: int = Field(default=10, ge=1, le=30)
 
@@ -132,23 +132,23 @@ async def _library_read(ctx: SubagentContext, args: dict[str, Any]) -> str:
     )
 
 
-async def _document_read(ctx: SubagentContext, args: dict[str, Any]) -> str:
-    items = _extract_collection(ctx.workspace_data.get("documents"), "items")
+async def _prism_file_read(ctx: SubagentContext, args: dict[str, Any]) -> str:
+    items = _prism_file_items(ctx.workspace_data)
     matched = _filter_items(items, args.get("query"), int(args.get("limit") or _DEFAULT_LIMIT))
     return _format_business_result(
-        "document_read",
-        "Document excerpts returned.",
+        "prism_file_read",
+        "Prism file summaries returned.",
         {"items": matched, "total": len(items), "returned": len(matched)},
         truncated=len(matched) < len(_filter_items(items, args.get("query"), _MAX_LIMIT)),
     )
 
 
-async def _memory_read(ctx: SubagentContext, args: dict[str, Any]) -> str:
-    items = _extract_collection(ctx.workspace_data.get("memory"), "items")
+async def _workspace_memory_read(ctx: SubagentContext, args: dict[str, Any]) -> str:
+    items = _workspace_memory_items(ctx.workspace_data)
     matched = _filter_items(items, args.get("query"), int(args.get("limit") or _DEFAULT_LIMIT))
     return _format_business_result(
-        "memory_read",
-        "Workspace memory facts returned.",
+        "workspace_memory_read",
+        "Workspace memory summary returned.",
         {"items": matched, "total": len(items), "returned": len(matched)},
         truncated=len(matched) < len(_filter_items(items, args.get("query"), _MAX_LIMIT)),
     )
@@ -218,8 +218,12 @@ async def _artifact_create(ctx: SubagentContext, args: dict[str, Any]) -> str:
 
 BUSINESS_TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel], BusinessHandler]] = {
     "library_read": ("Read bounded Workspace Library source summaries.", LibraryReadInput, _library_read),
-    "document_read": ("Read bounded workspace document excerpts.", DocumentReadInput, _document_read),
-    "memory_read": ("Read bounded workspace memory facts.", MemoryReadInput, _memory_read),
+    "prism_file_read": ("Read bounded Prism workspace file summaries.", PrismFileReadInput, _prism_file_read),
+    "workspace_memory_read": (
+        "Read the hidden workspace memory document summary.",
+        WorkspaceMemoryReadInput,
+        _workspace_memory_read,
+    ),
     "prism_read": ("Read lightweight Prism manuscript context.", PrismReadInput, _prism_read),
     "citation_parser": ("Parse citation keys, DOI-like tokens, and URLs from text.", CitationParserInput, _citation_parser),
     "artifact_create": ("Stage a reviewable artifact payload without committing rooms.", ArtifactCreateInput, _artifact_create),
@@ -239,6 +243,55 @@ def _extract_collection(value: Any, key: str) -> list[dict[str, Any]]:
         if isinstance(sanitized, dict) and sanitized:
             result.append(sanitized)
     return result
+
+
+def _prism_file_items(workspace_data: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_items: list[Any] = []
+    direct = workspace_data.get("prism_files")
+    if isinstance(direct, list):
+        raw_items.extend(direct)
+
+    manuscript_context = workspace_data.get("manuscript_context")
+    if isinstance(manuscript_context, dict):
+        files = manuscript_context.get("prism_files")
+        if isinstance(files, list):
+            raw_items.extend(files)
+        for path in manuscript_context.get("target_files") or []:
+            if isinstance(path, str) and path.strip():
+                raw_items.append({"path": path.strip()})
+
+    prism = workspace_data.get("prism")
+    if isinstance(prism, dict):
+        files = prism.get("prism_files") or prism.get("files")
+        if isinstance(files, list):
+            raw_items.extend(files)
+        for path in prism.get("target_files") or []:
+            if isinstance(path, str) and path.strip():
+                raw_items.append({"path": path.strip()})
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        sanitized = _sanitize_public_value(item)
+        if not isinstance(sanitized, dict) or not sanitized:
+            continue
+        key = str(sanitized.get("id") or sanitized.get("path") or json.dumps(sanitized, sort_keys=True))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(sanitized)
+    return result
+
+
+def _workspace_memory_items(workspace_data: dict[str, Any]) -> list[dict[str, Any]]:
+    memory = workspace_data.get("workspace_memory")
+    if isinstance(memory, str):
+        text = _compact_text(memory)
+        return [{"content_markdown": text}] if text else []
+    if isinstance(memory, dict):
+        sanitized = _sanitize_public_value(memory)
+        return [sanitized] if isinstance(sanitized, dict) and sanitized else []
+    return []
 
 
 def _filter_items(items: list[dict[str, Any]], query: Any, limit: int) -> list[dict[str, Any]]:

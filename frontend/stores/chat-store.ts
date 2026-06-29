@@ -55,6 +55,7 @@ export type Message = {
 
 export type SendMessageOptions = {
   skill?: string | null;
+  model?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -600,9 +601,16 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     });
 
     try {
+      const threadRequestPayload: Record<string, string> = {};
+      if (typeof options.skill === "string" && options.skill.trim()) {
+        threadRequestPayload.skill = options.skill.trim();
+      }
+      if (typeof options.model === "string" && options.model.trim()) {
+        threadRequestPayload.model = options.model.trim();
+      }
       const threadRequestBody =
-        typeof options.skill === "string" && options.skill.trim()
-          ? JSON.stringify({ skill: options.skill.trim() })
+        Object.keys(threadRequestPayload).length > 0
+          ? JSON.stringify(threadRequestPayload)
           : undefined;
 
       // Ensure thread exists
@@ -656,6 +664,9 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       };
       if (typeof options.skill === "string" && options.skill.trim()) {
         runPayload.skill = options.skill.trim();
+      }
+      if (typeof options.model === "string" && options.model.trim()) {
+        runPayload.model = options.model.trim();
       }
       if (options.metadata && typeof options.metadata === "object") {
         runPayload.metadata = options.metadata;

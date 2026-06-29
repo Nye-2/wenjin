@@ -11,7 +11,7 @@ describe("room list response helpers", () => {
 
   it("reads { items } envelopes", () => {
     expect(
-      readItemsArray({ items: [{ id: "a" }], count: 1 }, "documents"),
+      readItemsArray({ items: [{ id: "a" }], count: 1 }, "Prism 文件"),
     ).toEqual([{ id: "a" }]);
   });
 

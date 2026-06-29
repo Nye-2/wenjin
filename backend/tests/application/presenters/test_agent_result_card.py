@@ -121,6 +121,37 @@ def test_completion_card_routes_prism_review_links_to_workspace_surface():
     }
 
 
+def test_completion_card_routes_document_artifacts_to_prism_files():
+    reply = build_completion_result_card(
+        feature_id="writing",
+        task_id="task-doc",
+        run_id="run-doc",
+        execution_id="exec-doc",
+        payload={"workspace_id": "ws-1"},
+        result={
+            "data": {"summary": "文档已生成"},
+            "next_actions": [
+                {
+                    "action": "open_artifact",
+                    "label": "打开文档",
+                    "artifact_kind": "document",
+                    "artifact_id": "file-1",
+                    "title": "分析报告",
+                }
+            ],
+        },
+        duration_ms=1000,
+        subagents_count=1,
+        tokens_total=100,
+    )
+
+    links = reply.blocks[0]["links"]
+    assert {
+        (link.get("label"), link.get("href"))
+        for link in links
+    } >= {("打开文档", "/workspaces/ws-1/prism?file_id=file-1")}
+
+
 def test_completion_card_carries_canonical_review_items():
     reply = build_completion_result_card(
         feature_id="writing",

@@ -111,9 +111,8 @@ inputs:
 context_policy:
   room_reads:
     library: summary
-    documents: excerpts
+    prism: excerpts
     decisions: full
-    memory: relevant
     tasks: related
   prism_context:
     include_outline: true
@@ -145,6 +144,7 @@ sandbox_policy:
   resource_limits:
     cpu: 2
     memory_mb: 4096
+    react_timeout_seconds: 35
     timeout_seconds: 1200
     max_output_mb: 512
   artifact_policy:

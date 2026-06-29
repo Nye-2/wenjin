@@ -16,7 +16,6 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.artifact",
     "src.database.models.thread",
     "src.database.models.decision",
-    "src.database.models.memory_fact",
     "src.database.models.workspace_task",
     "src.database.models.sandbox",
     "src.database.models.library_item",
@@ -29,7 +28,6 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.generation",
     "src.database.models.task",
     "src.database.models.admin_log",
-    "src.database.models.knowledge",
     "src.database.models.workspace_template",
     "src.database.models.audit_log",
     "src.database.models.latex_project",
@@ -48,7 +46,6 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "Artifact",
     "Thread",
     "Decision",
-    "MemoryFact",
     "WorkspaceTask",
     "Sandbox",
     "LibraryItem",
@@ -61,8 +58,6 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "GenerationRecord",
     "TaskRecord",
     "AdminLog",
-    "KnowledgeCategory",
-    "UserKnowledge",
     "WorkspaceTemplate",
     "AuditLog",
     "LatexProject",
@@ -507,7 +502,7 @@ def test_live_workflow_panel_composes_focused_views() -> None:
         "OverviewView.tsx",
         "RunView.tsx",
         "EvidenceView.tsx",
-        "ReviewView.tsx",
+        "IntakeSpecPreview.tsx",
         "ResultEditor.tsx",
         "NodeInspector.tsx",
         "shared.tsx",
@@ -521,13 +516,12 @@ def test_live_workflow_panel_composes_focused_views() -> None:
     assert 'from "./live-workflow/OverviewView"' in source
     assert 'from "./live-workflow/RunView"' in source
     assert 'from "./live-workflow/EvidenceView"' in source
-    assert 'from "./live-workflow/ReviewView"' in source
+    assert 'from "./live-workflow/IntakeSpecPreview"' in source
     for local_view in (
         "function WorkbenchHeader(",
         "function OverviewView(",
         "function RunView(",
         "function EvidenceView(",
-        "function ReviewView(",
         "function ResultEditor(",
         "function NodeInspector(",
     ):
@@ -1246,34 +1240,35 @@ def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
     )
 
 
-def test_memory_runtime_uses_dataservice_knowledge_boundary() -> None:
-    """Long-term memory runtime must not reopen legacy DB sessions."""
+def test_memory_runtime_uses_workspace_memory_boundary() -> None:
+    """Memory runtime must use the hidden workspace-memory document only."""
+
+    removed_files = [
+        SRC_ROOT / "services" / "user_memory_service.py",
+        SRC_ROOT / "services" / "memory_compaction.py",
+        SRC_ROOT / "services" / "knowledge_service.py",
+        SRC_ROOT / "gateway" / "routers" / "memory.py",
+        SRC_ROOT / "dataservice" / "knowledge_api.py",
+    ]
+    assert [path for path in removed_files if path.exists()] == []
 
     forbidden_tokens_by_file = {
-        SRC_ROOT / "services" / "user_memory_service.py": (
+        SRC_ROOT / "services" / "workspace_memory_service.py": (
             "from src.database import",
             "get_db_session",
-            "KnowledgeService(db",
-            "db.commit",
+            "KnowledgeService",
+            "user_knowledge",
         ),
-        SRC_ROOT / "services" / "memory_compaction.py": (
-            "from src.database import",
-            "get_db_session",
-            "KnowledgeService(db",
-        ),
-        SRC_ROOT / "services" / "knowledge_service.py": (
-            "AsyncSession",
-            "self.db",
-            "_db",
-        ),
-        SRC_ROOT / "task" / "tasks" / "memory.py": (
-            "from src.database import",
-            "reset_db_engine",
+        SRC_ROOT / "services" / "workspace_upload_service.py": (
+            "KnowledgeService",
+            "create_knowledge_memory",
+            "upsert_knowledge_memory",
+            "user_knowledge",
         ),
         SRC_ROOT / "gateway" / "routers" / "uploads.py": (
             "AsyncSession",
             "Depends(get_db)",
-            "KnowledgeService(db",
+            "KnowledgeService",
             "db.commit",
             "db.rollback",
         ),
@@ -1288,7 +1283,7 @@ def test_memory_runtime_uses_dataservice_knowledge_boundary() -> None:
                 violations.append(f"{relative} contains {token}")
 
     assert not violations, (
-        "Memory runtime must use DataService knowledge boundary:\n"
+        "Memory runtime must use the workspace-memory DataService boundary:\n"
         + "\n".join(violations)
     )
 

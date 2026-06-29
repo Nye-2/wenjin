@@ -12,9 +12,9 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
+  counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
-    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
     library: [],
     memory: [],
     decisions: [],
@@ -27,15 +27,23 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["doc-1"],
-  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  counts: { library: 0, prism: 0, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
-    documents: [],
+    prism: [],
     library: [],
     memory: [],
     decisions: [],
     tasks: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const REVERTED_STATE = {
+  ...COMMITTED_STATE,
+  status: "reverted",
+  reverted_at: "2026-06-20T00:01:00Z",
+  reverted_by: "user-1",
+  revert_counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
 } as const;
 
 const OUTLINE_TASK_REPORT = {
@@ -66,10 +74,10 @@ describe("CompletedView", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          committed: { documents: 1, library: 0 },
+          committed: { prism: 1, library: 0 },
           commit_state: COMMITTED_STATE,
           room_targets: {
-            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
             library: [],
             memory: [],
             decisions: [],
@@ -205,13 +213,10 @@ describe("CompletedView", () => {
       />,
     );
 
-    const link = screen.getByRole("link", { name: "查看产物" });
+    const link = screen.getByRole("link", { name: "查看结果" });
     const url = new URL(link.getAttribute("href")!, "https://example.test");
-    expect(url.pathname).toBe("/workspaces/ws-1");
-    expect(url.searchParams.get("room")).toBe("documents");
-    expect(url.searchParams.get("artifact_id")).toBe("doc-7");
-    expect(url.searchParams.get("item_id")).toBe("doc-1");
-    expect(url.searchParams.get("query")).toBe("Research Paper Draft");
+    expect(url.pathname).toBe("/workspaces/ws-1/prism");
+    expect(url.searchParams.get("file_id")).toBe("doc-1");
   });
 
   it("routes Prism preview actions to the workspace Prism file-change focus", () => {
@@ -326,22 +331,20 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/executions/exec-1/commit",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ accept_all: true }),
-      }),
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ accept_all: true }),
+        }),
+      ),
     );
 
     const savedLink = await screen.findByRole("link", { name: "打开已保存的 Thesis outline" });
     const url = new URL(savedLink.getAttribute("href")!, "https://example.test");
-    expect(url.pathname).toBe("/workspaces/ws-1");
-    expect(url.searchParams.get("room")).toBe("documents");
-    expect(url.searchParams.get("item_id")).toBe("saved-doc-1");
-    expect(url.searchParams.get("query")).toBe("Thesis outline");
+    expect(url.pathname).toBe("/workspaces/ws-1/prism");
+    expect(url.searchParams.get("file_id")).toBe("saved-doc-1");
   });
 
   it("patches returned commit_state into the execution store after commit", async () => {
@@ -372,8 +375,6 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
-
     await waitFor(() =>
       expect(
         useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
@@ -384,7 +385,7 @@ describe("CompletedView", () => {
     ).toEqual(OUTLINE_TASK_REPORT);
   });
 
-  it("requires selected-output save for partial execution previews", async () => {
+  it("keeps partial execution previews read-only without manual save controls", async () => {
     render(
       <CompletedView
         workspaceId="ws-1"
@@ -415,20 +416,11 @@ describe("CompletedView", () => {
     );
 
     expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
-    expect(screen.getByText("本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。")).toBeInTheDocument();
-    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
-
-    fireEvent.click(checkbox);
-    fireEvent.click(screen.getByRole("button", { name: "仅保存勾选项" }));
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/executions/exec-1/commit",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ accepted_ids: ["doc-1"] }),
-      }),
-    );
+    expect(screen.queryByRole("button", { name: "仅保存勾选项" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "暂不保存" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText("本次运行未完整完成，候选结果只作为证据预览；需要继续处理时，请在左侧补充指令。")).toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("shows a save error inline when execution commit fails", async () => {
@@ -466,9 +458,8 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
     expect(await screen.findByText("Commit failed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试写入" })).toBeInTheDocument();
   });
 
   it("does not finalize when POST succeeds without durable backend commit_state", async () => {
@@ -476,9 +467,9 @@ describe("CompletedView", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          committed: { documents: 1 },
+          committed: { prism: 1 },
           room_targets: {
-            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
             library: [],
             memory: [],
             decisions: [],
@@ -495,12 +486,10 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
-
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试写入" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
   });
 
@@ -516,12 +505,58 @@ describe("CompletedView", () => {
       />,
     );
 
-    expect(screen.getByText("已保存到工作区")).toBeInTheDocument();
+    expect(screen.getByText("已写入工作区")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "打开已保存的 Thesis outline" }),
     ).toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("undoes committed status from the completed execution panel", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ commit_state: REVERTED_STATE }),
+    });
+    const record: ExecutionRecord = {
+      id: "exec-1",
+      user_id: "user-1",
+      workspace_id: "ws-1",
+      execution_type: "capability",
+      feature_id: "outline",
+      status: "completed",
+      params: {},
+      result: { task_report: OUTLINE_TASK_REPORT, commit_state: COMMITTED_STATE },
+      node_states: {},
+      artifact_ids: [],
+      next_actions: [],
+      child_execution_ids: [],
+      progress: 100,
+      created_at: "2026-06-20T00:00:00Z",
+      updated_at: "2026-06-20T00:00:00Z",
+    };
+    useExecutionStore.getState().upsertExecution(record);
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={record.result}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "撤回本次保存" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit/undo",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(await screen.findByText("已撤回本次保存")).toBeInTheDocument();
+    expect(
+      useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+    ).toEqual(REVERTED_STATE);
   });
 
   it("hydrates discarded status from result.commit_state as a final not-saved state", () => {

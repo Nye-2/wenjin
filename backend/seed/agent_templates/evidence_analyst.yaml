@@ -24,7 +24,7 @@ default_skills:
   - reproducibility-auditor
 tool_affinity:
   preferred:
-    - document_read
+    - prism_file_read
     - artifact_create
   can_request:
     - sandbox.run_python

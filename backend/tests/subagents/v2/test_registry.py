@@ -30,14 +30,14 @@ def test_normalizes_agent_template_tool_affinity_without_widening_business_tools
     template = {
         "id": "evidence_analyst.v1",
         "tool_affinity": {
-            "preferred": ["document_read", "sandbox_python"],
+            "preferred": ["prism_file_read", "sandbox_python"],
             "can_request": ["sandbox_exec", "library_read"],
         },
         "risk_profile": {"filesystem": "sandbox_only", "code_execution": "optional"},
     }
 
     assert normalize_agent_template_tool_affinity(template) == {
-        "preferred": ["document_read", "sandbox.run_python"],
+        "preferred": ["prism_file_read", "sandbox.run_python"],
         "can_request": ["sandbox.run_python", "library_read"],
     }
     assert agent_template_requires_harness_context(template) is True
@@ -119,7 +119,7 @@ def test_validates_agent_template_accepts_read_only_business_roles_without_harne
         "id": "literature_synthesizer.v1",
         "persona_prompt": _valid_persona_prompt(),
         "tool_affinity": {
-            "preferred": ["library_read", "document_read"],
+            "preferred": ["library_read", "prism_file_read"],
             "can_request": ["citation_parser", "artifact_create"],
         },
         "risk_profile": {"filesystem": "no_direct_write", "code_execution": "not_needed"},

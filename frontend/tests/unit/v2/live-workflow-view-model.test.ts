@@ -329,7 +329,7 @@ describe("live workflow view model", () => {
             content_hash: "sha256:figure",
           },
           actions: [
-            { action: "accept_sandbox_artifact", label: "保存到产物库" },
+            { action: "accept_sandbox_artifact", label: "保存到结果库" },
             { action: "reject_sandbox_artifact", label: "忽略" },
           ],
         },

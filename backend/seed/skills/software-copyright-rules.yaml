@@ -87,9 +87,8 @@ io_contract:
 context_access:
   room_reads:
     library: summary
-    documents: excerpts
+    prism: excerpts
     decisions: relevant
-    memory: relevant
   prism_context: lightweight
 tool_policy:
   allowed_tools: []

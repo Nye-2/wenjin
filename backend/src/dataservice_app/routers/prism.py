@@ -7,9 +7,12 @@ from fastapi import APIRouter, Depends, Query
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.prism.contracts import (
+    PrismFileContentUpdateCommand,
+    PrismFileRestoreCommand,
     PrismFileVersionCreateCommand,
     PrismPrimaryProjectCommand,
     PrismProtectedScopeUpsertCommand,
+    PrismWorkspaceFileUpsertCommand,
 )
 from src.dataservice.domains.prism.service import PrismDataDomainService
 from src.dataservice_app.auth import require_internal_token
@@ -54,6 +57,80 @@ async def get_surface(
     service = PrismDataDomainService(uow.required_session, autocommit=False)
     record = await service.get_surface(workspace_id)
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/workspaces/{workspace_id}/files")
+async def upsert_workspace_file(
+    workspace_id: str,
+    command: PrismWorkspaceFileUpsertCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = PrismDataDomainService(uow.required_session, autocommit=False)
+    record = await service.upsert_workspace_file(workspace_id=workspace_id, command=command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.get("/workspaces/{workspace_id}/files/{file_id}")
+async def get_workspace_file(
+    workspace_id: str,
+    file_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = PrismDataDomainService(uow.required_session, autocommit=False)
+    record = await service.get_workspace_file_content(workspace_id=workspace_id, file_id=file_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.put("/workspaces/{workspace_id}/files/{file_id}")
+async def update_workspace_file_content(
+    workspace_id: str,
+    file_id: str,
+    command: PrismFileContentUpdateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = PrismDataDomainService(uow.required_session, autocommit=False)
+    record = await service.append_file_content(
+        workspace_id=workspace_id,
+        file_id=file_id,
+        command=command,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.post("/workspaces/{workspace_id}/files/{file_id}/restore")
+async def restore_workspace_file_version(
+    workspace_id: str,
+    file_id: str,
+    command: PrismFileRestoreCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = PrismDataDomainService(uow.required_session, autocommit=False)
+    record = await service.restore_file_version(
+        workspace_id=workspace_id,
+        file_id=file_id,
+        command=command,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.delete("/workspaces/{workspace_id}/files/{file_id}")
+async def delete_workspace_file(
+    workspace_id: str,
+    file_id: str,
+    expected_current_hash: str | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = PrismDataDomainService(uow.required_session, autocommit=False)
+    record = await service.soft_delete_workspace_file(
+        workspace_id=workspace_id,
+        file_id=file_id,
+        expected_current_hash=expected_current_hash,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
 
 
 @router.put("/workspaces/{workspace_id}/latex-protected-scope")

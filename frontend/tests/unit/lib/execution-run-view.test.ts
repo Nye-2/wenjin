@@ -546,7 +546,7 @@ describe("execution run view projection", () => {
 
     expect(view.qualityHighlights).toEqual([
       { label: "引用支撑", status: "pass", detail: "2 条强支撑" },
-      { label: "实验解释", status: "pass", detail: "指标、限制与产物已对齐" },
+      { label: "实验解释", status: "pass", detail: "指标、限制与结果已对齐" },
       { label: "统计稳健", status: "pass", detail: "方法、样本量与稳健性已检查" },
       { label: "语义保持", status: "warning", detail: "1 处改写需要确认" },
     ]);
@@ -609,7 +609,7 @@ describe("execution run view projection", () => {
               run_journal_summary: {
                 schema: "wenjin.harness.run_journal_summary.v1",
                 latest_phase: "tool_completed",
-                summary: "实验分析工程师完成实验并生成 1 个产物",
+                summary: "实验分析工程师完成实验并生成 1 个结果",
                 tool_call_count: 1,
                 artifact_count: 1,
               },
@@ -633,7 +633,7 @@ describe("execution run view projection", () => {
     const progressItems = buildRunProgressItems(record);
 
     expect(view.team?.members[0]?.displayName).toBe("实验分析工程师");
-    expect(view.team?.members[0]?.activityLabel).toBe("实验分析工程师完成实验并生成 1 个产物");
+    expect(view.team?.members[0]?.activityLabel).toBe("实验分析工程师完成实验并生成 1 个结果");
     expect(view.team?.members[0]?.artifactCount).toBe(1);
     expect(view.team?.members[0]?.debugToolCount).toBe(1);
     expect(progressItems.find((item) => item.id === "team_dispatch")?.detail).toBe("1/1 个成员完成");
@@ -675,7 +675,7 @@ describe("execution run view projection", () => {
     );
 
     expect(view.team?.members[0]?.activityLabel).toBe(
-      "已完成可复现实验：1 个脚本 · 1 个数据集 · 1 个产物",
+      "已完成可复现实验：1 个脚本 · 1 个数据集 · 1 个结果",
     );
     expect(view.team?.members[0]?.artifactCount).toBe(1);
   });

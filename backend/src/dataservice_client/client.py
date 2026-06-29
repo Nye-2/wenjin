@@ -37,12 +37,6 @@ from src.dataservice_client.contracts.conversation import (
     ConversationThreadPayload,
     ConversationThreadUpdatePayload,
 )
-from src.dataservice_client.contracts.knowledge import (
-    KnowledgeArchiveLowConfidencePayload,
-    KnowledgeMemoryCreatePayload,
-    KnowledgeMemoryPayload,
-    KnowledgeMemoryUpdatePayload,
-)
 from src.dataservice_client.contracts.latex import (
     LatexCompileHistoryCreatePayload,
     LatexCompileHistoryPayload,
@@ -54,13 +48,18 @@ from src.dataservice_client.contracts.latex import (
     LatexTemplatePayload,
 )
 from src.dataservice_client.contracts.prism import (
+    PrismFileContentPayload,
+    PrismFileContentUpdatePayload,
+    PrismFileRestorePayload,
     PrismFileVersionCreatePayload,
     PrismFileVersionPayload,
+    PrismFileWritePayload,
     PrismPrimaryProjectPayload,
     PrismProjectPayload,
     PrismProtectedScopePayload,
     PrismProtectedScopeUpsertPayload,
     PrismSurfacePayload,
+    PrismWorkspaceFileUpsertPayload,
 )
 from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeAppliedPayload,
@@ -86,6 +85,13 @@ from src.dataservice_client.contracts.task import (
     TaskRecordPayload,
     TaskRecordRuntimeStatePayload,
     TaskRecordStartedPayload,
+)
+from src.dataservice_client.contracts.workspace_memory import (
+    WorkspaceMemoryDocumentPayload,
+    WorkspaceMemoryMergePayload,
+    WorkspaceMemoryRevisionPayload,
+    WorkspaceMemoryRewritePayload,
+    WorkspaceMemoryWritePayload,
 )
 from src.dataservice_client.credit_client import CreditDataServiceClientMixin
 from src.dataservice_client.errors import DataServiceClientError
@@ -195,130 +201,6 @@ class AsyncDataServiceClient(
             },
         )
         return [AuditLogPayload.model_validate(item) for item in payload["data"]]
-
-    async def create_knowledge_memory(
-        self,
-        command: KnowledgeMemoryCreatePayload,
-    ) -> KnowledgeMemoryPayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/knowledge",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
-
-    async def upsert_knowledge_memory(
-        self,
-        command: KnowledgeMemoryCreatePayload,
-    ) -> KnowledgeMemoryPayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/knowledge/upsert",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
-
-    async def get_knowledge_memory(self, knowledge_id: str) -> KnowledgeMemoryPayload | None:
-        payload = await self._request("GET", f"/internal/v1/knowledge/{knowledge_id}")
-        data = payload.get("data")
-        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
-
-    async def list_user_knowledge_memory(
-        self,
-        *,
-        user_id: str,
-        category: str | None = None,
-        min_confidence: float | None = None,
-        active_only: bool = True,
-    ) -> list[KnowledgeMemoryPayload]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/knowledge/users/{user_id}",
-            params={
-                "category": category,
-                "min_confidence": min_confidence,
-                "active_only": active_only,
-            },
-        )
-        return [KnowledgeMemoryPayload.model_validate(item) for item in payload["data"]]
-
-    async def list_active_knowledge_memory(
-        self,
-        *,
-        user_id: str,
-        workspace_context: str | None = None,
-        include_global: bool = True,
-        min_confidence: float = 0.5,
-        limit: int = 20,
-    ) -> list[KnowledgeMemoryPayload]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/knowledge/users/{user_id}/active",
-            params={
-                "workspace_context": workspace_context,
-                "include_global": include_global,
-                "min_confidence": min_confidence,
-                "limit": limit,
-            },
-        )
-        return [KnowledgeMemoryPayload.model_validate(item) for item in payload["data"]]
-
-    async def update_knowledge_memory(
-        self,
-        knowledge_id: str,
-        command: KnowledgeMemoryUpdatePayload,
-    ) -> KnowledgeMemoryPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/knowledge/{knowledge_id}",
-            json=command.model_dump(mode="json", exclude_unset=True),
-        )
-        data = payload.get("data")
-        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
-
-    async def deactivate_knowledge_memory(self, knowledge_id: str) -> bool:
-        payload = await self._request("POST", f"/internal/v1/knowledge/{knowledge_id}/deactivate")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deactivated")) if isinstance(data, dict) else False
-
-    async def delete_knowledge_memory(self, knowledge_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/knowledge/{knowledge_id}")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def archive_low_confidence_knowledge_memory(
-        self,
-        *,
-        user_id: str,
-        command: KnowledgeArchiveLowConfidencePayload | None = None,
-    ) -> int:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/knowledge/users/{user_id}/archive-low-confidence",
-            json=(command or KnowledgeArchiveLowConfidencePayload()).model_dump(mode="json"),
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return int(data.get("archived", 0)) if isinstance(data, dict) else 0
-
-    async def count_active_knowledge_memory(
-        self,
-        *,
-        user_id: str,
-        workspace_context: str | None = None,
-        include_global: bool | None = None,
-    ) -> int:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/knowledge/users/{user_id}/active-count",
-            params={
-                "workspace_context": workspace_context,
-                "include_global": include_global,
-            },
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return int(data.get("count", 0)) if isinstance(data, dict) else 0
 
     async def list_latex_projects_by_user(
         self,
@@ -1262,6 +1144,70 @@ class AsyncDataServiceClient(
         data = payload.get("data")
         return PrismSurfacePayload.model_validate(data) if data is not None else None
 
+    async def upsert_prism_workspace_file(
+        self,
+        workspace_id: str,
+        command: PrismWorkspaceFileUpsertPayload,
+    ) -> PrismFileWritePayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/prism/workspaces/{workspace_id}/files",
+            json=command.model_dump(mode="json"),
+        )
+        return PrismFileWritePayload.model_validate(payload["data"])
+
+    async def get_prism_workspace_file(
+        self,
+        workspace_id: str,
+        file_id: str,
+    ) -> PrismFileContentPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/prism/workspaces/{workspace_id}/files/{file_id}",
+        )
+        data = payload.get("data")
+        return PrismFileContentPayload.model_validate(data) if data is not None else None
+
+    async def update_prism_workspace_file(
+        self,
+        workspace_id: str,
+        file_id: str,
+        command: PrismFileContentUpdatePayload,
+    ) -> PrismFileWritePayload:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/prism/workspaces/{workspace_id}/files/{file_id}",
+            json=command.model_dump(mode="json"),
+        )
+        return PrismFileWritePayload.model_validate(payload["data"])
+
+    async def restore_prism_workspace_file(
+        self,
+        workspace_id: str,
+        file_id: str,
+        command: PrismFileRestorePayload,
+    ) -> PrismFileWritePayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/prism/workspaces/{workspace_id}/files/{file_id}/restore",
+            json=command.model_dump(mode="json"),
+        )
+        return PrismFileWritePayload.model_validate(payload["data"])
+
+    async def delete_prism_workspace_file(
+        self,
+        workspace_id: str,
+        file_id: str,
+        *,
+        expected_current_hash: str | None = None,
+    ) -> PrismFileWritePayload:
+        payload = await self._request(
+            "DELETE",
+            f"/internal/v1/prism/workspaces/{workspace_id}/files/{file_id}",
+            params={"expected_current_hash": expected_current_hash},
+        )
+        return PrismFileWritePayload.model_validate(payload["data"])
+
     async def upsert_latex_prism_protected_scope(
         self,
         command: PrismProtectedScopeUpsertPayload,
@@ -1299,6 +1245,57 @@ class AsyncDataServiceClient(
         )
         data = payload.get("data")
         return PrismFileVersionPayload.model_validate(data) if data is not None else None
+
+    async def get_workspace_memory_document(
+        self,
+        workspace_id: str,
+        *,
+        ensure: bool = False,
+    ) -> WorkspaceMemoryDocumentPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/workspace-memory/workspaces/{workspace_id}",
+            params={"ensure": ensure},
+        )
+        data = payload.get("data")
+        return WorkspaceMemoryDocumentPayload.model_validate(data) if data is not None else None
+
+    async def rewrite_workspace_memory(
+        self,
+        workspace_id: str,
+        command: WorkspaceMemoryRewritePayload,
+    ) -> WorkspaceMemoryWritePayload:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/workspace-memory/workspaces/{workspace_id}",
+            json=command.model_dump(mode="json"),
+        )
+        return WorkspaceMemoryWritePayload.model_validate(payload["data"])
+
+    async def merge_workspace_memory(
+        self,
+        workspace_id: str,
+        command: WorkspaceMemoryMergePayload,
+    ) -> WorkspaceMemoryWritePayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/workspace-memory/workspaces/{workspace_id}/merge",
+            json=command.model_dump(mode="json"),
+        )
+        return WorkspaceMemoryWritePayload.model_validate(payload["data"])
+
+    async def list_workspace_memory_revisions(
+        self,
+        workspace_id: str,
+        *,
+        limit: int = 20,
+    ) -> list[WorkspaceMemoryRevisionPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/workspace-memory/workspaces/{workspace_id}/revisions",
+            params={"limit": limit},
+        )
+        return [WorkspaceMemoryRevisionPayload.model_validate(item) for item in payload["data"]]
 
 
     async def _request(

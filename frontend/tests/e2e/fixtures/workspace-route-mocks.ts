@@ -44,11 +44,62 @@ type MockOptions = {
   commitResponse?: unknown;
 };
 
+const COMMIT_ROOMS = ["prism", "library", "memory", "decisions", "tasks"] as const;
+
 function json(body: unknown) {
   return {
     status: 200,
     contentType: "application/json",
     body: JSON.stringify(body),
+  };
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function completeCommitTargets(value: unknown): Record<string, unknown[]> {
+  const raw = recordValue(value);
+  return Object.fromEntries(
+    COMMIT_ROOMS.map((room) => [room, Array.isArray(raw[room]) ? raw[room] : []]),
+  );
+}
+
+function completeCommitCounts(value: unknown): Record<string, number> {
+  const raw = recordValue(value);
+  return Object.fromEntries(
+    COMMIT_ROOMS.map((room) => [room, typeof raw[room] === "number" ? raw[room] : 0]),
+  );
+}
+
+function responseWithCommitState(response: unknown, requestPayload: Record<string, unknown>) {
+  const raw = recordValue(response);
+  if (raw.commit_state) {
+    return raw;
+  }
+  const roomTargets = completeCommitTargets(raw.room_targets);
+  const counts = completeCommitCounts(raw.committed);
+  const acceptedFromTargets = Object.values(roomTargets)
+    .flat()
+    .map((target) => recordValue(target).output_id)
+    .filter((value): value is string => typeof value === "string" && value.length > 0);
+  const acceptedFromPayload = Array.isArray(requestPayload.accepted_ids)
+    ? requestPayload.accepted_ids.filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      )
+    : [];
+  return {
+    ...raw,
+    commit_state: {
+      status: "committed",
+      accepted_ids: acceptedFromPayload.length ? acceptedFromPayload : acceptedFromTargets,
+      rejected_ids: [],
+      counts,
+      room_targets: roomTargets,
+      committed_at: "2026-05-19T00:00:11Z",
+    },
   };
 }
 
@@ -99,6 +150,43 @@ export async function installWorkspaceRouteMocks(
   let prismContent = prismInitialContent;
   let prismApplied = false;
   let prismProtected = false;
+
+  const savedPrismFiles = [
+    {
+      id: "saved-doc-1",
+      path: "docs/论文框架大纲.md",
+      content: "# 论文框架大纲\n\n## 方法\n- 系统设计\n\n## 研究方法\n- 对比实验",
+      size_bytes: 256,
+    },
+    {
+      id: "saved-doc-2",
+      path: "docs/结构大纲.md",
+      content: "# 结构大纲\n\n## 实验设计\n- 变量控制",
+      size_bytes: 192,
+    },
+  ];
+
+  function prismWorkspaceFile(file: {
+    id: string;
+    path: string;
+    size_bytes?: number;
+  }) {
+    return {
+      id: file.id,
+      workspace_id: workspaceId,
+      document_id: "prism-doc-main",
+      path: file.path,
+      file_role: "document",
+      mime_type: "text/markdown",
+      current_version_id: `${file.id}-v1`,
+      content_hash: `${file.id}-hash`,
+      sort_order: file.id === "saved-doc-1" ? 10 : 20,
+      metadata_json: {},
+      deleted_at: null,
+      created_at: "2026-05-19T00:00:00Z",
+      updated_at: "2026-05-19T00:00:00Z",
+    };
+  }
 
   function prismFileChanges() {
     if (!prismReview || prismApplied) {
@@ -238,6 +326,9 @@ export async function installWorkspaceRouteMocks(
       await route.fulfill(
         json({
           workspace_id: workspaceId,
+          prism_project_id: "prism-project-1",
+          prism_document_id: "prism-doc-main",
+          prism_files: savedPrismFiles.map(prismWorkspaceFile),
           latex_project_id: prismProjectId,
           surface_role: "primary_manuscript",
           url: `/workspaces/${workspaceId}/prism`,
@@ -330,6 +421,33 @@ export async function installWorkspaceRouteMocks(
             decision_count: 0,
             memory_preference_count: 0,
             recent_activity_count: (prismApplied ? 1 : 0) + (prismProtected ? 1 : 0),
+          },
+        }),
+      );
+      return;
+    }
+
+    const prismFile = savedPrismFiles.find(
+      (file) =>
+        pathname === `/api/workspaces/${workspaceId}/prism/files/${file.id}`,
+    );
+    if (prismFile) {
+      const file = prismWorkspaceFile(prismFile);
+      await route.fulfill(
+        json({
+          file,
+          current_version: {
+            id: `${prismFile.id}-v1`,
+            workspace_id: workspaceId,
+            file_id: prismFile.id,
+            version_no: 1,
+            review_item_id: null,
+            content_inline: prismFile.content,
+            content_asset_id: null,
+            content_hash: file.content_hash,
+            created_by: "execution:ex-1",
+            created_at: "2026-05-19T00:00:00Z",
+            updated_at: "2026-05-19T00:00:00Z",
           },
         }),
       );
@@ -506,16 +624,15 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
-    if (
-      pathname === "/api/executions/ex-1/commit" &&
-      request.method() === "POST"
-    ) {
+    const commitMatch = pathname.match(/^\/api\/executions\/[^/]+\/commit$/);
+    if (commitMatch && request.method() === "POST") {
+      const payload = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
       if (options.onCommit) {
-        options.onCommit(
-          JSON.parse(request.postData() || "{}") as Record<string, unknown>,
-        );
+        options.onCommit(payload);
       }
-      await route.fulfill(json(options.commitResponse ?? { ok: true }));
+      await route.fulfill(
+        json(responseWithCommitState(options.commitResponse ?? { ok: true }, payload)),
+      );
       return;
     }
 

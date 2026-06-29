@@ -21,17 +21,6 @@ class DecisionSetCommand(BaseModel):
     source_review_item_id: str | None = Field(default=None, max_length=36)
 
 
-class MemoryFactCreateCommand(BaseModel):
-    """Create one workspace memory fact."""
-
-    workspace_id: str = Field(min_length=1, max_length=36)
-    category: str = Field(min_length=1, max_length=50)
-    content: str = Field(min_length=1)
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    source_review_batch_id: str | None = Field(default=None, max_length=36)
-    source_review_item_id: str | None = Field(default=None, max_length=36)
-
-
 class WorkspaceTaskCreateCommand(BaseModel):
     """Create one workspace task."""
 
@@ -73,22 +62,6 @@ class DecisionProjection(BaseModel):
     deleted_at: datetime | None = None
 
 
-class MemoryFactProjection(BaseModel):
-    """Canonical memory fact projection."""
-
-    id: str
-    workspace_id: str
-    category: str
-    content: str
-    confidence: float
-    last_referenced_at: datetime | None = None
-    reference_count: int = 0
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
-    created_at: datetime | None = None
-    deleted_at: datetime | None = None
-
-
 class WorkspaceTaskProjection(BaseModel):
     """Canonical workspace task projection."""
 
@@ -112,7 +85,7 @@ class RoomCandidateCommand(BaseModel):
     """One execution-produced candidate room write."""
 
     source_item_id: str | None = None
-    target_kind: str = Field(pattern="^(decision|memory_fact|workspace_task)$")
+    target_kind: str = Field(pattern="^(decision|workspace_task)$")
     title: str
     summary: str | None = None
     payload_json: dict[str, Any] = Field(default_factory=dict)

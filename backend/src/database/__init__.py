@@ -24,7 +24,6 @@ from .models import (
     ExecutionRecord,
     # Generation
     GenerationRecord,
-    KnowledgeCategory,
     LatexCompileHistory,
     LatexProject,
     LatexTemplate,
@@ -36,8 +35,6 @@ from .models import (
     Thread,
     # User
     User,
-    # Knowledge
-    UserKnowledge,
     # Workspace
     Workspace,
     WorkspaceType,
@@ -86,9 +83,6 @@ __all__ = [
     # Models - Admin audit
     "AdminLog",
     "AdminActionType",
-    # Models - Knowledge
-    "UserKnowledge",
-    "KnowledgeCategory",
     # Models - Credit Grant Rules
     "CreditGrantRule",
     "CreditGrantRuleType",

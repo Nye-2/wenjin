@@ -24,7 +24,7 @@ default_skills:
   - citation-auditor
 tool_affinity:
   preferred:
-    - document_read
+    - prism_file_read
     - library_read
   can_request:
     - citation_parser

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   buildCommittedRoomLinks,
@@ -10,12 +10,16 @@ import {
   commitStateRoomTargets,
   isExecutionCommitted,
   isExecutionDiscarded,
+  isExecutionReverted,
   readCommitStateFromResult,
-  type ExecutionCommitRequest,
   type ExecutionCommitState,
+  undoExecutionCommit,
 } from "@/lib/execution-commit";
 import { safeRuntimeText } from "@/lib/runtime-payload-safety";
-import { groupWorkspaceResultPreviews } from "@/lib/workspace-result-kind";
+import {
+  filterVisibleWorkspaceResultItems,
+  groupWorkspaceResultPreviews,
+} from "@/lib/workspace-result-kind";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import {
   PrismReviewList,
@@ -28,17 +32,6 @@ import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
 
-function generateUUID(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
 function isPrismReviewItem(item: WorkspacePrismReviewItem): boolean {
   return item.kind === "prism_file_change" || item.target?.kind === "prism_file_change";
 }
@@ -50,7 +43,7 @@ function reviewNotice(items: WorkspacePrismReviewItem[]): string {
     return `Prism 有 ${items.length} 项待确认修改`;
   }
   if (artifactCount === items.length) {
-    return `产物有 ${items.length} 项待确认保存`;
+    return `结果有 ${items.length} 项可查看`;
   }
   return `有 ${items.length} 项待确认`;
 }
@@ -85,11 +78,18 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     () => buildWorkspaceResultPreviewsFromOutputs(safeOutputs),
     [safeOutputs],
   );
-  const previewGroups = useMemo(
-    () => groupWorkspaceResultPreviews(previews),
+  const visiblePreviews = useMemo(
+    () => filterVisibleWorkspaceResultItems(previews),
     [previews],
   );
-  const representativePreviews = useMemo(() => previews.slice(0, 3), [previews]);
+  const previewGroups = useMemo(
+    () => groupWorkspaceResultPreviews(visiblePreviews),
+    [visiblePreviews],
+  );
+  const representativePreviews = useMemo(
+    () => visiblePreviews.slice(0, 3),
+    [visiblePreviews],
+  );
   const narrativeText =
     safeRuntimeText(narrative, 220) ?? (narrative ? "运行结果已生成。" : null);
   const reviewItems = data.review_items ?? [];
@@ -105,18 +105,23 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
   const executionResult = useExecutionStore(
     (state) => state.executions.get(execution_id)?.result,
   );
+  const hasExecutionRecord = useExecutionStore((state) =>
+    state.executions.has(execution_id),
+  );
   const upsertExecution = useExecutionStore((state) => state.upsertExecution);
-  const [idempotencyKey] = useState(() => generateUUID());
   const [localCommitState, setLocalCommitState] =
     useState<ExecutionCommitState | null>(null);
-  const [committing, setCommitting] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
+  const autoCommitAttemptedRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const durableCommitState = readCommitStateFromResult(executionResult);
   const dataCommitState = readCommitStateFromResult(data);
   const effectiveCommitState =
-    durableCommitState ?? dataCommitState ?? localCommitState;
+    localCommitState ?? durableCommitState ?? dataCommitState;
   const committed = isExecutionCommitted(effectiveCommitState);
   const discarded = isExecutionDiscarded(effectiveCommitState);
+  const reverted = isExecutionReverted(effectiveCommitState);
   const commitFinal = Boolean(effectiveCommitState);
   const commitLinks = useMemo(
     () =>
@@ -128,18 +133,73 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     [effectiveCommitState, previews, workspaceId],
   );
 
-  async function commit(body: ExecutionCommitRequest) {
-    if (commitFinal || committing) {
+  useEffect(() => {
+    if (
+      !canSaveAll ||
+      commitFinal ||
+      !workspaceId ||
+      hasExecutionRecord ||
+      autoCommitAttemptedRef.current ||
+      !visiblePreviews.some((preview) => preview.canCommit)
+    ) {
+      return;
+    }
+    autoCommitAttemptedRef.current = true;
+    idempotencyKeyRef.current = idempotencyKeyRef.current ?? crypto.randomUUID();
+    setCommitError(null);
+
+    async function autoCommit() {
+      try {
+        const response = await commitExecutionOutputs({
+          executionId: execution_id,
+          idempotencyKey: idempotencyKeyRef.current!,
+          body: { accept_all: true },
+        });
+        const nextCommitState = commitStateFromCommitResponse(response);
+        if (!nextCommitState) {
+          setCommitError(COMMIT_STATE_SYNC_ERROR);
+          return;
+        }
+        setLocalCommitState(nextCommitState);
+        const currentRecord =
+          useExecutionStore.getState().executions.get(execution_id);
+        if (currentRecord) {
+          upsertExecution({
+            ...currentRecord,
+            result: {
+              ...(currentRecord.result ?? {}),
+              commit_state: nextCommitState,
+            },
+          });
+        }
+      } catch (error) {
+        setCommitError(
+          error instanceof Error && !error.message.startsWith("Failed")
+            ? error.message
+            : "保存结果失败，请稍后重试",
+        );
+      }
+    }
+
+    void autoCommit();
+  }, [
+    canSaveAll,
+    commitFinal,
+    execution_id,
+    hasExecutionRecord,
+    upsertExecution,
+    visiblePreviews,
+    workspaceId,
+  ]);
+
+  async function undoCommit() {
+    if (!committed || reverting) {
       return;
     }
     setCommitError(null);
-    setCommitting(true);
+    setReverting(true);
     try {
-      const response = await commitExecutionOutputs({
-        executionId: execution_id,
-        idempotencyKey,
-        body,
-      });
+      const response = await undoExecutionCommit({ executionId: execution_id });
       const nextCommitState = commitStateFromCommitResponse(response);
       if (!nextCommitState) {
         setLocalCommitState(null);
@@ -162,23 +222,22 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       setCommitError(
         error instanceof Error && !error.message.startsWith("Failed")
           ? error.message
-          : "保存失败，请稍后重试",
+          : "撤回保存失败，请稍后重试",
       );
     } finally {
-      setCommitting(false);
+      setReverting(false);
     }
   }
 
-  function openReviewSurface() {
+  function openRunSurface() {
     selectRun(execution_id);
     const previewItemId = data.previewItemId ?? data.preview_item_id ?? null;
     if (previewItemId) {
       focusPreviewItem(previewItemId);
-      setActiveWorkbenchTab("run");
     } else {
       focusPreviewItem(null);
-      setActiveWorkbenchTab("review");
     }
+    setActiveWorkbenchTab("run");
     setWorkbenchFullscreen(true);
   }
 
@@ -206,9 +265,9 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       </div>
 
       {narrativeText ? <div style={styles.narrative}>{narrativeText}</div> : null}
-      {!canSaveAll && previews.length > 0 ? (
+      {!canSaveAll && visiblePreviews.length > 0 ? (
         <div style={styles.partialNotice}>
-          本次运行未完整完成，候选结果需要先查看详情后再决定是否保存。
+          本次运行未完整完成，请先查看运行详情；需要保留的内容可继续在左侧对话中处理。
         </div>
       ) : null}
 
@@ -229,11 +288,17 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
         </div>
       ) : null}
 
-      {previews.length > 0 ? (
+      {visiblePreviews.length > 0 ? (
         <div style={styles.packageShell}>
           <div style={styles.packageHeader}>
             <div style={styles.receiptMeta}>
-              <span>{previews.length} 项结果待处理</span>
+              <span>
+                {commitFinal
+                  ? reverted
+                    ? `${visiblePreviews.length} 项结果已撤回`
+                    : `${visiblePreviews.length} 项结果已写入`
+                  : `${visiblePreviews.length} 项结果正在写入`}
+              </span>
             </div>
             <div style={styles.groupStats}>
               {previewGroups.map((group) => (
@@ -299,53 +364,35 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
           ) : null}
 
           <div style={styles.actionRow}>
-            {canSaveAll ? (
-              <button
-                type="button"
-                onClick={() => commit({ accept_all: true })}
-                disabled={commitFinal || committing}
-                style={{
-                  ...styles.primaryButton,
-                  ...(commitFinal || committing ? styles.buttonDisabled : null),
-                }}
-              >
-                {committed
-                  ? "已保存到工作区"
-                  : discarded
-                    ? "已暂不保存"
-                    : committing
-                      ? "保存中..."
-                      : "保存到工作区"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={openReviewSurface}
-                style={styles.primaryButton}
-              >
-                查看候选项
-              </button>
-            )}
-            {canSaveAll ? (
-              <button
-                type="button"
-                onClick={openReviewSurface}
-                style={styles.secondaryButton}
-              >
-                查看详情
-              </button>
-            ) : null}
             <button
               type="button"
-              onClick={() => commit({ accepted_ids: [] })}
-              disabled={commitFinal || committing}
-              style={{
-                ...styles.ghostButton,
-                ...(commitFinal || committing ? styles.buttonDisabled : null),
-              }}
+              onClick={openRunSurface}
+              style={styles.primaryButton}
             >
-              {discarded ? "已暂不保存" : "暂不保存"}
+              查看运行
             </button>
+            {canSaveAll && !commitFinal ? (
+              <span style={styles.statusText}>正在自动写入工作区...</span>
+            ) : null}
+            {discarded ? (
+              <span style={styles.statusText}>已暂不保存</span>
+            ) : null}
+            {reverted ? (
+              <span style={styles.statusText}>已撤回本次保存</span>
+            ) : null}
+            {canSaveAll && committed ? (
+              <button
+                type="button"
+                onClick={undoCommit}
+                disabled={reverting}
+                style={{
+                  ...styles.ghostButton,
+                  ...(reverting ? styles.buttonDisabled : null),
+                }}
+              >
+                {reverting ? "撤回中..." : "撤回本次保存"}
+              </button>
+            ) : null}
           </div>
           {commitError ? (
             <div style={styles.commitError}>{commitError}</div>
@@ -502,6 +549,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12.5,
     fontWeight: 650,
     cursor: "pointer",
+  },
+  statusText: {
+    color: "var(--wjn-text-muted)",
+    fontSize: 12,
+    fontWeight: 650,
   },
   ghostButton: {
     border: "1px solid rgba(20, 20, 30, 0.08)",

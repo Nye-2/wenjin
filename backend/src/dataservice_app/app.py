@@ -81,7 +81,6 @@ from .routers import (  # noqa: E402
     credit,
     execution,
     health,
-    knowledge,
     latex,
     model_catalog,
     pricing,
@@ -95,6 +94,7 @@ from .routers import (  # noqa: E402
     task,
     template,
     workspace,
+    workspace_memory,
 )
 
 app.include_router(account.router)
@@ -105,7 +105,6 @@ app.include_router(conversation.router)
 app.include_router(credit.router)
 app.include_router(execution.router)
 app.include_router(health.router)
-app.include_router(knowledge.router)
 app.include_router(latex.router)
 app.include_router(model_catalog.router)
 app.include_router(pricing.router)
@@ -119,6 +118,7 @@ app.include_router(source.router)
 app.include_router(task.router)
 app.include_router(template.router)
 app.include_router(workspace.router)
+app.include_router(workspace_memory.router)
 
 
 @app.get("/", include_in_schema=False)

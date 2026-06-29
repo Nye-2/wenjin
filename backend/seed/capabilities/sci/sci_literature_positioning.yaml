@@ -116,9 +116,8 @@ inputs:
 context_policy:
   room_reads:
     library: summary
-    documents: excerpts
+    prism: excerpts
     decisions: full
-    memory: relevant
     tasks: related
   prism_context:
     include_outline: true
@@ -212,8 +211,8 @@ runtime:
   - web_search
   - library_read
   - citation_parser
-  - document_read
-  - memory_read
+  - prism_file_read
+  - workspace_memory_read
   - prism_read
   - prism_change_staged
   - artifact_create
@@ -231,8 +230,8 @@ team_policy:
   - web_search
   - library_read
   - citation_parser
-  - document_read
-  - memory_read
+  - prism_file_read
+  - workspace_memory_read
   - prism_read
   - prism_change_staged
   - artifact_create

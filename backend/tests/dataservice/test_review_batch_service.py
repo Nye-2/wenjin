@@ -139,13 +139,13 @@ def _batch_command(*, item_count: int = 2) -> ReviewBatchCreateCommand:
         source_id="card-1",
         review_kind="result_card_commit",
         title="Review generated manuscript updates",
-        summary="Two staged document writes",
+        summary="Two staged Prism file writes",
         payload_json={"surface": "prism"},
         items=[
             ReviewItemCreateCommand(
                 source_item_id=f"card-item-{index}",
                 item_kind="document_patch",
-                target_domain="documents",
+                target_domain="prism_files",
                 target_kind="paragraph",
                 target_ref_json={"document_id": "doc-1", "index": index},
                 title=f"Patch {index}",
@@ -253,7 +253,7 @@ async def test_apply_item_uses_registered_handler_and_marks_batch_applied() -> N
         return {"document_id": item.target_ref_json["document_id"], "applied": True}
 
     registry.register(
-        target_domain="documents",
+        target_domain="prism_files",
         target_kind="paragraph",
         handler=apply_paragraph,
     )
@@ -290,7 +290,7 @@ async def test_apply_many_uses_one_transaction_for_all_target_handlers() -> None
         return {"document_id": item.target_ref_json["document_id"], "applied": True}
 
     registry.register(
-        target_domain="documents",
+        target_domain="prism_files",
         target_kind="paragraph",
         handler=apply_paragraph,
     )

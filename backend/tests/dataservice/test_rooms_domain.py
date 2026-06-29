@@ -12,10 +12,9 @@ from src.database.base import Base
 from src.dataservice.domains.review.contracts import ReviewItemProjection
 from src.dataservice.domains.rooms.contracts import (
     DecisionSetCommand,
-    MemoryFactCreateCommand,
     WorkspaceTaskCreateCommand,
 )
-from src.dataservice.domains.rooms.models import DecisionRecord, MemoryFactRecord, WorkspaceTaskRecord
+from src.dataservice.domains.rooms.models import DecisionRecord, WorkspaceTaskRecord
 from src.dataservice.domains.rooms.service import RoomsDataDomainService
 
 
@@ -41,7 +40,6 @@ def _record(values: dict[str, Any]) -> SimpleNamespace:
 class FakeRoomsRepository:
     def __init__(self) -> None:
         self.decisions: dict[str, SimpleNamespace] = {}
-        self.memory: dict[str, SimpleNamespace] = {}
         self.tasks: dict[str, SimpleNamespace] = {}
 
     async def get_active_decision(self, *, workspace_id: str, key: str) -> SimpleNamespace | None:
@@ -84,36 +82,6 @@ class FakeRoomsRepository:
         record = self.decisions.get(decision_id)
         return record if record and record.workspace_id == workspace_id else None
 
-    def create_memory_fact(self, values: dict[str, Any]) -> SimpleNamespace:
-        fact_id = f"memory-{len(self.memory) + 1}"
-        record = _record(
-            {
-                "id": fact_id,
-                "last_referenced_at": None,
-                "reference_count": 0,
-                "source_review_batch_id": None,
-                "source_review_item_id": None,
-                **values,
-            }
-        )
-        self.memory[fact_id] = record
-        return record
-
-    async def list_memory_facts(
-        self,
-        *,
-        workspace_id: str,
-        limit: int = 15,
-        category: str | None = None,
-    ) -> list[SimpleNamespace]:
-        records = [record for record in self.memory.values() if record.workspace_id == workspace_id]
-        if category is not None:
-            records = [record for record in records if record.category == category]
-        return records[:limit]
-
-    async def get_memory_fact(self, fact_id: str) -> SimpleNamespace | None:
-        return self.memory.get(fact_id)
-
     def create_workspace_task(self, values: dict[str, Any]) -> SimpleNamespace:
         task_id = f"task-{len(self.tasks) + 1}"
         record = _record(
@@ -154,7 +122,6 @@ def _service() -> tuple[RoomsDataDomainService, FakeRoomsRepository, FakeSession
 
 def test_room_models_are_registered_on_shared_metadata() -> None:
     assert DecisionRecord.__tablename__ in Base.metadata.tables
-    assert MemoryFactRecord.__tablename__ in Base.metadata.tables
     assert WorkspaceTaskRecord.__tablename__ in Base.metadata.tables
 
 
@@ -183,32 +150,20 @@ async def test_decision_set_supersedes_previous_active_value() -> None:
 
 
 @pytest.mark.asyncio
-async def test_memory_and_task_create_with_review_trace() -> None:
+async def test_task_create_with_review_trace() -> None:
     service, _, _ = _service()
 
-    facts = await service.add_memory_facts(
-        [
-            MemoryFactCreateCommand(
-                workspace_id="ws-1",
-                category="research",
-                content="Use fixed effects.",
-                source_review_batch_id="batch-1",
-                source_review_item_id="item-1",
-            )
-        ]
-    )
     task = await service.create_workspace_task(
         WorkspaceTaskCreateCommand(
             workspace_id="ws-1",
             title="Check appendix",
             created_by="user",
             source_review_batch_id="batch-1",
-            source_review_item_id="item-2",
+            source_review_item_id="item-1",
         )
     )
 
-    assert facts[0].source_review_item_id == "item-1"
-    assert task.source_review_item_id == "item-2"
+    assert task.source_review_item_id == "item-1"
 
 
 @pytest.mark.asyncio

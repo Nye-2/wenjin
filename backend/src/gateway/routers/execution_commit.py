@@ -90,3 +90,23 @@ async def commit_execution_outputs(
         raise HTTPException(status_code=500, detail="Commit state persistence failed") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{execution_id}/commit/undo")
+async def undo_execution_commit(
+    execution_id: str,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    commit_service: ExecutionCommitService = Depends(_get_commit_service),
+) -> dict[str, Any]:
+    """Undo the committed room writeback batch for an execution."""
+    try:
+        return await commit_service.undo_commit(
+            execution_id,
+            actor_user_id=str(current_user.id),
+        )
+    except ExecutionCommitNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Execution not found") from exc
+    except ExecutionCommitPersistenceError as exc:
+        raise HTTPException(status_code=500, detail="Commit state persistence failed") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

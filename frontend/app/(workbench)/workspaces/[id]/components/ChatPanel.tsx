@@ -3,12 +3,16 @@
 import { useRef, useEffect, useMemo, useState, memo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { SendHorizontal } from "lucide-react";
-import type { WorkspaceCapability } from "@/lib/api";
+import { listModels, type Model, type WorkspaceCapability } from "@/lib/api";
 import {
   buildContinueThreadBlockAction,
   type ContinueThreadBlockAction,
 } from "@/lib/block-actions";
-import { useChatStoreV2, type Message } from "@/stores/chat-store";
+import {
+  useChatStoreV2,
+  type Message,
+  type SendMessageOptions,
+} from "@/stores/chat-store";
 import { MessageBlock } from "./MessageBlock";
 import { FileAttachButton } from "./FileAttachButton";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
@@ -79,6 +83,11 @@ export function ChatPanel({
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [modelOptions, setModelOptions] = useState<Model[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [modelLoadState, setModelLoadState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [historyHydration, setHistoryHydration] = useState<{
     workspaceId: string;
     hydrated: boolean;
@@ -130,23 +139,62 @@ export function ChatPanel({
   }, [isSending, messages]);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
+  const selectedModelLabel =
+    modelOptions.find((model) => model.name === selectedModel)?.display_name ??
+    selectedModel;
+  const withSelectedModel = useCallback(
+    (options?: SendMessageOptions): SendMessageOptions | undefined => {
+      const model = selectedModel.trim();
+      if (!model) {
+        return options;
+      }
+      return {
+        ...(options ?? {}),
+        model,
+      };
+    },
+    [selectedModel],
+  );
   const handleBlockIntent = useCallback(
     (
       intent: string,
-      options?: {
-        metadata: {
-          orchestration?: Record<string, unknown>;
-          block_action?: ContinueThreadBlockAction;
-        };
-      },
+      options?: SendMessageOptions,
     ) => {
       if (!intent.trim() || isSending) {
         return;
       }
-      void sendMessage(workspaceId, intent.trim(), [], options);
+      void sendMessage(workspaceId, intent.trim(), [], withSelectedModel(options));
     },
-    [isSending, sendMessage, workspaceId],
+    [isSending, sendMessage, withSelectedModel, workspaceId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    setModelLoadState("loading");
+    listModels("chat")
+      .then(({ models }) => {
+        if (cancelled) return;
+        setModelOptions(models);
+        setSelectedModel((current) => {
+          if (current && models.some((model) => model.name === current)) {
+            return current;
+          }
+          const defaultModel =
+            models.find((model) => model.is_default) ?? models[0];
+          return defaultModel?.name ?? "";
+        });
+        setModelLoadState("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setModelOptions([]);
+        setSelectedModel("");
+        setModelLoadState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Auto-scroll to bottom on new messages or thinking state change
   useEffect(() => {
@@ -189,7 +237,13 @@ export function ChatPanel({
   }, [workspaceId]);
 
   useEffect(() => {
-    if (!historyHydrated || !entrySeed || isSending || messages.length > 0) {
+    if (
+      !historyHydrated ||
+      !entrySeed ||
+      isSending ||
+      messages.length > 0 ||
+      modelLoadState === "loading"
+    ) {
       return;
     }
 
@@ -213,10 +267,10 @@ export function ChatPanel({
         feature: entryFeature,
       }),
       [],
-      {
+      withSelectedModel({
         skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
         metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
-      },
+      }),
     );
   }, [
     entryFeature,
@@ -225,7 +279,9 @@ export function ChatPanel({
     historyHydrated,
     isSending,
     messages.length,
+    modelLoadState,
     sendMessage,
+    withSelectedModel,
     workspaceId,
   ]);
 
@@ -254,12 +310,14 @@ export function ChatPanel({
       workspaceId,
       trimmed,
       currentAttachments,
-      shouldForwardResumeSeed && entrySeed
-        ? {
-            skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
-            metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
-          }
-        : undefined,
+      withSelectedModel(
+        shouldForwardResumeSeed && entrySeed
+          ? {
+              skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
+              metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
+            }
+          : undefined,
+      ),
     );
   }
 
@@ -388,7 +446,14 @@ export function ChatPanel({
             {typeConfig.suggestions.map((text) => (
               <button
                 key={text}
-                onClick={() => void sendMessage(workspaceId, text)}
+                onClick={() =>
+                  void sendMessage(
+                    workspaceId,
+                    text,
+                    [],
+                    withSelectedModel(),
+                  )
+                }
                 disabled={isSending}
                 style={{
                   padding: "6px 14px",
@@ -510,6 +575,86 @@ export function ChatPanel({
               lineHeight: "1.4",
             }}
           />
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              minWidth: 112,
+              maxWidth: 168,
+              height: 38,
+              borderRadius: "var(--wjn-radius)",
+              border: "1px solid var(--wjn-line)",
+              background: "#fff",
+              color: "var(--wjn-text-secondary)",
+              position: "relative",
+              overflow: "hidden",
+            }}
+            title={
+              modelLoadState === "error"
+                ? "模型目录加载失败"
+                : selectedModelLabel
+                  ? `当前模型：${selectedModelLabel}`
+                  : modelLoadState === "loading"
+                    ? "模型加载中"
+                    : "暂无可用模型"
+            }
+          >
+            <span
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                overflow: "hidden",
+                clip: "rect(0, 0, 0, 0)",
+                whiteSpace: "nowrap",
+                border: 0,
+              }}
+            >
+              选择对话模型
+            </span>
+            <select
+              aria-label="选择对话模型"
+              data-testid="chat-model-selector"
+              value={selectedModel}
+              onChange={(event) => setSelectedModel(event.target.value)}
+              disabled={isSending || modelOptions.length === 0}
+              style={{
+                width: "100%",
+                height: "100%",
+                border: "none",
+                background: "transparent",
+                color: "var(--wjn-text-secondary)",
+                fontSize: 12,
+                fontWeight: 650,
+                padding: "0 28px 0 10px",
+                outline: "none",
+                cursor:
+                  isSending || modelOptions.length === 0
+                    ? "not-allowed"
+                    : "pointer",
+                opacity: isSending ? 0.58 : 1,
+                fontFamily: "var(--wjn-font-sans)",
+              }}
+            >
+              {modelOptions.length === 0 ? (
+                <option value="">
+                  {modelLoadState === "error"
+                    ? "模型加载失败"
+                    : modelLoadState === "loading"
+                      ? "模型加载中"
+                      : "暂无可用模型"}
+                </option>
+              ) : (
+                modelOptions.map((model) => (
+                  <option key={model.name} value={model.name}>
+                    {model.display_name}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
           <button
             onClick={handleSubmit}
             disabled={isSending || !inputValue.trim()}
@@ -552,12 +697,7 @@ const MessageRow = memo(function MessageRow({
   workspaceId: string;
   onIntent?: (
     intent: string,
-    options?: {
-      metadata: {
-        orchestration?: Record<string, unknown>;
-        block_action?: ContinueThreadBlockAction;
-      };
-    },
+    options?: SendMessageOptions,
   ) => void;
   intentDisabled?: boolean;
 }) {

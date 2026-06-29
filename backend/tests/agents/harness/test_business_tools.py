@@ -17,8 +17,8 @@ def _ctx() -> SubagentContext:
         inputs={"raw_message": "federated LLM"},
         tools=[
             "library_read",
-            "document_read",
-            "memory_read",
+            "prism_file_read",
+            "workspace_memory_read",
             "prism_read",
             "citation_parser",
             "artifact_create",
@@ -40,7 +40,7 @@ def _ctx() -> SubagentContext:
                     },
                 ]
             },
-            "documents": [
+            "prism_files": [
                 {
                     "name": "notes.md",
                     "excerpt": "Federated learning notes",
@@ -52,9 +52,9 @@ def _ctx() -> SubagentContext:
                     "path": "/workspace/.wenjin/cache/secret.md",
                 },
             ],
-            "memory": [
-                {"text": "Prefer conservative claims.", "path": "/workspace/reports/memory.md"},
-            ],
+            "workspace_memory": {
+                "content_markdown": "Prefer conservative claims.",
+            },
             "prism": {
                 "outline": ["Introduction", "Related Work"],
                 "protected_sections": [{"label": "Methods", "path": "/workspace/main/main.tex"}],

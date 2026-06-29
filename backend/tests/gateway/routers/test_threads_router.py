@@ -210,6 +210,13 @@ def create_client(user_id: str, service: FakeThreadService) -> TestClient:
     async def override_get_thread_service():
         return service
 
+    async def override_get_dataservice_client():
+        return SimpleNamespace(
+            get_workspace_settings=AsyncMock(
+                return_value=SimpleNamespace(default_model=None),
+            ),
+        )
+
     async def allow_workspace_owner(*args, **kwargs):
         workspace_id = kwargs.get("workspace_id")
         return SimpleNamespace(id=workspace_id)
@@ -218,6 +225,9 @@ def create_client(user_id: str, service: FakeThreadService) -> TestClient:
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[threads.get_thread_service] = (
         override_get_thread_service
+    )
+    app.dependency_overrides[threads.get_dataservice_client] = (
+        override_get_dataservice_client
     )
     app.include_router(threads.router)
     return TestClient(app)

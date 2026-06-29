@@ -116,9 +116,8 @@ inputs:
 context_policy:
   room_reads:
     library: summary
-    documents: excerpts
+    prism: excerpts
     decisions: full
-    memory: relevant
     tasks: related
   prism_context:
     include_outline: true

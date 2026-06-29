@@ -15,14 +15,22 @@ import {
   commitStateRoomTargets,
   type ExecutionCommitRequest,
   type ExecutionCommitState,
+  isExecutionCommitted,
   isExecutionDiscarded,
+  isExecutionReverted,
   readCommitStateFromResult,
+  undoExecutionCommit,
 } from "@/lib/execution-commit";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
   buildOutputOverrides,
 } from "@/lib/workbench-result-editing";
+import {
+  findLatestIntakeSpec,
+  isSuperWorkflowCapability,
+  type IntakeSpecV1,
+} from "@/lib/intake-spec";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
@@ -31,8 +39,8 @@ import {
 } from "@/stores/workbench-layout-store";
 import { EvidenceView } from "./live-workflow/EvidenceView";
 import { InterventionBar } from "./live-workflow/InterventionBar";
+import { IntakeSpecPreview } from "./live-workflow/IntakeSpecPreview";
 import { OverviewView } from "./live-workflow/OverviewView";
-import { ReviewView } from "./live-workflow/ReviewView";
 import { RunView } from "./live-workflow/RunView";
 import { WorkbenchHeader } from "./live-workflow/WorkbenchHeader";
 import { styles } from "./live-workflow/styles";
@@ -89,6 +97,7 @@ export function LiveWorkflowPanel({
   const setDraftEdit = useWorkbenchLayoutStore((state) => state.setDraftEdit);
   const patchDraftData = useWorkbenchLayoutStore((state) => state.patchDraftData);
   const clearDraftEdits = useWorkbenchLayoutStore((state) => state.clearDraftEdits);
+  const messages = useChatStoreV2((state) => state.messages);
   const sendMessage = useChatStoreV2((state) => state.sendMessage);
   const isSending = useChatStoreV2((state) => state.isSending);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
@@ -99,6 +108,7 @@ export function LiveWorkflowPanel({
     executionId: string | null;
     idempotencyKey: string;
     committing: boolean;
+    reverting: boolean;
     responseCommitState: ExecutionCommitState | null;
     linkPreviews: WorkspaceResultPreview[] | null;
     error: string | null;
@@ -106,6 +116,7 @@ export function LiveWorkflowPanel({
     executionId: null,
     idempotencyKey: generateUUID(),
     committing: false,
+    reverting: false,
     responseCommitState: null,
     linkPreviews: null,
     error: null,
@@ -155,7 +166,10 @@ export function LiveWorkflowPanel({
       : null;
   const effectiveCommitState = durableCommitState ?? localCommitState;
   const commitFinal = Boolean(effectiveCommitState);
+  const commitCommitted = isExecutionCommitted(effectiveCommitState);
   const commitDiscarded = isExecutionDiscarded(effectiveCommitState);
+  const commitReverted = isExecutionReverted(effectiveCommitState);
+  const autoCommitAttemptedRef = useRef<Set<string>>(new Set());
   const commitLinkPreviews =
     commitState.executionId === selectedRecord?.id && commitState.linkPreviews
       ? commitState.linkPreviews
@@ -169,6 +183,13 @@ export function LiveWorkflowPanel({
       }),
     [commitLinkPreviews, effectiveCommitState, workspaceId],
   );
+  const latestMessageSpec = useMemo(
+    () => findLatestIntakeSpec(messages, workspaceId),
+    [messages, workspaceId],
+  );
+  const intakeSpec = latestMessageSpec;
+  const visibleWorkbenchTab =
+    activeWorkbenchTab === "review" ? "run" : activeWorkbenchTab;
 
   useEffect(() => {
     if (records.length > 0) {
@@ -210,6 +231,9 @@ export function LiveWorkflowPanel({
   }, [records, selectedRecord, selectedRunId, selectRun]);
 
   useEffect(() => {
+    if (activeWorkbenchTab === "spec" && intakeSpec) {
+      return;
+    }
     if (!selectedRecord) {
       setAutoWorkbenchTab("overview");
       return;
@@ -218,8 +242,14 @@ export function LiveWorkflowPanel({
       setAutoWorkbenchTab("run");
       return;
     }
-    if (previews.length > 0 || reviewItems.length > 0) {
-      setAutoWorkbenchTab("review");
+    if (
+      activeWorkbenchTab === "evidence" &&
+      evidenceItems.length > 0
+    ) {
+      return;
+    }
+    if (isTerminalStatus(selectedRecord.status)) {
+      setAutoWorkbenchTab("run");
       return;
     }
     if (evidenceItems.length > 0) {
@@ -227,7 +257,15 @@ export function LiveWorkflowPanel({
       return;
     }
     setAutoWorkbenchTab("overview");
-  }, [evidenceItems.length, previews.length, reviewItems.length, selectedRecord, setAutoWorkbenchTab]);
+  }, [
+    activeWorkbenchTab,
+    evidenceItems.length,
+    intakeSpec,
+    previews.length,
+    reviewItems.length,
+    selectedRecord,
+    setAutoWorkbenchTab,
+  ]);
 
   useEffect(() => {
     setCheckedIds(
@@ -256,6 +294,7 @@ export function LiveWorkflowPanel({
       executionId: selectedRecord?.id ?? null,
       idempotencyKey: generateUUID(),
       committing: false,
+      reverting: false,
       responseCommitState: null,
       linkPreviews: null,
       error: null,
@@ -292,7 +331,7 @@ export function LiveWorkflowPanel({
         `被中断的执行 ID：${interventionState.executionId}`,
         "补充指令：",
         instruction,
-        "请复用上一轮已经完成且仍可靠的证据和产物，避免无必要重复。",
+        "请复用上一轮已经完成且仍可靠的证据和结果，避免无必要重复。",
       ].join("\n"),
       [],
       {
@@ -340,6 +379,31 @@ export function LiveWorkflowPanel({
     if (isSending) {
       return;
     }
+    if (isSuperWorkflowCapability(feature.id)) {
+      const prompt =
+        feature.id === "software_copyright_application_pack"
+          ? [
+              "先帮我梳理软著申报材料包的执行 Spec。",
+              "请通过对话确认：我要做一个什么软件、软件名称、Web 还是 App、后端语言偏好，以及是否有必须强调的功能点。",
+              "Spec 写好后生成一张澄清卡片，等我同意后再开始执行。",
+            ].join("\n")
+          : [
+              "先帮我梳理数学建模论文生成的执行 Spec。",
+              "请通过对话确认题目、数据、竞赛格式和需要强调的建模方向。编程统一使用 Python，不要询问语言。",
+              "Spec 写好后生成一张澄清卡片，等我同意后再开始执行。",
+            ].join("\n");
+      setActiveWorkbenchTab("spec");
+      await sendMessage(workspaceId, prompt, [], {
+        metadata: {
+          workbench_launch: {
+            capability_id: feature.id,
+            capability_name: feature.name,
+            mode: "intake",
+          },
+        },
+      });
+      return;
+    }
     const prompt = [
       `我想使用「${feature.name}」能力。`,
       "请先确认启动所需的具体研究主题、材料或目标；信息足够时再组织研究团队。",
@@ -359,8 +423,37 @@ export function LiveWorkflowPanel({
     });
   }
 
-  async function handleCommit(mode: "all" | "selected" | "discard") {
-    if (!selectedRecord || commitState.committing || commitFinal) {
+  async function handleApproveIntakeSpec(spec: IntakeSpecV1) {
+    if (isSending || spec.status !== "ready" || spec.missing_fields.length > 0) {
+      return;
+    }
+    await sendMessage(
+      workspaceId,
+      [
+        `同意并开始执行这份 Spec：${spec.title}`,
+        "请按澄清文档中的范围和参数启动团队执行。",
+      ].join("\n"),
+      [],
+      {
+        metadata: {
+          orchestration: {
+            feature_id: spec.capability_id,
+            params: spec.params,
+          },
+          intake_spec_launch: {
+            spec_id: spec.spec_id,
+            revision: spec.revision,
+          },
+        },
+      },
+    );
+  }
+
+  async function handleCommit(
+    mode: "all" | "selected" | "discard",
+    options?: { automatic?: boolean },
+  ) {
+    if (!selectedRecord || commitState.committing || commitState.reverting || commitFinal) {
       return;
     }
     const requestExecutionId = selectedRecord.id;
@@ -383,7 +476,9 @@ export function LiveWorkflowPanel({
       useAcceptAll
         ? { accept_all: true }
         : { accepted_ids: acceptedIds };
-    const overrides = buildOutputOverrides(acceptedIds, draftEdits);
+    const overrides = options?.automatic
+      ? null
+      : buildOutputOverrides(acceptedIds, draftEdits);
     if (overrides) {
       body.output_overrides = overrides;
     }
@@ -392,6 +487,7 @@ export function LiveWorkflowPanel({
       ...current,
       executionId: requestExecutionId,
       committing: true,
+      reverting: false,
       error: null,
       linkPreviews: null,
     }));
@@ -412,6 +508,7 @@ export function LiveWorkflowPanel({
             ? {
                 ...current,
                 committing: false,
+                reverting: false,
                 responseCommitState: null,
                 linkPreviews: null,
                 error: COMMIT_STATE_SYNC_ERROR,
@@ -441,6 +538,7 @@ export function LiveWorkflowPanel({
               ...current,
               executionId: requestExecutionId,
               committing: false,
+              reverting: false,
               responseCommitState: nextCommitState,
               linkPreviews: commitLinkPreviews,
             }
@@ -455,9 +553,113 @@ export function LiveWorkflowPanel({
           ? {
               ...current,
               committing: false,
+              reverting: false,
               responseCommitState: null,
               linkPreviews: null,
               error: error instanceof Error ? error.message : "保存失败",
+            }
+          : current,
+      );
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !selectedRecord ||
+      selectedRecord.status !== "completed" ||
+      effectiveCommitState ||
+      commitState.committing ||
+      commitState.reverting
+    ) {
+      return;
+    }
+    if (!previews.some((preview) => preview.canCommit)) {
+      return;
+    }
+    const attempted = autoCommitAttemptedRef.current;
+    if (attempted.has(selectedRecord.id)) {
+      return;
+    }
+    attempted.add(selectedRecord.id);
+    void handleCommit("all", { automatic: true });
+  }, [
+    commitState.committing,
+    commitState.reverting,
+    effectiveCommitState,
+    previews,
+    selectedRecord,
+  ]);
+
+  async function handleUndoCommit() {
+    if (
+      !selectedRecord ||
+      commitState.committing ||
+      commitState.reverting ||
+      !effectiveCommitState ||
+      effectiveCommitState.status !== "committed"
+    ) {
+      return;
+    }
+    const requestExecutionId = selectedRecord.id;
+    setCommitState((current) => ({
+      ...current,
+      executionId: requestExecutionId,
+      reverting: true,
+      error: null,
+    }));
+    try {
+      const response = await undoExecutionCommit({ executionId: requestExecutionId });
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setCommitState((current) =>
+          shouldApplyCommitResponseToLocalState(
+            current.executionId,
+            requestExecutionId,
+          )
+            ? {
+                ...current,
+                reverting: false,
+                responseCommitState: null,
+                error: COMMIT_STATE_SYNC_ERROR,
+              }
+            : current,
+        );
+        return;
+      }
+      const recordToPatch =
+        useExecutionStore.getState().executions.get(requestExecutionId);
+      if (recordToPatch) {
+        upsertExecution({
+          ...recordToPatch,
+          result: {
+            ...(recordToPatch.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
+      setCommitState((current) =>
+        shouldApplyCommitResponseToLocalState(
+          current.executionId,
+          requestExecutionId,
+        )
+          ? {
+              ...current,
+              reverting: false,
+              responseCommitState: nextCommitState,
+              linkPreviews: previews,
+            }
+          : current,
+      );
+    } catch (error) {
+      setCommitState((current) =>
+        shouldApplyCommitResponseToLocalState(
+          current.executionId,
+          requestExecutionId,
+        )
+          ? {
+              ...current,
+              reverting: false,
+              error: error instanceof Error ? error.message : "撤回保存失败",
             }
           : current,
       );
@@ -518,10 +720,10 @@ export function LiveWorkflowPanel({
       }}
     >
       <WorkbenchHeader
-        activeTab={activeWorkbenchTab}
-        pendingReviewCount={pendingReviewCount}
+        activeTab={visibleWorkbenchTab}
         evidenceCount={evidenceItems.length}
         showProgressTab={Boolean(runningRecord) || activeWorkbenchTab === "run"}
+        showSpecTab={Boolean(intakeSpec) || activeWorkbenchTab === "spec"}
         hasRunHistory={records.length > 0}
         isFullscreen={isFullscreen}
         canInterrupt={Boolean(runningRecord)}
@@ -543,7 +745,7 @@ export function LiveWorkflowPanel({
       ) : null}
 
       <div style={styles.body}>
-        {activeWorkbenchTab === "overview" ? (
+        {visibleWorkbenchTab === "overview" ? (
           <OverviewView
             typeConfig={typeConfig}
             features={features}
@@ -558,16 +760,37 @@ export function LiveWorkflowPanel({
             }}
           />
         ) : null}
-        {activeWorkbenchTab === "run" ? (
+        {visibleWorkbenchTab === "spec" ? (
+          <IntakeSpecPreview
+            spec={intakeSpec}
+            isSending={isSending}
+            onApprove={(spec) => void handleApproveIntakeSpec(spec)}
+          />
+        ) : null}
+        {visibleWorkbenchTab === "run" ? (
           <RunView
             record={selectedRecord}
             selectedNodeId={selectedNodeId}
+            writeback={
+              selectedRecord && isTerminalStatus(selectedRecord.status)
+                ? {
+                    committed: commitCommitted,
+                    discarded: commitDiscarded,
+                    reverted: commitReverted,
+                    committing: commitState.committing,
+                    reverting: commitState.reverting,
+                    error: commitState.error,
+                    links: commitLinks,
+                    onUndo: () => void handleUndoCommit(),
+                    onRetry: () => void handleCommit("all"),
+                  }
+                : undefined
+            }
             onSelectNode={selectNode}
-            onOpenReview={() => setActiveWorkbenchTab("review")}
             onOpenEvidence={() => setActiveWorkbenchTab("evidence")}
           />
         ) : null}
-        {activeWorkbenchTab === "evidence" ? (
+        {visibleWorkbenchTab === "evidence" ? (
           <EvidenceView
             items={evidenceItems}
             filter={evidenceFilter}
@@ -575,41 +798,13 @@ export function LiveWorkflowPanel({
             selectedId={selectedPreviewId}
             checkedIds={checkedIds}
             draftEdits={draftEdits}
-            disabled={commitFinal}
+            disabled={commitFinal || selectedRecord?.status === "completed"}
             onFilterChange={setEvidenceFilter}
             onQueryChange={setEvidenceQuery}
             onSelect={(id) => setSelectedPreviewId(id)}
             onToggleChecked={(id) => toggleChecked(setCheckedIds, id)}
             onPatchDraft={patchDraftData}
             onSetDraft={setDraftEdit}
-          />
-        ) : null}
-        {activeWorkbenchTab === "review" ? (
-          <ReviewView
-            workspaceId={workspaceId}
-            record={selectedRecord}
-            previews={previews}
-            selectedPreview={selectedPreview}
-            selectedDraft={selectedDraft}
-            draftEdits={draftEdits}
-            checkedIds={checkedIds}
-            committed={commitFinal}
-            commitFinalLabel={
-              commitDiscarded ? "已暂不保存" : "已写入工作区"
-            }
-            committing={commitState.committing}
-            commitLinks={commitLinks}
-            commitError={commitState.error}
-            reviewItems={reviewItems}
-            isFullscreen={isFullscreen}
-            onSelectPreview={setSelectedPreviewId}
-            onEnterDetailMode={() => setWorkbenchFullscreen(true)}
-            onToggleChecked={(id) => toggleChecked(setCheckedIds, id)}
-            onPatchDraft={patchDraftData}
-            onSetDraft={setDraftEdit}
-            onAcceptAll={() => void handleCommit("all")}
-            onAcceptSelected={() => void handleCommit("selected")}
-            onDiscard={() => void handleCommit("discard")}
           />
         ) : null}
       </div>

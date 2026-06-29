@@ -7,8 +7,6 @@ from typing import Any
 from src.dataservice_client.contracts.rooms import (
     DecisionPayload,
     DecisionSetPayload,
-    MemoryFactCreatePayload,
-    MemoryFactPayload,
     RoomCandidateApplyPayload,
     RoomCandidatePayload,
     WorkspaceTaskCreatePayload,
@@ -133,36 +131,6 @@ class WorkspaceDataServiceClientMixin:
 
     async def delete_room_decision(self, decision_id: str) -> bool:
         payload = await self._request("DELETE", f"/internal/v1/rooms/decisions/{decision_id}")
-        data = payload.get("data")
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def list_room_memory_facts(
-        self,
-        *,
-        workspace_id: str,
-        limit: int = 15,
-        category: str | None = None,
-    ) -> list[MemoryFactPayload]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/rooms/workspaces/{workspace_id}/memory",
-            params={"limit": limit, "category": category},
-        )
-        return [MemoryFactPayload.model_validate(item) for item in payload["data"]]
-
-    async def add_room_memory_facts(
-        self,
-        commands: list[MemoryFactCreatePayload],
-    ) -> list[MemoryFactPayload]:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/rooms/memory",
-            json=[command.model_dump(mode="json") for command in commands],
-        )
-        return [MemoryFactPayload.model_validate(item) for item in payload["data"]]
-
-    async def delete_room_memory_fact(self, *, workspace_id: str, fact_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/rooms/workspaces/{workspace_id}/memory/{fact_id}")
         data = payload.get("data")
         return bool(data.get("deleted")) if isinstance(data, dict) else False
 

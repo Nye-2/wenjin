@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MemoryViewer } from "./MemoryViewer";
 import { DecisionsViewer } from "./DecisionsViewer";
 import { SettingsForm } from "./SettingsForm";
 
@@ -12,10 +11,9 @@ interface SettingsPageProps {
   onClose: () => void;
 }
 
-type TabKey = "memory" | "decisions" | "settings";
+type TabKey = "decisions" | "settings";
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "memory", label: "Memory" },
   { key: "decisions", label: "Decisions" },
   { key: "settings", label: "Settings" },
 ];
@@ -27,7 +25,7 @@ export function SettingsPage({
   onClose,
 }: SettingsPageProps) {
   const [visible, setVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>(defaultTab ?? "memory");
+  const [activeTab, setActiveTab] = useState<TabKey>(defaultTab ?? "decisions");
 
   useEffect(() => {
     if (!defaultTab) {
@@ -167,9 +165,6 @@ export function SettingsPage({
 
       {/* Tab content */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        {activeTab === "memory" && (
-          <MemoryViewer workspaceId={workspaceId} />
-        )}
         {activeTab === "decisions" && (
           <DecisionsViewer workspaceId={workspaceId} />
         )}

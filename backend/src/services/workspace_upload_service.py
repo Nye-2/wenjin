@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from src.artifacts import ArtifactType
-from src.services.knowledge_service import KnowledgeService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.workspace_memory import (
+    WorkspaceMemoryItemPayload,
+    WorkspaceMemoryMergePayload,
+)
 from src.services.layout_preprocess_orchestrator import LayoutPreprocessOrchestrator
 from src.services.thread_upload_service import ThreadUploadService
 from src.services.workspace_uploads import (
@@ -32,7 +36,7 @@ class WorkspaceUploadResult:
 
 
 class WorkspaceUploadService:
-    """Persist workspace-context uploads and mirror them into artifacts/memory."""
+    """Persist workspace-context uploads and mirror them into hidden workspace memory."""
 
     def __init__(
         self,
@@ -56,7 +60,7 @@ class WorkspaceUploadService:
         thread_path: Path,
         metadata: dict[str, object],
         artifact_service: Any,
-        knowledge_service: KnowledgeService,
+        dataservice: AsyncDataServiceClient,
         task_service: Any,
         preprocess_orchestrator: LayoutPreprocessOrchestrator,
         deferred_preprocess: bool,
@@ -119,10 +123,10 @@ class WorkspaceUploadService:
             },
         )
 
-        await self._upsert_knowledge_memory(
-            knowledge_service=knowledge_service,
-            user_id=user_id,
+        await self._merge_workspace_memory(
+            dataservice=dataservice,
             workspace_id=workspace_id,
+            thread_id=thread_id,
             persistent_path=persistent_path,
             document_preview=document_preview,
             text_preview=text_preview,
@@ -154,29 +158,38 @@ class WorkspaceUploadService:
                     return None
         return markdown_preview
 
-    async def _upsert_knowledge_memory(
+    async def _merge_workspace_memory(
         self,
         *,
-        knowledge_service: KnowledgeService,
-        user_id: str,
+        dataservice: AsyncDataServiceClient,
         workspace_id: str,
+        thread_id: str,
         persistent_path: Path,
         document_preview: dict[str, object],
         text_preview: str | None,
     ) -> None:
-        knowledge_text = f"用户上传了工作区上下文文件《{persistent_path.name}》作为当前研究参考材料。"
+        memory_text = f"用户上传了工作区上下文文件《{persistent_path.name}》作为当前研究参考材料。"
         if document_preview.get("title"):
-            knowledge_text += f" 文档标题：{document_preview['title']}。"
+            memory_text += f" 文档标题：{document_preview['title']}。"
         if text_preview:
-            knowledge_text += f" 内容摘要：{text_preview[:_MEMORY_PREVIEW_MAX_CHARS]}"
+            memory_text += f" 内容摘要：{text_preview[:_MEMORY_PREVIEW_MAX_CHARS]}"
         try:
-            await knowledge_service.upsert(
-                user_id,
-                "context",
-                knowledge_text,
-                confidence=0.85,
-                source="thread_upload.workspace_context",
-                workspace_context=workspace_id,
+            await dataservice.merge_workspace_memory(
+                workspace_id,
+                WorkspaceMemoryMergePayload(
+                    workspace_id=workspace_id,
+                    items=[
+                        WorkspaceMemoryItemPayload(
+                            category="context",
+                            content=memory_text,
+                            confidence=0.85,
+                        )
+                    ],
+                    update_reason="thread_upload.workspace_context",
+                    updated_by="thread_upload",
+                    source_thread_id=thread_id,
+                    metadata_json={"stored_path": str(persistent_path)},
+                ),
             )
         except Exception:
             logger.warning(

@@ -3,11 +3,14 @@ import {
   CheckCircle2,
   Database,
   Eye,
+  ExternalLink,
+  RotateCcw,
   Users,
 } from "lucide-react";
 import { useState } from "react";
 
 import type { ExecutionRecord } from "@/lib/api/types";
+import type { CommittedRoomLink } from "@/lib/execution-commit";
 import {
   buildRunProgressItems,
   runViewFromExecution,
@@ -26,18 +29,28 @@ import { qualityGateLabel, qualityGateTone, statusTone } from "./utils";
 export function RunView({
   record,
   selectedNodeId,
+  writeback,
   onSelectNode,
-  onOpenReview,
   onOpenEvidence,
 }: {
   record: ExecutionRecord | null;
   selectedNodeId: string | null;
+  writeback?: {
+    committed: boolean;
+    discarded: boolean;
+    reverted: boolean;
+    committing: boolean;
+    reverting: boolean;
+    error: string | null;
+    links: CommittedRoomLink[];
+    onUndo: () => void;
+    onRetry: () => void;
+  };
   onSelectNode: (nodeId: string | null) => void;
-  onOpenReview: () => void;
   onOpenEvidence: () => void;
 }) {
   if (!record) {
-    return <EmptyState title="还没有进行中的任务" detail="在左侧描述任务后，问津会自动组织团队，并在这里展示关键进展和待确认结果。" />;
+    return <EmptyState title="还没有进行中的任务" detail="在左侧描述任务后，问津会自动组织团队，并在这里展示关键进展和写入状态。" />;
   }
 
   const view = runViewFromExecution(record);
@@ -87,11 +100,8 @@ export function RunView({
             <Database size={14} />
             查看证据
           </button>
-          <button type="button" onClick={onOpenReview} style={styles.secondaryButton}>
-            <CheckCircle2 size={14} />
-            查看待确认
-          </button>
         </div>
+        {writeback ? <WritebackStatus writeback={writeback} /> : null}
         <GuidanceNote>
           这里展示的是用户需要理解的关键进展；更细的输入、工具调用和技术日志收在“运行详情”里。
         </GuidanceNote>
@@ -107,7 +117,7 @@ export function RunView({
             <div>
               <div style={styles.sectionTitle}>任务进展</div>
               <div style={styles.sectionSubtitle}>
-                专家会按阶段更新关键摘录，完成后的候选结果会进入“待确认”。
+                专家会按阶段更新关键摘录，完成后的文档和资料会自动写入 Prism 或资料库。
               </div>
             </div>
           </div>
@@ -155,6 +165,71 @@ export function RunView({
           <NodeInspector node={activeNode} state={activeNodeState} />
         </details>
       </section>
+    </div>
+  );
+}
+
+function WritebackStatus({
+  writeback,
+}: {
+  writeback: NonNullable<Parameters<typeof RunView>[0]["writeback"]>;
+}) {
+  const label = writeback.reverting
+    ? "正在撤回本次保存..."
+    : writeback.reverted
+      ? "已撤回本次保存"
+      : writeback.discarded
+        ? "已暂不保存"
+      : writeback.committed
+        ? "已写入工作区"
+        : writeback.committing
+          ? "正在写入工作区..."
+          : writeback.error
+            ? "自动写入失败"
+            : "等待写入工作区";
+
+  return (
+    <div style={styles.writebackBox}>
+      <div style={styles.writebackMain}>
+        <CheckCircle2 size={14} />
+        <span>{label}</span>
+      </div>
+      <div style={styles.writebackActions}>
+        {writeback.error && !writeback.committed ? (
+          <button
+            type="button"
+            onClick={writeback.onRetry}
+            disabled={writeback.committing}
+            style={styles.inlineGhostButton}
+          >
+            重试写入
+          </button>
+        ) : null}
+        {writeback.committed && !writeback.reverted ? (
+          <button
+            type="button"
+            onClick={writeback.onUndo}
+            disabled={writeback.reverting}
+            style={styles.inlineGhostButton}
+          >
+            <RotateCcw size={13} />
+            撤回本次保存
+          </button>
+        ) : null}
+      </div>
+      {writeback.error ? (
+        <div style={styles.writebackError}>{writeback.error}</div>
+      ) : null}
+      {writeback.links.length > 0 ? (
+        <div style={styles.writebackLinks}>
+          {writeback.links.slice(0, 4).map((link) => (
+            <a key={link.key} href={link.href} style={styles.writebackLink}>
+              <ExternalLink size={12} />
+              {link.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,119 +1,82 @@
-"""Tests for canonical long-term memory formatting and injection."""
+"""Tests for workspace-bound memory formatting and injection."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.config.config_loader import MemoryConfig
-from src.services.user_memory_service import (
-    _rank_knowledge_items,
-    build_memory_context,
-    format_knowledge_for_prompt,
+from src.dataservice.domains.workspace_memory.contracts import WorkspaceMemoryDocumentProjection
+from src.dataservice.domains.workspace_memory.service import (
+    format_workspace_memory_for_prompt,
+    normalize_workspace_memory_content,
 )
+from src.services.workspace_memory_service import build_workspace_memory_context
 
 
-class TestFormatKnowledgeForPrompt:
-    def test_empty_items_return_empty_string(self):
-        assert format_knowledge_for_prompt([]) == ""
+class TestFormatWorkspaceMemoryForPrompt:
+    def test_empty_document_returns_empty_string(self):
+        assert format_workspace_memory_for_prompt(None) == ""
 
-    def test_formats_memory_by_category(self):
-        items = [
-            {"category": "preference", "content": "偏好 IEEE 引用格式", "confidence": 0.9},
-            {"category": "context", "content": "当前研究 Transformer 压缩", "confidence": 0.8},
-            {"category": "goal", "content": "完成 SCI 初稿", "confidence": 0.95},
-        ]
+    def test_formats_workspace_memory_document(self):
+        document = WorkspaceMemoryDocumentProjection(
+            id="memory-1",
+            workspace_id="ws-1",
+            content_markdown="# Workspace Memory\n\n## Project Context\n- 当前写软著申报材料",
+            content_hash="hash",
+            revision=1,
+            updated_by="system",
+        )
 
-        result = format_knowledge_for_prompt(items)
+        result = format_workspace_memory_for_prompt(document)
 
-        assert "<academic_memory>" in result
-        assert "用户偏好" in result
-        assert "研究上下文" in result
-        assert "研究目标" in result
-        assert "偏好 IEEE 引用格式" in result
+        assert "<workspace_memory>" in result
+        assert "当前写软著申报材料" in result
 
-    def test_respects_max_chars_budget(self):
-        items = [
-            {"category": "preference", "content": "偏好 IEEE 引用格式", "confidence": 0.9},
-            {"category": "context", "content": "当前研究 Transformer 压缩", "confidence": 0.8},
-            {"category": "goal", "content": "完成 SCI 初稿", "confidence": 0.95},
-        ]
+    def test_respects_prompt_budget(self):
+        document = WorkspaceMemoryDocumentProjection(
+            id="memory-1",
+            workspace_id="ws-1",
+            content_markdown="# Workspace Memory\n" + ("- 很长\n" * 2000),
+            content_hash="hash",
+            revision=1,
+            updated_by="system",
+        )
 
-        result = format_knowledge_for_prompt(items, max_chars=60)
+        result = format_workspace_memory_for_prompt(document)
 
-        assert "<academic_memory>" in result
+        assert len(result) < 3200
         assert "- ..." in result
 
+    def test_normalizes_empty_memory_to_template(self):
+        result = normalize_workspace_memory_content("")
+        assert result.startswith("# Workspace Memory")
+        assert "## Project Context" in result
 
-class TestBuildMemoryContext:
+
+class TestBuildWorkspaceMemoryContext:
     @pytest.mark.asyncio
-    async def test_returns_empty_when_disabled(self):
-        with patch(
-            "src.services.user_memory_service._load_memory_config",
-            return_value=MemoryConfig(enabled=False),
-        ):
-            result = await build_memory_context("user-1", "ws-1")
-
-        assert result == ""
-
-    @pytest.mark.asyncio
-    async def test_returns_empty_without_user_id(self):
-        result = await build_memory_context(None, "ws-1")
-        assert result == ""
+    async def test_returns_empty_without_workspace_id(self):
+        assert await build_workspace_memory_context(None) == ""
 
     @pytest.mark.asyncio
-    async def test_formats_loaded_memory(self):
-        config = MemoryConfig(
-            enabled=True,
-            injection_enabled=True,
-            max_injection_tokens=128,
+    async def test_formats_loaded_workspace_memory(self):
+        dataservice = AsyncMock()
+        dataservice.get_workspace_memory_document = AsyncMock(
+            return_value=WorkspaceMemoryDocumentProjection(
+                id="memory-1",
+                workspace_id="ws-1",
+                content_markdown="# Workspace Memory\n\n## User Preferences\n- Python 数模代码",
+                content_hash="hash",
+                revision=1,
+                updated_by="system",
+            )
         )
-        items = [
-            {
-                "category": "preference",
-                "content": "偏好正式学术语气",
-                "confidence": 0.9,
-                "workspace_context": "ws-1",
-            },
-            {
-                "category": "context",
-                "content": "当前在写 LLM 论文综述",
-                "confidence": 0.85,
-                "workspace_context": "ws-1",
-            },
-        ]
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=dataservice)
+        context.__aexit__ = AsyncMock(return_value=False)
 
-        with patch(
-            "src.services.user_memory_service._load_memory_config",
-            return_value=config,
-        ), patch(
-            "src.services.user_memory_service.load_user_memory",
-            AsyncMock(return_value=items),
-        ):
-            result = await build_memory_context("user-1", "ws-1")
+        with patch("src.services.workspace_memory_service.dataservice_client", return_value=context):
+            result = await build_workspace_memory_context("ws-1")
 
-        assert "<academic_memory>" in result
-        assert "偏好正式学术语气" in result
-        assert "当前在写 LLM 论文综述" in result
-
-    def test_ranks_contextually_relevant_memory_ahead_of_irrelevant_high_confidence_items(self):
-        items = [
-            {
-                "category": "behavior",
-                "content": "偏好 Docker 部署脚本",
-                "confidence": 0.95,
-                "workspace_context": None,
-            },
-            {
-                "category": "preference",
-                "content": "偏好 pytest 测试风格",
-                "confidence": 0.72,
-                "workspace_context": None,
-            },
-        ]
-
-        ranked = _rank_knowledge_items(
-            items,
-            current_context="我正在给 FastAPI 项目补 pytest 回归测试",
-        )
-
-        assert ranked[0]["content"] == "偏好 pytest 测试风格"
+        assert "<workspace_memory>" in result
+        assert "Python 数模代码" in result
+        dataservice.get_workspace_memory_document.assert_awaited_once_with("ws-1")

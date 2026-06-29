@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type WorkbenchTab = "overview" | "run" | "evidence" | "review";
+export type WorkbenchTab = "overview" | "spec" | "run" | "evidence" | "review";
 
 export type WorkbenchDraftEdit = {
   data?: Record<string, unknown>;

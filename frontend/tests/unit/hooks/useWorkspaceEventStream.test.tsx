@@ -334,7 +334,7 @@ describe("useWorkspaceEventStream", () => {
     });
   });
 
-  it("invalidates workspace room targets from refresh events", () => {
+  it("invalidates current workspace targets from refresh events", () => {
     let onEvent: ((event: WorkspaceEvent) => void) | undefined;
     mockSubscribeWorkspaceEvents.mockImplementation((_workspaceId, handler) => {
       onEvent = handler as (event: WorkspaceEvent) => void;
@@ -347,13 +347,12 @@ describe("useWorkspaceEventStream", () => {
       onEvent?.({
         type: "workspace.refresh",
         workspace_id: "ws-1",
-        refresh_targets: ["documents", "memory", "decisions", "tasks", "prism"],
+        refresh_targets: ["library", "decisions", "tasks", "prism"],
       });
     });
 
     const state = useRoomRefreshStore.getState();
-    expect(state.getCounter("ws-1", "documents")).toBe(1);
-    expect(state.getCounter("ws-1", "memory")).toBe(1);
+    expect(state.getCounter("ws-1", "library")).toBe(1);
     expect(state.getCounter("ws-1", "decisions")).toBe(1);
     expect(state.getCounter("ws-1", "tasks")).toBe(1);
     expect(state.getCounter("ws-1", "prism")).toBe(1);

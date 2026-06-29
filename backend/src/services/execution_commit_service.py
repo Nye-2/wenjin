@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import uuid
+import hashlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -17,12 +18,19 @@ from typing import Any, cast
 
 from src.agents.contracts.task_report import TaskReport
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.execution import ExecutionEventCreatePayload
+from src.dataservice_client.contracts.prism import (
+    PrismFileRestorePayload,
+    PrismWorkspaceFileUpsertPayload,
+)
 from src.dataservice_client.contracts.rooms import RoomCandidatePayload
 from src.dataservice_client.contracts.source import (
     SourceExternalIdCreatePayload,
     SourceImportPayload,
+)
+from src.dataservice_client.contracts.workspace_memory import (
+    WorkspaceMemoryItemPayload,
+    WorkspaceMemoryMergePayload,
 )
 from src.dataservice_client.provider import dataservice_client
 from src.services.execution_service import ExecutionService
@@ -31,14 +39,10 @@ from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
 
-# Synthetic storage path used for inline DataService asset documents. The real
-# content lives in asset metadata so gateway and worker do not need a shared
-# filesystem for generated markdown.
-_INLINE_DOC_PATH_PREFIX = "inline://"
-_DOCUMENTS_ROOM_SOURCE_KIND = "documents_room"
 _CITATION_KEY_RE = re.compile(r"[^a-z0-9]+")
-_COUNT_ROOM_KEYS = ("library", "documents", "memory", "decisions", "tasks")
-_ROOM_TARGET_KEYS = ("documents", "library", "memory", "decisions", "tasks")
+_PRISM_SUPPORTED_EXTENSIONS = {".md", ".markdown", ".tex", ".bib", ".png", ".jpg", ".jpeg", ".webp", ".svg"}
+_COUNT_ROOM_KEYS = ("library", "prism", "memory", "decisions", "tasks")
+_ROOM_TARGET_KEYS = ("prism", "library", "memory", "decisions", "tasks")
 _COMMIT_LOCK_TTL_SECONDS = 60
 _ALLOWED_OVERRIDE_FIELDS: dict[str, set[str]] = {
     "document": {"content", "name", "doc_kind"},
@@ -303,6 +307,11 @@ class ExecutionCommitService:
 
             # 5. Write to rooms
             async with self._client() as dataservice:
+                existing_prism_files_by_path = await _existing_prism_files_by_path(
+                    dataservice=dataservice,
+                    workspace_id=execution.workspace_id,
+                )
+                memory_items: list[tuple[str, WorkspaceMemoryItemPayload]] = []
                 for output in selected:
                     kind = output.kind
                     data = (
@@ -325,70 +334,56 @@ class ExecutionCommitService:
                         )
 
                     elif kind == "document":
-                        # Agent-generated documents carry their content inline; the
-                        # document service stores that content as DataService asset
-                        # metadata. File-backed documents keep their storage_path.
-                        inline_content = data.get("content")
-                        existing_path = data.get("storage_path")
-                        if not existing_path and not inline_content:
+                        prism_payload = _document_prism_payload(
+                            execution=execution,
+                            output_id=output.id,
+                            data=data,
+                        )
+                        if prism_payload is None:
                             logger.warning(
-                                "Skipping document commit '%s' for execution %s: no "
-                                "storage_path and no inline content provided",
+                                "Skipping document commit '%s' for execution %s: no Prism-compatible content",
                                 data.get("name"),
                                 execution_id,
                             )
                             continue
-
-                        if existing_path:
-                            storage_path = existing_path
-                            size_bytes = int(data.get("size_bytes", 0))
-                            metadata_extra: dict[str, Any] = {}
-                        else:
-                            inline_content_text = str(inline_content)
-                            storage_path = f"{_INLINE_DOC_PATH_PREFIX}{output.id}"
-                            size_bytes = len(inline_content_text.encode("utf-8"))
-                            metadata_extra = {"content": inline_content_text}
-
-                        payload = {
-                            "workspace_id": execution.workspace_id,
-                            "name": data["name"],
-                            "asset_kind": data.get("doc_kind", "draft"),
-                            "mime_type": data.get("mime_type") or "text/markdown",
-                            "storage_path": storage_path,
-                            "size_bytes": size_bytes,
-                            "parent_asset_id": data.get("parent_id"),
-                            "created_by": f"execution:{execution_id}",
-                            "source_kind": _DOCUMENTS_ROOM_SOURCE_KIND,
-                            "source_id": output.id,
-                        }
-                        metadata_extra.setdefault("kind", payload["asset_kind"])
-                        if metadata_extra:
-                            payload["metadata_json"] = metadata_extra
-                        doc = await dataservice.register_asset(
-                            WorkspaceAssetCreatePayload(**payload)
+                        previous_file = existing_prism_files_by_path.get(prism_payload.path)
+                        write = await dataservice.upsert_prism_workspace_file(
+                            execution.workspace_id,
+                            prism_payload,
                         )
-                        counts["documents"] += 1
-                        room_targets["documents"].append(
-                            {"output_id": output.id, "item_id": doc.id}
-                        )
+                        existing_prism_files_by_path[write.file.path] = write.file
+                        if write.changed and write.version is not None:
+                            counts["prism"] += 1
+                            room_targets["prism"].append(
+                                _prism_room_target(
+                                    output_id=output.id,
+                                    file_id=write.file.id,
+                                    path=write.file.path,
+                                    version_id=write.version.id,
+                                    content_hash=write.version.content_hash,
+                                    previous_version_id=(
+                                        previous_file.current_version_id
+                                        if previous_file is not None
+                                        else None
+                                    ),
+                                    previous_hash=(
+                                        previous_file.content_hash
+                                        if previous_file is not None
+                                        else None
+                                    ),
+                                    created_file=previous_file is None,
+                                )
+                            )
 
                     elif kind == "memory_fact":
-                        room_candidates.append(
-                            RoomCandidatePayload(
-                                source_item_id=output.id,
-                                target_kind="memory_fact",
-                                title=f"Memory fact: {data['category']}",
-                                summary=data["content"],
-                                payload_json={
-                                    "category": data["category"],
-                                    "content": data["content"],
-                                    "confidence": data.get("confidence", 1.0),
-                                },
-                                preview_json={"content": data["content"]},
-                                provenance_json={
-                                    "execution_id": execution_id,
-                                    "output_id": output.id,
-                                },
+                        memory_items.append(
+                            (
+                                output.id,
+                                WorkspaceMemoryItemPayload(
+                                    category=str(data.get("category") or "context"),
+                                    content=str(data.get("content") or ""),
+                                    confidence=float(data.get("confidence", 1.0) or 1.0),
+                                ),
                             )
                         )
 
@@ -455,6 +450,31 @@ class ExecutionCommitService:
                                 {
                                     "output_id": str(source_item_id),
                                     "item_id": str(record_id),
+                                }
+                            )
+
+                memory_review_result = None
+                if memory_items:
+                    memory_review_result = await dataservice.merge_workspace_memory(
+                        execution.workspace_id,
+                        WorkspaceMemoryMergePayload(
+                            workspace_id=execution.workspace_id,
+                            items=[item for _, item in memory_items],
+                            update_reason="execution_commit",
+                            updated_by=f"execution:{execution_id}",
+                            source_execution_id=execution_id,
+                        ),
+                    )
+                    if memory_review_result.changed:
+                        counts["memory"] += 1
+                        for output_id, _item in memory_items:
+                            room_targets["memory"].append(
+                                {
+                                    "output_id": output_id,
+                                    "item_id": memory_review_result.document.id,
+                                    "document_id": memory_review_result.document.id,
+                                    "revision": str(memory_review_result.document.revision),
+                                    "content_hash": memory_review_result.document.content_hash,
                                 }
                             )
 
@@ -553,9 +573,7 @@ class ExecutionCommitService:
                         "activity",
                         "artifacts",
                         "dashboard",
-                        "documents",
                         "library",
-                        "memory",
                         "decisions",
                         "tasks",
                         "runs",
@@ -592,6 +610,158 @@ class ExecutionCommitService:
             logger.exception(
                 "referral first-task trigger failed for user %s", execution.user_id
             )
+
+        return result
+
+    async def undo_commit(
+        self,
+        execution_id: str,
+        *,
+        actor_user_id: str,
+    ) -> dict[str, Any]:
+        """Undo a previously committed output batch by deleting its room targets."""
+        execution = await self.execution.get_by_id(execution_id)
+        if execution is None:
+            raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+        if str(execution.user_id) != str(actor_user_id):
+            raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+
+        result_payload = _execution_result_payload(execution)
+        if result_payload is None:
+            raise ValueError(f"execution {execution_id} has no result payload")
+
+        commit_state = _valid_commit_state(result_payload.get("commit_state"))
+        if commit_state is None:
+            raise ValueError(f"execution {execution_id} has no committed room batch")
+        if commit_state["status"] == "reverted":
+            return _response_from_commit_state(commit_state)
+        if commit_state["status"] != "committed":
+            raise ValueError("only committed execution outputs can be reverted")
+
+        room_targets = _copy_room_targets(commit_state["room_targets"])
+        revert_counts = _empty_counts()
+        revert_skipped: dict[str, list[dict[str, Any]]] = {"prism": []}
+        async with self._client() as dataservice:
+            for target in room_targets["prism"]:
+                file_id = str(target.get("file_id") or target.get("item_id") or "")
+                if not file_id:
+                    continue
+                if _truthy_target_flag(target.get("created_file")):
+                    deleted = await dataservice.delete_prism_workspace_file(
+                        execution.workspace_id,
+                        file_id,
+                        expected_current_hash=target.get("content_hash"),
+                    )
+                    if deleted.changed:
+                        revert_counts["prism"] += 1
+                    else:
+                        revert_skipped["prism"].append(
+                            {
+                                "file_id": file_id,
+                                "path": target.get("path"),
+                                "reason": deleted.skipped_reason or "not_deleted",
+                            }
+                        )
+                    continue
+                previous_version_id = target.get("previous_version_id")
+                if previous_version_id:
+                    restored = await dataservice.restore_prism_workspace_file(
+                        execution.workspace_id,
+                        file_id,
+                        PrismFileRestorePayload(
+                            version_id=previous_version_id,
+                            expected_current_hash=target.get("content_hash"),
+                            created_by=f"undo:{execution_id}",
+                        ),
+                    )
+                    if restored.changed:
+                        revert_counts["prism"] += 1
+                    else:
+                        revert_skipped["prism"].append(
+                            {
+                                "file_id": file_id,
+                                "path": target.get("path"),
+                                "reason": restored.skipped_reason or "not_restored",
+                            }
+                        )
+            for target in room_targets["library"]:
+                deleted = await dataservice.delete_source(
+                    source_id=target["item_id"],
+                    workspace_id=execution.workspace_id,
+                )
+                if deleted:
+                    revert_counts["library"] += 1
+            for target in room_targets["decisions"]:
+                deleted = await dataservice.delete_room_decision(target["item_id"])
+                if deleted:
+                    revert_counts["decisions"] += 1
+            for target in room_targets["tasks"]:
+                deleted = await dataservice.delete_room_task(
+                    workspace_id=execution.workspace_id,
+                    task_id=target["item_id"],
+                )
+                if deleted:
+                    revert_counts["tasks"] += 1
+
+        reverted_state = _build_reverted_commit_state(
+            commit_state,
+            reverted_at=datetime.now(UTC).isoformat(),
+            reverted_by=actor_user_id,
+            revert_counts=revert_counts,
+            revert_skipped=revert_skipped,
+        )
+        next_result_payload = dict(result_payload)
+        next_result_payload["commit_state"] = reverted_state
+        persisted_execution = await self.execution.update_execution(
+            execution_id,
+            result=next_result_payload,
+            commit=True,
+        )
+        persisted_result = _execution_result_payload(persisted_execution)
+        persisted_commit_state = (
+            _valid_commit_state(persisted_result.get("commit_state"))
+            if persisted_result is not None
+            else None
+        )
+        if persisted_commit_state != reverted_state:
+            raise ExecutionCommitPersistenceError(
+                "commit_state persistence failed for execution undo"
+            )
+
+        result = _response_from_commit_state(reverted_state)
+        try:
+            await publish_workspace_event(
+                execution.workspace_id,
+                "workspace.refresh",
+                {
+                    "refresh_targets": [
+                        "activity",
+                        "artifacts",
+                        "dashboard",
+                        "library",
+                        "decisions",
+                        "tasks",
+                        "runs",
+                        "references",
+                        "prism",
+                    ]
+                },
+            )
+        except Exception:
+            logger.exception("workspace.refresh publish failed after commit undo")
+
+        if self.audit:
+            try:
+                await self.audit.log(
+                    action="execution.commit.undo",
+                    user_id=execution.user_id,
+                    workspace_id=execution.workspace_id,
+                    target_type="execution",
+                    target_id=execution_id,
+                    payload={"revert_counts": revert_counts},
+                )
+            except Exception:
+                logger.exception("audit log failed for execution.commit.undo")
 
         return result
 
@@ -632,7 +802,7 @@ class ExecutionCommitService:
         accepted_ids: list[str],
         rejected_ids: list[str],
         counts: dict[str, int],
-        room_targets: dict[str, list[dict[str, str]]],
+        room_targets: dict[str, list[dict[str, Any]]],
     ) -> None:
         try:
             await self.execution.fail_execution_commit(
@@ -656,7 +826,7 @@ def _empty_counts() -> dict[str, int]:
     return {key: 0 for key in _COUNT_ROOM_KEYS}
 
 
-def _empty_room_targets() -> dict[str, list[dict[str, str]]]:
+def _empty_room_targets() -> dict[str, list[dict[str, Any]]]:
     return {key: [] for key in _ROOM_TARGET_KEYS}
 
 
@@ -721,7 +891,7 @@ def _build_commit_state(
     accepted_ids: list[str],
     rejected_ids: list[str],
     counts: dict[str, int],
-    room_targets: dict[str, list[dict[str, str]]],
+    room_targets: dict[str, list[dict[str, Any]]],
     committed_at: str,
     review_batch_id: str | None,
 ) -> dict[str, Any]:
@@ -736,6 +906,26 @@ def _build_commit_state(
     if review_batch_id is not None:
         commit_state["review_batch_id"] = review_batch_id
     return commit_state
+
+
+def _build_reverted_commit_state(
+    commit_state: dict[str, Any],
+    *,
+    reverted_at: str,
+    reverted_by: str,
+    revert_counts: dict[str, int],
+    revert_skipped: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    reverted_state = dict(commit_state)
+    reverted_state["status"] = "reverted"
+    reverted_state["reverted_at"] = reverted_at
+    reverted_state["reverted_by"] = reverted_by
+    reverted_state["revert_counts"] = {
+        key: int(revert_counts.get(key, 0)) for key in _COUNT_ROOM_KEYS
+    }
+    if revert_skipped:
+        reverted_state["revert_skipped"] = revert_skipped
+    return reverted_state
 
 
 def _ensure_commit_state_persisted(
@@ -769,7 +959,7 @@ def _execution_result_payload(execution: Any) -> dict[str, Any] | None:
 def _valid_commit_state(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
-    if value.get("status") not in {"committed", "discarded"}:
+    if value.get("status") not in {"committed", "discarded", "reverted"}:
         return None
     if not _is_str_list(value.get("accepted_ids")):
         return None
@@ -804,6 +994,23 @@ def _valid_commit_state(value: Any) -> dict[str, Any] | None:
     review_batch_id = value.get("review_batch_id")
     if review_batch_id is not None and not isinstance(review_batch_id, str):
         return None
+    reverted_at = value.get("reverted_at")
+    if reverted_at is not None and not isinstance(reverted_at, str):
+        return None
+    reverted_by = value.get("reverted_by")
+    if reverted_by is not None and not isinstance(reverted_by, str):
+        return None
+    revert_counts = value.get("revert_counts")
+    if revert_counts is not None:
+        if not isinstance(revert_counts, dict):
+            return None
+        for key in _COUNT_ROOM_KEYS:
+            count = revert_counts.get(key)
+            if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                return None
+    revert_skipped = value.get("revert_skipped")
+    if revert_skipped is not None and not isinstance(revert_skipped, dict):
+        return None
     return value
 
 
@@ -822,22 +1029,172 @@ def _response_from_commit_state(commit_state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _copy_room_targets(
-    room_targets: dict[str, list[dict[str, str]]],
-) -> dict[str, list[dict[str, str]]]:
-    copied: dict[str, list[dict[str, str]]] = {}
+    room_targets: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    copied: dict[str, list[dict[str, Any]]] = {}
     for key in _ROOM_TARGET_KEYS:
-        copied[key] = [
-            {
+        copied[key] = []
+        for target in room_targets.get(key, []):
+            copied_target: dict[str, Any] = {
                 "output_id": str(target["output_id"]),
                 "item_id": str(target["item_id"]),
             }
-            for target in room_targets.get(key, [])
-        ]
+            for extra_key, extra_value in target.items():
+                if extra_key in copied_target:
+                    continue
+                if extra_value is None:
+                    continue
+                if isinstance(extra_value, bool):
+                    copied_target[extra_key] = extra_value
+                elif isinstance(extra_value, (str, int, float)):
+                    copied_target[extra_key] = str(extra_value)
+            copied[key].append(copied_target)
     return copied
 
 
 def _is_str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+async def _existing_prism_files_by_path(
+    *,
+    dataservice: AsyncDataServiceClient,
+    workspace_id: str,
+) -> dict[str, Any]:
+    try:
+        surface = await dataservice.get_prism_surface(workspace_id)
+    except Exception:
+        logger.warning(
+            "Failed to load existing Prism surface before execution commit",
+            extra={"workspace_id": workspace_id},
+            exc_info=True,
+        )
+        return {}
+    if surface is None:
+        return {}
+    return {str(file.path): file for file in surface.files if str(file.path or "").strip()}
+
+
+def _document_prism_payload(
+    *,
+    execution: Any,
+    output_id: str,
+    data: dict[str, Any],
+) -> PrismWorkspaceFileUpsertPayload | None:
+    name = _first_text(data.get("name"), output_id) or output_id
+    mime_type = _first_text(data.get("mime_type")) or "text/markdown"
+    doc_kind = _first_text(data.get("doc_kind")) or "generic"
+    inline_content = data.get("content")
+    content_inline = str(inline_content) if inline_content is not None else None
+    pointer_path = _first_text(data.get("storage_path"))
+    if content_inline is None and pointer_path:
+        content_inline = f"# {name}\n\nGenerated file path: `{pointer_path}`\n"
+        mime_type = "text/markdown"
+    if content_inline is None:
+        return None
+    path = _prism_output_path(
+        execution=execution,
+        output_id=output_id,
+        name=name,
+        mime_type=mime_type,
+        doc_kind=doc_kind,
+    )
+    content_hash = hashlib.sha256(content_inline.encode("utf-8")).hexdigest()
+    return PrismWorkspaceFileUpsertPayload(
+        path=path,
+        file_role=doc_kind,
+        mime_type=mime_type,
+        metadata_json={
+            "kind": doc_kind,
+            "name": name,
+            "source": "execution_commit",
+            "output_id": output_id,
+        },
+        content_inline=content_inline,
+        content_hash=content_hash,
+        created_by=f"execution:{getattr(execution, 'id', '') or output_id}",
+    )
+
+
+def _prism_output_path(
+    *,
+    execution: Any,
+    output_id: str,
+    name: str,
+    mime_type: str,
+    doc_kind: str,
+) -> str:
+    extension = _prism_extension_for_document(name=name, mime_type=mime_type, doc_kind=doc_kind)
+    filename = _safe_prism_filename(name=name, output_id=output_id, extension=extension)
+    feature_id = str(getattr(execution, "feature_id", "") or "").lower()
+    if extension in {".tex", ".bib"}:
+        directory = "paper"
+    elif "software_copyright" in feature_id or "copyright" in feature_id:
+        directory = "docs/software-copyright"
+    elif "math_modeling" in feature_id or "modeling" in feature_id:
+        directory = "docs/math-modeling"
+    else:
+        directory = "docs/generated"
+    return f"{directory}/{filename}"
+
+
+def _prism_extension_for_document(*, name: str, mime_type: str, doc_kind: str) -> str:
+    raw_name = str(name or "")
+    suffix = "." + raw_name.rsplit(".", 1)[-1].lower() if "." in raw_name else ""
+    if suffix in _PRISM_SUPPORTED_EXTENSIONS:
+        return suffix
+    normalized_mime = str(mime_type or "").lower()
+    if "latex" in normalized_mime or doc_kind == "latex":
+        return ".tex"
+    if "bibtex" in normalized_mime or doc_kind == "bibtex":
+        return ".bib"
+    if "svg" in normalized_mime:
+        return ".svg"
+    if "png" in normalized_mime:
+        return ".png"
+    if "jpeg" in normalized_mime or "jpg" in normalized_mime:
+        return ".jpg"
+    if "webp" in normalized_mime:
+        return ".webp"
+    return ".md"
+
+
+def _safe_prism_filename(*, name: str, output_id: str, extension: str) -> str:
+    raw_name = str(name or output_id).rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if "." in raw_name:
+        raw_name = raw_name.rsplit(".", 1)[0]
+    slug = re.sub(r"[^A-Za-z0-9._\-\u4e00-\u9fff]+", "-", raw_name).strip(".-")
+    if not slug:
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", output_id).strip(".-") or "document"
+    return f"{slug}{extension}"
+
+
+def _prism_room_target(
+    *,
+    output_id: str,
+    file_id: str,
+    path: str,
+    version_id: str,
+    content_hash: str,
+    previous_version_id: str | None,
+    previous_hash: str | None,
+    created_file: bool,
+) -> dict[str, Any]:
+    return {
+        "output_id": output_id,
+        "item_id": file_id,
+        "file_id": file_id,
+        "path": path,
+        "version_id": version_id,
+        "content_hash": content_hash,
+        "previous_version_id": previous_version_id,
+        "previous_hash": previous_hash,
+        "created_file": created_file,
+    }
+
+
+def _truthy_target_flag(value: Any) -> bool:
+    return value is True or str(value).lower() == "true"
 
 
 def _citation_key(data: dict[str, Any]) -> str:

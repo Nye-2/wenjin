@@ -48,7 +48,7 @@ Wenjin is a research and writing workbench for Chinese academic, software copyri
 - Navigation should collapse before content does. In compact headers, inactive navigation items may show icon-only controls with `aria-label`, `title`, or tooltip text; active items can show icon + label.
 - Controls should only use both icon and text when the command is primary or unfamiliar. Secondary controls should prefer icon-only with tooltip; repeated labels should be removed.
 - Details should not compete with lists in narrow containers. List-first mode is the default; selecting an item can open a wider detail surface or fullscreen split view.
-- Filters are second-level navigation, not full cards. Use compact segmented controls or pills for result types such as all, literature, documents, memory, decisions, and tasks.
+- Filters are second-level navigation, not full cards. Use compact segmented controls or pills for result types such as all, literature, Prism files, decisions, tasks, and runs.
 - Text must be width-constrained. Long paper titles, file names, authors, and run names should use single-line or two-line truncation inside lists, with full content in the detail pane.
 - Automatic context following is the default. Running work should surface the run view; completed work with staged outputs should surface review. Manual navigation is temporary unless there is an explicit "pin" concept with user-facing value.
 - Avoid exposing maintenance actions as top-level UI. Recovery or debug controls belong in overflow menus, settings, or diagnostics surfaces unless they are part of the user's core workflow.

@@ -64,11 +64,6 @@ from src.dataservice_client.contracts.execution import (
     ExecutionNodePatchPayload,
     ExecutionNodeUpsertPayload,
 )
-from src.dataservice_client.contracts.knowledge import (
-    KnowledgeArchiveLowConfidencePayload,
-    KnowledgeMemoryCreatePayload,
-    KnowledgeMemoryUpdatePayload,
-)
 from src.dataservice_client.contracts.latex import (
     LatexCompileHistoryCreatePayload,
     LatexProjectAttachWorkspacePayload,
@@ -421,8 +416,8 @@ async def test_dataservice_client_fail_execution_commit() -> None:
             "failed_at": None,
             "accepted_ids": None,
             "rejected_ids": None,
-            "partial_counts": {"documents": 0},
-            "partial_room_targets": {"documents": []},
+            "partial_counts": {"prism": 0},
+            "partial_room_targets": {"prism": []},
         }
         return httpx.Response(
             200,
@@ -458,8 +453,8 @@ async def test_dataservice_client_fail_execution_commit() -> None:
             ExecutionCommitFailPayload(
                 commit_token="token-1",
                 error_text="asset write failed",
-                partial_counts={"documents": 0},
-                partial_room_targets={"documents": []},
+                partial_counts={"prism": 0},
+                partial_room_targets={"prism": []},
             ),
         )
 
@@ -1861,91 +1856,6 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
         ),
         ("PATCH", "/internal/v1/executions/nodes/node-row-1", {"status": "completed"}),
     ]
-
-
-@pytest.mark.asyncio
-async def test_dataservice_client_knowledge_contract_methods() -> None:
-    seen: list[tuple[str, str, dict[str, Any] | None]] = []
-
-    def knowledge_payload(knowledge_id: str = "knowledge-1") -> dict[str, Any]:
-        return {
-            "id": knowledge_id,
-            "user_id": "user-1",
-            "category": "preference",
-            "content": "Use concise prose",
-            "confidence": 0.8,
-            "source": "manual",
-            "workspace_context": None,
-            "is_active": True,
-            "created_at": None,
-            "updated_at": None,
-        }
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode()) if request.content else None
-        seen.append((request.method, request.url.path, body))
-        path = request.url.path
-        if path.endswith("/archive-low-confidence"):
-            return httpx.Response(200, json={"status": "ok", "data": {"archived": 2}})
-        if path.endswith("/active-count"):
-            return httpx.Response(200, json={"status": "ok", "data": {"count": 3}})
-        if path.endswith("/deactivate"):
-            return httpx.Response(200, json={"status": "ok", "data": {"deactivated": True}})
-        if request.method == "DELETE":
-            return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
-        if request.method == "GET" and "/users/" in path:
-            return httpx.Response(200, json={"status": "ok", "data": [knowledge_payload()]})
-        return httpx.Response(200, json={"status": "ok", "data": knowledge_payload("knowledge-2")})
-
-    transport = httpx.MockTransport(handler)
-    async with AsyncDataServiceClient(
-        base_url="http://dataservice",
-        internal_token="secret",
-        transport=transport,
-    ) as client:
-        created = await client.create_knowledge_memory(
-            KnowledgeMemoryCreatePayload(
-                user_id="user-1",
-                category="preference",
-                content="Use concise prose",
-                confidence=0.8,
-                source="manual",
-            )
-        )
-        upserted = await client.upsert_knowledge_memory(
-            KnowledgeMemoryCreatePayload(
-                user_id="user-1",
-                category="preference",
-                content="Use concise prose",
-            )
-        )
-        fetched = await client.get_knowledge_memory("knowledge-2")
-        listed = await client.list_user_knowledge_memory(user_id="user-1")
-        active = await client.list_active_knowledge_memory(user_id="user-1", workspace_context="ws-1")
-        updated = await client.update_knowledge_memory(
-            "knowledge-2",
-            KnowledgeMemoryUpdatePayload(confidence=0.9),
-        )
-        deactivated = await client.deactivate_knowledge_memory("knowledge-2")
-        deleted = await client.delete_knowledge_memory("knowledge-2")
-        archived = await client.archive_low_confidence_knowledge_memory(
-            user_id="user-1",
-            command=KnowledgeArchiveLowConfidencePayload(threshold=0.4),
-        )
-        count = await client.count_active_knowledge_memory(user_id="user-1")
-
-    assert created is not None and created.id == "knowledge-2"
-    assert upserted is not None and upserted.category == "preference"
-    assert fetched is not None and fetched.id == "knowledge-2"
-    assert listed[0].user_id == "user-1"
-    assert active[0].content == "Use concise prose"
-    assert updated is not None and updated.confidence == 0.8
-    assert deactivated is True
-    assert deleted is True
-    assert archived == 2
-    assert count == 3
-    assert seen[0][1] == "/internal/v1/knowledge"
-    assert seen[-1][1] == "/internal/v1/knowledge/users/user-1/active-count"
 
 
 @pytest.mark.asyncio

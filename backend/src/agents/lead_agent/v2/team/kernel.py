@@ -1784,6 +1784,9 @@ def _invocation_timeout_seconds(
         sandbox_policy = capability_policy.get("sandbox_policy")
         if isinstance(sandbox_policy, dict):
             configured = sandbox_policy.get("react_timeout_seconds") or sandbox_policy.get("timeout_seconds")
+            resource_limits = sandbox_policy.get("resource_limits")
+            if configured is None and isinstance(resource_limits, dict):
+                configured = resource_limits.get("react_timeout_seconds")
     if configured is None and skill is not None:
         skill_config = getattr(skill, "config", None)
         if isinstance(skill_config, dict):

@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from src.gateway.access_control import require_workspace_owner_by_dataservice
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
-from src.gateway.deps import get_thread_service
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps import get_dataservice_client, get_thread_service
 from src.gateway.deps.runtime import get_run_manager
 from src.gateway.routers.thread_contracts import (
     ThreadCreate,
@@ -198,17 +199,24 @@ async def ensure_workspace_thread(
     ),
     current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ThreadDetailResponse:
     actor_id = str(current_user.id)
     await _require_owned_workspace_if_provided(
         workspace_id,
         user_id=actor_id,
     )
+    requested_model = request.model
+    if requested_model is None or not requested_model.strip():
+        settings = await dataservice.get_workspace_settings(workspace_id)
+        default_model = getattr(settings, "default_model", None)
+        if isinstance(default_model, str) and default_model.strip():
+            requested_model = default_model.strip()
     try:
         thread = await thread_service.get_or_create_thread(
             user_id=actor_id,
             workspace_id=workspace_id,
-            model=request.model,
+            model=requested_model,
             skill=request.skill,
             skill_explicit="skill" in request.model_fields_set,
         )

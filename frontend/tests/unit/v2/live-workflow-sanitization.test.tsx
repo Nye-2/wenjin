@@ -363,12 +363,12 @@ describe("live workflow sanitization", () => {
 
     expect(previews).toHaveLength(1);
     expect(previews[0]).toMatchObject({
-      title: "图表产物",
+      title: "图表结果",
       subtitle: null,
       previewPath: "/workspace/outputs/figures/fed_curve/figure.png",
-      previewText: "待确认产物",
+      previewText: "待确认结果",
     });
-    expect(evidenceItems[0]?.summary).toContain("待确认产物");
+    expect(evidenceItems[0]?.summary).toContain("待确认结果");
 
     const text = [
       previews[0]?.title,

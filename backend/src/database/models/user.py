@@ -11,7 +11,6 @@ from ..base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from .admin_log import AdminLog
     from .credit import CreditTransaction
-    from .knowledge import UserKnowledge
     from .thread import Thread
     from .workspace import Workspace
 
@@ -81,11 +80,6 @@ class User(Base, UUIDMixin, TimestampMixin):
     # Relationships
     workspaces: Mapped[list["Workspace"]] = relationship(
         "Workspace",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-    knowledge: Mapped[list["UserKnowledge"]] = relationship(
-        "UserKnowledge",
         back_populates="user",
         cascade="all, delete-orphan",
     )

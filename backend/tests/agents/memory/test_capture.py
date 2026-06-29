@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.memory.capture import (
@@ -47,45 +44,22 @@ def test_select_incremental_capture_messages_supports_dict_roles():
     ]
 
 
-@pytest.mark.asyncio
-async def test_enqueue_memory_capture_uses_configured_context_window():
+def test_enqueue_memory_capture_is_retired_and_does_not_enqueue_jobs():
     queue = MagicMock()
     queue.enqueue = MagicMock()
 
-    with patch(
-        "src.services.memory_capture_service.extract_and_persist_knowledge",
-        AsyncMock(),
-    ) as mock_persist, patch(
-        "src.config.config_loader.get_app_config",
-        return_value=SimpleNamespace(memory=SimpleNamespace(max_context_turns=1)),
-    ):
-        enqueue_memory_capture(
-            thread_id="thread-1",
-            user_id="user-1",
-            workspace_id="ws-1",
-            messages=[
-                HumanMessage(content="旧问题"),
-                AIMessage(content="旧回答"),
-                HumanMessage(content="新问题"),
-                AIMessage(content="新回答"),
-            ],
-            source="test",
-            queue=queue,
-        )
+    enqueue_memory_capture(
+        thread_id="thread-1",
+        user_id="user-1",
+        workspace_id="ws-1",
+        messages=[
+            HumanMessage(content="旧问题"),
+            AIMessage(content="旧回答"),
+            HumanMessage(content="新问题"),
+            AIMessage(content="新回答"),
+        ],
+        source="test",
+        queue=queue,
+    )
 
-        callback = queue.enqueue.call_args.kwargs["callback"]
-        await callback(
-            "thread-1",
-            [
-                HumanMessage(content="旧问题"),
-                AIMessage(content="旧回答"),
-                HumanMessage(content="新问题"),
-                AIMessage(content="新回答"),
-            ],
-        )
-
-    persisted_text = mock_persist.await_args.args[1]
-    assert "旧问题" not in persisted_text
-    assert "旧回答" not in persisted_text
-    assert "新问题" in persisted_text
-    assert "新回答" in persisted_text
+    queue.enqueue.assert_not_called()

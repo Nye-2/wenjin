@@ -35,10 +35,10 @@ const DEFAULT_ACTION_LABELS: Record<SupportedBlockAction, string> = {
   trigger_feature: "开始下一步",
   continue_thread: "继续在对话中处理",
   open_feature: "打开功能",
-  rerun_from_artifact: "基于当前产物重跑",
+  rerun_from_artifact: "基于当前结果重跑",
   open_prism: "在 WenjinPrism 中继续编辑",
   preview_prism_changes: "预览待确认修改",
-  open_artifact: "查看产物",
+  open_artifact: "查看结果",
   rerun_feature: "重新运行",
   resume_execution: "继续执行",
   import_references: "导入参考资料",
@@ -231,6 +231,12 @@ function buildWorkspaceRoomHref(
     return null;
   }
 
+  if (room === "prism") {
+    return buildWorkspacePrismHref(workspaceId, {
+      fileId: readString(actionRecord.file_id) ?? readString(actionRecord.item_id),
+    });
+  }
+
   const query = new URLSearchParams();
   query.set("room", room);
 
@@ -261,6 +267,7 @@ function buildWorkspacePrismHref(
     focusFileChanges?: boolean;
     reviewItemId?: string | null;
     logicalKey?: string | null;
+    fileId?: string | null;
   } = {},
 ): string | null {
   if (!workspaceId) {
@@ -276,6 +283,9 @@ function buildWorkspacePrismHref(
   if (options.logicalKey) {
     query.set("logical_key", options.logicalKey);
   }
+  if (options.fileId) {
+    query.set("file_id", options.fileId);
+  }
   const queryString = query.toString();
   const suffix = queryString ? `?${queryString}` : "";
   return `/workspaces/${workspaceId}/prism${suffix}`;
@@ -283,11 +293,12 @@ function buildWorkspacePrismHref(
 
 function inferArtifactRoom(
   actionRecord: Record<string, unknown>,
-): "library" | "documents" | null {
+): "library" | "prism" | null {
   const explicitRoom = readString(actionRecord.room);
-  if (explicitRoom === "library" || explicitRoom === "documents") {
+  if (explicitRoom === "library") {
     return explicitRoom;
   }
+  if (explicitRoom === "prism") return "prism";
 
   const artifactKind =
     readString(actionRecord.artifact_kind) ??
@@ -298,7 +309,7 @@ function inferArtifactRoom(
     return "library";
   }
   if (artifactKind === "document" || artifactKind === "upload") {
-    return "documents";
+    return "prism";
   }
   return null;
 }

@@ -27,6 +27,35 @@ class PrismFileVersionCreatePayload(BaseModel):
     created_by: str = "system"
 
 
+class PrismWorkspaceFileUpsertPayload(BaseModel):
+    path: str
+    file_role: str = "generated"
+    mime_type: str | None = None
+    sort_order: int = 0
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    content_inline: str | None = None
+    content_asset_id: str | None = None
+    content_hash: str | None = None
+    created_by: str = "system"
+    review_item_id: str | None = None
+
+
+class PrismFileContentUpdatePayload(BaseModel):
+    content_inline: str | None = None
+    content_asset_id: str | None = None
+    content_hash: str
+    created_by: str = "user"
+    review_item_id: str | None = None
+    expected_current_hash: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class PrismFileRestorePayload(BaseModel):
+    version_id: str
+    expected_current_hash: str | None = None
+    created_by: str = "system"
+
+
 class PrismProtectedScopeUpsertPayload(BaseModel):
     workspace_id: str
     latex_project_id: str
@@ -95,6 +124,18 @@ class PrismFileVersionPayload(BaseModel):
     created_by: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class PrismFileContentPayload(BaseModel):
+    file: PrismFilePayload
+    current_version: PrismFileVersionPayload | None = None
+
+
+class PrismFileWritePayload(BaseModel):
+    file: PrismFilePayload
+    version: PrismFileVersionPayload | None = None
+    changed: bool = False
+    skipped_reason: str | None = None
 
 
 class PrismProtectedScopePayload(BaseModel):

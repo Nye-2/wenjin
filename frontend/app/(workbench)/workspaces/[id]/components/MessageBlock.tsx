@@ -1,13 +1,20 @@
 "use client";
 
 import { memo } from "react";
+import { CheckCircle2, FileText } from "lucide-react";
 import type {
   FeedbackPill,
   QuestionCardBlock as AgentQuestionCardBlock,
   ResultCardBlock as AgentResultCardBlock,
   ToolResultBlock as AgentToolResultBlock,
 } from "@/lib/api/blocks";
+import {
+  readIntakeSpecFromToolResultData,
+  type IntakeSpecV1,
+} from "@/lib/intake-spec";
 import type { Block, ResultCardData } from "@/stores/chat-store";
+import { useChatStoreV2 } from "@/stores/chat-store";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { PrismReviewList } from "@/components/prism/PrismReviewList";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
@@ -349,6 +356,16 @@ function ToolResultBlock({
   data: Record<string, unknown>;
   workspaceId?: string;
 }) {
+  const intakeSpec = readIntakeSpecFromToolResultData(data);
+  if (intakeSpec) {
+    return (
+      <IntakeSpecToolResultCard
+        spec={intakeSpec}
+        workspaceId={workspaceId}
+      />
+    );
+  }
+
   const status = String(data.status || "");
   const code = typeof data.code === "string" ? data.code.trim() : "";
   const executionId =
@@ -490,6 +507,153 @@ function ToolResultBlock({
   );
 }
 
+function IntakeSpecToolResultCard({
+  spec,
+  workspaceId,
+}: {
+  spec: IntakeSpecV1;
+  workspaceId?: string;
+}) {
+  const setActiveWorkbenchTab = useWorkbenchLayoutStore(
+    (state) => state.setActiveWorkbenchTab,
+  );
+  const sendMessage = useChatStoreV2((state) => state.sendMessage);
+  const isSending = useChatStoreV2((state) => state.isSending);
+  const ready = spec.status === "ready" && spec.missing_fields.length === 0;
+  const statusLabel = ready ? "可执行" : "待补充";
+
+  async function approve() {
+    if (!workspaceId || !ready || isSending) {
+      return;
+    }
+    setActiveWorkbenchTab("spec");
+    await sendMessage(
+      workspaceId,
+      [
+        `同意并开始执行这份 Spec：${spec.title}`,
+        "请按澄清文档中的范围和参数启动团队执行。",
+      ].join("\n"),
+      [],
+      {
+        metadata: {
+          orchestration: {
+            feature_id: spec.capability_id,
+            params: spec.params,
+          },
+          intake_spec_launch: {
+            spec_id: spec.spec_id,
+            revision: spec.revision,
+          },
+        },
+      },
+    );
+  }
+
+  return (
+    <div
+      style={{
+        padding: "12px 14px",
+        background: "var(--wjn-surface-raised)",
+        borderRadius: "var(--wjn-radius-lg)",
+        border: "1px solid var(--wjn-line)",
+        boxShadow: "var(--wjn-shadow-sm)",
+        margin: "8px 0",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 6,
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: "var(--wjn-text)",
+              lineHeight: 1.35,
+              overflowWrap: "anywhere",
+            }}
+          >
+            {spec.title}
+          </div>
+          <div
+            style={{
+              marginTop: 3,
+              fontSize: 12.5,
+              color: "var(--wjn-text-muted)",
+            }}
+          >
+            澄清 Spec · {statusLabel}
+          </div>
+        </div>
+        <FileText size={17} color="var(--wjn-blue)" />
+      </div>
+      {spec.missing_fields.length > 0 ? (
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 12.5,
+            color: "var(--wjn-warning)",
+          }}
+        >
+          还缺少：{spec.missing_fields.join("、")}
+        </div>
+      ) : null}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+        <button
+          type="button"
+          onClick={() => setActiveWorkbenchTab("spec")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            height: 30,
+            padding: "0 10px",
+            borderRadius: 8,
+            border: "1px solid var(--wjn-accent-line)",
+            background: "var(--wjn-accent-soft)",
+            color: "var(--wjn-accent-strong)",
+            fontSize: 12.5,
+            fontWeight: 650,
+            cursor: "pointer",
+          }}
+        >
+          <FileText size={13} />
+          <span>查看 Spec</span>
+        </button>
+        <button
+          type="button"
+          disabled={!workspaceId || !ready || isSending}
+          onClick={() => void approve()}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            height: 30,
+            padding: "0 10px",
+            borderRadius: 8,
+            border: ready ? "1px solid var(--wjn-blue)" : "1px solid var(--wjn-line)",
+            background: ready ? "var(--wjn-blue)" : "var(--wjn-bg-base)",
+            color: ready ? "#FFFFFF" : "var(--wjn-text-muted)",
+            fontSize: 12.5,
+            fontWeight: 650,
+            cursor: !workspaceId || !ready || isSending ? "not-allowed" : "pointer",
+            opacity: !workspaceId || !ready || isSending ? 0.56 : 1,
+          }}
+        >
+          <CheckCircle2 size={13} />
+          <span>同意执行</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function sanitizeUserFacingError(detail: unknown): string {
   if (typeof detail !== "string" || !detail.trim()) {
     return "任务启动失败，请补充需求后再试一次。";
@@ -502,7 +666,7 @@ function sanitizeUserFacingError(detail: unknown): string {
     text.includes("DataService") ||
     text.includes("Traceback")
   ) {
-    return "这次任务没有成功启动。请换一种说法补充研究主题、目标产物或材料，我会重新判断要不要召集团队。";
+    return "这次任务没有成功启动。请换一种说法补充研究主题、目标结果或材料，我会重新判断要不要召集团队。";
   }
   return text;
 }

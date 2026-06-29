@@ -832,7 +832,7 @@ function buildHarnessEvidenceSummary(state: ExecutionNodeState): string[] | null
   const lines = [
     scripts.length ? `脚本：${formatShortList(scripts)}` : null,
     datasets.length ? `数据：${formatShortList(datasets)}` : null,
-    artifacts.length ? `产物：${formatShortList(artifacts)}` : null,
+    artifacts.length ? `结果：${formatShortList(artifacts)}` : null,
     nextActions.length ? `后续：${formatShortList(nextActions)}` : null,
   ].filter((line): line is string => Boolean(line));
   return lines.length ? lines : null;
@@ -1541,7 +1541,7 @@ function qualityHighlightFromGate(
     return {
       label: "实验解释",
       status: gate.status,
-      detail: gate.status === "pass" ? "指标、限制与产物已对齐" : qualityDetailForStatus(gate.status),
+      detail: gate.status === "pass" ? "指标、限制与结果已对齐" : qualityDetailForStatus(gate.status),
     };
   }
   if (normalizedId.includes("statistical_robustness")) {
@@ -1822,7 +1822,7 @@ function harnessActivityFromNodeState(
   const artifactCount = Number(sandboxSummary?.generated_artifact_count ?? 0);
   if (Number.isFinite(artifactCount) && artifactCount > 0) {
     return {
-      label: `已生成 ${artifactCount} 个产物`,
+      label: `已生成 ${artifactCount} 个结果`,
       artifactCount,
     };
   }
@@ -1863,7 +1863,7 @@ function reproducibilityActivityFromHarnessSummary(
   const parts = [
     scriptCount > 0 ? `${scriptCount} 个脚本` : null,
     datasetCount > 0 ? `${datasetCount} 个数据集` : null,
-    artifactCount > 0 ? `${artifactCount} 个产物` : null,
+    artifactCount > 0 ? `${artifactCount} 个结果` : null,
   ].filter((part): part is string => Boolean(part));
   if (parts.length > 0) {
     return {

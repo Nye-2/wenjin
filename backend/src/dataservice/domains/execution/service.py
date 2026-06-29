@@ -41,8 +41,8 @@ from src.dataservice.domains.execution.projection import (
 from src.dataservice.domains.execution.repository import ExecutionRepository
 
 _COMMIT_CLAIM_LEASE = timedelta(minutes=30)
-_COMMIT_COUNT_ROOM_KEYS = ("library", "documents", "memory", "decisions", "tasks")
-_COMMIT_ROOM_TARGET_KEYS = ("library", "documents", "memory", "decisions", "tasks")
+_COMMIT_COUNT_ROOM_KEYS = ("library", "prism", "memory", "decisions", "tasks")
+_COMMIT_ROOM_TARGET_KEYS = ("library", "prism", "memory", "decisions", "tasks")
 
 
 class DataServiceExecutionService:

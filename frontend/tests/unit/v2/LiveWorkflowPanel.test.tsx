@@ -15,9 +15,9 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
+  counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
-    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
     library: [],
     memory: [],
     decisions: [],
@@ -30,15 +30,35 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["doc-1", "lib-1", "mem-1"],
-  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  counts: { library: 0, prism: 0, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
-    documents: [],
+    prism: [],
     library: [],
     memory: [],
     decisions: [],
     tasks: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const REVERTED_STATE = {
+  ...COMMITTED_STATE,
+  status: "reverted",
+  reverted_at: "2026-06-20T00:01:00Z",
+  reverted_by: "user-1",
+  revert_counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
+} as const;
+
+const COMMITTED_STATE_DOC2 = {
+  ...COMMITTED_STATE,
+  accepted_ids: ["doc-2"],
+  room_targets: {
+    prism: [{ output_id: "doc-2", item_id: "saved-doc-2" }],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
 } as const;
 
 function makeCompletedRecord(): ExecutionRecord {
@@ -143,7 +163,11 @@ function makeSecondCompletedRecord(): ExecutionRecord {
 
 function withCommitState(
   record: ExecutionRecord,
-  commitState: typeof COMMITTED_STATE | typeof DISCARDED_STATE,
+  commitState:
+    | typeof COMMITTED_STATE
+    | typeof DISCARDED_STATE
+    | typeof REVERTED_STATE
+    | typeof COMMITTED_STATE_DOC2,
 ): ExecutionRecord {
   return {
     ...record,
@@ -291,10 +315,10 @@ describe("LiveWorkflowPanel", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          committed: { documents: 1 },
+          committed: { prism: 1 },
           commit_state: COMMITTED_STATE,
           room_targets: {
-            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
             library: [],
             memory: [],
             decisions: [],
@@ -309,53 +333,34 @@ describe("LiveWorkflowPanel", () => {
     useWorkbenchLayoutStore.getState().reset();
   });
 
-  it("commits staged edits as output_overrides", async () => {
+  it("auto-commits completed outputs without a manual save button", async () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
-    useWorkbenchLayoutStore.getState().setWorkbenchFullscreen(true);
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
-
-    fireEvent.change(screen.getByLabelText("文件名"), {
-      target: { value: "edited-outline.md" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
     const [, init] = mockFetch.mock.calls[0];
     expect(JSON.parse(init.body as string)).toEqual({
       accept_all: true,
-      output_overrides: {
-        "doc-1": {
-          data: { name: "edited-outline.md" },
-        },
-      },
     });
+    expect(screen.queryByRole("button", { name: "全部保存" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "产物" })).not.toBeInTheDocument();
+    expect(await screen.findByText("已写入工作区")).toBeInTheDocument();
   });
 
-  it("does not accept all outputs from partial executions", async () => {
+  it("does not auto-commit partial executions", async () => {
     useExecutionStore.getState().upsertExecution(makePartialRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
     expect(screen.queryByRole("button", { name: "全部保存" })).not.toBeInTheDocument();
-    expect(screen.getByText("本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。")).toBeInTheDocument();
-
-    const outlineRow = screen
-      .getByRole("button", { name: /Thesis outline/ })
-      .closest("div");
-    expect(outlineRow).not.toBeNull();
-    fireEvent.click(within(outlineRow as HTMLElement).getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "保存已勾选" }));
-
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
-    const [, init] = mockFetch.mock.calls[0];
-    expect(JSON.parse(init.body as string)).toEqual({
-      accepted_ids: ["doc-1"],
-    });
+    expect(screen.queryByRole("button", { name: "保存已勾选" })).not.toBeInTheDocument();
+    expect(screen.getByText("Some team members failed.")).toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("hydrates persisted commit_state as final after remount and tab switch", () => {
@@ -363,7 +368,7 @@ describe("LiveWorkflowPanel", () => {
       .getState()
       .upsertExecution(withCommitState(makeCompletedRecord(), DISCARDED_STATE));
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     const firstRender = render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
@@ -371,12 +376,12 @@ describe("LiveWorkflowPanel", () => {
     expect(screen.queryByRole("button", { name: "暂不保存" })).not.toBeInTheDocument();
     expect(screen.getByText("已暂不保存")).toBeInTheDocument();
     expect(screen.queryByText("已写入工作区")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
 
     firstRender.unmount();
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "证据" }));
     expect(screen.getByLabelText("选择Thesis outline")).toBeDisabled();
   });
@@ -384,11 +389,9 @@ describe("LiveWorkflowPanel", () => {
   it("patches returned commit_state into the execution store after commit", async () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
 
     await waitFor(() =>
       expect(
@@ -398,6 +401,35 @@ describe("LiveWorkflowPanel", () => {
     expect(
       await screen.findByRole("link", { name: "打开已保存的 Thesis outline" }),
     ).toBeInTheDocument();
+  });
+
+  it("undoes an auto-committed run from the run writeback status", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ commit_state: REVERTED_STATE }),
+    });
+    useExecutionStore
+      .getState()
+      .upsertExecution(withCommitState(makeCompletedRecord(), COMMITTED_STATE));
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "撤回本次保存" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit/undo",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toEqual(REVERTED_STATE),
+    );
+    expect(screen.getByText("已撤回本次保存")).toBeInTheDocument();
   });
 
   it("does not finalize the selected run when a prior commit resolves after switching runs", async () => {
@@ -412,18 +444,22 @@ describe("LiveWorkflowPanel", () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useExecutionStore.getState().upsertExecution(makeSecondCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    expect(screen.getByRole("button", { name: /Thesis outline/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+    expect(screen.getByText("Outline completed.")).toBeInTheDocument();
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
 
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ commit_state: COMMITTED_STATE_DOC2 }),
+    });
     act(() => {
       useWorkbenchLayoutStore.getState().selectRun("exec-2");
     });
-    expect(screen.getByRole("button", { name: /Second outline/ })).toBeInTheDocument();
+    expect(screen.getByText("Second outline completed.")).toBeInTheDocument();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
 
     await act(async () => {
       resolveCommit({ commit_state: COMMITTED_STATE });
@@ -436,10 +472,9 @@ describe("LiveWorkflowPanel", () => {
     );
     expect(
       useExecutionStore.getState().executions.get("exec-2")?.result?.commit_state,
-    ).toBeUndefined();
+    ).toEqual(COMMITTED_STATE_DOC2);
     expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-2");
-    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
-    expect(screen.queryByText("已写入工作区")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "全部保存" })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "打开已保存的 Thesis outline" }),
     ).not.toBeInTheDocument();
@@ -450,9 +485,9 @@ describe("LiveWorkflowPanel", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          committed: { documents: 1 },
+          committed: { prism: 1 },
           room_targets: {
-            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
             library: [],
             memory: [],
             decisions: [],
@@ -462,16 +497,14 @@ describe("LiveWorkflowPanel", () => {
     });
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试写入" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(
@@ -496,16 +529,14 @@ describe("LiveWorkflowPanel", () => {
     });
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试写入" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(
@@ -523,23 +554,21 @@ describe("LiveWorkflowPanel", () => {
             ...COMMITTED_STATE,
             room_targets: {
               ...COMMITTED_STATE.room_targets,
-              documents: "bad",
+              prism: "bad",
             },
           },
         }),
     });
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试写入" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(
@@ -548,99 +577,34 @@ describe("LiveWorkflowPanel", () => {
     );
   });
 
-  it("uses room-specific labels in the review inbox", () => {
+  it("does not expose the product tab or memory snippets in the workbench chrome", () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    expect(screen.getAllByText("文档产物").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("文献资料").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("记忆片段").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "产物" })).not.toBeInTheDocument();
+    expect(screen.getByText("Outline completed.")).toBeInTheDocument();
+    expect(screen.queryByText("记忆片段")).not.toBeInTheDocument();
   });
 
-  it("renders review as a list-detail surface", () => {
+  it("keeps result details in evidence without showing memory facts", () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence");
     useWorkbenchLayoutStore.getState().setWorkbenchFullscreen(true);
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    expect(
-      screen.getByRole("region", { name: "候选结果列表" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("region", { name: "候选结果详情" }),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("Thesis outline").length).toBeGreaterThan(1);
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Federated Fine-tuning of Large Language Models/,
-      }),
-    );
-
-    expect(
-      screen.getAllByText("Federated Fine-tuning of Large Language Models").length,
-    ).toBeGreaterThan(1);
-    expect(
-      screen.getAllByText("A study about federated LLM adaptation.").length,
-    ).toBeGreaterThan(1);
-  });
-
-  it("filters review candidates by result room without losing the detail surface", () => {
-    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
-    useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
-    useWorkbenchLayoutStore.getState().setWorkbenchFullscreen(true);
-
-    render(<LiveWorkflowPanel workspaceId="ws-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "筛选文献资料" }));
-
-    expect(
-      screen.queryByRole("button", { name: /Thesis outline/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "结果" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Thesis outline/ })).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
         name: /Federated Fine-tuning of Large Language Models/,
       }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("region", { name: "候选结果详情" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getAllByText("A study about federated LLM adaptation.").length,
-    ).toBeGreaterThan(1);
-  });
-
-  it("keeps review lightweight outside fullscreen and opens detail mode on candidate click", () => {
-    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
-    useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
-    useWorkbenchLayoutStore.getState().setWorkbenchFullscreen(false);
-
-    render(<LiveWorkflowPanel workspaceId="ws-1" />);
-
-    expect(
-      screen.getByRole("region", { name: "候选结果列表" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("region", { name: "候选结果详情" }),
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Federated Fine-tuning of Large Language Models/,
-      }),
-    );
-
-    expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
-    expect(
-      screen.getByRole("region", { name: "候选结果详情" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("研究主题：联邦学习结合大模型微调")).not.toBeInTheDocument();
   });
 
   it("auto-follows completed runs after temporary tab navigation", async () => {
@@ -658,7 +622,7 @@ describe("LiveWorkflowPanel", () => {
     });
 
     await waitFor(() =>
-      expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review"),
+      expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run"),
     );
   });
 
@@ -759,6 +723,185 @@ describe("LiveWorkflowPanel", () => {
     expect(prompt).toContain("我想使用「文献定位与创新点」能力。");
     expect(prompt).toContain("请先确认启动所需的具体研究主题、材料或目标");
     expect(options.metadata.orchestration.feature_id).toBe("sci_literature_positioning");
+  });
+
+  it("routes super workflow capability picks into intake mode instead of direct launch", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({ sendMessage });
+
+    render(
+      <LiveWorkflowPanel
+        workspaceId="ws-1"
+        features={[
+          {
+            id: "software_copyright_application_pack",
+            name: "软著申报材料包",
+            description: "一步生成软著申报书、说明书、mock 代码和静态页面截图",
+            icon: "file-text",
+            stages: [],
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "软著申报材料包" }));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    const [, prompt, , options] = sendMessage.mock.calls[0];
+    expect(prompt).toContain("先帮我梳理软著申报材料包的执行 Spec");
+    expect(options.metadata.orchestration).toBeUndefined();
+    expect(options.metadata.workbench_launch).toMatchObject({
+      capability_id: "software_copyright_application_pack",
+      mode: "intake",
+    });
+  });
+
+  it("previews the latest intake spec and approves execution through chat launch metadata", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      sendMessage,
+      messages: [
+        {
+          id: "msg-spec",
+          role: "assistant",
+          createdAt: "2026-06-29T00:00:00Z",
+          blocks: [
+            {
+              kind: "tool_result",
+              tool: "draft_intake_spec",
+              status: "ready",
+              output: {
+                status: "ready",
+                intake_spec: {
+                  schema_version: "wenjin.intake_spec.v1",
+                  spec_id: "intake-1",
+                  revision: 1,
+                  workspace_id: "ws-1",
+                  workspace_type: "software_copyright",
+                  capability_id: "software_copyright_application_pack",
+                  title: "智慧排课系统软著申报 Spec",
+                  status: "ready",
+                  markdown:
+                    "# 智慧排课系统软著申报 Spec\n\n生成申报书、说明书、mock 后端代码和静态前端截图。",
+                  params: {
+                    software_name: "智慧排课系统",
+                    target_platform: "web",
+                  },
+                  missing_fields: [],
+                  assumptions: ["按 Web 管理系统生成。"],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("spec");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.getByRole("heading", { name: "智慧排课系统软著申报 Spec" })).toBeVisible();
+    expect(screen.getByText(/mock 后端代码和静态前端截图/)).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "同意，开始执行" }));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    const [, prompt, , options] = sendMessage.mock.calls[0];
+    expect(prompt).toContain("同意并开始执行这份 Spec");
+    expect(options.metadata.orchestration).toMatchObject({
+      feature_id: "software_copyright_application_pack",
+      params: {
+        software_name: "智慧排课系统",
+        target_platform: "web",
+      },
+    });
+    expect(options.metadata.intake_spec_launch).toMatchObject({
+      spec_id: "intake-1",
+      revision: 1,
+    });
+  });
+
+  it("keeps the right markdown preview synced to the latest workspace spec", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      sendMessage,
+      messages: [
+        {
+          id: "msg-old",
+          role: "assistant",
+          createdAt: "2026-06-29T00:00:00Z",
+          blocks: [
+            {
+              kind: "tool_result",
+              tool: "draft_intake_spec",
+              status: "ready",
+              output: {
+                status: "ready",
+                intake_spec: {
+                  schema_version: "wenjin.intake_spec.v1",
+                  spec_id: "intake-old",
+                  revision: 1,
+                  workspace_id: "ws-1",
+                  workspace_type: "software_copyright",
+                  capability_id: "software_copyright_application_pack",
+                  title: "旧版软著 Spec",
+                  status: "ready",
+                  markdown: "# 旧版软著 Spec\n\n旧版内容。",
+                  params: { software_name: "旧系统" },
+                  missing_fields: [],
+                  assumptions: [],
+                },
+              },
+            },
+          ],
+        },
+        {
+          id: "msg-new",
+          role: "assistant",
+          createdAt: "2026-06-29T00:02:00Z",
+          blocks: [
+            {
+              kind: "tool_result",
+              tool: "draft_intake_spec",
+              status: "ready",
+              output: {
+                status: "ready",
+                intake_spec: {
+                  schema_version: "wenjin.intake_spec.v1",
+                  spec_id: "intake-new",
+                  revision: 3,
+                  workspace_id: "ws-1",
+                  workspace_type: "software_copyright",
+                  capability_id: "software_copyright_application_pack",
+                  title: "新版软著 Spec",
+                  status: "ready",
+                  markdown: "# 新版软著 Spec\n\n新版内容。",
+                  params: { software_name: "新系统" },
+                  missing_fields: [],
+                  assumptions: [],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("spec");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.getByRole("heading", { name: "新版软著 Spec" })).toBeVisible();
+    expect(screen.queryByText("旧版内容。")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "同意，开始执行" }));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    const [, , , options] = sendMessage.mock.calls[0];
+    expect(options.metadata.orchestration.params).toEqual({ software_name: "新系统" });
+    expect(options.metadata.intake_spec_launch).toMatchObject({
+      spec_id: "intake-new",
+      revision: 3,
+    });
   });
 
   it("keeps the idle overview focused on task launch instead of empty dashboard controls", () => {

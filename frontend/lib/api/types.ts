@@ -106,7 +106,7 @@ export interface LatexAppliedFileChange {
 export interface WorkspacePrismSourceLink {
   id: string;
   workspace_id: string;
-  latex_project_id: string;
+  latex_project_id?: string | null;
   review_item_id?: string | null;
   source_type: string;
   source_id: string;
@@ -1101,14 +1101,60 @@ export interface WorkspaceCapability {
 }
 
 export interface WorkspacePrismEnsureResponse {
-  latex_project_id: string;
+  latex_project_id?: string | null;
+  prism_project_id?: string | null;
   url: string;
   sync_status: string;
 }
 
+export interface WorkspacePrismFile {
+  id: string;
+  workspace_id: string;
+  document_id: string;
+  path: string;
+  file_role: string;
+  mime_type?: string | null;
+  current_version_id?: string | null;
+  content_hash?: string | null;
+  sort_order: number;
+  metadata_json?: Record<string, unknown>;
+  deleted_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface WorkspacePrismFileVersion {
+  id: string;
+  workspace_id: string;
+  file_id: string;
+  version_no: number;
+  review_item_id?: string | null;
+  content_inline?: string | null;
+  content_asset_id?: string | null;
+  content_hash: string;
+  created_by: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface WorkspacePrismFileContent {
+  file: WorkspacePrismFile;
+  current_version?: WorkspacePrismFileVersion | null;
+}
+
+export interface WorkspacePrismFileWrite {
+  file: WorkspacePrismFile;
+  version?: WorkspacePrismFileVersion | null;
+  changed: boolean;
+  skipped_reason?: string | null;
+}
+
 export interface WorkspacePrismSurfaceResponse {
   workspace_id: string;
-  latex_project_id: string;
+  prism_project_id?: string | null;
+  prism_document_id?: string | null;
+  prism_files?: WorkspacePrismFile[];
+  latex_project_id?: string | null;
   surface_role: string;
   url: string;
   main_file?: string | null;
@@ -1496,19 +1542,6 @@ export interface ReferenceBibtexValidationResponse {
   missing_keys?: string[];
   unused_bib_keys?: string[];
   unverified_keys?: string[];
-}
-
-export interface MemoryEntry {
-  category: string;
-  content: string;
-  confidence: number;
-  workspace_context?: string | null;
-}
-
-export interface MemoryResponse {
-  workspace_id?: string | null;
-  formatted_context: string;
-  items: MemoryEntry[];
 }
 
 import type { AgentBlock } from "./blocks";

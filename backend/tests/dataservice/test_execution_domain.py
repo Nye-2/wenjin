@@ -631,14 +631,14 @@ async def test_finalize_execution_commit_requires_matching_claim_token_under_loc
             "rejected_ids": [],
             "counts": {
                 "library": 0,
-                "documents": 1,
+                "prism": 1,
                 "memory": 0,
                 "decisions": 0,
                 "tasks": 0,
             },
             "room_targets": {
                 "library": [],
-                "documents": [{"output_id": "out-1", "item_id": "doc-1"}],
+                "prism": [{"output_id": "out-1", "item_id": "file-1"}],
                 "memory": [],
                 "decisions": [],
                 "tasks": [],
@@ -741,8 +741,8 @@ async def test_fail_execution_commit_requires_matching_claim_token_and_blocks_re
             error_text="asset write failed",
             accepted_ids=["out-doc"],
             rejected_ids=["out-lib"],
-            partial_counts={"documents": 0},
-            partial_room_targets={"documents": []},
+            partial_counts={"prism": 0},
+            partial_room_targets={"prism": []},
         ),
     )
 
@@ -752,7 +752,7 @@ async def test_fail_execution_commit_requires_matching_claim_token_and_blocks_re
     assert repository.record.result["commit_state"]["error_text"] == "asset write failed"
     assert repository.record.result["commit_state"]["accepted_ids"] == ["out-doc"]
     assert repository.record.result["commit_state"]["rejected_ids"] == ["out-lib"]
-    assert repository.record.result["commit_state"]["partial_counts"] == {"documents": 0}
+    assert repository.record.result["commit_state"]["partial_counts"] == {"prism": 0}
 
     claim = await service.claim_execution_commit(
         "exec-claim",

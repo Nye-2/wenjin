@@ -1,4 +1,4 @@
-"""Memory middleware for the canonical DataService-backed memory flow."""
+"""Memory middleware for hidden workspace-bound memory injection."""
 
 from __future__ import annotations
 
@@ -10,54 +10,26 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.memory.capture import (
-    enqueue_memory_capture,
-    messages_to_conversation_text,
-)
+from src.agents.memory.capture import messages_to_conversation_text
 from src.agents.memory.capture import (
     filter_messages_for_memory as _filter_messages_for_memory,
 )
-from src.agents.memory.capture import (
-    select_incremental_capture_messages as _select_incremental_capture_messages,
-)
 from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
 from src.agents.middlewares.base import Middleware
-from src.agents.middlewares.config_utils import require_thread_id
 from src.agents.thread_state import ThreadState
-from src.services.memory_capture_service import MemoryCaptureService
-from src.services.user_memory_service import (
-    _parse_knowledge_json,
-    build_memory_context,
-    extract_and_persist_knowledge,
-    format_knowledge_for_prompt,
-    load_user_memory,
-)
+from src.services.workspace_memory_service import build_workspace_memory_context
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "MemoryMiddleware",
     "_filter_messages_for_memory",
-    "_parse_knowledge_json",
-    "enqueue_memory_capture",
-    "extract_and_persist_knowledge",
-    "format_knowledge_for_prompt",
-    "load_user_memory",
     "messages_to_conversation_text",
 ]
 
 
 class MemoryMiddleware(Middleware):
-    """Middleware for persisting conversation context to memory.
-
-    This middleware captures Human-AI message pairs after model responses
-    and enqueues them for asynchronous memory updates via the MemoryQueue.
-
-    Attributes:
-        queue: MemoryQueue instance for debounced memory updates
-        enabled: Whether memory persistence is enabled
-        min_messages: Minimum messages required to trigger memory update
-    """
+    """Middleware for injecting one hidden workspace memory document."""
 
     def __init__(
         self,
@@ -94,7 +66,6 @@ class MemoryMiddleware(Middleware):
             raise ValueError(f"max_cache_size must be >= 1, got {max_cache_size}")
         self._max_cache_size = max_cache_size
         self._memory_cache: collections.OrderedDict[str, tuple[str, float]] = collections.OrderedDict()  # key → (context, cached_at)
-        self._capture_service = MemoryCaptureService(self._queue)
 
     @property
     def queue(self) -> MemoryQueue:
@@ -106,10 +77,8 @@ class MemoryMiddleware(Middleware):
         """Check if memory persistence is enabled."""
         return self._enabled
 
-    def _cache_key(self, user_id: str, workspace_id: str | None) -> str:
-        # Safe when IDs are UUIDs or integers (no colons); do not use with
-        # arbitrary string IDs that may contain ':'.
-        return f"{user_id}:{workspace_id or ''}"
+    def _cache_key(self, workspace_id: str) -> str:
+        return workspace_id
 
     def _cache_set(self, key: str, value: str) -> None:
         """Store *value* under *key* in the LRU cache.
@@ -130,7 +99,7 @@ class MemoryMiddleware(Middleware):
         state: ThreadState,
         config: RunnableConfig,
     ) -> dict[str, Any]:
-        """Inject persistent user memory into the prompt state."""
+        """Inject hidden workspace memory into the prompt state."""
         if not self._enabled or not self._inject_enabled:
             return {}
 
@@ -138,13 +107,11 @@ class MemoryMiddleware(Middleware):
             return {}
 
         configurable = config.get("configurable", {})
-        user_id = configurable.get("user_id")
-        if not user_id:
+        workspace_id = state.get("workspace_id") or configurable.get("workspace_id")
+        if not workspace_id:
             return {}
 
-        workspace_id = state.get("workspace_id") or configurable.get("workspace_id")
-
-        cache_key = self._cache_key(str(user_id), str(workspace_id) if workspace_id else None)
+        cache_key = self._cache_key(str(workspace_id))
         cached_context, cached_at = self._memory_cache.get(cache_key, ("", 0.0))
         if cached_context and time.monotonic() - cached_at < self._cache_ttl:
             self._memory_cache.move_to_end(cache_key)   # promote to MRU position
@@ -169,17 +136,16 @@ class MemoryMiddleware(Middleware):
         )
         try:
             memory_context = await asyncio.wait_for(
-                build_memory_context(
-                    str(user_id),
-                    str(workspace_id) if workspace_id else None,
+                build_workspace_memory_context(
+                    str(workspace_id),
                     current_context=conversation_context or None,
                 ),
                 timeout=self._timeout,
             )
         except TimeoutError:
             logger.warning(
-                "MemoryMiddleware: timed out loading memory context for user %s (%.1fs)",
-                user_id,
+                "MemoryMiddleware: timed out loading workspace memory for workspace %s (%.1fs)",
+                workspace_id,
                 self._timeout,
             )
             return {}
@@ -193,63 +159,6 @@ class MemoryMiddleware(Middleware):
         state: ThreadState,
         config: RunnableConfig,
     ) -> dict[str, Any]:
-        """Called after the model generates a response.
-
-        Filters conversation messages and enqueues them for memory updates.
-
-        Args:
-            state: Current thread state (contains messages)
-            config: Runtime configuration (contains thread_id)
-
-        Returns:
-            Empty dict (no state modifications)
-        """
-        # Skip if disabled
-        if not self._enabled or not self._capture_enabled:
-            return {}
-
-        # Get messages from state
-        messages = state.get("messages", [])
-
-        # Skip if conversation is too short
-        if len(messages) < self._min_messages:
-            return {}
-
-        # Filter to only Human and AI messages (exclude tool messages, system, etc.)
-        filtered_messages = _filter_messages_for_memory(messages)
-
-        # Skip if no meaningful messages after filtering
-        if len(filtered_messages) < self._min_messages:
-            return {}
-
-        capture_messages = _select_incremental_capture_messages(filtered_messages)
-        if len(capture_messages) < self._min_messages:
-            return {}
-
-        # Get thread_id from config
-        configurable = config.get("configurable", {})
-        thread_id = require_thread_id(config, component="MemoryMiddleware")
-        user_id = configurable.get("user_id")
-        workspace_id = configurable.get("workspace_id")
-
-        await self._capture_service.capture_messages(
-            thread_id=str(thread_id),
-            user_id=str(user_id) if user_id else None,
-            workspace_id=str(workspace_id) if workspace_id else None,
-            messages=capture_messages,
-            source="thread.middleware",
-        )
-
-        # Invalidate cache so the next request fetches fresh context
-        cache_key = self._cache_key(
-            str(user_id) if user_id else "",
-            str(workspace_id) if workspace_id else None,
-        )
-        self._memory_cache.pop(cache_key, None)
-
-        logger.debug(
-            f"Enqueued {len(capture_messages)} messages for memory update "
-            f"(thread: {thread_id})"
-        )
-
+        """Ordinary turns no longer auto-write workspace memory."""
+        del state, config
         return {}

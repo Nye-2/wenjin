@@ -131,10 +131,16 @@ class ExecutionEngineV2:
                 "execution failed",
                 extra={"execution_id": execution_id},
             )
-            await self._release_feature_reservation(
-                execution,
-                reason="执行失败释放预留积分",
-            )
+            try:
+                await self._release_feature_reservation(
+                    execution,
+                    reason="执行失败释放预留积分",
+                )
+            except Exception:
+                logger.exception(
+                    "failed to release feature credit reservation after execution failure",
+                    extra={"execution_id": execution_id},
+                )
             await self._mark_failed(execution_id, str(exc))
             await self._append_execution_event(
                 execution_id,

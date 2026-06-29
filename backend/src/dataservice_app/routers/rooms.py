@@ -8,7 +8,6 @@ from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.rooms.contracts import (
     DecisionSetCommand,
-    MemoryFactCreateCommand,
     RoomCandidateCommand,
     WorkspaceTaskCreateCommand,
     WorkspaceTaskUpdateCommand,
@@ -52,41 +51,6 @@ async def delete_decision(
 ) -> dict:
     service = RoomsDataService(uow.required_session, autocommit=False)
     deleted = await service.delete_decision(decision_id)
-    await uow.commit()
-    return envelope_ok({"deleted": deleted})
-
-
-@router.get("/workspaces/{workspace_id}/memory")
-async def list_memory_facts(
-    workspace_id: str,
-    limit: int = Query(default=15, ge=1, le=200),
-    category: str | None = Query(default=None),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = RoomsDataService(uow.required_session, autocommit=False)
-    records = await service.list_memory_facts(workspace_id=workspace_id, limit=limit, category=category)
-    return envelope_ok([record.model_dump(mode="json") for record in records])
-
-
-@router.post("/memory")
-async def add_memory_facts(
-    commands: list[MemoryFactCreateCommand],
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = RoomsDataService(uow.required_session, autocommit=False)
-    records = await service.add_memory_facts(commands)
-    await uow.commit()
-    return envelope_ok([record.model_dump(mode="json") for record in records])
-
-
-@router.delete("/workspaces/{workspace_id}/memory/{fact_id}")
-async def delete_memory_fact(
-    workspace_id: str,
-    fact_id: str,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = RoomsDataService(uow.required_session, autocommit=False)
-    deleted = await service.soft_delete_memory_fact(workspace_id=workspace_id, fact_id=fact_id)
     await uow.commit()
     return envelope_ok({"deleted": deleted})
 

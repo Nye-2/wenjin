@@ -13,9 +13,9 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
+  counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
-    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
     library: [],
     memory: [],
     decisions: [],
@@ -355,7 +355,7 @@ describe("execution run view expert projection", () => {
         result: {
           commit_state: {
             ...COMMITTED_STATE,
-            counts: { ...COMMITTED_STATE.counts, documents: 1.5 },
+            counts: { ...COMMITTED_STATE.counts, prism: 1.5 },
           },
         },
       }),
@@ -368,7 +368,7 @@ describe("execution run view expert projection", () => {
             ...COMMITTED_STATE,
             room_targets: {
               ...COMMITTED_STATE.room_targets,
-              documents: "bad",
+              prism: "bad",
             },
           },
         },
@@ -413,7 +413,7 @@ describe("execution run view expert projection", () => {
           commit_state: {
             ...COMMITTED_STATE,
             room_targets: {
-              documents: COMMITTED_STATE.room_targets.documents,
+              prism: COMMITTED_STATE.room_targets.prism,
             },
           },
         },

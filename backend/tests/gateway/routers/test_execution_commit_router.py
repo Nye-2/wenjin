@@ -60,6 +60,7 @@ def _make_mock_service(**commit_kwargs) -> ExecutionCommitService:
     """Return a mock ExecutionCommitService."""
     svc = MagicMock(spec=ExecutionCommitService)
     svc.commit_outputs = AsyncMock(**commit_kwargs)
+    svc.undo_commit = AsyncMock(return_value={})
     return svc
 
 
@@ -70,7 +71,7 @@ def _make_mock_service(**commit_kwargs) -> ExecutionCommitService:
 
 def test_post_commit_returns_counts():
     """Happy path: service returns counts → 200 with committed dict."""
-    expected = {"committed": {"library": 1, "documents": 0, "memory": 0, "decisions": 0, "tasks": 0}}
+    expected = {"committed": {"library": 1, "prism": 0, "memory": 0, "decisions": 0, "tasks": 0}}
     svc = _make_mock_service(return_value=expected)
     client = _make_app(svc)
 
@@ -145,7 +146,7 @@ def test_post_commit_500_on_commit_state_persistence_failure():
 
 def test_post_commit_passes_idempotency_key_header():
     """Idempotency-Key header is forwarded to the service."""
-    expected = {"committed": {"library": 0, "documents": 0, "memory": 1, "decisions": 0, "tasks": 0}}
+    expected = {"committed": {"library": 0, "prism": 0, "memory": 1, "decisions": 0, "tasks": 0}}
     svc = _make_mock_service(return_value=expected)
     client = _make_app(svc)
 
@@ -168,7 +169,7 @@ def test_post_commit_passes_idempotency_key_header():
 
 def test_post_commit_accepted_ids_only():
     """accepted_ids without accept_all → only those IDs written."""
-    expected = {"committed": {"library": 0, "documents": 0, "memory": 0, "decisions": 1, "tasks": 0}}
+    expected = {"committed": {"library": 0, "prism": 0, "memory": 0, "decisions": 1, "tasks": 0}}
     svc = _make_mock_service(return_value=expected)
     client = _make_app(svc)
 
@@ -184,7 +185,7 @@ def test_post_commit_accepted_ids_only():
 
 def test_post_commit_passes_output_overrides():
     """Staged frontend edits are forwarded to the commit service."""
-    expected = {"committed": {"library": 0, "documents": 1, "memory": 0, "decisions": 0, "tasks": 0}}
+    expected = {"committed": {"library": 0, "prism": 1, "memory": 0, "decisions": 0, "tasks": 0}}
     svc = _make_mock_service(return_value=expected)
     client = _make_app(svc)
 
@@ -239,3 +240,33 @@ def test_post_commit_hides_execution_for_non_owner():
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Execution not found"
+
+
+def test_post_commit_undo_calls_service():
+    """Undo endpoint forwards actor ownership context to the commit service."""
+    expected = {
+        "commit_state": {
+            "status": "reverted",
+            "accepted_ids": ["out-doc"],
+            "rejected_ids": [],
+            "counts": {"library": 0, "prism": 1, "memory": 0, "decisions": 0, "tasks": 0},
+            "room_targets": {
+                "prism": [{"output_id": "out-doc", "item_id": "prism-file-1"}],
+                "library": [],
+                "memory": [],
+                "decisions": [],
+                "tasks": [],
+            },
+            "committed_at": "2026-06-29T00:00:00Z",
+            "reverted_at": "2026-06-29T00:01:00Z",
+        }
+    }
+    svc = _make_mock_service()
+    svc.undo_commit = AsyncMock(return_value=expected)
+    client = _make_app(svc)
+
+    resp = client.post("/api/executions/exec-1/commit/undo")
+
+    assert resp.status_code == 200
+    assert resp.json() == expected
+    svc.undo_commit.assert_called_once_with("exec-1", actor_user_id="user-1")

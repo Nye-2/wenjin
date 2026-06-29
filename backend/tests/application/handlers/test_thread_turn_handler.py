@@ -261,7 +261,7 @@ class TestThreadTurnHandlerCancellation:
         handler._fail_thread_turn.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
-    async def test_persist_thread_reply_enqueues_incremental_memory_messages(self):
+    async def test_persist_thread_reply_does_not_capture_memory(self):
         thread_service = MagicMock()
         assistant_message = {
             "role": "assistant",
@@ -290,14 +290,7 @@ class TestThreadTurnHandlerCancellation:
             metadata=assistant_message["metadata"],
         )
 
-        capture_service = MagicMock()
-        capture_service.capture_messages = AsyncMock()
-
         with (
-            patch(
-                "src.application.handlers.thread_turn_handler.get_memory_capture_service",
-                return_value=capture_service,
-            ),
             patch("src.application.handlers.thread_turn_handler.publish_thread_updated", new=AsyncMock()),
             patch("src.application.handlers.thread_turn_handler.set_thread_status", new=AsyncMock()),
         ):
@@ -308,14 +301,8 @@ class TestThreadTurnHandlerCancellation:
                 reply=reply,
             )
 
-        capture_service.capture_messages.assert_awaited_once()
-        messages = capture_service.capture_messages.await_args.kwargs["messages"]
-        assert len(messages) == 2
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "继续推进这个任务"
-        assert messages[1]["role"] == "assistant"
-        assert "orchestration" in messages[1]["content"]
-        assert "warning" in messages[1]["content"]
+        thread_service.add_message.assert_awaited_once()
+        thread_service.set_title_if_empty.assert_awaited_once_with(thread, "继续推进这个任务")
 
     @pytest.mark.asyncio
     async def test_get_or_create_owned_thread_rejects_workspace_mismatch(self):

@@ -19,7 +19,7 @@ beforeEach(() => {
         committed: {},
         commit_state: COMMITTED_STATE,
         room_targets: {
-          documents: [{ output_id: "o3", item_id: "doc-77" }],
+          prism: [{ output_id: "o3", item_id: "doc-77" }],
           library: [{ output_id: "o1", item_id: "lib-88" }],
           memory: [{ output_id: "o4", item_id: "mem-99" }],
           decisions: [],
@@ -93,9 +93,9 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["o3"],
   rejected_ids: ["o1"],
-  counts: { library: 1, documents: 1, memory: 1, decisions: 0, tasks: 0 },
+  counts: { library: 1, prism: 1, memory: 1, decisions: 0, tasks: 0 },
   room_targets: {
-    documents: [{ output_id: "o3", item_id: "doc-77" }],
+    prism: [{ output_id: "o3", item_id: "doc-77" }],
     library: [{ output_id: "o1", item_id: "lib-88" }],
     memory: [{ output_id: "o4", item_id: "mem-99" }],
     decisions: [],
@@ -108,15 +108,23 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["o1", "o2", "o3", "o4"],
-  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  counts: { library: 0, prism: 0, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
-    documents: [],
+    prism: [],
     library: [],
     memory: [],
     decisions: [],
     tasks: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const REVERTED_STATE = {
+  ...COMMITTED_STATE,
+  status: "reverted",
+  reverted_at: "2026-06-20T00:01:00Z",
+  reverted_by: "user-1",
+  revert_counts: { library: 1, prism: 1, memory: 1, decisions: 0, tasks: 0 },
 } as const;
 
 function seedExecutionResult(result: Record<string, unknown>) {
@@ -145,13 +153,15 @@ describe("ResultCard", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
 
     expect(screen.getByText(/找到 15 篇相关文献/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "查看详情" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看运行" })).toBeInTheDocument();
     expect(screen.getByText("文献资料")).toBeInTheDocument();
-    expect(screen.getByText("文档产物")).toBeInTheDocument();
-    expect(screen.getByText("记忆片段")).toBeInTheDocument();
+    expect(screen.getByText("Prism 文件")).toBeInTheDocument();
+    expect(screen.queryByText("记忆片段")).not.toBeInTheDocument();
+    expect(screen.queryByText("研究主题：联邦学习大模型")).not.toBeInTheDocument();
     expect(screen.getByText("Deep Learning")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.getByText("保存到工作区")).toBeInTheDocument();
+    expect(screen.getByText("正在自动写入工作区...")).toBeInTheDocument();
+    expect(screen.queryByText("保存到工作区")).not.toBeInTheDocument();
   });
 
   it("sanitizes raw runtime narrative before rendering the chat result card", () => {
@@ -198,7 +208,7 @@ describe("ResultCard", () => {
       />,
     );
 
-    expect(screen.getByText("图表产物")).toBeInTheDocument();
+    expect(screen.getByText("图表文件")).toBeInTheDocument();
     expect(screen.getByText("图表")).toBeInTheDocument();
     expect(screen.getByText("Accuracy trend")).toBeInTheDocument();
     expect(
@@ -210,14 +220,14 @@ describe("ResultCard", () => {
     expect(screen.queryByText(/provenance:/)).not.toBeInTheDocument();
   });
 
-  it("opens the workbench review surface for detailed result review", () => {
+  it("opens the run surface for detailed result review", () => {
     useRunUiStore.getState().focusPreviewItem("stale-preview");
     render(<ResultCard data={SAMPLE_DATA} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看运行" }));
 
     expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
-    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review");
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run");
     expect(useRunUiStore.getState().focusedPreviewItemId).toBeNull();
     expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
   });
@@ -225,7 +235,7 @@ describe("ResultCard", () => {
   it("opens the run preview surface when result card carries a preview item pointer", () => {
     render(<ResultCard data={{ ...SAMPLE_DATA, preview_item_id: "preview-1" }} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看运行" }));
 
     expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
     expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run");
@@ -233,20 +243,40 @@ describe("ResultCard", () => {
     expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
   });
 
-  it("calls commit with accept_all on '保存到工作区'", async () => {
+  it("does not commit when rendered outside a workspace surface", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
 
-    fireEvent.click(screen.getByText("保存到工作区"));
+    expect(screen.queryByText("保存到工作区")).not.toBeInTheDocument();
+    expect(screen.queryByText("暂不保存")).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/executions/exec-1/commit",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ accept_all: true }),
-      }),
+  it("auto-commits from the chat receipt when no run surface owns the execution", async () => {
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ accept_all: true }),
+        }),
+      ),
     );
-    const headers = mockFetch.mock.calls[0]?.[1]?.headers as Headers;
-    expect(headers.get("Idempotency-Key")).toBeTruthy();
+    await screen.findByText("3 项结果已写入");
+    expect(screen.getByRole("link", { name: "打开已保存的 综述初稿" })).toHaveAttribute(
+      "href",
+      "/workspaces/ws-1/prism?file_id=doc-77",
+    );
+  });
+
+  it("lets the run surface handle auto-commit when an execution record is already present", async () => {
+    seedExecutionResult({});
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    expect(screen.getByText("正在自动写入工作区...")).toBeInTheDocument();
+    await waitFor(() => expect(mockFetch).not.toHaveBeenCalled());
   });
 
   it("requires manual review before saving partial execution outputs", () => {
@@ -265,27 +295,26 @@ describe("ResultCard", () => {
     );
 
     expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
-    expect(screen.getByText("本次运行未完整完成，候选结果需要先查看详情后再决定是否保存。")).toBeInTheDocument();
+    expect(screen.getByText("本次运行未完整完成，请先查看运行详情；需要保留的内容可继续在左侧对话中处理。")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "查看候选项" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看运行" }));
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
-    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review");
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run");
   });
 
-  it("shows room links for saved outputs after commit", async () => {
+  it("shows room links for persisted saved outputs", () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
+
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByText("保存到工作区"));
-
-    const docLink = await screen.findByRole("link", {
+    const docLink = screen.getByRole("link", {
       name: "打开已保存的 综述初稿",
     });
     const docUrl = new URL(docLink.getAttribute("href")!, "https://example.test");
-    expect(docUrl.pathname).toBe("/workspaces/ws-1");
-    expect(docUrl.searchParams.get("room")).toBe("documents");
-    expect(docUrl.searchParams.get("item_id")).toBe("doc-77");
+    expect(docUrl.pathname).toBe("/workspaces/ws-1/prism");
+    expect(docUrl.searchParams.get("file_id")).toBe("doc-77");
 
     const libraryLink = screen.getByRole("link", {
       name: "打开已保存的 Deep Learning",
@@ -297,15 +326,11 @@ describe("ResultCard", () => {
     expect(libraryUrl.searchParams.get("room")).toBe("library");
     expect(libraryUrl.searchParams.get("item_id")).toBe("lib-88");
 
-    const memoryLink = screen.getByRole("link", {
-      name: "打开已保存的 研究主题：联邦学习大模型",
-    });
-    const memoryUrl = new URL(
-      memoryLink.getAttribute("href")!,
-      "https://example.test",
-    );
-    expect(memoryUrl.searchParams.get("room")).toBe("memory");
-    expect(memoryUrl.searchParams.get("item_id")).toBe("mem-99");
+    expect(
+      screen.queryByRole("link", {
+        name: "打开已保存的 研究主题：联邦学习大模型",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders persisted committed state from the execution store without POST", () => {
@@ -313,9 +338,9 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    const saveButton = screen.getByRole("button", { name: "已保存到工作区" });
-    expect(saveButton).toBeDisabled();
-    expect(screen.getByRole("button", { name: "暂不保存" })).toBeDisabled();
+    expect(screen.getByText("3 项结果已写入")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "撤回本次保存" })).toBeInTheDocument();
+    expect(screen.queryByText("保存到工作区")).not.toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "打开已保存的 综述初稿" }),
     ).toBeInTheDocument();
@@ -327,44 +352,44 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    const finalButtons = screen.getAllByRole("button", { name: "已暂不保存" });
-    expect(finalButtons.length).toBeGreaterThan(0);
-    finalButtons.forEach((button) => expect(button).toBeDisabled());
+    expect(screen.getByText("已暂不保存")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "撤回本次保存" })).not.toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("uses POST commit_state to finalize the card, patch the execution store, and show links", async () => {
-    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+  it("uses POST undo commit_state to mark the card reverted", async () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () =>
         Promise.resolve({
-          commit_state: COMMITTED_STATE,
+          commit_state: REVERTED_STATE,
         }),
     });
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+    fireEvent.click(screen.getByRole("button", { name: "撤回本次保存" }));
 
-    expect(
-      await screen.findByRole("link", { name: "打开已保存的 综述初稿" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "已保存到工作区" })).toBeDisabled();
+    expect(await screen.findByText("已撤回本次保存")).toBeInTheDocument();
     expect(
       useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
-    ).toEqual(COMMITTED_STATE);
+    ).toEqual(REVERTED_STATE);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/executions/exec-1/commit/undo",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
-  it("does not fabricate or patch durable commit_state when POST lacks backend commit_state", async () => {
-    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+  it("does not fabricate or patch durable commit_state when undo lacks backend commit_state", async () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () =>
         Promise.resolve({
-          committed: { documents: 1 },
+          committed: { prism: 1 },
           room_targets: {
-            documents: [{ output_id: "o3", item_id: "doc-77" }],
+            prism: [{ output_id: "o3", item_id: "doc-77" }],
             library: [],
             memory: [],
             decisions: [],
@@ -375,22 +400,21 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+    fireEvent.click(screen.getByRole("button", { name: "撤回本次保存" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
-    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "撤回本次保存" })).not.toBeDisabled();
     await waitFor(() =>
       expect(
         useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
-      ).toBeUndefined(),
+      ).toEqual(COMMITTED_STATE),
     );
   });
 
-  it("does not patch durable commit_state when response commit_state is missing counts", async () => {
-    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+  it("does not patch durable commit_state when undo response commit_state is missing counts", async () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () =>
@@ -407,46 +431,44 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+    fireEvent.click(screen.getByRole("button", { name: "撤回本次保存" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
-    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "撤回本次保存" })).not.toBeDisabled();
     await waitFor(() =>
       expect(
         useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
-      ).toBeUndefined(),
+      ).toEqual(COMMITTED_STATE),
     );
   });
 
-  it("does not patch durable commit_state when response commit_state has non-integer counts", async () => {
-    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+  it("does not patch durable commit_state when undo response commit_state has non-integer counts", async () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () =>
         Promise.resolve({
           commit_state: {
             ...COMMITTED_STATE,
-            counts: { ...COMMITTED_STATE.counts, documents: 1.5 },
+            counts: { ...COMMITTED_STATE.counts, prism: 1.5 },
           },
         }),
     });
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+    fireEvent.click(screen.getByRole("button", { name: "撤回本次保存" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
-    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "撤回本次保存" })).not.toBeDisabled();
     await waitFor(() =>
       expect(
         useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
-      ).toBeUndefined(),
+      ).toEqual(COMMITTED_STATE),
     );
   });
 
@@ -516,7 +538,7 @@ describe("ResultCard", () => {
       />,
     );
 
-    expect(screen.getByText("产物有 1 项待确认保存")).toBeInTheDocument();
+    expect(screen.getByText("结果有 1 项可查看")).toBeInTheDocument();
     expect(screen.getByText("Accept sandbox artifact: sandbox_report")).toBeInTheDocument();
     expect(screen.getByText("/workspace/reports/analysis.md")).toBeInTheDocument();
     expect(screen.queryByText(/Prism 有/)).not.toBeInTheDocument();
@@ -525,31 +547,25 @@ describe("ResultCard", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows an inline error when saving fails", async () => {
+  it("shows an inline error when undo fails", async () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
     mockFetch.mockResolvedValueOnce({
       ok: false,
-      json: () => Promise.resolve({ detail: "Save failed" }),
+      json: () => Promise.resolve({ detail: "Undo failed" }),
     });
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByText("保存到工作区"));
+    fireEvent.click(screen.getByRole("button", { name: "撤回本次保存" }));
 
-    expect(await screen.findByText("Save failed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+    expect(await screen.findByText("Undo failed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "撤回本次保存" })).toBeInTheDocument();
   });
 
-  it("calls commit with empty array on '暂不保存'", () => {
+  it("does not render discard controls on completed chat receipts", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
 
-    fireEvent.click(screen.getByText("暂不保存"));
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/executions/exec-1/commit",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ accepted_ids: [] }),
-      }),
-    );
+    expect(screen.queryByText("暂不保存")).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

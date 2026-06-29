@@ -19,15 +19,6 @@ class DecisionSetPayload(BaseModel):
     source_review_item_id: str | None = None
 
 
-class MemoryFactCreatePayload(BaseModel):
-    workspace_id: str
-    category: str
-    content: str
-    confidence: float = 1.0
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
-
-
 class WorkspaceTaskCreatePayload(BaseModel):
     workspace_id: str
     title: str
@@ -67,20 +58,6 @@ class DecisionPayload(BaseModel):
     source_message_id: str | None = None
     extracted_by: str
     superseded_by: str | None = None
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
-    created_at: datetime | None = None
-    deleted_at: datetime | None = None
-
-
-class MemoryFactPayload(BaseModel):
-    id: str
-    workspace_id: str
-    category: str
-    content: str
-    confidence: float
-    last_referenced_at: datetime | None = None
-    reference_count: int = 0
     source_review_batch_id: str | None = None
     source_review_item_id: str | None = None
     created_at: datetime | None = None

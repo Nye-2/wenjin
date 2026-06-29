@@ -4,10 +4,8 @@ import { useEffect } from "react";
 import {
   BookOpen,
   CheckCircle2,
-  FileText,
   History,
   ListTodo,
-  MemoryStick,
   Settings,
   X,
 } from "lucide-react";
@@ -18,9 +16,7 @@ import { IconButton } from "@/components/ui/icon-button";
 
 export type WorkspaceHubRoomKey =
   | "library"
-  | "documents"
   | "decisions"
-  | "memory"
   | "runs"
   | "tasks"
   | "settings";
@@ -41,23 +37,11 @@ export const WORKSPACE_HUB_ROOMS: readonly WorkspaceHubRoom[] = [
     icon: BookOpen,
   },
   {
-    key: "documents",
-    label: "文档成果",
-    description: "草稿、报告、附件与可交付内容",
-    icon: FileText,
-  },
-  {
     key: "decisions",
     label: "确认与决策",
     description: "待确认结果、关键判断与采纳记录",
     icon: CheckCircle2,
     countKind: "review",
-  },
-  {
-    key: "memory",
-    label: "项目记忆",
-    description: "长期偏好、研究背景与协作上下文",
-    icon: MemoryStick,
   },
   {
     key: "runs",

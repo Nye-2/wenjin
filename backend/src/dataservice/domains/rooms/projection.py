@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from src.dataservice.domains.rooms.contracts import (
     DecisionProjection,
-    MemoryFactProjection,
     WorkspaceTaskProjection,
 )
 from src.dataservice.domains.rooms.models import (
     DecisionRecord,
-    MemoryFactRecord,
     WorkspaceTaskRecord,
 )
 
@@ -24,22 +22,6 @@ def decision_to_projection(record: DecisionRecord) -> DecisionProjection:
         source_message_id=record.source_message_id,
         extracted_by=record.extracted_by,
         superseded_by=record.superseded_by,
-        source_review_batch_id=getattr(record, "source_review_batch_id", None),
-        source_review_item_id=getattr(record, "source_review_item_id", None),
-        created_at=record.created_at,
-        deleted_at=record.deleted_at,
-    )
-
-
-def memory_fact_to_projection(record: MemoryFactRecord) -> MemoryFactProjection:
-    return MemoryFactProjection(
-        id=str(record.id),
-        workspace_id=str(record.workspace_id),
-        category=record.category,
-        content=record.content,
-        confidence=float(record.confidence),
-        last_referenced_at=record.last_referenced_at,
-        reference_count=int(record.reference_count or 0),
         source_review_batch_id=getattr(record, "source_review_batch_id", None),
         source_review_item_id=getattr(record, "source_review_item_id", None),
         created_at=record.created_at,

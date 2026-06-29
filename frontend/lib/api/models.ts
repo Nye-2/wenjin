@@ -7,5 +7,15 @@ export async function listModels(
   const response = await apiClient.get("/models", {
     params: { purpose },
   });
-  return response.data;
+  const data = response.data;
+  if (Array.isArray(data)) {
+    return { models: data };
+  }
+  if (Array.isArray(data?.models)) {
+    return { models: data.models };
+  }
+  if (Array.isArray(data?.items)) {
+    return { models: data.items };
+  }
+  return { models: [] };
 }

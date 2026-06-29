@@ -2,22 +2,15 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SettingsPage } from "@/app/(workbench)/workspaces/[id]/components/rooms/SettingsPage";
 
-const MOCK_MEMORY_FACTS = [
-  {
-    id: "fact-1",
-    content: "User prefers concise explanations",
-    category: "preference",
-    confidence: 0.92,
-    created_at: "2026-01-15T10:00:00Z",
-  },
-  {
-    id: "fact-2",
-    content: "Project uses TypeScript and React",
-    category: "fact",
-    confidence: 0.99,
-    created_at: "2026-01-14T08:00:00Z",
-  },
-];
+const mockListModels = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    listModels: mockListModels,
+  };
+});
 
 const MOCK_DECISIONS = [
   {
@@ -32,12 +25,11 @@ const MOCK_DECISIONS = [
 
 function mockFetch(overrides?: Record<string, unknown>) {
   const defaults: Record<string, unknown> = {
-    "/api/workspaces/ws-1/memory": MOCK_MEMORY_FACTS,
     "/api/workspaces/ws-1/decisions": MOCK_DECISIONS,
     "/api/workspaces/ws-1/settings": {
       name: "Test Workspace",
       auto_compact_threshold: 0.8,
-      default_model: "claude-sonnet-4-6",
+      default_model: "gpt-5.3-codex-spark",
     },
   };
   const responses = { ...defaults, ...overrides };
@@ -73,6 +65,30 @@ function mockFetch(overrides?: Record<string, unknown>) {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockListModels.mockResolvedValue({
+      models: [
+        {
+          name: "gpt-5.5",
+          display_name: "GPT-5.5 (Default)",
+          provider: "sub2api",
+          max_tokens: 128000,
+          supports_thinking: false,
+          supports_reasoning_effort: false,
+          supports_vision: false,
+          is_default: true,
+        },
+        {
+          name: "gpt-5.3-codex-spark",
+          display_name: "GPT-5.3 Codex Spark",
+          provider: "sub2api",
+          max_tokens: 32000,
+          supports_thinking: false,
+          supports_reasoning_effort: false,
+          supports_vision: false,
+          is_default: false,
+        },
+      ],
+    });
   });
 
   it("renders nothing when closed", () => {
@@ -87,7 +103,7 @@ describe("SettingsPage", () => {
     expect(screen.queryByTestId("settings-page")).not.toBeInTheDocument();
   });
 
-  it("renders with 3 tabs", () => {
+  it("renders without the hidden memory tab", () => {
     global.fetch = mockFetch();
     render(
       <SettingsPage
@@ -99,7 +115,7 @@ describe("SettingsPage", () => {
 
     expect(screen.getByTestId("settings-page")).toBeInTheDocument();
     expect(screen.getByTestId("settings-tabs")).toBeInTheDocument();
-    expect(screen.getByTestId("tab-memory")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-memory")).not.toBeInTheDocument();
     expect(screen.getByTestId("tab-decisions")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-sandbox")).not.toBeInTheDocument();
     expect(screen.getByTestId("tab-settings")).toBeInTheDocument();
@@ -115,20 +131,17 @@ describe("SettingsPage", () => {
       />,
     );
 
-    // Default tab is Memory
-    expect(screen.getByTestId("memory-viewer")).toBeInTheDocument();
-
-    // Switch to Decisions
-    fireEvent.click(screen.getByTestId("tab-decisions"));
+    // Default tab is Decisions while workspace memory remains backend-only.
     expect(screen.getByTestId("decisions-viewer")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /记忆/ })).not.toBeInTheDocument();
 
-    // Switch to Settings (loads settings data async)
     fireEvent.click(screen.getByTestId("tab-settings"));
     expect(await screen.findByTestId("settings-form")).toBeInTheDocument();
   });
 
-  it("MemoryViewer fetches and displays facts", async () => {
-    global.fetch = mockFetch();
+  it("does not fetch or display memory facts from the settings panel", async () => {
+    const fetchMock = mockFetch();
+    global.fetch = fetchMock;
     render(
       <SettingsPage
         workspaceId="ws-1"
@@ -137,11 +150,12 @@ describe("SettingsPage", () => {
       />,
     );
 
-    await screen.findByText("User prefers concise explanations");
-    expect(screen.getByText("User prefers concise explanations")).toBeInTheDocument();
-    expect(screen.getByText("Project uses TypeScript and React")).toBeInTheDocument();
-    expect(screen.getByText("可信度 92%")).toBeInTheDocument();
-    expect(screen.getAllByTestId("memory-item")).toHaveLength(2);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/workspaces/ws-1/memory"),
+      expect.anything(),
+    );
+    expect(screen.queryByTestId("memory-item")).not.toBeInTheDocument();
   });
 
   it("DecisionsViewer displays decisions", async () => {
@@ -178,6 +192,10 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByTestId("tab-settings"));
 
     await screen.findByTestId("settings-name");
+    expect(screen.getByTestId("settings-default-model")).toHaveValue(
+      "gpt-5.3-codex-spark",
+    );
+    expect(screen.getByText("GPT-5.3 Codex Spark")).toBeInTheDocument();
 
     const nameInput = screen.getByTestId("settings-name");
     fireEvent.change(nameInput, { target: { value: "My Workspace" } });

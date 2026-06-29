@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.routers.thread_contracts import ThreadAttachment, ThreadUploadKind
 from src.services import ThreadService
-from src.services.knowledge_service import KnowledgeService
 from src.services.layout_preprocess_orchestrator import LayoutPreprocessOrchestrator
 from src.services.references import SourceLibraryImportService
 from src.services.thread_upload_service import ThreadUploadService
@@ -92,8 +91,6 @@ class UploadApplicationService:
 
         stored_files: list[ThreadAttachment] = []
         refresh_targets: set[str] = set()
-        knowledge_service = KnowledgeService(dataservice=self.dataservice)
-
         for upload in files:
             attachment = await self._process_upload(
                 thread_id=thread_id,
@@ -101,7 +98,6 @@ class UploadApplicationService:
                 kind=kind,
                 resolved_workspace_id=resolved_workspace_id,
                 user_id=user_id,
-                knowledge_service=knowledge_service,
                 refresh_targets=refresh_targets,
             )
             stored_files.append(attachment)
@@ -127,7 +123,6 @@ class UploadApplicationService:
         kind: ThreadUploadKind,
         resolved_workspace_id: str | None,
         user_id: str,
-        knowledge_service: KnowledgeService,
         refresh_targets: set[str],
     ) -> ThreadAttachment:
         filename, content = await self.preflight_policy.read_content(upload)
@@ -210,7 +205,7 @@ class UploadApplicationService:
                 thread_path=thread_path,
                 metadata=metadata,
                 artifact_service=self.artifact_service,
-                knowledge_service=knowledge_service,
+                dataservice=self.dataservice,
                 task_service=self.task_service,
                 preprocess_orchestrator=self.preprocess_orchestrator,
                 deferred_preprocess=deferred_workspace_context_preprocess,

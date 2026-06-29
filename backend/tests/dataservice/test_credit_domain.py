@@ -396,6 +396,7 @@ async def test_settle_reservation_creates_final_transaction_and_releases_remaind
     assert tx.amount == -6
     assert tx.tx_metadata["reservation_id"] == reservation.id
     assert tx.tx_metadata["actual_credits"] == 6
+    service._finish.assert_awaited_with(settled, tx)
 
 
 @pytest.mark.asyncio

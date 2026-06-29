@@ -30,6 +30,26 @@ class PrismFileCreateCommand(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class PrismWorkspaceFileUpsertCommand(PrismFileCreateCommand):
+    """Create or revive one workspace Prism file by path."""
+
+    content_inline: str | None = None
+    content_asset_id: str | None = Field(default=None, max_length=36)
+    content_hash: str | None = Field(default=None, max_length=128)
+    created_by: str = Field(default="system", min_length=1, max_length=100)
+    review_item_id: str | None = Field(default=None, max_length=36)
+
+    @model_validator(mode="after")
+    def validate_optional_content_pointer(self) -> PrismWorkspaceFileUpsertCommand:
+        has_inline = self.content_inline is not None
+        has_asset = self.content_asset_id is not None
+        if has_inline and has_asset:
+            raise ValueError("Only one of content_inline or content_asset_id may be provided")
+        if (has_inline or has_asset) and not self.content_hash:
+            raise ValueError("content_hash is required when initial content is provided")
+        return self
+
+
 class PrismFileVersionCreateCommand(BaseModel):
     """Append an immutable file version."""
 
@@ -42,9 +62,35 @@ class PrismFileVersionCreateCommand(BaseModel):
 
     @model_validator(mode="after")
     def validate_content_pointer(self) -> PrismFileVersionCreateCommand:
-        if bool(self.content_inline) == bool(self.content_asset_id):
+        if (self.content_inline is not None) == (self.content_asset_id is not None):
             raise ValueError("Exactly one of content_inline or content_asset_id is required")
         return self
+
+
+class PrismFileContentUpdateCommand(BaseModel):
+    """Append a new version for a workspace Prism file if content changed."""
+
+    content_inline: str | None = None
+    content_asset_id: str | None = Field(default=None, max_length=36)
+    content_hash: str = Field(min_length=1, max_length=128)
+    created_by: str = Field(default="user", min_length=1, max_length=100)
+    review_item_id: str | None = Field(default=None, max_length=36)
+    expected_current_hash: str | None = Field(default=None, max_length=128)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_content_pointer(self) -> PrismFileContentUpdateCommand:
+        if bool(self.content_inline is not None) == bool(self.content_asset_id):
+            raise ValueError("Exactly one of content_inline or content_asset_id is required")
+        return self
+
+
+class PrismFileRestoreCommand(BaseModel):
+    """Restore one file to a previous version."""
+
+    version_id: str = Field(min_length=1, max_length=36)
+    expected_current_hash: str | None = Field(default=None, max_length=128)
+    created_by: str = Field(default="system", min_length=1, max_length=100)
 
 
 class PrismProtectedScopeUpsertCommand(BaseModel):
@@ -119,6 +165,18 @@ class PrismFileVersionProjection(BaseModel):
     created_by: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class PrismFileContentProjection(BaseModel):
+    file: PrismFileProjection
+    current_version: PrismFileVersionProjection | None = None
+
+
+class PrismFileWriteProjection(BaseModel):
+    file: PrismFileProjection
+    version: PrismFileVersionProjection | None = None
+    changed: bool = False
+    skipped_reason: str | None = None
 
 
 class PrismProtectedScopeProjection(BaseModel):

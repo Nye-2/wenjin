@@ -1,17 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { listModels, type Model } from "@/lib/api";
 import { authorizedFetch } from "@/lib/api/client";
 
 interface SettingsFormProps {
   workspaceId: string;
 }
-
-const MODEL_OPTIONS = [
-  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
-  { value: "claude-haiku-3-5", label: "Claude Haiku 3.5" },
-];
 
 interface WorkspaceSettings {
   name: string;
@@ -22,7 +17,9 @@ interface WorkspaceSettings {
 export function SettingsForm({ workspaceId }: SettingsFormProps) {
   const [name, setName] = useState("");
   const [autoCompactThreshold, setAutoCompactThreshold] = useState(0.8);
-  const [defaultModel, setDefaultModel] = useState("claude-sonnet-4-6");
+  const [defaultModel, setDefaultModel] = useState("");
+  const [models, setModels] = useState<Model[]>([]);
+  const [modelsError, setModelsError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -30,6 +27,18 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
 
   useEffect(() => {
     let cancelled = false;
+    listModels("chat")
+      .then((data) => {
+        if (cancelled) return;
+        setModels(data.models);
+        const defaultOption = data.models.find((model) => model.is_default) ?? data.models[0];
+        if (defaultOption) {
+          setDefaultModel((current) => current || defaultOption.name);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setModelsError(true);
+      });
     authorizedFetch(`/api/workspaces/${workspaceId}/settings`)
       .then((res) => {
         if (!res.ok) throw new Error("设置加载失败");
@@ -106,6 +115,23 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
     );
   }
 
+  const modelOptions = models.some((model) => model.name === defaultModel)
+    ? models
+    : defaultModel
+      ? [
+          {
+            name: defaultModel,
+            display_name: `${defaultModel}（当前设置）`,
+            provider: "",
+            max_tokens: 0,
+            supports_thinking: false,
+            supports_reasoning_effort: false,
+            supports_vision: false,
+          } satisfies Model,
+          ...models,
+        ]
+      : models;
+
   return (
     <div data-testid="settings-form" style={{ padding: "16px", overflowY: "auto", flex: 1 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -174,17 +200,27 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
             value={defaultModel}
             onChange={(e) => setDefaultModel(e.target.value)}
             data-testid="settings-default-model"
+            disabled={modelOptions.length === 0}
             style={{
               ...inputStyle,
               cursor: "pointer",
             }}
           >
-            {MODEL_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
+            {modelOptions.length === 0 ? (
+              <option value="">暂无可用模型</option>
+            ) : (
+              modelOptions.map((model) => (
+              <option key={model.name} value={model.name}>
+                {model.display_name}
               </option>
-            ))}
+              ))
+            )}
           </select>
+          {modelsError && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--wjn-warning)" }}>
+              模型目录加载失败，将保留当前设置。
+            </div>
+          )}
         </div>
 
         {/* Save button */}

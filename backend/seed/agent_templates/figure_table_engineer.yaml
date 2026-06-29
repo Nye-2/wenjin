@@ -26,7 +26,7 @@ default_skills:
 tool_affinity:
   preferred:
     - artifact_create
-    - document_read
+    - prism_file_read
   can_request:
     - sandbox.run_python
     - sandbox.generate_figure

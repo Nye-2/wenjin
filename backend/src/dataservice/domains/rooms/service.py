@@ -11,22 +11,19 @@ from src.dataservice.common.errors import DataServiceValidationError
 from src.dataservice.domains.rooms.contracts import (
     DecisionProjection,
     DecisionSetCommand,
-    MemoryFactCreateCommand,
-    MemoryFactProjection,
     WorkspaceTaskCreateCommand,
     WorkspaceTaskProjection,
     WorkspaceTaskUpdateCommand,
 )
 from src.dataservice.domains.rooms.projection import (
     decision_to_projection,
-    memory_fact_to_projection,
     workspace_task_to_projection,
 )
 from src.dataservice.domains.rooms.repository import RoomsRepository
 
 
 class RoomsDataDomainService:
-    """DataService-owned room operations for decisions, memory, and tasks."""
+    """DataService-owned room operations for decisions and tasks."""
 
     def __init__(self, session: AsyncSession, *, autocommit: bool = True) -> None:
         self.session = session
@@ -67,70 +64,6 @@ class RoomsDataDomainService:
     async def soft_delete_decision(self, *, workspace_id: str, decision_id: str) -> bool:
         record = await self.repository.get_decision(workspace_id=workspace_id, decision_id=decision_id)
         if record is None:
-            return False
-        record.deleted_at = datetime.now(UTC)
-        await self._finish()
-        return True
-
-    async def add_memory_facts(self, commands: list[MemoryFactCreateCommand]) -> list[MemoryFactProjection]:
-        records = [
-            self.repository.create_memory_fact(
-                {
-                    "workspace_id": command.workspace_id,
-                    "category": command.category,
-                    "content": command.content,
-                    "confidence": command.confidence,
-                    "source_review_batch_id": command.source_review_batch_id,
-                    "source_review_item_id": command.source_review_item_id,
-                }
-            )
-            for command in commands
-        ]
-        await self._finish()
-        return [memory_fact_to_projection(record) for record in records]
-
-    async def list_memory_facts(
-        self,
-        *,
-        workspace_id: str,
-        limit: int = 15,
-        category: str | None = None,
-    ) -> list[MemoryFactProjection]:
-        return [
-            memory_fact_to_projection(record)
-            for record in await self.repository.list_memory_facts(
-                workspace_id=workspace_id,
-                limit=limit,
-                category=category,
-            )
-        ]
-
-    async def mark_memory_fact_referenced(self, fact_id: str) -> MemoryFactProjection | None:
-        record = await self.repository.get_memory_fact(fact_id)
-        if record is None:
-            return None
-        record.reference_count = (record.reference_count or 0) + 1
-        record.last_referenced_at = datetime.now(UTC)
-        await self._finish()
-        return memory_fact_to_projection(record)
-
-    async def evict_excess_memory_facts(self, workspace_id: str, max_count: int = 100) -> int:
-        current_count = await self.repository.count_memory_facts(workspace_id)
-        if current_count <= max_count:
-            return 0
-        victims = await self.repository.list_memory_eviction_candidates(
-            workspace_id=workspace_id,
-            limit=current_count - max_count,
-        )
-        now = datetime.now(UTC)
-        for victim in victims:
-            victim.deleted_at = now
-        await self._finish()
-        return len(victims)
-
-    async def soft_delete_memory_fact(self, *, workspace_id: str, fact_id: str) -> bool:
-        record = await self.repository.get_memory_fact(fact_id)
-        if record is None or record.workspace_id != workspace_id:
             return False
         record.deleted_at = datetime.now(UTC)
         await self._finish()
@@ -210,20 +143,6 @@ class RoomsDataDomainService:
                 )
             )
             return {"room": "decisions", "record_id": decision.id, "key": decision.key}
-        if target_kind == "memory_fact":
-            facts = await self.add_memory_facts(
-                [
-                    MemoryFactCreateCommand(
-                        workspace_id=item.workspace_id,
-                        category=payload["category"],
-                        content=payload["content"],
-                        confidence=payload.get("confidence", 1.0),
-                        source_review_batch_id=item.batch_id,
-                        source_review_item_id=item.id,
-                    )
-                ]
-            )
-            return {"room": "memory", "record_id": facts[0].id}
         if target_kind == "workspace_task":
             task = await self.create_workspace_task(
                 WorkspaceTaskCreateCommand(

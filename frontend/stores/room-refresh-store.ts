@@ -1,9 +1,7 @@
 import { create } from "zustand";
 
 export type RoomRefreshTarget =
-  | "documents"
   | "library"
-  | "memory"
   | "decisions"
   | "tasks"
   | "settings"
@@ -20,9 +18,7 @@ interface RoomRefreshState {
 }
 
 const ROOM_REFRESH_TARGETS = new Set<RoomRefreshTarget>([
-  "documents",
   "library",
-  "memory",
   "decisions",
   "tasks",
   "settings",

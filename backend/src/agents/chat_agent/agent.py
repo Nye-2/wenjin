@@ -44,7 +44,7 @@ from src.agents.middlewares.capability_skill_preload import (
     CapabilitySkillPreloadMiddleware,
 )
 from src.agents.thread_state import ThreadState, create_thread_state, merge_thread_state
-from src.config import get_default_model_id
+from src.config import get_default_model_id, get_model_config
 from src.config.config_loader import get_app_config
 from src.models import model_supports_vision
 from src.services.references.boundaries import is_reference_library_bypass_tool
@@ -94,6 +94,17 @@ def _coerce_json_object(value: object) -> JsonObject:
 def _default_model_name() -> str:
     """Resolve the default model id used by the lead agent."""
     return get_default_model_id()
+
+
+def _supports_tool_calling(model_name: str) -> bool:
+    """Return whether the configured model should be bound to chat tools."""
+    try:
+        model_config = get_model_config(model_name)
+    except Exception:
+        logger.debug("Unable to resolve tool support for model %s", model_name, exc_info=True)
+        return True
+    supports_tools = getattr(model_config, "supports_tools", None)
+    return bool(supports_tools) if isinstance(supports_tools, bool) else True
 
 
 def _normalize_runtime_config(config: RunnableConfig | None) -> RunnableConfig:
@@ -267,6 +278,12 @@ by the Lead Agent; do not expose workflow-step choices or route-card internals.
   sandbox, Prism review, or external evidence gathering.
 - `ask_clarification`: use when one minimum launch context field is missing.
   Ask one useful question; 不要列清单，不要让用户填表.
+- `draft_intake_spec`: REQUIRED before launching the super workflows
+  `software_copyright_application_pack` and `math_modeling_paper_pack`.
+  Use it to create a Markdown clarification spec card with exact launch params.
+  For math modeling, always set programming_language to python. For software
+  copyright, use mock backend code plus static frontend screenshots; do not use
+  AI-generated UI images as application evidence.
 - `offer_choices`: use when two capabilities are both plausible and the choice
   changes user expectation, cost, or deliverable. Offer two natural choices,
   for example "先找研究空白，还是直接进入初稿？"
@@ -276,6 +293,14 @@ by the Lead Agent; do not expose workflow-step choices or route-card internals.
 **STRICT RULE: Only call `launch_feature(feature_id=<capability_id>, params={{...}})`
 after choosing `launch_feature`. If you call it, do it in the same turn. Without
 an actual tool call, NOTHING runs.**
+
+**Super workflow intake rule:**
+- For `software_copyright_application_pack` or `math_modeling_paper_pack`, first
+  guide the user toward a complete spec and call `draft_intake_spec`.
+- If the user explicitly approves a ready spec or says "开始做/执行/按这个来",
+  call `launch_feature` using the params from that spec in the same turn.
+- If the user is still clarifying, update the spec with `draft_intake_spec`;
+  do not launch yet.
 
 **MANDATORY Launch Scenarios:**
 1. Clear durable deliverable matching a route card + minimum context → call launch_feature
@@ -545,6 +570,7 @@ def get_available_tools(
     # Import built-in tools
     from src.tools.builtins import (
         ask_clarification_tool,
+        draft_intake_spec_tool,
         launch_feature_tool,
         list_capabilities_tool,
         list_reference_library_tool,
@@ -557,6 +583,7 @@ def get_available_tools(
 
     # Interaction tools
     tools.append(ask_clarification_tool)
+    tools.append(draft_intake_spec_tool)
     tools.append(launch_feature_tool)
     tools.extend([
         list_capabilities_tool,
@@ -953,6 +980,8 @@ def make_chat_agent(
     def _resolve_model(_state: ThreadState, _runtime: RunnableConfig) -> Any:
         current_tools = tool_node.list_available_tools()
         if not current_tools:
+            return base_model
+        if not _supports_tool_calling(model_name):
             return base_model
         return base_model.bind_tools(current_tools)
 

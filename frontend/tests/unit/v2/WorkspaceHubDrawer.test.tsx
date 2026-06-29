@@ -20,7 +20,7 @@ describe("WorkspaceHubDrawer", () => {
 
     expect(screen.getByRole("dialog", { name: "资料库" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "文献资料" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "文档成果" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "文档成果" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "运行记录，1 项新完成" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "确认与决策，2 项待确认" })).toBeInTheDocument();
     expect(screen.queryByText(/workspace/i)).not.toBeInTheDocument();

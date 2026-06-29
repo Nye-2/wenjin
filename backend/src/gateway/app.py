@@ -217,7 +217,6 @@ from .routers import (  # noqa: E402
     executions,
     latex,
     mcp,
-    memory,
     models,
     references,
     runs,
@@ -243,7 +242,6 @@ app.include_router(templates.router, prefix="/api", tags=["templates"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(references.router, prefix="/api", tags=["references"])
 app.include_router(mcp.router, prefix="/api", tags=["mcp"])
-app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(executions.router, prefix="/api", tags=["executions"])
 app.include_router(execution_commit.router, tags=["executions"])
 app.include_router(workspace_rooms.router, prefix="/api", tags=["workspace_rooms"])

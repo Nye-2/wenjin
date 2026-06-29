@@ -114,13 +114,12 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
   await expect(page.getByText(/方向挺新/)).toBeVisible();
   await expect(page.getByText(/phase 1 完成/)).toBeVisible();
   await expect(page.getByText(/phase 2 完成/)).toBeVisible();
-  await expect(page.getByText(/3 个角度可切/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "查看详情" })).toBeVisible();
-  await page.getByRole("button", { name: "查看详情" }).click();
-  await expect(
-    page.getByRole("button", { name: /异构客户端缺口/ }).first(),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "保存已勾选" })).toBeVisible();
+  await expect(page.getByTestId("chat-panel").getByText(/3 个角度可切/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看运行" })).toBeVisible();
+  await page.getByRole("button", { name: "查看运行" }).click();
+  await expect(page.getByText("已写入工作区")).toBeVisible();
+  await page.getByRole("button", { name: "查看证据" }).click();
+  await expect(page.getByRole("button", { name: /异构客户端缺口/ })).toBeVisible();
 
   for (const banned of [
     "message_feature_proposal",
@@ -188,7 +187,7 @@ test("sandbox artifact review items render as artifact saves, not Prism edits", 
     )}`,
   );
 
-  await expect(page.getByText("产物有 1 项待确认保存")).toBeVisible();
+  await expect(page.getByText("结果有 1 项可查看")).toBeVisible();
   await expect(
     page.getByText("Accept sandbox artifact: sandbox_report"),
   ).toBeVisible();
@@ -269,16 +268,17 @@ test("workbench previews sandbox figure review items without Prism handoff", asy
   });
 
   await page.goto("/workspaces/ws-1");
-  await expect(page.getByText("图表产物").first()).toBeVisible();
+  await page.getByRole("button", { name: "查看证据" }).click();
   await expect(page.getByRole("button", { name: /Federated accuracy figure/ })).toBeVisible();
   await page.getByRole("button", { name: /Federated accuracy figure/ }).click();
 
   await expect(page.getByTestId("result-preview-image")).toBeVisible();
-  await expect(page.getByText("/workspace/outputs/figures/fed_curve/figure.png")).toBeVisible();
-  await expect(page.getByText("fed_curve.py")).toBeVisible();
+  await expect(
+    page.getByText("/workspace/outputs/figures/fed_curve/figure.png").first(),
+  ).toBeVisible();
+  await expect(page.getByText("fed_curve.py").first()).toBeVisible();
   await expect(page.getByText("Prism 文件级修改")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "全部保存" })).toHaveCount(0);
-  await expect(page.getByText(/保存或忽略会由产物确认入口处理/)).toBeVisible();
 });
 
 test("result card can deep-link into an expert team preview", async ({
@@ -435,10 +435,11 @@ test("result card can deep-link into an expert team preview", async ({
   );
 
   await expect(page.getByText("文献猎手 Nora 已整理候选文献。")).toBeVisible();
-  await page.getByRole("button", { name: "查看详情" }).click();
-  await expect(page.getByRole("region", { name: "结果预览" })).toBeVisible();
-  await expect(page.getByText("候选文献列表")).toBeVisible();
-  await expect(page.getByText("12 篇候选文献和筛选理由。")).toBeVisible();
+  await page.getByRole("button", { name: /打开预览/ }).click();
+  const previewRegion = page.getByRole("region", { name: "结果预览" });
+  await expect(previewRegion).toBeVisible();
+  await expect(previewRegion.getByText("候选文献列表")).toBeVisible();
+  await expect(previewRegion.getByText("12 篇候选文献和筛选理由。")).toBeVisible();
 });
 
 test("canonical result card links open workspace rooms without resetting the current thread", async ({
@@ -462,7 +463,7 @@ test("canonical result card links open workspace rooms without resetting the cur
               {
                 icon: "file-text",
                 label: "查看已保存大纲",
-                href: "/workspaces/ws-1?room=documents&item_id=saved-doc-1&query=论文框架大纲",
+                href: "/workspaces/ws-1/prism?file_id=saved-doc-1",
               },
             ],
             feedback: {
@@ -481,43 +482,6 @@ test("canonical result card links open workspace rooms without resetting the cur
     ]),
   });
 
-  await page.route("**/api/workspaces/ws-1/documents", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        {
-          id: "saved-doc-1",
-          name: "论文框架大纲",
-          mime_type: "text/markdown",
-          doc_kind: "outline",
-          size_bytes: 256,
-          created_at: "2026-05-19T00:00:00Z",
-          updated_at: "2026-05-19T00:00:00Z",
-        },
-      ]),
-    });
-  });
-
-  await page.route("**/api/workspaces/ws-1/documents/saved-doc-1", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "saved-doc-1",
-        name: "论文框架大纲",
-        mime_type: "text/markdown",
-        doc_kind: "outline",
-        size_bytes: 256,
-        created_at: "2026-05-19T00:00:00Z",
-        updated_at: "2026-05-19T00:00:00Z",
-        metadata_json: {
-          content: "# 论文框架大纲\n\n## 方法\n- 系统设计",
-        },
-      }),
-    });
-  });
-
   await page.goto(
     `/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=${encodeURIComponent(
       "联邦学习+大模型",
@@ -527,9 +491,8 @@ test("canonical result card links open workspace rooms without resetting the cur
   await expect(page.getByText("论文框架已整理")).toBeVisible();
   await page.getByRole("link", { name: "查看已保存大纲" }).click();
 
-  await expect(page.getByTestId("documents-drawer")).toBeVisible();
-  await expect(page.getByText("系统设计")).toBeVisible();
-  await expect(page.getByText("论文框架已整理")).toBeVisible();
+  await expect(page.getByTestId("prism-workspace-shell")).toBeVisible();
+  await expect(page.getByTestId("prism-file-preview").getByText("系统设计")).toBeVisible();
 });
 
 test("markdown links in assistant text open workspace rooms without resetting the current thread", async ({
@@ -544,48 +507,11 @@ test("markdown links in assistant text open workspace rooms without resetting th
           block: {
             kind: "text",
             content:
-              "我已经把结构大纲放进工作区了，[打开文档](/workspaces/ws-1?room=documents&item_id=saved-doc-2&query=结构大纲)。",
+              "我已经把结构大纲放进工作区了，[打开文档](/workspaces/ws-1/prism?file_id=saved-doc-2)。",
           },
         },
       },
     ]),
-  });
-
-  await page.route("**/api/workspaces/ws-1/documents", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        {
-          id: "saved-doc-2",
-          name: "结构大纲",
-          mime_type: "text/markdown",
-          doc_kind: "outline",
-          size_bytes: 192,
-          created_at: "2026-05-19T00:00:00Z",
-          updated_at: "2026-05-19T00:00:00Z",
-        },
-      ]),
-    });
-  });
-
-  await page.route("**/api/workspaces/ws-1/documents/saved-doc-2", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "saved-doc-2",
-        name: "结构大纲",
-        mime_type: "text/markdown",
-        doc_kind: "outline",
-        size_bytes: 192,
-        created_at: "2026-05-19T00:00:00Z",
-        updated_at: "2026-05-19T00:00:00Z",
-        metadata_json: {
-          content: "# 结构大纲\n\n## 实验设计\n- 变量控制",
-        },
-      }),
-    });
   });
 
   await page.goto(
@@ -597,9 +523,8 @@ test("markdown links in assistant text open workspace rooms without resetting th
   await expect(page.getByText("我已经把结构大纲放进工作区了")).toBeVisible();
   await page.getByRole("link", { name: "打开文档" }).click();
 
-  await expect(page.getByTestId("documents-drawer")).toBeVisible();
-  await expect(page.getByText("变量控制")).toBeVisible();
-  await expect(page.getByText("我已经把结构大纲放进工作区了")).toBeVisible();
+  await expect(page.getByTestId("prism-workspace-shell")).toBeVisible();
+  await expect(page.getByTestId("prism-file-preview").getByText("变量控制")).toBeVisible();
 });
 
 test("workbench previews academic review packet risks without commit confusion", async ({
@@ -681,6 +606,7 @@ test("workbench previews academic review packet risks without commit confusion",
   });
 
   await page.goto("/workspaces/ws-1");
+  await page.getByRole("button", { name: "查看证据" }).click();
   await expect(page.getByText("风险提示").first()).toBeVisible();
   await expect(
     page.getByRole("button", { name: /弱证据或未支持论断/ }),
@@ -690,7 +616,7 @@ test("workbench previews academic review packet risks without commit confusion",
   await expect(page.getByTestId("result-preview-plain-text")).toContainText(
     "AAAI 适配性还缺少直接来源支撑。",
   );
-  await expect(page.getByText("专家 literature synthesizer")).toBeVisible();
+  await expect(page.getByText("专家 literature synthesizer").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "全部保存" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "保存已勾选" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存已勾选" })).toHaveCount(0);
 });

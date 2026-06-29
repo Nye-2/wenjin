@@ -209,7 +209,7 @@ export function ResultPreviewRenderer({
                 color: "var(--wjn-text-muted)",
               }}
             >
-              产物路径将在保存后由工作区解析。
+              结果路径将在保存后由工作区解析。
             </span>
           )}
         </div>

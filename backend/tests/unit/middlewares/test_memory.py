@@ -56,8 +56,8 @@ class TestMemoryMiddleware:
     async def test_before_model_injects_memory_context(self, middleware, initial_state, config):
         """Verify that before_model injects formatted long-term memory when available."""
         with patch(
-            "src.agents.middlewares.memory.build_memory_context",
-            return_value="<academic_memory>\n- 偏好 IEEE\n</academic_memory>",
+            "src.agents.middlewares.memory.build_workspace_memory_context",
+            return_value="<workspace_memory>\n- 偏好 IEEE\n</workspace_memory>",
         ):
             result = await middleware.before_model(initial_state, config)
 
@@ -78,22 +78,22 @@ class TestMemoryMiddleware:
                 ToolMessage(content="tool output", tool_call_id="call-1"),
             ]
         }
-        build_memory_context = AsyncMock(return_value="<academic_memory></academic_memory>")
+        build_workspace_memory_context = AsyncMock(return_value="<workspace_memory></workspace_memory>")
 
         with patch(
-            "src.agents.middlewares.memory.build_memory_context",
-            build_memory_context,
+            "src.agents.middlewares.memory.build_workspace_memory_context",
+            build_workspace_memory_context,
         ):
             await middleware.before_model(state, config)
 
-        current_context = build_memory_context.await_args.kwargs["current_context"]
+        current_context = build_workspace_memory_context.await_args.kwargs["current_context"]
         assert "FastAPI" in current_context
         assert "pytest" in current_context
         assert "调用工具中" not in current_context
 
     @pytest.mark.asyncio
-    async def test_after_model_enqueues_conversation(self, middleware, mock_queue, config):
-        """Verify that after_model enqueues messages to the memory queue."""
+    async def test_after_model_does_not_enqueue_conversation(self, middleware, mock_queue, config):
+        """Ordinary turns should not auto-write workspace memory."""
         # Arrange
         state = {
             "messages": [
@@ -108,15 +108,7 @@ class TestMemoryMiddleware:
         result = await middleware.after_model(state, config)
 
         # Assert
-        mock_queue.enqueue.assert_called_once()
-        call_args = mock_queue.enqueue.call_args
-        assert call_args[0][0] == "test-thread-123"  # thread_id
-        # Capture should only enqueue the newest user->assistant delta.
-        enqueued_messages = call_args[0][1]
-        assert len(enqueued_messages) == 2
-        assert enqueued_messages[0].content == "User message 2"
-        assert enqueued_messages[1].content == "AI response 2"
-        assert "callback" in call_args.kwargs
+        mock_queue.enqueue.assert_not_called()
         assert result == {}
 
     @pytest.mark.asyncio

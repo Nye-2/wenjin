@@ -17,7 +17,7 @@ from src.agents.harness.context_assembly import (
     render_harness_context_for_prompt,
 )
 from src.config.llm_config import LLMSettings
-from src.models import create_chat_model
+from src.models import create_chat_model, route_writing_model
 from src.services.thread_billing import extract_message_usage
 from src.services.token_usage_collector import record_token_usage
 
@@ -111,6 +111,19 @@ def _runtime_output_config(config: dict[str, Any], inputs: dict[str, Any]) -> di
     if gates:
         runtime_config["quality_gates"] = gates
     return runtime_config
+
+
+def _react_model_id(harness_context: SubagentContext | None) -> str:
+    inputs = harness_context.inputs if harness_context is not None else {}
+    candidates = (
+        inputs.get("model_id") if isinstance(inputs, dict) else None,
+        inputs.get("model_name") if isinstance(inputs, dict) else None,
+    )
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        if value:
+            return route_writing_model(requested_model=value)
+    return route_writing_model(requested_model=None)
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -510,7 +523,7 @@ async def _run_react_loop(
     Returns the final text content of the assistant's last message.
     """
     model = create_chat_model(
-        "mimo-v2.5-pro",
+        _react_model_id(harness_context),
         thinking_enabled=True,
         request_timeout=_react_agent_timeout_seconds(harness_context),
         max_retries=0,
@@ -679,6 +692,9 @@ def _react_agent_timeout_seconds(ctx: SubagentContext | None) -> float:
             sandbox_policy = capability_policy.get("sandbox_policy")
             if isinstance(sandbox_policy, dict):
                 configured = sandbox_policy.get("react_timeout_seconds")
+                resource_limits = sandbox_policy.get("resource_limits")
+                if configured is None and isinstance(resource_limits, dict):
+                    configured = resource_limits.get("react_timeout_seconds")
         if configured is None and ctx.skill is not None:
             skill_config = getattr(ctx.skill, "config", None)
             if isinstance(skill_config, dict):
@@ -738,6 +754,7 @@ def _is_transient_model_error(exc: Exception) -> bool:
             "gateway timeout",
             "service unavailable",
             "timeout",
+            "timed out",
         )
     )
 

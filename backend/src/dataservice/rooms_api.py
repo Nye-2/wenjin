@@ -12,8 +12,6 @@ from src.dataservice.domains.review.service import DataServiceReviewService
 from src.dataservice.domains.rooms.contracts import (
     DecisionProjection,
     DecisionSetCommand,
-    MemoryFactCreateCommand,
-    MemoryFactProjection,
     RoomCandidateApplyResult,
     RoomCandidateCommand,
     WorkspaceTaskCreateCommand,
@@ -40,34 +38,6 @@ class RoomsDataService:
 
     async def delete_decision(self, decision_id: str) -> bool:
         return await self._domain.delete_decision(decision_id)
-
-    async def add_memory_facts(
-        self,
-        commands: list[MemoryFactCreateCommand],
-    ) -> list[MemoryFactProjection]:
-        return await self._domain.add_memory_facts(commands)
-
-    async def list_memory_facts(
-        self,
-        *,
-        workspace_id: str,
-        limit: int = 15,
-        category: str | None = None,
-    ) -> list[MemoryFactProjection]:
-        return await self._domain.list_memory_facts(
-            workspace_id=workspace_id,
-            limit=limit,
-            category=category,
-        )
-
-    async def mark_memory_fact_referenced(self, fact_id: str) -> MemoryFactProjection | None:
-        return await self._domain.mark_memory_fact_referenced(fact_id)
-
-    async def evict_excess_memory_facts(self, workspace_id: str, max_count: int = 100) -> int:
-        return await self._domain.evict_excess_memory_facts(workspace_id, max_count=max_count)
-
-    async def soft_delete_memory_fact(self, *, workspace_id: str, fact_id: str) -> bool:
-        return await self._domain.soft_delete_memory_fact(workspace_id=workspace_id, fact_id=fact_id)
 
     async def create_workspace_task(self, command: WorkspaceTaskCreateCommand) -> WorkspaceTaskProjection:
         return await self._domain.create_workspace_task(command)
@@ -110,7 +80,7 @@ class RoomsDataService:
         handler_domain = RoomsDataDomainService(self.session, autocommit=False)
         handlers = ReviewHandlerRegistry()
         handler = build_room_review_handler(handler_domain)
-        for target_kind in ("decision", "memory_fact", "workspace_task"):
+        for target_kind in ("decision", "workspace_task"):
             handlers.register(target_domain="rooms", target_kind=target_kind, handler=handler)
         review_service = DataServiceReviewService(
             self.session,
@@ -171,7 +141,7 @@ class RoomsDataService:
 
 
 def _empty_counts() -> dict[str, int]:
-    return {"memory": 0, "decisions": 0, "tasks": 0}
+    return {"decisions": 0, "tasks": 0}
 
 
 def _review_transition_command(*, actor_id: str | None) -> Any:

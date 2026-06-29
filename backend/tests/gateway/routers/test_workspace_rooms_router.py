@@ -44,44 +44,15 @@ def _fake_source(**overrides: object) -> SimpleNamespace:
     return _fake_row(**values)
 
 
-def _fake_asset(**overrides: object) -> SimpleNamespace:
-    values: dict[str, object] = {
-        "id": "asset-1",
-        "workspace_id": WS_ID,
-        "asset_kind": "document",
-        "name": "Draft",
-        "mime_type": "text/markdown",
-        "storage_path": "inline://documents/draft",
-        "size_bytes": 10,
-        "parent_asset_id": None,
-        "created_by": "user",
-        "source_kind": "documents_room",
-        "metadata_json": {"kind": "draft", "version": 1},
-        "deleted_at": None,
-        "created_at": None,
-        "updated_at": None,
-    }
-    values.update(overrides)
-    return _fake_row(**values)
-
-
 def _make_dataservice() -> MagicMock:
     dataservice = MagicMock()
     dataservice.list_sources = AsyncMock(return_value=[])
     dataservice.create_source = AsyncMock()
     dataservice.get_source = AsyncMock(return_value=None)
     dataservice.delete_source = AsyncMock(return_value=False)
-    dataservice.list_assets = AsyncMock(return_value=[])
-    dataservice.get_asset = AsyncMock(return_value=None)
-    dataservice.register_asset = AsyncMock()
-    dataservice.update_asset = AsyncMock(return_value=None)
-    dataservice.delete_asset = AsyncMock(return_value=None)
     dataservice.list_room_decisions = AsyncMock(return_value=[])
     dataservice.set_room_decision = AsyncMock()
     dataservice.delete_room_decision = AsyncMock(return_value=False)
-    dataservice.list_room_memory_facts = AsyncMock(return_value=[])
-    dataservice.add_room_memory_facts = AsyncMock(return_value=[])
-    dataservice.delete_room_memory_fact = AsyncMock(return_value=False)
     dataservice.list_executions = AsyncMock(return_value=[])
     dataservice.get_execution = AsyncMock(return_value=None)
     dataservice.list_room_tasks = AsyncMock(return_value=[])
@@ -168,52 +139,6 @@ class TestLibraryRoom:
         assert resp.status_code == 404
 
 
-class TestDocumentsRoom:
-    def test_list_documents_happy(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.list_assets.side_effect = [
-            [_fake_asset(id="doc-1", name="Intro", metadata_json={"kind": "draft", "version": 1})],
-            [],
-        ]
-
-        resp = client.get(f"/workspaces/{WS_ID}/documents")
-
-        assert resp.status_code == 200
-        assert resp.json()["items"][0]["id"] == "doc-1"
-
-    def test_create_document_returns_201(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.register_asset.return_value = _fake_asset(id="doc-2", name="Chapter 1")
-
-        resp = client.post(
-            f"/workspaces/{WS_ID}/documents",
-            json={"name": "Chapter 1", "kind": "draft", "added_by": "user"},
-        )
-
-        assert resp.status_code == 201
-        assert resp.json()["id"] == "doc-2"
-
-    def test_get_document_happy(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.get_asset.return_value = _fake_asset(
-            id="doc-3",
-            name="Outline",
-            metadata_json={"kind": "outline", "version": 1, "content": "# Intro"},
-        )
-
-        resp = client.get(f"/workspaces/{WS_ID}/documents/doc-3")
-
-        assert resp.status_code == 200
-        assert resp.json()["metadata_json"]["content"] == "# Intro"
-
-    def test_get_doc_not_found_on_delete(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.get_asset.return_value = None
-
-        resp = client.delete(f"/workspaces/{WS_ID}/documents/missing-doc")
-
-        assert resp.status_code == 404
-
 class TestDecisionsRoom:
     def test_list_decisions_happy(self) -> None:
         _app, client, dataservice = _make_app()
@@ -263,39 +188,18 @@ class TestDecisionsRoom:
         assert resp.status_code == 404
 
 
-class TestMemoryRoom:
-    def test_list_memory_happy(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.list_room_memory_facts.return_value = [
-            _fake_row(id="fact-1", workspace_id=WS_ID, category="pref", content="IEEE")
-        ]
+class TestRemovedRooms:
+    def test_documents_room_routes_are_removed(self) -> None:
+        _app, client, _dataservice = _make_app()
 
-        resp = client.get(f"/workspaces/{WS_ID}/memory")
+        assert client.get(f"/workspaces/{WS_ID}/documents").status_code == 404
+        assert client.post(f"/workspaces/{WS_ID}/documents", json={}).status_code == 404
 
-        assert resp.status_code == 200
-        assert resp.json()["count"] == 1
+    def test_memory_room_routes_are_removed(self) -> None:
+        _app, client, _dataservice = _make_app()
 
-    def test_add_memory_facts_returns_201(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.add_room_memory_facts.return_value = [
-            _fake_row(id="fact-2", workspace_id=WS_ID, category="pref", content="APA")
-        ]
-
-        resp = client.post(
-            f"/workspaces/{WS_ID}/memory",
-            json={"facts": [{"category": "pref", "content": "APA"}]},
-        )
-
-        assert resp.status_code == 201
-        assert resp.json()["count"] == 1
-
-    def test_delete_memory_fact_not_found(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.delete_room_memory_fact.return_value = False
-
-        resp = client.delete(f"/workspaces/{WS_ID}/memory/missing-fact")
-
-        assert resp.status_code == 404
+        assert client.get(f"/workspaces/{WS_ID}/memory").status_code == 404
+        assert client.post(f"/workspaces/{WS_ID}/memory", json={}).status_code == 404
 
 
 class TestRunsRoom:

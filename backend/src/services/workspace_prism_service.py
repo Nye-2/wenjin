@@ -21,6 +21,8 @@ from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 PRIMARY_MANUSCRIPT_ROLE = "primary_manuscript"
 PENDING_REVIEW_STATUSES = ("pending", "accepted")
 APPLIED_REVIEW_STATUSES = ("applied",)
+FILE_WORKSPACE_ADAPTER_KIND = "workspace_files"
+FILE_WORKSPACE_TYPES = {"software_copyright", "patent"}
 
 
 def _metadata_from_project(project: Any) -> dict[str, Any]:
@@ -59,19 +61,6 @@ def _build_latex_adapter_metadata(
     }
 
 
-def _memory_payload(item: Any) -> dict[str, Any]:
-    return {
-        "id": str(item.id),
-        "workspace_id": str(item.workspace_id),
-        "category": str(item.category),
-        "content": str(item.content),
-        "confidence": float(item.confidence or 0),
-        "reference_count": int(item.reference_count or 0),
-        "last_referenced_at": _isoformat(item.last_referenced_at),
-        "created_at": _isoformat(item.created_at),
-    }
-
-
 def _run_history_payload(item: Any) -> dict[str, Any]:
     return {
         "id": str(item.id),
@@ -102,6 +91,16 @@ def _model_payload(item: Any) -> dict[str, Any]:
         for key, value in vars(item).items()
         if not key.startswith("_")
     }
+
+
+def _workspace_type_value(workspace: Any) -> str:
+    raw_value = (
+        getattr(workspace, "workspace_type", None)
+        or getattr(workspace, "type", None)
+        or ""
+    )
+    value = getattr(raw_value, "value", raw_value)
+    return str(value or "").strip()
 
 
 def _review_target_ref(item: Any) -> dict[str, Any]:
@@ -373,6 +372,48 @@ class WorkspacePrismService:
         )
         return project
 
+    async def ensure_surface_projection(
+        self,
+        workspace_id: str,
+        *,
+        user_id: str,
+        project_name: str,
+    ) -> dict[str, Any]:
+        """Ensure the workspace has a Prism surface and return its file projection."""
+
+        workspace_type = ""
+        async with self._client() as client:
+            get_workspace = getattr(client, "get_workspace", None)
+            if callable(get_workspace):
+                workspace = await get_workspace(workspace_id)
+                if workspace is not None:
+                    workspace_type = _workspace_type_value(workspace)
+
+        if workspace_type in FILE_WORKSPACE_TYPES:
+            async with self._client() as client:
+                await client.ensure_prism_primary_project(
+                    workspace_id,
+                    PrismPrimaryProjectPayload(
+                        workspace_id=workspace_id,
+                        title=project_name or "Workspace Files",
+                        adapter_kind=FILE_WORKSPACE_ADAPTER_KIND,
+                        adapter_ref_id=None,
+                        main_file="README.md",
+                        adapter_metadata_json={
+                            "file_workspace": True,
+                            "workspace_type": workspace_type,
+                        },
+                    ),
+                )
+        else:
+            await self.ensure_primary_project(
+                workspace_id,
+                user_id=user_id,
+                project_name=project_name,
+            )
+
+        return await self.get_surface_projection(workspace_id, user_id=user_id)
+
     async def get_surface_projection(
         self,
         workspace_id: str,
@@ -383,22 +424,34 @@ class WorkspacePrismService:
             surface = await client.get_prism_surface(workspace_id)
         if surface is None:
             raise ValueError(f"Workspace Prism not found: {workspace_id}")
-        if surface.project.adapter_kind != "latex" or not surface.project.adapter_ref_id:
-            raise ValueError(f"Workspace Prism adapter not available: {workspace_id}")
-        project = await self._get_latex_adapter_project(surface.project.adapter_ref_id)
-        if project is None or str(project.user_id) != str(user_id):
-            raise ValueError(f"Workspace Prism adapter project not found: {workspace_id}")
 
-        metadata = _metadata_from_project(project)
-        pending_items = await self._list_prism_review_items(
-            workspace_id=workspace_id,
-            latex_project_id=str(project.id),
-            statuses=PENDING_REVIEW_STATUSES,
+        project = None
+        latex_project_id: str | None = None
+        metadata = dict(surface.project.adapter_metadata_json or {})
+        if surface.project.adapter_kind == "latex" and surface.project.adapter_ref_id:
+            project = await self._get_latex_adapter_project(surface.project.adapter_ref_id)
+            if project is None or str(project.user_id) != str(user_id):
+                raise ValueError(f"Workspace Prism adapter project not found: {workspace_id}")
+            latex_project_id = str(project.id)
+            metadata = _metadata_from_project(project)
+
+        pending_items = (
+            await self._list_prism_review_items(
+                workspace_id=workspace_id,
+                latex_project_id=latex_project_id,
+                statuses=PENDING_REVIEW_STATUSES,
+            )
+            if latex_project_id
+            else []
         )
-        applied_items = await self._list_prism_review_items(
-            workspace_id=workspace_id,
-            latex_project_id=str(project.id),
-            statuses=APPLIED_REVIEW_STATUSES,
+        applied_items = (
+            await self._list_prism_review_items(
+                workspace_id=workspace_id,
+                latex_project_id=latex_project_id,
+                statuses=APPLIED_REVIEW_STATUSES,
+            )
+            if latex_project_id
+            else []
         )
         file_changes = [_review_file_change_payload(item) for item in pending_items]
         applied_file_changes = [_review_file_change_payload(item) for item in applied_items]
@@ -406,20 +459,29 @@ class WorkspacePrismService:
             prism_review_item_projection(item)
             for item in [*pending_items, *applied_items]
         ]
-        source_links = await self._list_source_links(
-            workspace_id=workspace_id,
-            latex_project_id=str(project.id),
+        source_links = (
+            await self._list_source_links(
+                workspace_id=workspace_id,
+                latex_project_id=latex_project_id,
+            )
+            if latex_project_id
+            else []
         )
         async with self._client() as client:
             protected_scopes = await client.list_prism_protected_scopes(str(surface.project.id))
         protected_sections = [
-            _protected_scope_payload(item, latex_project_id=str(project.id))
+            _protected_scope_payload(item, latex_project_id=latex_project_id or "")
             for item in protected_scopes
         ]
         decisions = await self._list_decisions(workspace_id)
         memory_preferences = await self._list_memory_preferences(workspace_id)
         recent_activity = await self._list_recent_activity(workspace_id)
-        main_file = str(project.main_file or "main.tex")
+        main_file = str(
+            getattr(project, "main_file", None)
+            or metadata.get("main_file")
+            or (surface.documents[0].metadata_json or {}).get("main_file")
+            or "README.md"
+        )
         target_files: list[str] = []
         for prism_file in surface.files:
             path = str(prism_file.path or "").strip()
@@ -445,7 +507,7 @@ class WorkspacePrismService:
             "prism_project_id": surface.project.id,
             "prism_document_id": surface.documents[0].id if surface.documents else None,
             "prism_files": [_model_payload(file) for file in surface.files],
-            "latex_project_id": str(project.id),
+            "latex_project_id": latex_project_id,
             "surface_role": getattr(project, "surface_role", None)
             or PRIMARY_MANUSCRIPT_ROLE,
             "url": f"/workspaces/{workspace_id}/prism",
@@ -506,10 +568,12 @@ class WorkspacePrismService:
         self,
         *,
         workspace_id: str,
-        latex_project_id: str,
+        latex_project_id: str | None,
         statuses: tuple[str, ...],
         limit: int = 200,
     ) -> list[ReviewItemPayload]:
+        if not latex_project_id:
+            return []
         async with self._client() as client:
             items = await client.list_review_items(
                 workspace_id=workspace_id,
@@ -528,9 +592,11 @@ class WorkspacePrismService:
         self,
         *,
         workspace_id: str,
-        latex_project_id: str,
+        latex_project_id: str | None,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
+        if not latex_project_id:
+            return []
         async with self._client() as client:
             links = await client.list_provenance_links(
                 workspace_id=workspace_id,
@@ -561,9 +627,7 @@ class WorkspacePrismService:
         return [_model_payload(item) for item in decisions[:5]]
 
     async def _list_memory_preferences(self, workspace_id: str) -> list[dict[str, Any]]:
-        async with self._client() as client:
-            facts = await client.list_room_memory_facts(workspace_id=workspace_id, limit=5)
-        return [_memory_payload(item) for item in facts]
+        return []
 
     async def _list_recent_activity(self, workspace_id: str) -> list[dict[str, Any]]:
         async with self._client() as client:

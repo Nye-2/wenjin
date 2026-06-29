@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from datetime import UTC, datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,11 +117,66 @@ class PrismRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_file_by_workspace_path(self, workspace_id: str, path: str) -> PrismFileRecord | None:
+        result = await self.session.execute(
+            select(PrismFileRecord)
+            .where(
+                PrismFileRecord.workspace_id == workspace_id,
+                PrismFileRecord.path == path,
+                PrismFileRecord.deleted_at.is_(None),
+            )
+            .order_by(PrismFileRecord.updated_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def get_file(self, file_id: str) -> PrismFileRecord | None:
         result = await self.session.execute(
             select(PrismFileRecord).where(PrismFileRecord.id == file_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_file_for_workspace(self, *, workspace_id: str, file_id: str) -> PrismFileRecord | None:
+        result = await self.session.execute(
+            select(PrismFileRecord).where(
+                PrismFileRecord.id == file_id,
+                PrismFileRecord.workspace_id == workspace_id,
+                PrismFileRecord.deleted_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_file_version(self, version_id: str) -> PrismFileVersionRecord | None:
+        result = await self.session.execute(
+            select(PrismFileVersionRecord).where(PrismFileVersionRecord.id == version_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_current_file_version(self, file_record: PrismFileRecord) -> PrismFileVersionRecord | None:
+        if not file_record.current_version_id:
+            return None
+        return await self.get_file_version(str(file_record.current_version_id))
+
+    async def get_previous_file_version(
+        self,
+        *,
+        file_id: str,
+        before_version_no: int,
+    ) -> PrismFileVersionRecord | None:
+        result = await self.session.execute(
+            select(PrismFileVersionRecord)
+            .where(
+                PrismFileVersionRecord.file_id == file_id,
+                PrismFileVersionRecord.version_no < before_version_no,
+            )
+            .order_by(PrismFileVersionRecord.version_no.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    def soft_delete_file(self, file_record: PrismFileRecord) -> None:
+        file_record.deleted_at = datetime.now(UTC)
+        file_record.updated_at = datetime.now(UTC)
 
     async def get_protected_scope(
         self,

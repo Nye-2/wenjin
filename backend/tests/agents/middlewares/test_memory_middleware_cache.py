@@ -1,4 +1,4 @@
-"""MemoryMiddleware: TTL cache for build_memory_context."""
+"""MemoryMiddleware: TTL cache for workspace memory context."""
 
 from __future__ import annotations
 
@@ -13,21 +13,21 @@ from src.agents.middlewares.memory import MemoryMiddleware
 
 @pytest.mark.asyncio
 async def test_memory_context_is_cached_on_second_call():
-    """Second call with same user/workspace must not hit build_memory_context."""
+    """Second call with same workspace must not hit workspace memory loading."""
     mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=60)
 
     state = {"messages": [], "workspace_id": "ws-1"}
     config = {"configurable": {"user_id": "user-1", "workspace_id": "ws-1"}}
 
     with patch(
-        "src.agents.middlewares.memory.build_memory_context",
+        "src.agents.middlewares.memory.build_workspace_memory_context",
         new_callable=AsyncMock,
         return_value="User prefers concise answers.",
     ) as mock_build:
         result1 = await mw.before_model(state, config)
         result2 = await mw.before_model(state, config)
 
-    assert mock_build.call_count == 1, "build_memory_context should only be called once"
+    assert mock_build.call_count == 1, "workspace memory should only be loaded once"
     assert result1 == result2
     assert result1.get("memory_context") == "User prefers concise answers."
 
@@ -41,7 +41,7 @@ async def test_cache_expires_after_ttl():
     config = {"configurable": {"user_id": "user-1", "workspace_id": "ws-1"}}
 
     with patch(
-        "src.agents.middlewares.memory.build_memory_context",
+        "src.agents.middlewares.memory.build_workspace_memory_context",
         new_callable=AsyncMock,
         return_value="ctx",
     ) as mock_build:
@@ -53,8 +53,8 @@ async def test_cache_expires_after_ttl():
 
 
 @pytest.mark.asyncio
-async def test_cache_invalidated_after_capture():
-    """after_model must invalidate the cache so next before_model fetches fresh context."""
+async def test_after_model_does_not_invalidate_cache_for_ordinary_turns():
+    """Ordinary turns do not auto-write memory, so cache remains valid."""
     from langchain_core.messages import AIMessage, HumanMessage
 
     queue = MagicMock()
@@ -77,7 +77,7 @@ async def test_cache_invalidated_after_capture():
     config = {"configurable": {"user_id": "user-1", "workspace_id": "ws-1", "thread_id": "t-1"}}
 
     with patch(
-        "src.agents.middlewares.memory.build_memory_context",
+        "src.agents.middlewares.memory.build_workspace_memory_context",
         new_callable=AsyncMock,
         return_value="ctx",
     ) as mock_build:
@@ -85,12 +85,12 @@ async def test_cache_invalidated_after_capture():
         await mw.after_model(state_after, config)    # should invalidate
         await mw.before_model(state_before, config)  # should re-fetch
 
-    assert mock_build.call_count == 2, "Cache must be invalidated after capture"
+    assert mock_build.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_different_users_have_separate_cache_entries():
-    """Cache must be scoped per (user_id, workspace_id)."""
+async def test_different_users_share_workspace_cache_entry():
+    """Cache is scoped by workspace because memory is workspace-bound."""
     mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=300)
 
     state = {"messages": [], "workspace_id": "ws-1"}
@@ -98,16 +98,16 @@ async def test_different_users_have_separate_cache_entries():
     config_b = {"configurable": {"user_id": "user-B", "workspace_id": "ws-1"}}
 
     with patch(
-        "src.agents.middlewares.memory.build_memory_context",
+        "src.agents.middlewares.memory.build_workspace_memory_context",
         new_callable=AsyncMock,
-        side_effect=["ctx-A", "ctx-B"],
+        side_effect=["ctx-A"],
     ) as mock_build:
         result_a = await mw.before_model(state, config_a)
         result_b = await mw.before_model(state, config_b)
 
-    assert mock_build.call_count == 2
+    assert mock_build.call_count == 1
     assert result_a.get("memory_context") == "ctx-A"
-    assert result_b.get("memory_context") == "ctx-B"
+    assert result_b.get("memory_context") == "ctx-A"
 
 
 @pytest.mark.asyncio
@@ -115,23 +115,23 @@ async def test_cache_evicts_oldest_entry_at_capacity():
     """When cache reaches max_cache_size, the oldest entry is evicted (LRU)."""
     mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=300, max_cache_size=2)
 
-    state = {"messages": [], "workspace_id": "ws-1"}
-    config_a = {"configurable": {"user_id": "user-A", "workspace_id": "ws-1"}}
-    config_b = {"configurable": {"user_id": "user-B", "workspace_id": "ws-1"}}
-    config_c = {"configurable": {"user_id": "user-C", "workspace_id": "ws-1"}}
+    state_a = {"messages": [], "workspace_id": "ws-1"}
+    state_b = {"messages": [], "workspace_id": "ws-2"}
+    state_c = {"messages": [], "workspace_id": "ws-3"}
+    config = {"configurable": {"user_id": "user-A"}}
 
     with patch(
-        "src.agents.middlewares.memory.build_memory_context",
+        "src.agents.middlewares.memory.build_workspace_memory_context",
         new_callable=AsyncMock,
         side_effect=["ctx-A", "ctx-B", "ctx-C"],
     ):
-        await mw.before_model(state, config_a)  # inserts user-A (size=1)
-        await mw.before_model(state, config_b)  # inserts user-B (size=2, at capacity)
-        await mw.before_model(state, config_c)  # evicts LRU (user-A), inserts user-C
+        await mw.before_model(state_a, config)
+        await mw.before_model(state_b, config)
+        await mw.before_model(state_c, config)
 
-    assert "user-A:ws-1" not in mw._memory_cache, "Oldest entry must be evicted"
-    assert "user-B:ws-1" in mw._memory_cache
-    assert "user-C:ws-1" in mw._memory_cache
+    assert "ws-1" not in mw._memory_cache
+    assert "ws-2" in mw._memory_cache
+    assert "ws-3" in mw._memory_cache
     assert len(mw._memory_cache) == 2
 
 
@@ -146,26 +146,24 @@ async def test_lru_promotion_saves_recently_hit_entry():
     """A cache hit promotes an entry to MRU; on eviction the true LRU is removed."""
     mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=300, max_cache_size=2)
 
-    state = {"messages": [], "workspace_id": "ws-1"}
-    config_a = {"configurable": {"user_id": "user-A", "workspace_id": "ws-1"}}
-    config_b = {"configurable": {"user_id": "user-B", "workspace_id": "ws-1"}}
-    config_c = {"configurable": {"user_id": "user-C", "workspace_id": "ws-1"}}
+    state_a = {"messages": [], "workspace_id": "ws-1"}
+    state_b = {"messages": [], "workspace_id": "ws-2"}
+    state_c = {"messages": [], "workspace_id": "ws-3"}
+    config = {"configurable": {"user_id": "user-A"}}
 
     with patch(
-        "src.agents.middlewares.memory.build_memory_context",
+        "src.agents.middlewares.memory.build_workspace_memory_context",
         new_callable=AsyncMock,
         side_effect=["ctx-A", "ctx-B", "ctx-C"],
     ):
-        await mw.before_model(state, config_a)   # insert user-A (size=1)
-        await mw.before_model(state, config_b)   # insert user-B (size=2, full)
-        # Hit user-A — promotes it to MRU; user-B is now the LRU
-        await mw.before_model(state, config_a)   # cache hit, no new build_memory_context call
-        # Insert user-C — should evict user-B (the LRU), not user-A
-        await mw.before_model(state, config_c)   # insert user-C, evicts user-B
+        await mw.before_model(state_a, config)
+        await mw.before_model(state_b, config)
+        await mw.before_model(state_a, config)
+        await mw.before_model(state_c, config)
 
-    assert "user-B:ws-1" not in mw._memory_cache, "LRU entry (user-B) must be evicted"
-    assert "user-A:ws-1" in mw._memory_cache, "Promoted entry (user-A) must be retained"
-    assert "user-C:ws-1" in mw._memory_cache
+    assert "ws-2" not in mw._memory_cache
+    assert "ws-1" in mw._memory_cache
+    assert "ws-3" in mw._memory_cache
     assert len(mw._memory_cache) == 2
 
 
@@ -186,8 +184,8 @@ def test_cache_set_with_eviction_logs(caplog):
 
 
 @pytest.mark.asyncio
-async def test_after_model_requires_thread_id_when_capture_enabled():
-    """Memory capture must not silently collapse into a shared default thread."""
+async def test_after_model_does_not_require_thread_id_when_capture_enabled():
+    """Capture is retired, so after_model is a no-op."""
     from langchain_core.messages import AIMessage, HumanMessage
 
     middleware = MemoryMiddleware(enabled=True, inject_enabled=False, capture_enabled=True)
@@ -199,11 +197,9 @@ async def test_after_model_requires_thread_id_when_capture_enabled():
         "workspace_id": "ws-1",
     }
 
-    with patch("src.agents.middlewares.memory.enqueue_memory_capture") as enqueue_mock:
-        with pytest.raises(RuntimeError, match="MemoryMiddleware requires config.configurable.thread_id"):
-            await middleware.after_model(
-                state,
-                {"configurable": {"user_id": "user-1", "workspace_id": "ws-1"}},
-            )
+    result = await middleware.after_model(
+        state,
+        {"configurable": {"user_id": "user-1", "workspace_id": "ws-1"}},
+    )
 
-    enqueue_mock.assert_not_called()
+    assert result == {}

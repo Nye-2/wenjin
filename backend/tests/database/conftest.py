@@ -189,28 +189,6 @@ class _Decision(_Base):
     deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
-class _MemoryFact(_Base):
-    """SQLite-compatible mirror of MemoryFact."""
-
-    __tablename__ = "memory_facts"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    workspace_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
-    )
-    category: Mapped[str] = mapped_column(String(50), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    confidence: Mapped[float] = mapped_column(REAL, nullable=False, default=1.0)
-    last_referenced_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    reference_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    source_review_batch_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    source_review_item_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    created_at: Mapped[str] = mapped_column(
-        String(30), nullable=False, server_default=func.now(),
-    )
-    deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
-
-
 class _RunHistory(_Base):
     """SQLite-compatible mirror of RunHistory."""
 
@@ -386,7 +364,6 @@ DbWorkspaceSettings = _WorkspaceSettings
 DbLibraryItem = _LibraryItem
 DbDocumentV2 = _DocumentV2
 DbDecision = _Decision
-DbMemoryFact = _MemoryFact
 DbRunHistory = _RunHistory
 DbSandbox = _Sandbox
 DbWorkspaceTask = _WorkspaceTask

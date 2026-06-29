@@ -13,7 +13,6 @@ import { ChatPanel } from "./components/ChatPanel";
 import { LiveWorkflowPanel } from "./components/LiveWorkflowPanel";
 import { AutoCompactToast } from "./components/AutoCompactToast";
 import { LibraryDrawer } from "./components/rooms/LibraryDrawer";
-import { DocumentsDrawer } from "./components/rooms/DocumentsDrawer";
 import { RunsDrawer } from "./components/rooms/RunsDrawer";
 import { TasksDrawer } from "./components/rooms/TasksDrawer";
 import { SettingsPage } from "./components/rooms/SettingsPage";
@@ -30,11 +29,10 @@ import type { WorkspaceCapability } from "@/lib/api/types";
 
 const SETTINGS_ROOMS = new Set<string>([
   "decisions",
-  "memory",
   "settings",
 ]);
 
-type SettingsTab = "memory" | "decisions" | "settings";
+type SettingsTab = "decisions" | "settings";
 type RoomKey = WorkspaceHubRoomKey;
 
 export default function V2Page({
@@ -156,7 +154,7 @@ export default function V2Page({
   const settingsTab: SettingsTab =
     settingsOpen && SETTINGS_ROOMS.has(activeRoom!)
       ? (activeRoom as SettingsTab)
-      : "memory";
+      : "decisions";
 
   return (
     <div className="wjn-shell-bg flex h-full min-h-0 flex-col text-[var(--wjn-text)]">
@@ -272,13 +270,6 @@ export default function V2Page({
           focusItemId={activeRoom === "library" ? roomSeed.itemId : null}
           onClose={() => setActiveRoom(null)}
         />
-        <DocumentsDrawer
-          workspaceId={id}
-          open={activeRoom === "documents"}
-          initialQuery={activeRoom === "documents" ? roomSeed.query : null}
-          focusItemId={activeRoom === "documents" ? roomSeed.itemId : null}
-          onClose={() => setActiveRoom(null)}
-        />
         <RunsDrawer
           workspaceId={id}
           open={activeRoom === "runs"}
@@ -290,7 +281,7 @@ export default function V2Page({
           onClose={() => setActiveRoom(null)}
         />
 
-        {/* Settings page also covers decisions and memory */}
+        {/* Settings page covers decisions and workspace settings. */}
         <SettingsPage
           workspaceId={id}
           open={settingsOpen}
@@ -315,9 +306,7 @@ function readRequestedRoom(
   const value = searchParams?.get("room")?.trim().toLowerCase();
   if (
     value === "library" ||
-    value === "documents" ||
     value === "decisions" ||
-    value === "memory" ||
     value === "runs" ||
     value === "tasks" ||
     value === "settings"

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
+    get_dataservice_client,
     get_task_service,
     get_thread_service,
     get_workspace_service,
@@ -41,6 +42,8 @@ def app(tmp_path):
     workspace_service.has_active_membership = AsyncMock(return_value=True)
     artifact_service = MagicMock()
     artifact_service.create = AsyncMock(return_value=SimpleNamespace(id="artifact-1"))
+    dataservice = MagicMock()
+    dataservice.merge_workspace_memory = AsyncMock()
     task_service = MagicMock()
     task_service.find_active_task_by_payload = AsyncMock(return_value=None)
     task_service.submit_task = AsyncMock(return_value="task-reference-preprocess-1")
@@ -57,6 +60,9 @@ def app(tmp_path):
     async def _get_artifact_service():
         return artifact_service
 
+    async def _get_dataservice_client():
+        return dataservice
+
     async def _get_task_service():
         yield task_service
 
@@ -64,11 +70,13 @@ def app(tmp_path):
     app.dependency_overrides[get_thread_service] = _get_thread_service
     app.dependency_overrides[get_workspace_service] = _get_workspace_service
     app.dependency_overrides[get_artifact_service] = _get_artifact_service
+    app.dependency_overrides[get_dataservice_client] = _get_dataservice_client
     app.dependency_overrides[get_task_service] = _get_task_service
 
     app.state.thread_service = thread_service
     app.state.workspace_service = workspace_service
     app.state.artifact_service = artifact_service
+    app.state.dataservice = dataservice
     app.state.task_service = task_service
     app.state.temp_root = tmp_path
     return app
@@ -356,8 +364,7 @@ def test_literature_upload_reports_reference_preprocess_queue_failure(client):
 
 
 def test_workspace_context_upload_creates_artifact_and_memory_note(client):
-    mock_knowledge_service = MagicMock()
-    mock_knowledge_service.upsert = AsyncMock()
+    client.app.state.dataservice.merge_workspace_memory = AsyncMock()
 
     with (
         _patch_storage_roots(client.app),
@@ -365,10 +372,6 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
             "src.application.services.upload_application_service.publish_workspace_event",
             AsyncMock(),
         ) as publish_workspace_event,
-        patch(
-            "src.application.services.upload_application_service.KnowledgeService",
-            return_value=mock_knowledge_service,
-        ),
         patch(
             "src.services.workspace_upload_service.extract_document_preview",
             return_value={
@@ -395,11 +398,16 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     assert artifact_content["text_preview"] == "# proposal"
     assert artifact_content["stored_url"] == "/api/workspaces/ws-1/files/context/proposal.md"
     assert artifact_content["document_title"] == "Opening Proposal"
-    mock_knowledge_service.upsert.assert_awaited_once()
-    knowledge_args = mock_knowledge_service.upsert.await_args.args
-    assert "Opening Proposal" in knowledge_args[2]
-    assert "内容摘要" in knowledge_args[2]
-    assert "proposal" in knowledge_args[2]
+    client.app.state.dataservice.merge_workspace_memory.assert_awaited_once()
+    merge_args = client.app.state.dataservice.merge_workspace_memory.await_args.args
+    assert merge_args[0] == "ws-1"
+    memory_payload = merge_args[1]
+    assert memory_payload.workspace_id == "ws-1"
+    assert memory_payload.update_reason == "thread_upload.workspace_context"
+    assert memory_payload.source_thread_id == "thread-1"
+    assert "Opening Proposal" in memory_payload.items[0].content
+    assert "内容摘要" in memory_payload.items[0].content
+    assert "proposal" in memory_payload.items[0].content
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",
         "workspace.refresh",
@@ -408,8 +416,7 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
 
 
 def test_workspace_context_upload_degrades_when_memory_write_fails(client):
-    mock_knowledge_service = MagicMock()
-    mock_knowledge_service.upsert = AsyncMock(side_effect=RuntimeError("memory offline"))
+    client.app.state.dataservice.merge_workspace_memory = AsyncMock(side_effect=RuntimeError("memory offline"))
 
     with (
         _patch_storage_roots(client.app),
@@ -417,10 +424,6 @@ def test_workspace_context_upload_degrades_when_memory_write_fails(client):
             "src.application.services.upload_application_service.publish_workspace_event",
             AsyncMock(),
         ) as publish_workspace_event,
-        patch(
-            "src.application.services.upload_application_service.KnowledgeService",
-            return_value=mock_knowledge_service,
-        ),
         patch(
             "src.services.workspace_upload_service.extract_document_preview",
             return_value={

@@ -498,6 +498,31 @@ async def test_engine_marks_failed_on_runtime_exception():
 
 
 @pytest.mark.asyncio
+async def test_engine_marks_failed_when_reservation_release_also_fails():
+    """Cleanup failures must not leave the execution stuck in running."""
+    record = _make_execution_record(credit_reservation_id="reservation-1")
+    boom = RuntimeError("primary execution failure")
+
+    execution_svc = _make_execution_service(record=record)
+    runtime = _make_runtime(raise_exc=boom)
+
+    engine = ExecutionEngineV2(
+        runtime=runtime,
+        execution_service=execution_svc,
+    )
+    engine._release_feature_reservation = AsyncMock(side_effect=RuntimeError("release failed"))
+
+    with pytest.raises(RuntimeError, match="primary execution failure"):
+        await engine.run("exec-001")
+
+    engine._release_feature_reservation.assert_awaited_once()
+    execution_svc.complete_execution.assert_called_once()
+    fail_kwargs = execution_svc.complete_execution.call_args.kwargs
+    assert fail_kwargs["status"] == "failed"
+    assert "primary execution failure" in fail_kwargs["error"]
+
+
+@pytest.mark.asyncio
 async def test_engine_persists_cancelled_status_from_runtime_report():
     """A cancelled runtime report must be written back as execution.status='cancelled'."""
     record = _make_execution_record()

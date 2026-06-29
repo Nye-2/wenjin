@@ -63,9 +63,9 @@ async def test_knowledge_context_timeout_returns_empty():
 
 @pytest.mark.asyncio
 async def test_memory_context_timeout_returns_empty():
-    """MemoryMiddleware must return {} on build_memory_context timeout."""
+    """MemoryMiddleware must return {} on workspace memory timeout."""
     with patch(
-        "src.agents.middlewares.memory.build_memory_context",
+        "src.agents.middlewares.memory.build_workspace_memory_context",
         side_effect=_slow_coro,
     ):
         mw = MemoryMiddleware(

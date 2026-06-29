@@ -1,16 +1,20 @@
 import { Suspense } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import PrismPage from "@/app/(workbench)/workspaces/[id]/prism/page";
 
 const mockGetWorkspacePrismSurface = vi.hoisted(() => vi.fn());
 const mockEnsureWorkspacePrismProject = vi.hoisted(() => vi.fn());
+const mockGetWorkspacePrismFile = vi.hoisted(() => vi.fn());
+const mockSaveWorkspacePrismFile = vi.hoisted(() => vi.fn());
+const mockCreateWorkspacePrismFile = vi.hoisted(() => vi.fn());
 const mockGetWorkspace = vi.hoisted(() => vi.fn());
 const mockRouterPush = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/components/latex/LatexEditorShell", () => ({
@@ -30,9 +34,15 @@ vi.mock("@/components/latex/LatexEditorShell", () => ({
 vi.mock("@/lib/api/workspace", () => ({
   ensureWorkspacePrismProject: (...args: unknown[]) =>
     mockEnsureWorkspacePrismProject(...args),
+  createWorkspacePrismFile: (...args: unknown[]) =>
+    mockCreateWorkspacePrismFile(...args),
+  getWorkspacePrismFile: (...args: unknown[]) =>
+    mockGetWorkspacePrismFile(...args),
   getWorkspace: (...args: unknown[]) => mockGetWorkspace(...args),
   getWorkspacePrismSurface: (...args: unknown[]) =>
     mockGetWorkspacePrismSurface(...args),
+  saveWorkspacePrismFile: (...args: unknown[]) =>
+    mockSaveWorkspacePrismFile(...args),
 }));
 
 const prismSurface = {
@@ -41,6 +51,40 @@ const prismSurface = {
   surface_role: "primary_manuscript",
   url: "/workspaces/ws-1/prism",
   main_file: "main.tex",
+  prism_project_id: "prism-1",
+  prism_document_id: "document-1",
+  prism_files: [
+    {
+      id: "file-main",
+      workspace_id: "ws-1",
+      document_id: "document-1",
+      path: "main.tex",
+      file_role: "main",
+      mime_type: "text/x-tex",
+      current_version_id: "version-main",
+      content_hash: "sha256:main",
+      sort_order: 0,
+      metadata_json: {},
+      deleted_at: null,
+      created_at: null,
+      updated_at: null,
+    },
+    {
+      id: "file-readme",
+      workspace_id: "ws-1",
+      document_id: "document-1",
+      path: "docs/readme.md",
+      file_role: "manual",
+      mime_type: "text/markdown",
+      current_version_id: "version-readme",
+      content_hash: "sha256:readme",
+      sort_order: 1,
+      metadata_json: {},
+      deleted_at: null,
+      created_at: null,
+      updated_at: null,
+    },
+  ],
   compile_status: null,
   has_pending_changes: false,
   target_files: ["main.tex"],
@@ -66,9 +110,55 @@ const prismSurface = {
 };
 
 describe("workspace prism surface", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     mockEnsureWorkspacePrismProject.mockReset();
-    mockEnsureWorkspacePrismProject.mockResolvedValue({ latex_project_id: "latex-1" });
+    mockEnsureWorkspacePrismProject.mockResolvedValue({
+      latex_project_id: "latex-1",
+      prism_project_id: "prism-1",
+      url: "/workspaces/ws-1/prism",
+      sync_status: "ready",
+    });
+    mockGetWorkspacePrismFile.mockReset();
+    mockGetWorkspacePrismFile.mockResolvedValue({
+      file: prismSurface.prism_files[0],
+      current_version: {
+        id: "version-main",
+        workspace_id: "ws-1",
+        file_id: "file-main",
+        version_no: 1,
+        review_item_id: null,
+        content_inline: "\\section{Intro}",
+        content_asset_id: null,
+        content_hash: "sha256:main",
+        created_by: "system",
+        created_at: null,
+        updated_at: null,
+      },
+    });
+    mockSaveWorkspacePrismFile.mockReset();
+    mockSaveWorkspacePrismFile.mockResolvedValue({
+      file: { ...prismSurface.prism_files[0], content_hash: "sha256:saved" },
+      version: {
+        id: "version-saved",
+        workspace_id: "ws-1",
+        file_id: "file-main",
+        version_no: 2,
+        review_item_id: null,
+        content_inline: "\\section{Updated}",
+        content_asset_id: null,
+        content_hash: "sha256:saved",
+        created_by: "user-1",
+        created_at: null,
+        updated_at: null,
+      },
+      changed: true,
+      skipped_reason: null,
+    });
+    mockCreateWorkspacePrismFile.mockReset();
     mockGetWorkspace.mockReset();
     mockGetWorkspace.mockResolvedValue({
       id: "ws-1",
@@ -97,10 +187,9 @@ describe("workspace prism surface", () => {
       "href",
       "/workspaces/ws-1",
     );
-    expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
-      "latex-1:0",
-    );
     expect(await screen.findByTestId("prism-studio-shell")).toBeInTheDocument();
+    expect(await screen.findByTestId("prism-workspace-shell")).toBeInTheDocument();
+    expect(await screen.findByTestId("prism-file-editor")).toHaveValue("\\section{Intro}");
   });
 
   it("routes workspace hub entries back to the workbench rooms", async () => {
@@ -176,7 +265,7 @@ describe("workspace prism surface", () => {
     expect(screen.getByText("Prism unavailable")).toBeInTheDocument();
   });
 
-  it("uses the shared surface state when no manuscript project is bound", async () => {
+  it("renders the file workspace when no manuscript project is bound", async () => {
     mockGetWorkspacePrismSurface.mockResolvedValue({
       ...prismSurface,
       latex_project_id: null,
@@ -190,10 +279,86 @@ describe("workspace prism surface", () => {
       );
     });
 
-    expect(await screen.findByText("还没有绑定写作项目")).toBeInTheDocument();
-    expect(
-      screen.getByText("从 Workbench 启动论文写作任务后，这里会自动打开主稿。"),
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("prism-workspace-shell")).toBeInTheDocument();
+    expect(await screen.findByTestId("prism-file-editor")).toHaveValue("\\section{Intro}");
+  });
+
+  it("renders markdown preview for markdown files", async () => {
+    mockGetWorkspacePrismFile.mockImplementation(async (_workspaceId: string, fileId: string) => {
+      if (fileId === "file-readme") {
+        return {
+          file: prismSurface.prism_files[1],
+          current_version: {
+            id: "version-readme",
+            workspace_id: "ws-1",
+            file_id: "file-readme",
+            version_no: 1,
+            review_item_id: null,
+            content_inline: "# 申报材料\n\n- 用户端截图",
+            content_asset_id: null,
+            content_hash: "sha256:readme",
+            created_by: "system",
+            created_at: null,
+            updated_at: null,
+          },
+        };
+      }
+      return {
+        file: prismSurface.prism_files[0],
+        current_version: {
+          id: "version-main",
+          workspace_id: "ws-1",
+          file_id: "file-main",
+          version_no: 1,
+          review_item_id: null,
+          content_inline: "\\section{Intro}",
+          content_asset_id: null,
+          content_hash: "sha256:main",
+          created_by: "system",
+          created_at: null,
+          updated_at: null,
+        },
+      };
+    });
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+
+    fireEvent.click(await screen.findByTestId("prism-file-file-readme"));
+
+    expect(await screen.findByRole("heading", { name: "申报材料" })).toBeInTheDocument();
+    expect(screen.getByText("用户端截图")).toBeInTheDocument();
+  });
+
+  it("autosaves text edits without a save button", async () => {
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+
+    const editor = await screen.findByTestId("prism-file-editor");
+    vi.useFakeTimers();
+    fireEvent.change(editor, { target: { value: "\\section{Updated}" } });
+    expect(screen.getByTestId("prism-save-state")).toHaveTextContent("未保存");
+
+    await act(async () => {
+      vi.advanceTimersByTime(1600);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => expect(mockSaveWorkspacePrismFile).toHaveBeenCalledTimes(1));
+    expect(mockSaveWorkspacePrismFile.mock.calls[0][2]).toMatchObject({
+      content_inline: "\\section{Updated}",
+      expected_current_hash: "sha256:main",
+    });
   });
 
   it("renders workspace manuscript context from the Prism surface projection", async () => {
@@ -259,16 +424,7 @@ describe("workspace prism surface", () => {
           extracted_by: "user",
         },
       ],
-      memory_preferences: [
-        {
-          id: "memory-1",
-          workspace_id: "ws-1",
-          category: "writing_style",
-          content: "Prefer concise topic sentences",
-          confidence: 0.9,
-          reference_count: 3,
-        },
-      ],
+      memory_preferences: [],
       recent_activity: [
         {
           id: "run-1",
@@ -290,7 +446,7 @@ describe("workspace prism surface", () => {
       },
       context_summary: {
         decision_count: 1,
-        memory_preference_count: 1,
+        memory_preference_count: 0,
         recent_activity_count: 1,
       },
     });
@@ -309,7 +465,7 @@ describe("workspace prism surface", () => {
       "href",
       "/workspaces/ws-1?room=library&item_id=lib-1",
     );
-    expect(screen.getByTestId("latex-editor-shell")).toHaveTextContent("latex-1:1");
+    expect(screen.getByTestId("prism-workspace-shell")).toBeInTheDocument();
     expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
     expect(screen.getByText("来源")).toBeInTheDocument();
     expect(screen.getByText("活动")).toBeInTheDocument();

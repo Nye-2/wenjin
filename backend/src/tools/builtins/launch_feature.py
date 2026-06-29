@@ -71,6 +71,10 @@ def _launch_idempotency_key(config: RunnableConfig | None) -> str | None:
     return None
 
 
+def _runtime_model_id(config: RunnableConfig | None) -> str | None:
+    return _read_optional(config, "model_name")
+
+
 def _capability_routing(capability: Any) -> Mapping[str, Any] | None:
     routing = getattr(capability, "routing", None)
     if isinstance(routing, Mapping) and routing:
@@ -325,6 +329,9 @@ async def launch_feature_tool(
             params=merged_params,
             workspace_id=workspace_id,
         )
+        runtime_model_id = _runtime_model_id(config)
+        if runtime_model_id:
+            execution_params["brief"]["brief"].setdefault("model_id", runtime_model_id)
         if launch_idempotency_key:
             execution_params["launch_idempotency_key"] = launch_idempotency_key
             execution_params.setdefault("orchestration", {})[

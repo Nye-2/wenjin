@@ -2,6 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
 import { useChatStoreV2 } from "@/stores/chat-store";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
+
+const { mockListModels } = vi.hoisted(() => ({
+  mockListModels: vi.fn(),
+}));
 
 const mockUseSearchParams = vi.fn(() => new URLSearchParams());
 
@@ -9,9 +14,16 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => mockUseSearchParams(),
 }));
 
+vi.mock("@/lib/api", () => ({
+  listModels: mockListModels,
+}));
+
 beforeEach(() => {
   useChatStoreV2.getState().reset();
+  useWorkbenchLayoutStore.getState().reset();
   mockUseSearchParams.mockReturnValue(new URLSearchParams());
+  mockListModels.mockReset();
+  mockListModels.mockResolvedValue({ models: [] });
 });
 
 describe("ChatPanel v2", () => {
@@ -21,6 +33,97 @@ describe("ChatPanel v2", () => {
     expect(
       screen.getByPlaceholderText("输入消息... Shift+Enter 换行"),
     ).toBeInTheDocument();
+  });
+
+  it("loads chat models into the composer selector from the model catalog", async () => {
+    mockListModels.mockResolvedValueOnce({
+      models: [
+        {
+          name: "gpt-5.5",
+          display_name: "GPT 5.5",
+          provider: "openai",
+          category: "llm",
+          max_tokens: 64000,
+          supports_thinking: true,
+          supports_reasoning_effort: false,
+          supports_vision: true,
+          is_default: true,
+        },
+        {
+          name: "gpt-5.3-codex-spark",
+          display_name: "GPT 5.3 Spark",
+          provider: "openai",
+          category: "llm",
+          max_tokens: 32000,
+          supports_thinking: false,
+          supports_reasoning_effort: false,
+          supports_vision: false,
+        },
+      ],
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    await waitFor(() => expect(mockListModels).toHaveBeenCalledWith("chat"));
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-model-selector")).toHaveValue("gpt-5.5"),
+    );
+    expect(screen.getByRole("option", { name: "GPT 5.3 Spark" })).toBeInTheDocument();
+  });
+
+  it("sends the selected composer model with a manual message", async () => {
+    mockListModels.mockResolvedValueOnce({
+      models: [
+        {
+          name: "gpt-5.5",
+          display_name: "GPT 5.5",
+          provider: "openai",
+          category: "llm",
+          max_tokens: 64000,
+          supports_thinking: true,
+          supports_reasoning_effort: false,
+          supports_vision: true,
+          is_default: true,
+        },
+        {
+          name: "gpt-5.3-codex-spark",
+          display_name: "GPT 5.3 Spark",
+          provider: "openai",
+          category: "llm",
+          max_tokens: 32000,
+          supports_thinking: false,
+          supports_reasoning_effort: false,
+          supports_vision: false,
+        },
+      ],
+    });
+    const loadHistory = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      loadHistory,
+      sendMessage,
+      messages: [],
+      isSending: false,
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    const selector = await screen.findByTestId("chat-model-selector");
+    await waitFor(() => expect(selector).toHaveValue("gpt-5.5"));
+    fireEvent.change(selector, { target: { value: "gpt-5.3-codex-spark" } });
+
+    const input = screen.getByPlaceholderText("输入消息... Shift+Enter 换行");
+    fireEvent.change(input, { target: { value: "开始写 Spec" } });
+    fireEvent.click(screen.getByTestId("chat-send"));
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "开始写 Spec",
+        [],
+        { model: "gpt-5.3-codex-spark" },
+      ),
+    );
   });
 
   it("renders user messages with gray bubble", () => {
@@ -114,6 +217,47 @@ describe("ChatPanel v2", () => {
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
     expect(screen.getByText(/已处理/)).toBeInTheDocument();
+  });
+
+  it("renders draft intake spec tool results as a reviewable card", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_result",
+      data: {
+        tool: "draft_intake_spec",
+        status: "ready",
+        output: {
+          status: "ready",
+          intake_spec: {
+            schema_version: "wenjin.intake_spec.v1",
+            spec_id: "intake-1",
+            revision: 1,
+            workspace_id: "ws-1",
+            workspace_type: "software_copyright",
+            capability_id: "software_copyright_application_pack",
+            title: "智慧排课系统软著申报 Spec",
+            status: "ready",
+            markdown: "# 智慧排课系统软著申报 Spec\n\n生成申报材料包。",
+            params: { software_name: "智慧排课系统" },
+            missing_fields: [],
+            assumptions: [],
+          },
+        },
+      },
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    expect(screen.getByText("智慧排课系统软著申报 Spec")).toBeInTheDocument();
+    expect(screen.getByText("澄清 Spec · 可执行")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看 Spec" }));
+
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("spec");
   });
 
   it("renders launch_feature lead-busy advisory as the busy state", () => {

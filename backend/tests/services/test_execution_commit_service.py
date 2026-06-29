@@ -76,7 +76,7 @@ def _make_service(
         return_value={"status": "claimed", "execution": execution}
     )
 
-    async def _update_execution(_execution_id: str, **kwargs):
+    async def _update_execution(_execution_id: str | None = None, **kwargs):
         if execution is None:
             return None
         updated = SimpleNamespace(**vars(execution))
@@ -97,16 +97,52 @@ def _make_service(
             external_ids=[],
         )
     )
-    dataservice.register_asset = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
+    dataservice.register_asset = AsyncMock(return_value=SimpleNamespace(id="prism-file-1"))
+    dataservice.delete_asset = AsyncMock(return_value=SimpleNamespace(id="prism-file-1"))
+    dataservice.get_prism_surface = AsyncMock(return_value=None)
+    dataservice.upsert_prism_workspace_file = AsyncMock(
+        side_effect=lambda _workspace_id, command: SimpleNamespace(
+            file=SimpleNamespace(
+                id="prism-file-1",
+                path=command.path,
+                current_version_id="prism-version-1",
+                content_hash=command.content_hash,
+            ),
+            version=SimpleNamespace(
+                id="prism-version-1",
+                content_hash=command.content_hash,
+            ),
+            changed=True,
+            skipped_reason=None,
+        )
+    )
+    dataservice.delete_prism_workspace_file = AsyncMock(
+        return_value=SimpleNamespace(changed=True, skipped_reason=None)
+    )
+    dataservice.restore_prism_workspace_file = AsyncMock(
+        return_value=SimpleNamespace(changed=True, skipped_reason=None)
+    )
+    dataservice.delete_source = AsyncMock(return_value=True)
+    dataservice.delete_room_decision = AsyncMock(return_value=True)
+    dataservice.delete_room_task = AsyncMock(return_value=True)
     dataservice.stage_and_apply_room_candidates = AsyncMock(
         return_value=SimpleNamespace(
             review_batch_id="review-batch-1",
-            counts={"memory": 1, "decisions": 1, "tasks": 1},
+            counts={"decisions": 1, "tasks": 1},
             item_results=[
-                {"room": "memory", "record_id": "fact-1", "source_item_id": "out-mem"},
                 {"room": "decisions", "record_id": "dec-1", "source_item_id": "out-dec"},
                 {"room": "tasks", "record_id": "task-1", "source_item_id": "out-task"},
             ],
+        )
+    )
+    dataservice.merge_workspace_memory = AsyncMock(
+        return_value=SimpleNamespace(
+            changed=True,
+            document=SimpleNamespace(
+                id="memory-doc-1",
+                revision=2,
+                content_hash="memory-hash-2",
+            ),
         )
     )
     dataservice.append_execution_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
@@ -124,6 +160,40 @@ def _make_service(
         "dataservice": dataservice,
     }
     return svc, mocks
+
+
+def _commit_state_for_all_outputs() -> dict:
+    return {
+        "status": "committed",
+        "accepted_ids": ["out-lib", "out-doc", "out-mem", "out-dec", "out-task"],
+        "rejected_ids": [],
+        "counts": {
+            "library": 1,
+            "prism": 1,
+            "memory": 1,
+            "decisions": 1,
+            "tasks": 1,
+        },
+        "room_targets": {
+            "library": [{"output_id": "out-lib", "item_id": "lib-1"}],
+            "prism": [
+                {
+                    "output_id": "out-doc",
+                    "item_id": "prism-file-1",
+                    "file_id": "prism-file-1",
+                    "path": "docs/generated/thesis.md",
+                    "version_id": "prism-version-1",
+                    "content_hash": "hash-doc",
+                    "created_file": True,
+                }
+            ],
+            "memory": [{"output_id": "out-mem", "item_id": "memory-doc-1"}],
+            "decisions": [{"output_id": "out-dec", "item_id": "dec-1"}],
+            "tasks": [{"output_id": "out-task", "item_id": "task-1"}],
+        },
+        "committed_at": "2026-06-29T00:00:00+00:00",
+        "review_batch_id": "review-batch-1",
+    }
 
 
 def _all_kinds_outputs() -> list:
@@ -186,14 +256,16 @@ async def test_commit_all_writes_all_kinds():
     )
 
     assert result["committed"]["library"] == 1
-    assert result["committed"]["documents"] == 1
+    assert result["committed"]["prism"] == 1
     assert result["committed"]["memory"] == 1
     assert result["committed"]["decisions"] == 1
     assert result["committed"]["tasks"] == 1
 
     mocks["dataservice"].import_source.assert_called_once()
     mocks["dataservice"].create_source.assert_not_called()
-    mocks["dataservice"].register_asset.assert_called_once()
+    mocks["dataservice"].register_asset.assert_not_called()
+    mocks["dataservice"].upsert_prism_workspace_file.assert_called_once()
+    mocks["dataservice"].merge_workspace_memory.assert_called_once()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_called_once()
     mocks["dataservice"].append_execution_event.assert_called_once()
 
@@ -236,6 +308,75 @@ async def test_commit_persists_commit_state_and_preserves_task_report():
     assert commit_state["room_targets"] == result["room_targets"]
     assert commit_state["review_batch_id"] == "review-batch-1"
     assert datetime.fromisoformat(commit_state["committed_at"])
+
+
+@pytest.mark.asyncio
+async def test_undo_commit_deletes_room_targets_and_marks_reverted():
+    """Undo removes the room records created by the committed execution batch."""
+    report = _make_report(_all_kinds_outputs())
+    execution = _make_execution(report)
+    execution.result["commit_state"] = _commit_state_for_all_outputs()
+    svc, mocks = _make_service(execution)
+
+    result = await svc.undo_commit(
+        EXECUTION_ID,
+        actor_user_id="user-1",
+    )
+
+    mocks["dataservice"].delete_source.assert_awaited_once_with(
+        source_id="lib-1",
+        workspace_id=WORKSPACE_ID,
+    )
+    mocks["dataservice"].delete_prism_workspace_file.assert_awaited_once_with(
+        WORKSPACE_ID,
+        "prism-file-1",
+        expected_current_hash="hash-doc",
+    )
+    mocks["dataservice"].delete_asset.assert_not_called()
+    mocks["dataservice"].delete_room_decision.assert_awaited_once_with("dec-1")
+    mocks["dataservice"].delete_room_task.assert_awaited_once_with(
+        workspace_id=WORKSPACE_ID,
+        task_id="task-1",
+    )
+
+    reverted_state = result["commit_state"]
+    assert reverted_state["status"] == "reverted"
+    assert reverted_state["accepted_ids"] == ["out-lib", "out-doc", "out-mem", "out-dec", "out-task"]
+    assert reverted_state["room_targets"] == _commit_state_for_all_outputs()["room_targets"]
+    assert reverted_state["revert_counts"] == {
+        "library": 1,
+        "prism": 1,
+        "memory": 0,
+        "decisions": 1,
+        "tasks": 1,
+    }
+    assert datetime.fromisoformat(reverted_state["reverted_at"])
+
+    mocks["execution"].update_execution.assert_awaited_once()
+    persisted_result = mocks["execution"].update_execution.await_args.kwargs["result"]
+    assert persisted_result["task_report"] == report.model_dump(mode="json")
+    assert persisted_result["commit_state"] == reverted_state
+
+
+@pytest.mark.asyncio
+async def test_undo_commit_rejects_non_owner_before_deletes():
+    """Undo must enforce execution ownership before touching room records."""
+    report = _make_report(_all_kinds_outputs())
+    execution = _make_execution(report)
+    execution.result["commit_state"] = _commit_state_for_all_outputs()
+    svc, mocks = _make_service(execution)
+
+    with pytest.raises(ExecutionCommitNotFoundError):
+        await svc.undo_commit(
+            EXECUTION_ID,
+            actor_user_id="other-user",
+        )
+
+    mocks["dataservice"].delete_source.assert_not_called()
+    mocks["dataservice"].delete_asset.assert_not_called()
+    mocks["dataservice"].delete_room_decision.assert_not_called()
+    mocks["dataservice"].delete_room_task.assert_not_called()
+    mocks["execution"].update_execution.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -299,7 +440,7 @@ async def test_commit_marks_claim_failed_when_room_write_fails():
     report = _make_report([output])
     execution = _make_execution(report)
     svc, mocks = _make_service(execution, redis=None)
-    mocks["dataservice"].register_asset.side_effect = RuntimeError("asset write failed")
+    mocks["dataservice"].upsert_prism_workspace_file.side_effect = RuntimeError("asset write failed")
 
     with pytest.raises(RuntimeError, match="asset write failed"):
         await svc.commit_outputs(
@@ -318,7 +459,7 @@ async def test_commit_marks_claim_failed_when_room_write_fails():
     assert fail_kwargs["rejected_ids"] == []
     assert fail_kwargs["partial_counts"] == {
         "library": 0,
-        "documents": 0,
+        "prism": 0,
         "memory": 0,
         "decisions": 0,
         "tasks": 0,
@@ -412,9 +553,9 @@ async def test_commit_partial_runs_with_explicit_selection():
         actor_user_id="user-1",
     )
 
-    assert result["committed"]["documents"] == 1
+    assert result["committed"]["prism"] == 1
     assert result["committed"]["library"] == 0
-    mocks["dataservice"].register_asset.assert_called_once()
+    mocks["dataservice"].upsert_prism_workspace_file.assert_called_once()
     mocks["dataservice"].append_execution_event.assert_called_once()
 
 
@@ -433,14 +574,14 @@ async def test_commit_some_only():
     )
 
     assert result["committed"]["library"] == 1
-    assert result["committed"]["documents"] == 1
+    assert result["committed"]["prism"] == 1
     assert result["committed"]["memory"] == 0
     assert result["committed"]["decisions"] == 0
     assert result["committed"]["tasks"] == 0
 
     mocks["dataservice"].import_source.assert_called_once()
     mocks["dataservice"].create_source.assert_not_called()
-    mocks["dataservice"].register_asset.assert_called_once()
+    mocks["dataservice"].upsert_prism_workspace_file.assert_called_once()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
     # run_history must still be called
     mocks["dataservice"].append_execution_event.assert_called_once()
@@ -460,13 +601,18 @@ async def test_commit_returns_room_targets_for_committed_items():
         actor_user_id="user-1",
     )
 
-    assert result["room_targets"]["documents"] == [{"output_id": "out-doc", "item_id": "doc-1"}]
+    prism_target = result["room_targets"]["prism"][0]
+    assert prism_target["output_id"] == "out-doc"
+    assert prism_target["item_id"] == "prism-file-1"
+    assert prism_target["file_id"] == "prism-file-1"
+    assert prism_target["version_id"] == "prism-version-1"
+    assert prism_target["path"].endswith("thesis.md")
     assert result["room_targets"]["library"] == [{"output_id": "out-lib", "item_id": "lib-1"}]
 
 
 @pytest.mark.asyncio
-async def test_commit_document_writes_to_documents_room_source():
-    """Execution-backed documents must be visible through the Documents room."""
+async def test_commit_document_writes_to_prism_file():
+    """Execution-backed documents are saved as Prism file versions."""
     outputs = [
         DocumentOutput(
             id="out-doc",
@@ -489,8 +635,11 @@ async def test_commit_document_writes_to_documents_room_source():
         actor_user_id="user-1",
     )
 
-    asset_payload = mocks["dataservice"].register_asset.call_args.args[0]
-    assert asset_payload.source_kind == "documents_room"
+    prism_payload = mocks["dataservice"].upsert_prism_workspace_file.call_args.args[1]
+    assert prism_payload.path == "docs/generated/文献定位与创新点.md"
+    assert prism_payload.content_inline == "# Literature positioning"
+    assert prism_payload.metadata_json["source"] == "execution_commit"
+    mocks["dataservice"].register_asset.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -507,7 +656,11 @@ async def test_commit_returns_room_targets_for_room_candidates():
         actor_user_id="user-1",
     )
 
-    assert result["room_targets"]["memory"] == [{"output_id": "out-mem", "item_id": "fact-1"}]
+    memory_target = result["room_targets"]["memory"][0]
+    assert memory_target["output_id"] == "out-mem"
+    assert memory_target["item_id"] == "memory-doc-1"
+    assert memory_target["document_id"] == "memory-doc-1"
+    assert memory_target["revision"] == "2"
     assert result["room_targets"]["decisions"] == [{"output_id": "out-dec", "item_id": "dec-1"}]
     assert result["room_targets"]["tasks"] == [{"output_id": "out-task", "item_id": "task-1"}]
 
@@ -582,13 +735,13 @@ async def test_commit_without_selection_returns_noop_without_durable_discard():
     assert result == {
         "committed": {
             "library": 0,
-            "documents": 0,
+            "prism": 0,
             "memory": 0,
             "decisions": 0,
             "tasks": 0,
         },
         "room_targets": {
-            "documents": [],
+            "prism": [],
             "library": [],
             "memory": [],
             "decisions": [],
@@ -649,10 +802,10 @@ async def test_commit_applies_output_overrides_before_room_writes():
     assert source_payload.authors_json == ["Ada"]
     assert source_payload.year == 2026
 
-    asset_payload = mocks["dataservice"].register_asset.call_args.args[0]
-    assert asset_payload.name == "edited.md"
-    assert asset_payload.asset_kind == "outline"
-    assert asset_payload.metadata_json["content"] == "# Edited"
+    prism_payload = mocks["dataservice"].upsert_prism_workspace_file.call_args.args[1]
+    assert prism_payload.path == "docs/generated/edited.md"
+    assert prism_payload.file_role == "outline"
+    assert prism_payload.content_inline == "# Edited"
 
 
 @pytest.mark.asyncio
@@ -865,13 +1018,13 @@ async def test_commit_ignores_stale_idempotency_cache_without_commit_state():
     stale_result = {
         "committed": {
             "library": 0,
-            "documents": 0,
+            "prism": 0,
             "memory": 0,
             "decisions": 0,
             "tasks": 0,
         },
         "room_targets": {
-            "documents": [],
+            "prism": [],
             "library": [],
             "memory": [],
             "decisions": [],
@@ -894,9 +1047,9 @@ async def test_commit_ignores_stale_idempotency_cache_without_commit_state():
 
     assert result["commit_state"]["status"] == "committed"
     assert result["commit_state"]["accepted_ids"] == ["out-doc"]
-    assert result["committed"]["documents"] == 1
+    assert result["committed"]["prism"] == 1
     mocks["execution"].finalize_execution_commit.assert_awaited_once()
-    mocks["dataservice"].register_asset.assert_called_once()
+    mocks["dataservice"].upsert_prism_workspace_file.assert_called_once()
     redis_mock.set.assert_awaited_once()
 
 
@@ -928,7 +1081,7 @@ async def test_commit_ignores_unavailable_redis_cache_read():
     assert result["commit_state"]["status"] == "committed"
     mocks["execution"].claim_execution_commit.assert_awaited_once()
     mocks["execution"].finalize_execution_commit.assert_awaited_once()
-    mocks["dataservice"].register_asset.assert_called_once()
+    mocks["dataservice"].upsert_prism_workspace_file.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1037,13 +1190,13 @@ async def test_existing_commit_state_short_circuits_duplicate_writes_with_new_ke
         "rejected_ids": ["out-doc", "out-mem", "out-dec", "out-task"],
         "counts": {
             "library": 1,
-            "documents": 0,
+            "prism": 0,
             "memory": 0,
             "decisions": 0,
             "tasks": 0,
         },
         "room_targets": {
-            "documents": [],
+            "prism": [],
             "library": [{"output_id": "out-lib", "item_id": "lib-1"}],
             "memory": [],
             "decisions": [],
@@ -1100,14 +1253,14 @@ async def test_existing_commit_state_wins_before_request_body_validation():
         "rejected_ids": [],
         "counts": {
             "library": 0,
-            "documents": 1,
+            "prism": 1,
             "memory": 0,
             "decisions": 0,
             "tasks": 0,
         },
         "room_targets": {
             "library": [],
-            "documents": [{"output_id": "out-doc", "item_id": "doc-1"}],
+            "prism": [{"output_id": "out-doc", "item_id": "prism-file-1"}],
             "memory": [],
             "decisions": [],
             "tasks": [],
@@ -1206,9 +1359,7 @@ async def test_commit_publishes_refresh_event():
                 "activity",
                 "artifacts",
                 "dashboard",
-                "documents",
                 "library",
-                "memory",
                 "decisions",
                 "tasks",
                 "runs",

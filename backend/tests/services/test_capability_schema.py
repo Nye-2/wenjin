@@ -74,7 +74,7 @@ class TestCapabilityV2Yaml:
                 },
             },
             "context_policy": {
-                "room_reads": {"library": "summary", "documents": "excerpts"},
+                "room_reads": {"library": "summary", "prism": "excerpts"},
                 "prism_context": {"include_outline": True},
                 "full_text_access": "explicit_tool_only",
             },
@@ -511,7 +511,7 @@ Anti-Patterns:
                 },
             },
             "context_access": {
-                "room_reads": {"documents": "excerpts", "decisions": "relevant"},
+                "room_reads": {"prism": "excerpts", "decisions": "relevant"},
                 "prism_context": "summary",
             },
             "tool_policy": {

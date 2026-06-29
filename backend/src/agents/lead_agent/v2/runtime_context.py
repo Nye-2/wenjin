@@ -358,17 +358,12 @@ class RuntimeContextAssembler:
         workspace_id: str,
     ) -> dict[str, Any]:
         decisions: list[Any] = []
-        memory_facts: list[Any] = []
         executions: list[Any] = []
         threads: list[Any] = []
         try:
             decisions = await client.list_room_decisions(workspace_id)
         except Exception:
             logger.warning("Failed to load workspace decisions context", exc_info=True)
-        try:
-            memory_facts = await client.list_room_memory_facts(workspace_id=workspace_id, limit=12)
-        except Exception:
-            logger.warning("Failed to load workspace memory context", exc_info=True)
         try:
             executions = await client.list_executions(workspace_id=workspace_id, limit=8)
         except Exception:
@@ -390,15 +385,6 @@ class RuntimeContextAssembler:
                     "created_at": self.iso_timestamp(getattr(item, "created_at", None)),
                 }
                 for item in decisions[:20]
-            ],
-            "memory": [
-                {
-                    "category": str(getattr(item, "category", "") or ""),
-                    "content": str(getattr(item, "content", "") or "")[:500],
-                    "confidence": getattr(item, "confidence", None),
-                    "reference_count": getattr(item, "reference_count", 0),
-                }
-                for item in memory_facts[:12]
             ],
             "recent_executions": [
                 {

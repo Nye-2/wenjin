@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import type { WorkbenchDraftEdit } from "@/stores/workbench-layout-store";
 
 import { NodeInspector } from "./NodeInspector";
+import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
 import { ResultEditor } from "./ResultEditor";
 import { EmptyState, GuidanceNote, ResultKindBadge } from "./shared";
 import { styles } from "./styles";
@@ -39,17 +40,21 @@ export function EvidenceView({
   onPatchDraft: (outputId: string, field: string, value: unknown) => void;
   onSetDraft: (outputId: string, edit: WorkbenchDraftEdit | null) => void;
 }) {
+  const visibleItems = useMemo(
+    () => items.filter((item) => item.kind !== "memory_fact"),
+    [items],
+  );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return items.filter((item) => {
+    return visibleItems.filter((item) => {
       if (filter === "outputs" && item.source !== "output") return false;
       if (filter === "nodes" && item.source !== "node") return false;
       if (filter === "sandbox" && !item.summary.toLowerCase().includes("sandbox") && item.kind !== "sandbox") return false;
       if (!q) return true;
       return `${item.title} ${item.kind} ${item.summary}`.toLowerCase().includes(q);
     });
-  }, [filter, items, query]);
-  const experimentCount = items.filter(
+  }, [filter, visibleItems, query]);
+  const experimentCount = visibleItems.filter(
     (item) =>
       item.kind === "sandbox" ||
       item.summary.toLowerCase().includes("sandbox") ||
@@ -61,7 +66,7 @@ export function EvidenceView({
     null;
   const filterOptions: Array<[EvidenceFilter, string]> = [
     ["all", "全部"],
-    ["outputs", "候选结果"],
+    ["outputs", "结果"],
     ["nodes", "过程"],
     ...(experimentCount > 0 ? ([["sandbox", "实验记录"]] as Array<[EvidenceFilter, string]>) : []),
   ];
@@ -97,7 +102,7 @@ export function EvidenceView({
         </div>
         <div style={{ marginBottom: 12 }}>
           <GuidanceNote>
-            证据区只做预览和筛选：带复选框的是候选结果，可保存；过程摘录和运行细节默认只读。
+            证据区只做预览和筛选：文档和资料会随完成运行自动写入，过程摘录和运行细节默认只读。
           </GuidanceNote>
         </div>
         {filtered.length > 0 ? (
@@ -151,7 +156,7 @@ export function EvidenceView({
       </section>
 
       <aside style={styles.editorAside}>
-        {selected?.source === "output" && selected.preview.canCommit ? (
+        {selected?.source === "output" && selected.preview.canCommit && !disabled ? (
           <ResultEditor
             preview={selected.preview}
             draft={draftEdits[selected.preview.id]}
@@ -160,14 +165,14 @@ export function EvidenceView({
             onSetDraft={onSetDraft}
           />
         ) : selected?.source === "output" ? (
-          <EmptyState title="只读预览" detail="该项来自沙盒候选产物，可在预览中查看，保存由产物确认入口处理。" compact />
+          <ResultPreviewDetail preview={selected.preview} />
         ) : selected?.source === "node" ? (
           <NodeInspector
             node={{ id: selected.nodeId, type: selected.kind, label: selected.title }}
             state={selected.nodeState}
           />
         ) : (
-          <EmptyState title="选择一项内容" detail="这里会显示候选结果、来源详情或过程摘要。" compact />
+          <EmptyState title="选择一项内容" detail="这里会显示结果、来源详情或过程摘要。" compact />
         )}
       </aside>
     </div>

@@ -22,8 +22,8 @@ default_skills:
   - document-outline-builder
 tool_affinity:
   preferred:
-    - document_read
-    - memory_read
+    - prism_file_read
+    - workspace_memory_read
   can_request:
     - library_read
     - prism_read

@@ -26,7 +26,6 @@ function displayText(value: string | null | undefined, fallback: string): string
 function sourceLinkRoom(sourceType: string | null | undefined): string | null {
   const normalized = sourceType?.trim();
   if (normalized === "library" || normalized === "library_item") return "library";
-  if (normalized === "document" || normalized === "documents") return "documents";
   return null;
 }
 
@@ -70,7 +69,6 @@ export function PrismContextRail({
   const sourceLinks = surface.source_links ?? [];
   const protectedSections = surface.protected_sections ?? [];
   const decisions = surface.decisions ?? [];
-  const memoryPreferences = surface.memory_preferences ?? [];
   const recentActivity = surface.recent_activity ?? [];
   const summary = surface.review_summary ?? {};
   const pendingCount = count(summary.pending_count);
@@ -86,7 +84,6 @@ export function PrismContextRail({
     sourceLinks.length > 0 ||
     protectedSections.length > 0 ||
     decisions.length > 0 ||
-    memoryPreferences.length > 0 ||
     recentActivity.length > 0;
 
   if (!hasContext) {

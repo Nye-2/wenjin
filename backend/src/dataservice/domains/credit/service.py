@@ -471,7 +471,7 @@ class DataServiceCreditService:
             **dict(getattr(reservation, "metadata_json", {}) or {}),
             "settlement_metadata": dict(metadata or {}),
         }
-        await self._finish(tx)
+        await self._finish(reservation, tx)
         return reservation, tx
 
     async def release_reservation(
@@ -885,10 +885,13 @@ class DataServiceCreditService:
         await self._finish(txn)
         return txn
 
-    async def _finish(self, record: Any | None = None) -> None:
+    async def _finish(self, *records: Any) -> None:
+        refresh_records = [record for record in records if record is not None]
         if self.autocommit:
             await self.session.commit()
-            if record is not None:
+            for record in refresh_records:
                 await self.session.refresh(record)
             return
         await self.session.flush()
+        for record in refresh_records:
+            await self.session.refresh(record)

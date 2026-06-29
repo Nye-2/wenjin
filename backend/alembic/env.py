@@ -25,12 +25,10 @@ from src.database.models import (  # noqa: F401
     LatexProject,
     LatexTemplate,
     LibraryItem,
-    MemoryFact,
     RunHistory,
     Sandbox,
     TaskRecord,
     User,
-    UserKnowledge,
     Workspace,
     WorkspaceSettings,
     WorkspaceTask,
@@ -83,6 +81,10 @@ from src.dataservice.domains.source.models import (  # noqa: F401
     SourceTextUnitRecord,
 )
 from src.dataservice.domains.workspace.models import WorkspaceMembership  # noqa: F401
+from src.dataservice.domains.workspace_memory.models import (  # noqa: F401
+    WorkspaceMemoryDocumentRecord,
+    WorkspaceMemoryRevisionRecord,
+)
 
 # Alembic Config object
 config = context.config

@@ -4,17 +4,19 @@ import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 export interface CommitRoomTarget {
   output_id: string;
   item_id: string;
+  file_id?: string;
+  path?: string;
 }
 
 export type CommitRoomName =
-  | "documents"
+  | "prism"
   | "library"
   | "memory"
   | "decisions"
   | "tasks";
 
 const COMMIT_ROOM_NAMES = [
-  "documents",
+  "prism",
   "library",
   "memory",
   "decisions",
@@ -27,13 +29,16 @@ export type CommitRoomCounts = Record<CommitRoomName, number>;
 export type CommitRoomTargets = Record<CommitRoomName, CommitRoomTarget[]>;
 
 export interface ExecutionCommitState {
-  status: "committed" | "discarded";
+  status: "committed" | "discarded" | "reverted";
   accepted_ids: string[];
   rejected_ids: string[];
   counts: CommitRoomCounts;
   room_targets: CommitRoomTargets;
   committed_at: string;
   review_batch_id?: string;
+  reverted_at?: string;
+  reverted_by?: string;
+  revert_counts?: CommitRoomCounts;
 }
 
 export interface ExecutionCommitResponse {
@@ -81,6 +86,21 @@ export async function commitExecutionOutputs(options: {
   return (await response.json()) as ExecutionCommitResponse;
 }
 
+export async function undoExecutionCommit(options: {
+  executionId: string;
+}): Promise<ExecutionCommitResponse> {
+  const response = await authorizedFetch(
+    `/api/executions/${options.executionId}/commit/undo`,
+    {
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "撤回保存失败"));
+  }
+  return (await response.json()) as ExecutionCommitResponse;
+}
+
 export function buildCommittedRoomLinks(options: {
   workspaceId?: string | null;
   previews: WorkspaceResultPreview[];
@@ -94,17 +114,15 @@ export function buildCommittedRoomLinks(options: {
   const previewById = new Map(previews.map((preview) => [preview.id, preview]));
   const links: CommittedRoomLink[] = [];
 
-  for (const target of roomTargets.documents ?? []) {
+  for (const target of roomTargets.prism ?? []) {
     const preview = previewById.get(target.output_id);
-    const query = preview?.roomTarget?.query ?? preview?.title ?? null;
+    const fileId = target.file_id ?? target.item_id;
     links.push({
-      key: `documents:${target.item_id}`,
+      key: `prism:${fileId}`,
       label: `打开已保存的 ${preview?.title ?? target.item_id}`,
-      href: buildWorkspaceRoomHref({
+      href: buildWorkspacePrismFileHref({
         workspaceId,
-        room: "documents",
-        itemId: target.item_id,
-        query,
+        fileId,
       }),
     });
   }
@@ -120,20 +138,6 @@ export function buildCommittedRoomLinks(options: {
         room: "library",
         itemId: target.item_id,
         query,
-      }),
-    });
-  }
-
-  for (const target of roomTargets.memory ?? []) {
-    const preview = previewById.get(target.output_id);
-    links.push({
-      key: `memory:${target.item_id}`,
-      label: `打开已保存的 ${preview?.title ?? "记忆"}`,
-      href: buildWorkspaceRoomHref({
-        workspaceId,
-        room: "memory",
-        itemId: target.item_id,
-        query: preview?.title ?? null,
       }),
     });
   }
@@ -178,7 +182,9 @@ export function readCommitStateFromResult(
   const state = recordValue(rawCommitState);
   if (!state) return null;
   const status =
-    state.status === "committed" || state.status === "discarded"
+    state.status === "committed" ||
+    state.status === "discarded" ||
+    state.status === "reverted"
       ? state.status
       : null;
   const acceptedIds = stringArrayValue(state.accepted_ids);
@@ -203,6 +209,15 @@ export function readCommitStateFromResult(
     ...(stringValue(state.review_batch_id)
       ? { review_batch_id: stringValue(state.review_batch_id)! }
       : {}),
+    ...(stringValue(state.reverted_at)
+      ? { reverted_at: stringValue(state.reverted_at)! }
+      : {}),
+    ...(stringValue(state.reverted_by)
+      ? { reverted_by: stringValue(state.reverted_by)! }
+      : {}),
+    ...(numberRecordValue(state.revert_counts)
+      ? { revert_counts: numberRecordValue(state.revert_counts)! }
+      : {}),
   };
 }
 
@@ -216,6 +231,12 @@ export function isExecutionDiscarded(
   commitState: ExecutionCommitState | null | undefined,
 ): boolean {
   return commitState?.status === "discarded";
+}
+
+export function isExecutionReverted(
+  commitState: ExecutionCommitState | null | undefined,
+): boolean {
+  return commitState?.status === "reverted";
 }
 
 export function commitStateRoomTargets(
@@ -232,7 +253,7 @@ export function commitStateFromCommitResponse(
 
 function buildWorkspaceRoomHref(options: {
   workspaceId: string;
-  room: "documents" | "library" | "memory" | "decisions" | "tasks";
+  room: "library" | "decisions" | "tasks";
   itemId: string;
   query: string | null;
 }): string {
@@ -243,6 +264,15 @@ function buildWorkspaceRoomHref(options: {
     params.set("query", options.query);
   }
   return `/workspaces/${options.workspaceId}?${params.toString()}`;
+}
+
+function buildWorkspacePrismFileHref(options: {
+  workspaceId: string;
+  fileId: string;
+}): string {
+  const params = new URLSearchParams();
+  params.set("file_id", options.fileId);
+  return `/workspaces/${options.workspaceId}/prism?${params.toString()}`;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -318,7 +348,16 @@ function roomTargetsValue(value: unknown): CommitRoomTargets | null {
       if (!outputId || !itemId) {
         return null;
       }
-      roomTargets.push({ output_id: outputId, item_id: itemId });
+      roomTargets.push({
+        output_id: outputId,
+        item_id: itemId,
+        ...(stringValue(target?.file_id)
+          ? { file_id: stringValue(target?.file_id)! }
+          : {}),
+        ...(stringValue(target?.path)
+          ? { path: stringValue(target?.path)! }
+          : {}),
+      });
     }
     targets[room] = roomTargets;
   }

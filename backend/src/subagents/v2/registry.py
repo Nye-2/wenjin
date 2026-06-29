@@ -17,11 +17,11 @@ BUSINESS_TEAM_TOOLS = frozenset(
     {
         "artifact_create",
         "citation_parser",
-        "document_read",
         "library_read",
-        "memory_read",
+        "prism_file_read",
         "prism_change_staged",
         "prism_read",
+        "workspace_memory_read",
         "web_search",
     }
 )
