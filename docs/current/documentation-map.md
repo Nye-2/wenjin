@@ -1,6 +1,6 @@
 # Wenjin Current Docs Map
 
-更新时间：2026-06-23
+更新时间：2026-06-30
 状态：Current
 
 本目录是 Wenjin 当前实现的唯一事实源目录。后续开发、联调、review、发布前检查，优先只看这里。项目定位为科研工作台，旧过程 spec / plan 不再作为当前事实源。
@@ -28,7 +28,7 @@
 ## 3. 文档治理
 
 - 本目录只保存当前事实源。
-- 历史 spec / plan / implementation record / audit log 不在 docs 树中长期保留；需要追溯时查 Git 历史。
+- 历史 spec / plan / implementation record / audit log 不进入本目录；`docs/superpowers/` 如保留阶段性计划或 spec 草稿，只作为执行归档，不作为当前事实源。
 - 不新增平行架构文档。发现事实源冲突时，优先更新本目录中已有的最小相关文档。
 - README 负责产品定位与快速入口；详细行为以本目录专题文档为准。
 

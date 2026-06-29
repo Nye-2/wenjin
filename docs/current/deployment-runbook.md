@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-更新时间：2026-06-25
+更新时间：2026-06-30
 
 本手册只覆盖 Docker Compose 标准链路。旧的本地一键守护脚本、根目录隐藏 env 模板和分散 compose 片段已移除，避免项目存在多套启动事实源。
 
@@ -52,9 +52,10 @@ docker compose up -d
 只有需要重建 backend/frontend/langgraph 镜像时才使用 local-build override：
 
 ```bash
-cp deploy/env/compose.local-build-cn.example .env
-# 编辑 .env 中的 WENJIN_PROJECT_DIR、ADMIN_PASSWORD、GRAFANA_PASSWORD、
-# DATASERVICE_INTERNAL_TOKEN、DOCKER_GID 等部署值。
+# 继续使用根目录 .env 作为唯一本地环境文件。
+# 如需国内镜像源，把 deploy/env/compose.local-build-cn.example 中的
+# NODE_IMAGE / PYTHON_IMAGE 等构建镜像变量复制追加到根目录 .env，
+# 不要用该示例文件覆盖已有 .env。
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 

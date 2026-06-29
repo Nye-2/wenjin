@@ -1,6 +1,6 @@
 # Release Gate Checklist
 
-更新时间: 2026-06-24
+更新时间: 2026-06-30
 状态: Current
 
 本文件只保留发布前 Go/No-Go 的当前门禁。历史验证流水不在 current docs 中维护；需要追溯时查 Git 历史。
@@ -25,7 +25,7 @@
 14. Credit admission 使用 `spendable_credits = credits - reserved_credits`；sandbox start 和 token/model usage 走 DataService pricing / reservation / transaction 链路。
 15. UI 默认视图不展示 raw node input/output、raw stdout/stderr、raw tool args、template id、schema id、internal refs 或日志墙；复杂证据进入预览/诊断层，且只展示 sanitized summary。
 16. 标准启动方式只保留 Docker Compose；不得重新引入本地一键启动脚本、根目录隐藏 env 模板、分散 compose 片段或启动 wrapper。
-17. 当前文档只维护 README、AGENTS/CLAUDE、子项目 README 和 `docs/current/`；过程 spec / plan / audit log 不回到仓库文档树。
+17. 当前事实文档只维护 README、AGENTS/CLAUDE、子项目 README 和 `docs/current/`；`docs/superpowers/` 仅可作为阶段性计划/spec 归档，不能被引用为当前实现事实源。
 
 ## 2. Required Commands
 
@@ -62,7 +62,7 @@ python3 scripts/ci_secret_guard.py
 docker compose --env-file /path/to/generated-compose-env config
 ```
 
-同时确认 README、AGENTS、CLAUDE、子项目 README 和 `docs/current` 没有引用已删除的过程文档路径或旧启动入口。
+同时确认 README、AGENTS、CLAUDE、子项目 README 和 `docs/current` 没有引用已删除的过程文档路径、旧启动入口，或把 `docs/superpowers/` 当作当前事实源。
 
 ## 3. Focused Suites
 

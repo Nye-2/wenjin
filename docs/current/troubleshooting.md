@@ -1,6 +1,6 @@
 # Troubleshooting
 
-更新时间：2026-06-25
+更新时间：2026-06-30
 
 以下命令默认你已经设置：
 
@@ -344,7 +344,8 @@ PROMETHEUS_IMAGE=docker.m.daocloud.io/prom/prometheus:latest
 如果确实需要本地构建，使用显式 local-build override，并在失败时先预拉 base image：
 
 ```bash
-cp deploy/env/compose.local-build-cn.example .env
+# 继续使用根目录 .env；如需国内镜像源，只复制
+# deploy/env/compose.local-build-cn.example 中的构建镜像变量到根目录 .env。
 docker pull "$NODE_IMAGE"
 docker pull "$PYTHON_IMAGE"
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build

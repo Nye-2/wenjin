@@ -1,6 +1,6 @@
 # Wenjin Research Navigation UIUX
 
-更新时间：2026-06-23
+更新时间：2026-06-30
 
 Wenjin keeps the name, but the product interface baseline is now **System-Grade Research Workbench**: a research operating-system surface with trusted chrome, quiet content, evidence-first execution, and mature institutional polish.
 
@@ -10,7 +10,7 @@ The earlier Glass / visionOS direction is superseded for new work. Existing `--v
 
 ## Positioning
 
-Wenjin is a research and writing workbench for Chinese academic, software copyright, proposal, and patent workflows. The UI should make users feel that every agent action is traceable, reviewable, and grounded in workspace evidence.
+Wenjin is a research and writing workbench for Chinese academic, mathematical modeling, software copyright, proposal, and patent workflows. The UI should make users feel that every agent action is traceable, reviewable, and grounded in workspace evidence.
 
 ## Principles
 

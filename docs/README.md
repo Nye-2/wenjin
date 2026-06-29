@@ -1,13 +1,14 @@
 # Wenjin Docs
 
-更新时间：2026-06-23
+更新时间：2026-06-30
 状态：Current
 
-`docs/` 只保留当前实现事实源。问津当前定位是科研工作台，文档围绕 workspace、capability、专家团队、Wenjin Harness、DataService、Prism、Admin 与 Docker Compose 运维维护。
+`docs/current/` 是当前实现事实源。问津当前定位是科研工作台，文档围绕 workspace、capability、专家团队、Wenjin Harness、DataService、Prism、Admin 与 Docker Compose 运维维护。
 
 - `current/`：当前实现的唯一事实源与开发指导文档
+- `superpowers/`：阶段性执行计划、spec 草稿和工作记录归档；可用于追溯上下文，但不能作为当前事实源引用
 
-历史方案、阶段性计划、审计记录和执行过程稿不在仓库文档树中长期保留；需要追溯时查 Git 历史。
+历史方案、审计记录和执行过程稿不进入 `docs/current/`。需要判断当前行为时只看 `docs/current/`；需要追溯某次计划时再查 Git 历史或 `docs/superpowers/` 归档。
 
 ## 快速入口
 
@@ -35,6 +36,6 @@
 ## 治理规则
 
 - 当前实现、当前契约、当前运维说明，只允许保留在 `docs/current/`
-- 不再新增过程文档、handoff、review history、implementation log；只更新长期事实源
+- 不再把过程文档、handoff、review history、implementation log 放入 `docs/current/`；长期事实变化只更新事实源文档
 - 历史事实若仍有追溯价值，通过 Git 历史追溯；不要在 `docs/current/` 放发布说明、handoff 或 review history
 - 文档与实现冲突时，以实现为准，并在同一改动中回补 `docs/current/`

@@ -2,7 +2,7 @@
 
 ## Project
 
-Wenjin (问津) — AI workbench for academic research and writing. Five workspace types: thesis, sci, proposal, software_copyright, patent.
+Wenjin (问津) — AI workbench for academic research and writing. Six workspace types: sci, thesis, proposal, software_copyright, math_modeling, patent.
 
 ## Architecture
 

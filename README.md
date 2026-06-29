@@ -1,6 +1,6 @@
 # 问津 Wenjin
 
-更新时间：2026-06-23
+更新时间：2026-06-30
 
 问津是一个面向科研工作的 AI 工作台，服务从选题、文献、实验、写作到成果管理的完整研究流程。它不是通用聊天机器人，也不是单点论文润色工具，而是以 workspace 为核心的科研生产系统：用户在一个研究工作区里沉淀资料、决策、实验、主稿和团队协作记录，AI 研究团队在同一个上下文中持续推进任务。
 
@@ -17,7 +17,7 @@
 
 ## 核心形态
 
-- 五类科研 workspace：`thesis`、`sci`、`proposal`、`software_copyright`、`patent`
+- 六类科研 workspace：`sci`、`thesis`、`proposal`、`software_copyright`、`math_modeling`、`patent`
 - 左侧 Chat Agent：负责对话、意图识别、需求确认和 capability 启动
 - 右侧 Research Workbench：展示专家团队、关键进展、证据预览、候选结果和运行历史
 - Wenjin Prism：面向论文主稿的 LaTeX 编辑、编译、PDF 对照和 AI 改稿界面
@@ -61,8 +61,8 @@ Workspace Chat
 ### Docker Compose
 
 ```bash
-git clone git@github.com:JunzeCai/AcademiaGPT-V2.git
-cd AcademiaGPT-V2
+git clone git@github.com:JunzeCai/wenjin.git
+cd wenjin
 cp .env.example .env
 
 # 编辑 .env：把 WENJIN_PROJECT_DIR 改成当前仓库绝对路径，
@@ -112,6 +112,7 @@ npm run dev
 - `backend/src/dataservice_app/`：DataService API
 - `backend/seed/capabilities/`：workspace capability seed
 - `backend/seed/skills/`：capability skill seed
+- `backend/seed/latex_templates/`：Prism LaTeX 模板注册表与内置模板包
 - `frontend/app/(workbench)/workspaces/[id]/`：科研工作台主界面
 - `frontend/lib/execution-run-view.ts`：执行状态统一投影
 - `deploy/env/`：Docker Compose 环境模板
