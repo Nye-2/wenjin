@@ -23,7 +23,7 @@ Use a split model:
 | Markdown deliverables | Prism file tree | Yes | Open, preview, edit later. |
 | LaTeX deliverables | Prism file tree + LaTeX adapter where available | Yes | Existing LaTeX shell remains available for `.tex`. |
 | Images / screenshots / figures | Prism file tree, binary content via asset pointer | Yes | Preview in Prism. |
-| Documents room | Index/provenance over Prism files | Yes, lightweight | It should not be a second independent document store. |
+| Documents room | Retired from default UX | No | Prism file tree replaces Documents as the user-facing document surface. |
 | Workspace memory | `workspace_memory` backend domain | No, initially hidden | One Markdown blob per workspace with bounded revisions. |
 | Cross-workspace user memory | Runtime retired | No | Do not read or write global `user_knowledge` in agent runtime. |
 | Per-fact workspace memory list | Runtime retired | No | Normal execution must not create new `memory_facts`. |
@@ -33,11 +33,14 @@ Use a split model:
 This spec intentionally makes the following defaults explicit so implementation does not branch:
 
 1. **Prism is the canonical active file workspace.** New generated Markdown, LaTeX, BibTeX, and image outputs must be written to Prism files first.
-2. **Documents room is only a navigation/provenance index for new generated documents.** It may list saved documents, but it must deep-link to the Prism file rather than owning a second copy of the content.
+2. **Documents room is retired.** New generated documents are opened from Prism, not from a separate Documents room, index, asset, or pointer. Commit provenance is recorded in execution commit state and Prism file versions.
 3. **Workspace memory is one backend Markdown document.** Revisions are audit history only; the current memory document is the only runtime memory source.
 4. **No cross-workspace memory injection.** Runtime prompt context must not read global `user_knowledge`.
 5. **No normal memory fact fan-out.** If existing outputs still produce `memory_fact`, commit merges the selected facts into the one workspace memory document and does not create `memory_facts` rows.
 6. **No memory in Prism.** Prism's tree has no `/memory` directory, no `workspace_memory.md`, and no hidden system memory file.
+7. **Workspace memory updates are low-frequency.** The MVP only rewrites memory after finalized intake specs, accepted execution commits, or explicit user corrections.
+8. **Development migration deletes old memory data.** In the current development environment, old `user_knowledge` and `memory_facts` data should be migrated into workspace memory where relevant and then removed, not left as unused runtime-adjacent state.
+9. **Prism text files support full editing and autosave in the first implementation.** Markdown, TeX, and BibTeX files must support direct editing, debounced autosave, versioning, and undo-safe commit semantics.
 
 ## Current Problems
 
@@ -56,7 +59,7 @@ But gateway and frontend do not expose these records as the primary workspace fi
 
 ### Documents And Prism Are Becoming Duplicates
 
-`ExecutionCommitService` currently commits document outputs as DataService assets for the Documents room. That makes sense for old room behavior, but after removing the product/artifact tab, documents also need to live in Prism as real files. If both stores hold independent content, users will not know which copy is canonical.
+`ExecutionCommitService` currently commits document outputs as DataService assets for the Documents room. That old room behavior conflicts with the new Prism file workspace. If both stores hold independent content or both appear as user-facing document surfaces, users will not know which copy is canonical.
 
 ### Memory Has Too Many Forms
 
@@ -74,6 +77,7 @@ The desired direction is simpler: no cross-workspace system memory, no long fact
 - Do not put memory files under Prism.
 - Do not expose memory in the Prism file tree.
 - Do not keep a user-facing Memory drawer in the default workspace UX.
+- Do not keep a user-facing Documents drawer in the default workspace UX after Prism file tree is ready.
 - Do not build a full generic IDE.
 - Do not add arbitrary binary file management in the first implementation.
 - Do not restore the removed artifact/product tab.
@@ -183,31 +187,15 @@ Frontend must render the file workspace in both cases.
 
 If a workspace already has a LaTeX adapter, file-workspace APIs must reuse that Prism project and must not replace or detach the LaTeX adapter metadata. The file tree is a capability of the Prism surface, not a competing adapter.
 
-### Documents Room Pointer
+### Documents Room Retirement
 
-Documents room should become an index over Prism files for generated documents.
+Documents room should not remain a default user-facing room. Prism replaces it as the document browsing and editing surface.
 
-For newly committed generated documents, use a pointer shape instead of duplicating full content:
+New execution commits must not create `WorkspaceAsset` document records, `storage_path=prism://...` pointers, or any other Documents-room surrogate for generated documents. The workspace hub should not show a Documents room entry after this refactor.
 
-```json
-{
-  "storage_path": "prism://<prism_file_id>",
-  "metadata_json": {
-    "kind": "draft",
-    "prism_file_id": "<file-id>",
-    "prism_path": "docs/software-copyright/application.md",
-    "prism_version_id": "<version-id>",
-    "source_execution_id": "<execution-id>",
-    "source_output_id": "<output-id>"
-  }
-}
-```
+Execution provenance and undo data should live in `commit_state.prism[]` and Prism file-version metadata. If old asset-backed documents exist in the development database, migration may import them into Prism and then delete the old document asset rows. No compatibility read path should remain in the default runtime.
 
-The Documents drawer can list these records, but opening them should deep-link to Prism instead of rendering an independent document copy.
-
-Older asset-backed documents can remain historical data, but new execution commits should write Prism first and then create a lightweight Documents pointer.
-
-If Prism write succeeds but Documents pointer creation fails, the commit should fail before marking the execution committed. This avoids a saved file that does not appear in workspace navigation. The write path must be idempotent by execution id and output id so retrying the commit appends no duplicate content version unless the content hash changed.
+The write path must be idempotent by execution id and output id so retrying the commit appends no duplicate content version unless the content hash changed.
 
 ### Workspace Memory
 
@@ -256,6 +244,8 @@ Do not use `user_knowledge` for runtime memory after this refactor. Do not creat
 
 Revision retention should be bounded. Keep the latest 20 revisions per workspace by default, plus any revision referenced by an active execution commit state. Older revisions can be hard-deleted by a maintenance job because the current Markdown document remains the runtime source of truth.
 
+Because this is a development environment migration, old cross-workspace `user_knowledge` rows and old per-fact `memory_facts` rows should be deleted after successful workspace-memory migration. No compatibility read path should remain.
+
 ## Path Rules
 
 Prism paths are workspace-relative and must pass a strict sanitizer:
@@ -297,9 +287,8 @@ TaskReport.outputs[]
   -> resolve Prism path
   -> create/upsert Prism file
   -> append Prism file version
-  -> create Documents room pointer
   -> persist commit_state with prism targets
-  -> publish workspace.refresh including prism/documents
+  -> publish workspace.refresh including prism
 ```
 
 Commit should not report success if the Prism file write fails. Otherwise the user may think a document was saved while the canonical file is missing.
@@ -327,7 +316,7 @@ Undo rules:
 - If the current file version is still `version_id`, restore `previous_version_id`.
 - If no previous version exists, soft-delete the file.
 - If the file has changed since commit, do not overwrite it. Mark undo as skipped for that Prism target.
-- Documents room pointer created by the commit should still be deleted during undo.
+- Undo should not touch a Documents room because new commits no longer create Documents records.
 
 Undo response should expose skipped Prism targets in `commit_state.revert_skipped.prism[]` so the UI can explain that a newer file edit was preserved.
 
@@ -363,11 +352,11 @@ Important rules:
 
 MVP update triggers:
 
-1. **Intake spec ready or launched:** merge the finalized super-workflow spec facts into workspace memory.
+1. **Intake spec launched:** merge the finalized super-workflow spec facts into workspace memory when execution starts from that spec.
 2. **Execution commit:** merge accepted durable outputs, decisions, and user-approved constraints into workspace memory.
 3. **Explicit user correction:** if the user says a stable preference or context should be remembered for this workspace, rewrite workspace memory.
 
-Do not rewrite memory after every assistant turn. That would create churn, cost, and noisy revisions.
+Do not rewrite memory after every assistant turn or every draft spec edit. That would create churn, cost, and noisy revisions.
 
 The agent prompt should receive this memory as a bounded block, for example:
 
@@ -464,7 +453,10 @@ Interaction rules:
 - Browser refresh must restore the selected file.
 - Mobile should collapse the file tree into a drawer; desktop should keep the tree visible.
 - Use Lucide icons or the existing icon set for file actions; do not use emoji icons.
-- Do not add duplicate "保存" buttons on both sides. Text files should autosave or use one local editor save pattern consistently with undo/version history.
+- Do not add duplicate "保存" buttons on both sides. Markdown, TeX, and BibTeX files must support direct editing with debounced autosave.
+- Autosave should append a Prism file version only after the content hash changes and the debounce window settles.
+- The editor must show compact save state such as "正在保存", "已保存", or "保存失败，可重试"; it must not require the user to understand internal version ids.
+- Autosave failures must keep local editor content intact and offer retry.
 
 Empty state:
 
@@ -473,13 +465,9 @@ Empty state:
 
 ### Documents Room
 
-Documents room should not pretend Prism-backed documents are independent copies.
+Documents room should be removed from the default workspace hub/navigation after Prism file tree is ready.
 
-For `storage_path = prism://...`:
-
-- Show document title and path.
-- Primary action opens `/workspaces/{workspace_id}/prism?file=<file_id>`.
-- Preview may call Prism file content API, but it must label the file as Prism-backed.
+Historical document rows should be migrated into Prism or deleted in the development cleanup. The default user workspace should not show a separate Documents drawer once this migration is complete.
 
 ### Memory UI
 
@@ -522,23 +510,25 @@ No destructive migration is required for existing Prism tables. Add service/API 
 
 For existing Documents assets:
 
-- Leave historical assets readable.
-- New commits should use Prism files plus Documents pointers.
-- Optional future migration can create Prism files for historical inline documents.
+- Migrate useful historical inline documents into Prism files when practical.
+- Delete old document asset rows in the development cleanup after migration.
+- New commits must not create Documents assets or Prism pointer assets.
 
 ### Memory
 
 Create the new workspace memory tables.
 
-One-time migration:
+One-time development migration:
 
 1. For each workspace, collect active `memory_facts`.
 2. Collect `user_knowledge` rows where `workspace_context = workspace_id`.
 3. Render a single concise Markdown memory document.
 4. Insert `workspace_memory_documents` row and revision 1.
-5. Stop runtime reads/writes from `user_knowledge` and `memory_facts`.
+5. Delete migrated `memory_facts`.
+6. Delete `user_knowledge` rows, including cross-workspace global rows, because this development environment does not need to preserve old global memory.
+7. Stop runtime reads/writes from `user_knowledge` and `memory_facts`.
 
-Cross-workspace `user_knowledge` rows should not be injected into any workspace. They can be archived or left unused until a cleanup migration drops the old table, but runtime must not read them.
+Cross-workspace `user_knowledge` rows should not be injected into any workspace and should be removed in this migration. No compatibility layer should keep reading them.
 
 After runtime and tests are updated, remove user-facing memory room routes/components and clean old memory tests around fact-list behavior.
 
@@ -555,7 +545,7 @@ Migration must be idempotent. If a workspace already has a `workspace_memory_doc
 ### Slice 2: Commit To Prism
 
 - Write accepted generated document outputs to Prism files.
-- Create Documents room pointers to Prism files.
+- Remove default Documents room user surface and route new document opening through Prism.
 - Record Prism target versions in commit state.
 - Implement conservative undo.
 
@@ -564,12 +554,13 @@ Migration must be idempotent. If a workspace already has a `workspace_memory_doc
 - Add `workspace_memory_documents` and `workspace_memory_revisions`.
 - Add runtime service and DataService client methods.
 - Migrate workspace-scoped old memory facts into one memory document.
+- Delete old `user_knowledge` and `memory_facts` data after migration.
 - Stop runtime prompt injection from `user_knowledge` and `memory_facts`.
 
 ### Slice 4: UX Cleanup
 
 - Remove Memory from default workspace UI.
-- Update Documents drawer behavior for Prism-backed documents.
+- Remove Documents from default workspace UI after Prism file tree is available.
 - Browser smoke the software copyright and math modeling flows.
 
 ## Testing Requirements
@@ -583,13 +574,15 @@ Add or update tests for:
 - Gateway surface returns `prism_files` even without `latex_project_id`.
 - Prism file content API returns Markdown inline content.
 - Prism file content API returns image asset pointer for image files.
-- Execution commit writes accepted document output to Prism and creates a Documents pointer.
+- Execution commit writes accepted document output to Prism and does not create a second user-visible document copy.
 - Execution undo restores previous Prism version or soft-deletes a new file.
 - Execution undo skips Prism rollback if file changed after commit.
 - Memory update creates or rewrites exactly one workspace memory document.
 - Runtime memory context reads workspace memory only.
 - Cross-workspace `user_knowledge` is not read.
+- Old `user_knowledge` and `memory_facts` rows are removed by development migration.
 - `memory_fact` outputs no longer create fact-list records.
+- Prism text autosave appends versions only when content hash changes.
 
 ### Frontend
 
@@ -599,9 +592,10 @@ Add or update tests for:
 - File tree displays nested Markdown, TeX, BibTeX, and image paths.
 - Selecting a Markdown file loads and renders preview.
 - Selecting an image file renders real preview from asset URL.
+- Selecting a text file supports editing and autosave.
 - Selecting a TeX file still supports the existing LaTeX editor when adapter data exists.
 - Empty Prism state no longer says "还没有绑定写作项目".
-- Documents drawer opens Prism-backed documents in Prism.
+- Documents drawer is not shown in default workspace UX.
 - Memory drawer/settings entry is not shown in default workspace UX.
 
 ### Browser Smoke
@@ -612,7 +606,8 @@ Run through:
 2. Math modeling workspace: generate/accept paper output, confirm `paper/main.tex`, `paper/figures`, and Markdown notes preview correctly.
 3. Undo accepted run, confirm Prism versions roll back or file disappears when it was new.
 4. Refresh browser, confirm Prism file tree persists.
-5. Confirm no Memory room is visible.
+5. Edit a Markdown file, wait for autosave, refresh browser, and confirm the edit persists.
+6. Confirm no Documents or Memory room is visible.
 
 ## Release Criteria
 
@@ -620,27 +615,19 @@ The change is complete when:
 
 - Prism can open as a file workspace without a LaTeX adapter.
 - Accepted generated documents are saved as Prism files with stable paths.
-- Documents room no longer owns duplicate generated document content for new commits.
+- Documents room is not visible in the default workspace UX and no longer owns generated document content.
 - Images can be represented as Prism files and previewed.
 - One workspace has at most one current workspace memory document.
 - Runtime memory injection uses only the workspace memory document.
 - Cross-workspace user memory is not used by Chat Agent, Lead Agent, or subagents.
+- Old development `user_knowledge` and `memory_facts` data has been deleted or dropped after migration.
 - Memory facts are not exposed as a default user-facing room.
+- Markdown, TeX, and BibTeX files support direct editing and autosave.
 - Tests cover Prism file read/write, commit, undo, and workspace memory rewrite behavior.
-
-## Decisions Needing Product Confirmation
-
-These are the remaining product decisions before implementation planning:
-
-1. **Documents room visibility:** Keep Documents as a lightweight "saved files" index that opens Prism files, or remove it from default hub navigation entirely once Prism file tree is ready. Recommended: keep it for now as an index, because it preserves the existing room model without duplicating content.
-2. **Memory update aggressiveness:** Conservative updates only after intake spec ready/launched, execution commit, and explicit user correction; or update after most chat turns. Recommended: conservative, because one-file memory should stay stable and high signal.
-3. **Historical cross-workspace memory cleanup:** Runtime ignores global `user_knowledge` immediately; do we also archive/deactivate existing global rows in the first migration, or leave them unused for a later cleanup? Recommended: leave unused first, archive later after runtime is verified.
-4. **User access to memory:** Keep workspace memory fully hidden in MVP, or expose a read-only "系统上下文" diagnostics view later. Recommended: hidden in MVP, developer/admin diagnostics later only.
-5. **Prism text editing in first slice:** Preview-only for Markdown/TeX files generated by workflows, or allow direct editing/autosave immediately. Recommended: preview plus open/save plumbing first; direct rich editing can follow after file versioning and undo are stable.
 
 ## Spec Self-Review
 
 - Placeholder scan: no placeholder sections remain.
 - Internal consistency: Prism owns user files; workspace memory is backend-only and excluded from Prism.
 - Scope check: this is one coherent refactor because commit, Prism, Documents, and memory all meet at workspace persistence and user-facing file semantics.
-- Ambiguity check: memory is explicitly workspace-scoped only; cross-workspace memory is retired from runtime. Remaining product choices are isolated in "Decisions Needing Product Confirmation".
+- Ambiguity check: memory is explicitly workspace-scoped only; cross-workspace memory is retired and deleted in the development migration. Documents is removed from default UX. Prism text editing and autosave are required in the first implementation.
