@@ -844,7 +844,7 @@ export const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   evidenceListItemActive: {
-    borderColor: "var(--wjn-accent-line)",
+    border: "1px solid var(--wjn-accent-line)",
     background: "var(--wjn-accent-soft)",
     boxShadow: "0 0 0 3px rgba(37,99,235,0.05)",
   },
@@ -1197,10 +1197,6 @@ export const styles: Record<string, CSSProperties> = {
     lineHeight: 1.5,
     resize: "vertical",
     outline: "none",
-  },
-  checkbox: {
-    marginTop: 3,
-    accentColor: "var(--wjn-blue)",
   },
   primaryButton: {
     display: "inline-flex",

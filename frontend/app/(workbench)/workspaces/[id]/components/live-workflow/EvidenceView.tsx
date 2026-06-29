@@ -1,11 +1,8 @@
 import { useMemo } from "react";
 import { Search } from "lucide-react";
 
-import type { WorkbenchDraftEdit } from "@/stores/workbench-layout-store";
-
 import { NodeInspector } from "./NodeInspector";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
-import { ResultEditor } from "./ResultEditor";
 import { EmptyState, GuidanceNote, ResultKindBadge } from "./shared";
 import { styles } from "./styles";
 import type { EvidenceFilter, EvidenceItem } from "./types";
@@ -16,45 +13,29 @@ export function EvidenceView({
   filter,
   query,
   selectedId,
-  checkedIds,
-  draftEdits,
-  disabled,
   onFilterChange,
   onQueryChange,
   onSelect,
-  onToggleChecked,
-  onPatchDraft,
-  onSetDraft,
 }: {
   items: EvidenceItem[];
   filter: EvidenceFilter;
   query: string;
   selectedId: string | null;
-  checkedIds: Set<string>;
-  draftEdits: Record<string, WorkbenchDraftEdit>;
-  disabled: boolean;
   onFilterChange: (filter: EvidenceFilter) => void;
   onQueryChange: (query: string) => void;
   onSelect: (id: string) => void;
-  onToggleChecked: (id: string) => void;
-  onPatchDraft: (outputId: string, field: string, value: unknown) => void;
-  onSetDraft: (outputId: string, edit: WorkbenchDraftEdit | null) => void;
 }) {
-  const visibleItems = useMemo(
-    () => items.filter((item) => item.kind !== "memory_fact"),
-    [items],
-  );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return visibleItems.filter((item) => {
+    return items.filter((item) => {
       if (filter === "outputs" && item.source !== "output") return false;
       if (filter === "nodes" && item.source !== "node") return false;
       if (filter === "sandbox" && !item.summary.toLowerCase().includes("sandbox") && item.kind !== "sandbox") return false;
       if (!q) return true;
       return `${item.title} ${item.kind} ${item.summary}`.toLowerCase().includes(q);
     });
-  }, [filter, visibleItems, query]);
-  const experimentCount = visibleItems.filter(
+  }, [filter, items, query]);
+  const experimentCount = items.filter(
     (item) =>
       item.kind === "sandbox" ||
       item.summary.toLowerCase().includes("sandbox") ||
@@ -120,24 +101,7 @@ export function EvidenceView({
                   }}
                 >
                   <span style={styles.evidenceListCheck}>
-                    {item.source === "output" ? (
-                      <input
-                        type="checkbox"
-                        aria-label={`选择${item.title}`}
-                        checked={item.preview.canCommit && checkedIds.has(item.preview.id)}
-                        disabled={disabled || !item.preview.canCommit}
-                        onChange={(event) => {
-                          event.stopPropagation();
-                          if (item.preview.canCommit) {
-                            onToggleChecked(item.preview.id);
-                          }
-                        }}
-                        onClick={(event) => event.stopPropagation()}
-                        style={styles.checkbox}
-                      />
-                    ) : (
-                      <span style={styles.readOnlyMark}>只读</span>
-                    )}
+                    <span style={styles.readOnlyMark}>只读</span>
                   </span>
                   <span style={styles.evidenceListMain}>
                     <span style={styles.evidenceListTitle}>{item.title}</span>
@@ -156,15 +120,7 @@ export function EvidenceView({
       </section>
 
       <aside style={styles.editorAside}>
-        {selected?.source === "output" && selected.preview.canCommit && !disabled ? (
-          <ResultEditor
-            preview={selected.preview}
-            draft={draftEdits[selected.preview.id]}
-            disabled={disabled}
-            onPatchDraft={onPatchDraft}
-            onSetDraft={onSetDraft}
-          />
-        ) : selected?.source === "output" ? (
+        {selected?.source === "output" ? (
           <ResultPreviewDetail preview={selected.preview} />
         ) : selected?.source === "node" ? (
           <NodeInspector

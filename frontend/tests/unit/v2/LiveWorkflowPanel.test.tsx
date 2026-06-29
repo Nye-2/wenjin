@@ -383,7 +383,8 @@ describe("LiveWorkflowPanel", () => {
 
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "证据" }));
-    expect(screen.getByLabelText("选择Thesis outline")).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getAllByText("只读").length).toBeGreaterThan(0);
   });
 
   it("patches returned commit_state into the execution store after commit", async () => {
@@ -586,7 +587,7 @@ describe("LiveWorkflowPanel", () => {
 
     expect(screen.queryByRole("button", { name: "产物" })).not.toBeInTheDocument();
     expect(screen.getByText("Outline completed.")).toBeInTheDocument();
-    expect(screen.queryByText("记忆片段")).not.toBeInTheDocument();
+    expect(screen.queryByText("研究主题：联邦学习结合大模型微调")).not.toBeInTheDocument();
   });
 
   it("keeps result details in evidence without showing memory facts", () => {

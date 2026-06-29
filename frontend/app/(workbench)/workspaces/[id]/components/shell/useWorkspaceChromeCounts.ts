@@ -2,7 +2,7 @@
 
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
-import { extractTaskReport } from "@/lib/workbench-result-editing";
+import { extractTaskReport } from "@/lib/workbench-result-outputs";
 
 const ACTIVE_EXECUTION_STATUSES = new Set(["pending", "running", "paused"]);
 

@@ -193,15 +193,12 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? "记忆片段",
-            subtitle: safeRuntimeText(data?.category),
-            badge: "记忆",
+            title: "后台状态更新",
+            subtitle: null,
+            badge: null,
             data,
             previewMode: "plain_text",
-            previewText:
-              safeRuntimeText(data?.content) ??
-              preview ??
-              safeStructuredFallback(data, "已生成记忆片段"),
+            previewText: null,
             metadataLines: [],
             defaultChecked,
             canCommit: true,
@@ -738,8 +735,6 @@ function reviewPacketKindLabel(kind: PreviewKind): string {
       return "改稿";
     case "warning":
       return "风险";
-    case "memory_fact":
-      return "记忆";
     default:
       return documentKindLabel(kind);
   }

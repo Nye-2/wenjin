@@ -50,10 +50,6 @@ export interface ExecutionCommitResponse {
 export interface ExecutionCommitRequest {
   accept_all?: boolean;
   accepted_ids?: string[];
-  output_overrides?: Record<
-    string,
-    { data?: Record<string, unknown>; preview?: string }
-  >;
 }
 
 export interface CommittedRoomLink {

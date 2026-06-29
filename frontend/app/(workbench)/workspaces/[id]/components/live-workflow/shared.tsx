@@ -56,7 +56,7 @@ export function ResultKindBadge({ kind }: { kind: string }) {
         ...styles.kindBadge,
         color: meta.accent,
         background: meta.tint,
-        borderColor: meta.border,
+        border: `1px solid ${meta.border}`,
       }}
     >
       {kindLabel(kind)}

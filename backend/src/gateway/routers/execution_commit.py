@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
@@ -29,7 +27,6 @@ router = APIRouter(prefix="/api/executions", tags=["executions"])
 class CommitRequest(BaseModel):
     accept_all: bool = False
     accepted_ids: list[str] | None = None
-    output_overrides: dict[str, dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +75,6 @@ async def commit_execution_outputs(
             execution_id,
             accept_all=body.accept_all,
             accepted_ids=body.accepted_ids,
-            output_overrides=body.output_overrides,
             idempotency_key=idempotency_key,
             actor_user_id=str(current_user.id),
         )

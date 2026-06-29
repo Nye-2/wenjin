@@ -24,9 +24,6 @@ import {
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
-  buildOutputOverrides,
-} from "@/lib/workbench-result-editing";
-import {
   findLatestIntakeSpec,
   isSuperWorkflowCapability,
   type IntakeSpecV1,
@@ -47,10 +44,8 @@ import { styles } from "./live-workflow/styles";
 import type { EvidenceFilter } from "./live-workflow/types";
 import { useLiveWorkflowViewModel } from "./live-workflow/useLiveWorkflowViewModel";
 import {
-  applyDraftLabelsToCommitLinks,
   generateUUID,
   isTerminalStatus,
-  toggleChecked,
 } from "./live-workflow/utils";
 
 interface LiveWorkflowPanelProps {
@@ -79,7 +74,6 @@ export function LiveWorkflowPanel({
   );
   const selectedRunId = useWorkbenchLayoutStore((state) => state.selectedRunId);
   const selectedNodeId = useWorkbenchLayoutStore((state) => state.selectedNodeId);
-  const draftEdits = useWorkbenchLayoutStore((state) => state.draftEdits);
   const isFullscreen = useWorkbenchLayoutStore(
     (state) => state.isWorkbenchFullscreen,
   );
@@ -94,13 +88,9 @@ export function LiveWorkflowPanel({
   const setWorkbenchFullscreen = useWorkbenchLayoutStore(
     (state) => state.setWorkbenchFullscreen,
   );
-  const setDraftEdit = useWorkbenchLayoutStore((state) => state.setDraftEdit);
-  const patchDraftData = useWorkbenchLayoutStore((state) => state.patchDraftData);
-  const clearDraftEdits = useWorkbenchLayoutStore((state) => state.clearDraftEdits);
   const messages = useChatStoreV2((state) => state.messages);
   const sendMessage = useChatStoreV2((state) => state.sendMessage);
   const isSending = useChatStoreV2((state) => state.isSending);
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   const [evidenceFilter, setEvidenceFilter] = useState<EvidenceFilter>("all");
   const [evidenceQuery, setEvidenceQuery] = useState("");
@@ -139,13 +129,9 @@ export function LiveWorkflowPanel({
   const {
     records,
     selectedRecord,
-    baseOutputs,
     previews,
     reviewItems,
     evidenceItems,
-    outputSignature,
-    selectedPreview,
-    selectedDraft,
     runningRecord,
     pendingReviewCount,
   } = useLiveWorkflowViewModel({
@@ -155,7 +141,6 @@ export function LiveWorkflowPanel({
     focusedRunId,
     activeRunId,
     selectedPreviewId,
-    draftEdits,
   });
   const selectedRecordIdRef = useRef<string | null>(null);
   selectedRecordIdRef.current = selectedRecord?.id ?? null;
@@ -266,16 +251,6 @@ export function LiveWorkflowPanel({
     selectedRecord,
     setAutoWorkbenchTab,
   ]);
-
-  useEffect(() => {
-    setCheckedIds(
-      new Set(
-        baseOutputs
-          .filter((output) => output.default_checked !== false)
-          .map((output) => output.id),
-      ),
-    );
-  }, [baseOutputs, outputSignature]);
 
   useEffect(() => {
     if (previews.length === 0) {
@@ -449,39 +424,21 @@ export function LiveWorkflowPanel({
     );
   }
 
-  async function handleCommit(
-    mode: "all" | "selected" | "discard",
-    options?: { automatic?: boolean },
-  ) {
+  async function handleCommit() {
     if (!selectedRecord || commitState.committing || commitState.reverting || commitFinal) {
+      return;
+    }
+    if (selectedRecord.status !== "completed") {
       return;
     }
     const requestExecutionId = selectedRecord.id;
     const requestIdempotencyKey = commitState.idempotencyKey;
     const committablePreviews = previews.filter((preview) => preview.canCommit);
     const outputIds = committablePreviews.map((preview) => preview.id);
-    const outputIdSet = new Set(outputIds);
-    const canAcceptAll = selectedRecord.status === "completed" && outputIds.length > 0;
-    if (mode !== "discard" && outputIds.length === 0) {
+    if (outputIds.length === 0) {
       return;
     }
-    const useAcceptAll = mode === "all" && canAcceptAll;
-    const acceptedIds =
-      useAcceptAll
-        ? outputIds
-        : mode === "selected"
-          ? Array.from(checkedIds).filter((id) => outputIdSet.has(id))
-          : [];
-    const body: ExecutionCommitRequest =
-      useAcceptAll
-        ? { accept_all: true }
-        : { accepted_ids: acceptedIds };
-    const overrides = options?.automatic
-      ? null
-      : buildOutputOverrides(acceptedIds, draftEdits);
-    if (overrides) {
-      body.output_overrides = overrides;
-    }
+    const body: ExecutionCommitRequest = { accept_all: true };
 
     setCommitState((current) => ({
       ...current,
@@ -497,7 +454,6 @@ export function LiveWorkflowPanel({
         idempotencyKey: requestIdempotencyKey,
         body,
       });
-      const commitLinkPreviews = applyDraftLabelsToCommitLinks(committablePreviews, draftEdits);
       const nextCommitState = commitStateFromCommitResponse(response);
       if (!nextCommitState) {
         setCommitState((current) =>
@@ -517,7 +473,6 @@ export function LiveWorkflowPanel({
         );
         return;
       }
-      clearDraftEdits(acceptedIds);
       const recordToPatch =
         useExecutionStore.getState().executions.get(requestExecutionId);
       if (recordToPatch) {
@@ -540,7 +495,7 @@ export function LiveWorkflowPanel({
               committing: false,
               reverting: false,
               responseCommitState: nextCommitState,
-              linkPreviews: commitLinkPreviews,
+              linkPreviews: committablePreviews,
             }
           : current,
       );
@@ -581,7 +536,7 @@ export function LiveWorkflowPanel({
       return;
     }
     attempted.add(selectedRecord.id);
-    void handleCommit("all", { automatic: true });
+    void handleCommit();
   }, [
     commitState.committing,
     commitState.reverting,
@@ -772,7 +727,7 @@ export function LiveWorkflowPanel({
             record={selectedRecord}
             selectedNodeId={selectedNodeId}
             writeback={
-              selectedRecord && isTerminalStatus(selectedRecord.status)
+              selectedRecord && selectedRecord.status === "completed"
                 ? {
                     committed: commitCommitted,
                     discarded: commitDiscarded,
@@ -782,7 +737,7 @@ export function LiveWorkflowPanel({
                     error: commitState.error,
                     links: commitLinks,
                     onUndo: () => void handleUndoCommit(),
-                    onRetry: () => void handleCommit("all"),
+                    onRetry: () => void handleCommit(),
                   }
                 : undefined
             }
@@ -796,15 +751,9 @@ export function LiveWorkflowPanel({
             filter={evidenceFilter}
             query={evidenceQuery}
             selectedId={selectedPreviewId}
-            checkedIds={checkedIds}
-            draftEdits={draftEdits}
-            disabled={commitFinal || selectedRecord?.status === "completed"}
             onFilterChange={setEvidenceFilter}
             onQueryChange={setEvidenceQuery}
             onSelect={(id) => setSelectedPreviewId(id)}
-            onToggleChecked={(id) => toggleChecked(setCheckedIds, id)}
-            onPatchDraft={patchDraftData}
-            onSetDraft={setDraftEdit}
           />
         ) : null}
       </div>

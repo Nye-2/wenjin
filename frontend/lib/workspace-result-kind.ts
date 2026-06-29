@@ -10,7 +10,9 @@ export interface WorkspaceResultKindMeta {
   order: number;
 }
 
-type KnownResultKind = WorkspaceResultPreview["kind"] | "sandbox";
+type KnownResultKind =
+  | Exclude<WorkspaceResultPreview["kind"], "memory_fact">
+  | "sandbox";
 const HIDDEN_RESULT_KINDS = new Set<string>(["memory_fact"]);
 
 const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
@@ -40,15 +42,6 @@ const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
     tint: "rgba(124, 58, 237, 0.08)",
     border: "rgba(124, 58, 237, 0.22)",
     order: 22,
-  },
-  memory_fact: {
-    label: "记忆片段",
-    shortLabel: "记忆",
-    groupLabel: "记忆片段",
-    accent: "#b45309",
-    tint: "rgba(217, 119, 6, 0.09)",
-    border: "rgba(217, 119, 6, 0.25)",
-    order: 30,
   },
   decision: {
     label: "决策记录",

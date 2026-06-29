@@ -44,13 +44,6 @@ _PRISM_SUPPORTED_EXTENSIONS = {".md", ".markdown", ".tex", ".bib", ".png", ".jpg
 _COUNT_ROOM_KEYS = ("library", "prism", "memory", "decisions", "tasks")
 _ROOM_TARGET_KEYS = ("prism", "library", "memory", "decisions", "tasks")
 _COMMIT_LOCK_TTL_SECONDS = 60
-_ALLOWED_OVERRIDE_FIELDS: dict[str, set[str]] = {
-    "document": {"content", "name", "doc_kind"},
-    "library_item": {"title", "authors", "year", "doi", "url", "abstract"},
-    "memory_fact": {"category", "content", "confidence"},
-    "decision": {"key", "value"},
-    "task": {"title", "description", "priority"},
-}
 
 
 class ExecutionCommitNotFoundError(LookupError):
@@ -157,7 +150,6 @@ class ExecutionCommitService:
         actor_user_id: str,
         accept_all: bool = False,
         accepted_ids: list[str] | None = None,
-        output_overrides: dict[str, dict[str, Any]] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Commit accepted outputs to rooms and record run history.
@@ -167,7 +159,6 @@ class ExecutionCommitService:
             actor_user_id: Authenticated user attempting the writeback.
             accept_all: If True, all outputs in the TaskReport are written.
             accepted_ids: Specific output IDs to write (ignored when accept_all=True).
-            output_overrides: Per-output staged edits applied before materializing rooms.
             idempotency_key: Optional key for idempotent repeat calls (24h cache).
 
         Returns:
@@ -220,26 +211,6 @@ class ExecutionCommitService:
         else:
             selection_provided = False
             selected = []
-
-        overrides = output_overrides or {}
-        selected_ids = {output.id for output in selected}
-        unknown_override_ids = sorted(set(overrides) - set(output_by_id))
-        if unknown_override_ids:
-            raise ValueError(
-                "output_overrides contains unknown output id(s): "
-                + ", ".join(unknown_override_ids)
-            )
-        unaccepted_override_ids = sorted(set(overrides) - selected_ids)
-        if unaccepted_override_ids:
-            raise ValueError(
-                "output_overrides contains unaccepted output id(s): "
-                + ", ".join(unaccepted_override_ids)
-            )
-        if overrides:
-            selected = [
-                _apply_output_override(output, overrides.get(output.id))
-                for output in selected
-            ]
 
         if idempotency_key and self.redis:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
@@ -1324,40 +1295,3 @@ def _verified_at(
         return datetime.now(UTC)
     return None
 
-
-def _apply_output_override(output: Any, override: dict[str, Any] | None) -> Any:
-    """Overlay allowed staged edits onto a TaskReport output model."""
-    if not override:
-        return output
-
-    unknown_keys = sorted(set(override) - {"data", "preview"})
-    if unknown_keys:
-        raise ValueError(
-            f"output_overrides.{output.id} contains unsupported key(s): "
-            + ", ".join(unknown_keys)
-        )
-
-    payload = output.model_dump(mode="json")
-    data_override = override.get("data")
-    if data_override is not None:
-        if not isinstance(data_override, dict):
-            raise ValueError(f"output_overrides.{output.id}.data must be an object")
-        allowed = _ALLOWED_OVERRIDE_FIELDS.get(output.kind, set())
-        unknown_fields = sorted(set(data_override) - allowed)
-        if unknown_fields:
-            raise ValueError(
-                f"output_overrides.{output.id}.data contains unsupported field(s): "
-                + ", ".join(unknown_fields)
-            )
-        payload["data"] = {
-            **dict(payload.get("data") or {}),
-            **data_override,
-        }
-
-    if "preview" in override:
-        preview = override["preview"]
-        if not isinstance(preview, str) or not preview.strip():
-            raise ValueError(f"output_overrides.{output.id}.preview must be a non-empty string")
-        payload["preview"] = preview.strip()
-
-    return output.__class__.model_validate(payload)

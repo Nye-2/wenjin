@@ -503,7 +503,6 @@ def test_live_workflow_panel_composes_focused_views() -> None:
         "RunView.tsx",
         "EvidenceView.tsx",
         "IntakeSpecPreview.tsx",
-        "ResultEditor.tsx",
         "NodeInspector.tsx",
         "shared.tsx",
     }
@@ -522,10 +521,11 @@ def test_live_workflow_panel_composes_focused_views() -> None:
         "function OverviewView(",
         "function RunView(",
         "function EvidenceView(",
-        "function ResultEditor(",
         "function NodeInspector(",
     ):
         assert local_view not in source
+    assert "ResultEditor" not in source
+    assert not (module_root / "ResultEditor.tsx").exists()
 
 
 def test_latex_editor_shell_uses_focused_local_modules() -> None:

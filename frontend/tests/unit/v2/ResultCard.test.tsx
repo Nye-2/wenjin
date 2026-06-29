@@ -156,7 +156,6 @@ describe("ResultCard", () => {
     expect(screen.getByRole("button", { name: "查看运行" })).toBeInTheDocument();
     expect(screen.getByText("文献资料")).toBeInTheDocument();
     expect(screen.getByText("Prism 文件")).toBeInTheDocument();
-    expect(screen.queryByText("记忆片段")).not.toBeInTheDocument();
     expect(screen.queryByText("研究主题：联邦学习大模型")).not.toBeInTheDocument();
     expect(screen.getByText("Deep Learning")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();

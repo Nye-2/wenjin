@@ -236,8 +236,13 @@ describe("live workflow sanitization", () => {
     ]);
 
     expect(previews).toHaveLength(3);
+    expect(previews[0]).toMatchObject({
+      title: "后台状态更新",
+      previewText: null,
+      canCommit: true,
+      canOpenRoom: false,
+    });
     const text = previews.map((preview) => preview.previewText).join("\n");
-    expect(text).toContain("已生成记忆片段");
     expect(text).toContain("已生成决策记录");
     expect(text).toContain("已生成任务项");
     expect(text).toContain("字段：2 项");

@@ -13,7 +13,7 @@ import {
   buildLibraryRoomPreview,
   buildWorkspaceResultPreviewsFromOutputs,
 } from "@/lib/workspace-result-preview";
-import { extractTaskOutputs } from "@/lib/workbench-result-editing";
+import { extractTaskOutputs } from "@/lib/workbench-result-outputs";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";

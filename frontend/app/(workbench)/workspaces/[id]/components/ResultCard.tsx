@@ -308,7 +308,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                     ...styles.groupStat,
                     color: group.meta.accent,
                     background: group.meta.tint,
-                    borderColor: group.meta.border,
+                    border: `1px solid ${group.meta.border}`,
                   }}
                 >
                   {group.meta.groupLabel}
@@ -346,7 +346,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                         ...styles.previewKindBadge,
                         color: groupMeta?.accent ?? "var(--wjn-text-secondary)",
                         background: groupMeta?.tint ?? "rgba(20,20,30,0.06)",
-                        borderColor: groupMeta?.border ?? "rgba(20,20,30,0.1)",
+                        border: `1px solid ${groupMeta?.border ?? "rgba(20,20,30,0.1)"}`,
                       }}
                     >
                       {groupMeta?.shortLabel ?? "输出"}

@@ -758,57 +758,6 @@ async def test_commit_without_selection_returns_noop_without_durable_discard():
 
 
 @pytest.mark.asyncio
-async def test_commit_applies_output_overrides_before_room_writes():
-    """Edited staged outputs are materialized with the override data."""
-    outputs = [
-        LibraryItemOutput(
-            id="out-lib",
-            preview="A paper",
-            kind="library_item",
-            data=LibraryItemData(title="Paper A", authors=["Author 1"], year=2024),
-        ),
-        DocumentOutput(
-            id="out-doc",
-            preview="A doc",
-            kind="document",
-            data=DocumentData(
-                name="draft.md",
-                doc_kind="draft",
-                content="# Original",
-            ),
-        ),
-    ]
-    report = _make_report(outputs)
-    execution = _make_execution(report)
-    svc, mocks = _make_service(execution)
-
-    await svc.commit_outputs(
-        EXECUTION_ID,
-        accept_all=True,
-        actor_user_id="user-1",
-        output_overrides={
-            "out-lib": {
-                "data": {"title": "Edited Paper", "authors": ["Ada"], "year": 2026},
-                "preview": "Edited Paper",
-            },
-            "out-doc": {
-                "data": {"name": "edited.md", "doc_kind": "outline", "content": "# Edited"}
-            },
-        },
-    )
-
-    source_payload = mocks["dataservice"].import_source.call_args.args[0]
-    assert source_payload.title == "Edited Paper"
-    assert source_payload.authors_json == ["Ada"]
-    assert source_payload.year == 2026
-
-    prism_payload = mocks["dataservice"].upsert_prism_workspace_file.call_args.args[1]
-    assert prism_payload.path == "docs/generated/edited.md"
-    assert prism_payload.file_role == "outline"
-    assert prism_payload.content_inline == "# Edited"
-
-
-@pytest.mark.asyncio
 async def test_commit_library_item_imports_verified_external_source():
     """Execution-backed Library writes preserve external search provenance."""
     outputs = [
@@ -893,57 +842,6 @@ async def test_commit_library_item_syncs_prism_bibliography_without_db_session()
             "workspace_id": WORKSPACE_ID,
         }
     ]
-
-
-@pytest.mark.asyncio
-async def test_commit_rejects_override_for_unaccepted_output():
-    """Overrides may only target outputs selected for this commit."""
-    outputs = _all_kinds_outputs()
-    report = _make_report(outputs)
-    execution = _make_execution(report)
-    svc, _mocks = _make_service(execution)
-
-    with pytest.raises(ValueError, match="unaccepted output id"):
-        await svc.commit_outputs(
-            EXECUTION_ID,
-            accepted_ids=["out-lib"],
-            actor_user_id="user-1",
-            output_overrides={"out-doc": {"data": {"name": "edited.md"}}},
-        )
-
-
-@pytest.mark.asyncio
-async def test_commit_rejects_unknown_override_output_id():
-    """Unknown output ids in output_overrides fail fast."""
-    outputs = _all_kinds_outputs()
-    report = _make_report(outputs)
-    execution = _make_execution(report)
-    svc, _mocks = _make_service(execution)
-
-    with pytest.raises(ValueError, match="unknown output id"):
-        await svc.commit_outputs(
-            EXECUTION_ID,
-            accept_all=True,
-            actor_user_id="user-1",
-            output_overrides={"missing": {"data": {"title": "Nope"}}},
-        )
-
-
-@pytest.mark.asyncio
-async def test_commit_rejects_unsupported_override_fields():
-    """Only the first-version editable fields can be overridden."""
-    outputs = _all_kinds_outputs()
-    report = _make_report(outputs)
-    execution = _make_execution(report)
-    svc, _mocks = _make_service(execution)
-
-    with pytest.raises(ValueError, match="unsupported field"):
-        await svc.commit_outputs(
-            EXECUTION_ID,
-            accept_all=True,
-            actor_user_id="user-1",
-            output_overrides={"out-lib": {"data": {"library_status": "excluded"}}},
-        )
 
 
 @pytest.mark.asyncio
@@ -1273,7 +1171,6 @@ async def test_existing_commit_state_wins_before_request_body_validation():
     result = await svc.commit_outputs(
         EXECUTION_ID,
         accepted_ids=["missing-output"],
-        output_overrides={"missing-output": {"preview": "stale"}},
         actor_user_id="user-1",
     )
 

@@ -109,7 +109,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: null,
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.selectedRecord?.id).toBe("sandbox-1");
@@ -158,7 +157,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: null,
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.evidenceItems).toHaveLength(1);
@@ -210,7 +208,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: null,
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.evidenceItems).toHaveLength(1);
@@ -233,7 +230,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: "run-1",
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.selectedRecord?.id).toBe("run-1");
@@ -256,7 +252,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: "fast-1",
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.selectedRecord?.id).toBe("fast-1");
@@ -279,7 +274,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: null,
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.selectedRecord?.id).toBe("run-2");
@@ -343,7 +337,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: null,
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.previews).toHaveLength(1);
@@ -400,7 +393,6 @@ describe("live workflow view model", () => {
       focusedRunId: null,
       activeRunId: null,
       selectedPreviewId: null,
-      draftEdits: {},
     });
 
     expect(model.previews.map((item) => item.id)).toEqual([

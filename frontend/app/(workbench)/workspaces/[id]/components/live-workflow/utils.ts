@@ -1,4 +1,4 @@
-import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import type { CSSProperties } from "react";
 
 import type { CommittedRoomLink } from "@/lib/execution-commit";
 import type { RunViewStatus } from "@/lib/execution-run-view";
@@ -8,8 +8,6 @@ export {
   readReviewItems,
 } from "@/lib/execution-run-view";
 import { getWorkspaceResultKindMeta } from "@/lib/workspace-result-kind";
-import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
-import type { WorkbenchDraftEdit } from "@/stores/workbench-layout-store";
 
 export const TERMINAL_STATUSES = new Set([
   "completed",
@@ -20,50 +18,6 @@ export const TERMINAL_STATUSES = new Set([
 
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status);
-}
-
-export function toggleChecked(
-  setCheckedIds: Dispatch<SetStateAction<Set<string>>>,
-  id: string,
-) {
-  setCheckedIds((current) => {
-    const next = new Set(current);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    return next;
-  });
-}
-
-export function applyDraftLabelsToCommitLinks(
-  previews: WorkspaceResultPreview[],
-  draftEdits: Record<string, WorkbenchDraftEdit>,
-): WorkspaceResultPreview[] {
-  return previews.map((preview) => {
-    const draft = draftEdits[preview.id];
-    const editedDocumentName =
-      preview.kind === "document" && typeof draft?.data?.name === "string"
-        ? draft.data.name.trim()
-        : "";
-    const editedPreview =
-      typeof draft?.preview === "string" ? draft.preview.trim() : "";
-    const title = editedDocumentName || editedPreview;
-    if (!title) {
-      return preview;
-    }
-    return {
-      ...preview,
-      title,
-      roomTarget: preview.roomTarget
-        ? {
-            ...preview.roomTarget,
-            query: title,
-          }
-        : preview.roomTarget,
-    };
-  });
 }
 
 export function generateUUID(): string {
@@ -120,27 +74,6 @@ export function statusTone(status: RunViewStatus | string): CSSProperties {
 export function kindLabel(kind: string): string {
   const meta = getWorkspaceResultKindMeta(kind);
   return meta.order === 900 ? kind : meta.label;
-}
-
-export function fieldLabel(kind: string, field: string): string {
-  const labels: Record<string, string> = {
-    content: "正文内容",
-    name: "文件名",
-    doc_kind: "文档类型",
-    title: kind === "task" ? "任务标题" : "标题",
-    authors: "作者",
-    year: "年份",
-    doi: "DOI",
-    url: "URL",
-    abstract: "摘要",
-    category: "分类",
-    confidence: "置信度",
-    key: "决策键",
-    value: "决策内容",
-    description: "描述",
-    priority: "优先级",
-  };
-  return labels[field] ?? field;
 }
 
 export function readString(value: unknown): string | null {

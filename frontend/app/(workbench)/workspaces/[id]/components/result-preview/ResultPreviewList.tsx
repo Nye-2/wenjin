@@ -6,9 +6,6 @@ interface ResultPreviewListProps {
   previews: WorkspaceResultPreview[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  checkedIds?: Set<string>;
-  onToggleChecked?: (id: string) => void;
-  disabled?: boolean;
 }
 
 function summarizePreviewText(value: string | null): string | null {
@@ -26,9 +23,6 @@ export function ResultPreviewList({
   previews,
   selectedId,
   onSelect,
-  checkedIds,
-  onToggleChecked,
-  disabled = false,
 }: ResultPreviewListProps) {
   return (
     <div
@@ -63,19 +57,6 @@ export function ResultPreviewList({
                 : "none",
             }}
           >
-            {checkedIds && onToggleChecked ? (
-              <input
-                type="checkbox"
-                checked={checkedIds.has(preview.id)}
-                onChange={() => onToggleChecked(preview.id)}
-                disabled={disabled}
-                style={{
-                  marginTop: 3,
-                  accentColor: "var(--wjn-blue)",
-                  cursor: disabled ? "not-allowed" : "pointer",
-                }}
-              />
-            ) : null}
             <button
               type="button"
               onClick={() => onSelect(preview.id)}
@@ -88,62 +69,62 @@ export function ResultPreviewList({
                 cursor: "pointer",
               }}
             >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-                marginBottom: 4,
-              }}
-            >
               <div
                 style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--wjn-text)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  marginBottom: 4,
                 }}
               >
-                {preview.title}
-              </div>
-              {preview.badge ? (
-                <span
+                <div
                   style={{
-                    flexShrink: 0,
-                    padding: "2px 8px",
-                    borderRadius: "var(--wjn-radius-pill)",
-                    background: "rgba(20, 20, 30, 0.06)",
-                    color: "var(--wjn-text-secondary)",
-                    fontSize: 11,
-                    fontWeight: 500,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--wjn-text)",
                   }}
                 >
-                  {preview.badge}
-                </span>
+                  {preview.title}
+                </div>
+                {preview.badge ? (
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      padding: "2px 8px",
+                      borderRadius: "var(--wjn-radius-pill)",
+                      background: "rgba(20, 20, 30, 0.06)",
+                      color: "var(--wjn-text-secondary)",
+                      fontSize: 11,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {preview.badge}
+                  </span>
+                ) : null}
+              </div>
+              {preview.subtitle ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--wjn-text-muted)",
+                    marginBottom: 6,
+                  }}
+                >
+                  {preview.subtitle}
+                </div>
               ) : null}
-            </div>
-            {preview.subtitle ? (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--wjn-text-muted)",
-                  marginBottom: 6,
-                }}
-              >
-                {preview.subtitle}
-              </div>
-            ) : null}
-            {summarizePreviewText(preview.previewText) ? (
-              <div
-                style={{
-                  fontSize: 12.5,
-                  lineHeight: 1.5,
-                  color: "var(--wjn-text-secondary)",
-                }}
-              >
-                {summarizePreviewText(preview.previewText)}
-              </div>
-            ) : null}
+              {summarizePreviewText(preview.previewText) ? (
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    lineHeight: 1.5,
+                    color: "var(--wjn-text-secondary)",
+                  }}
+                >
+                  {summarizePreviewText(preview.previewText)}
+                </div>
+              ) : null}
             </button>
           </div>
         );

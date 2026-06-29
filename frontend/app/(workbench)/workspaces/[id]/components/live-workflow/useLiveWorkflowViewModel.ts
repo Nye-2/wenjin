@@ -2,13 +2,8 @@ import { useMemo } from "react";
 
 import type { ExecutionRecord, WorkspacePrismReviewItem } from "@/lib/api/types";
 import { runViewFromExecution } from "@/lib/execution-run-view";
-import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
-import {
-  applyDraftEditsToOutputs,
-  extractTaskOutputs,
-} from "@/lib/workbench-result-editing";
-import type { WorkbenchDraftEdit, WorkbenchTab } from "@/stores/workbench-layout-store";
+import type { WorkbenchTab } from "@/stores/workbench-layout-store";
 
 import type { EvidenceItem } from "./types";
 import { isTerminalStatus } from "./utils";
@@ -20,20 +15,15 @@ export interface LiveWorkflowViewModelInput {
   focusedRunId: string | null;
   activeRunId: string | null;
   selectedPreviewId: string | null;
-  draftEdits: Record<string, WorkbenchDraftEdit>;
 }
 
 export interface LiveWorkflowViewModel {
   records: ExecutionRecord[];
   selectedRecord: ExecutionRecord | null;
-  baseOutputs: ReturnType<typeof extractTaskOutputs>;
-  editedOutputs: ReturnType<typeof extractTaskOutputs>;
   previews: WorkspaceResultPreview[];
   reviewItems: WorkspacePrismReviewItem[];
   evidenceItems: EvidenceItem[];
-  outputSignature: string;
   selectedPreview: WorkspaceResultPreview | null;
-  selectedDraft: WorkbenchDraftEdit | undefined;
   runningRecord: ExecutionRecord | null;
   pendingReviewCount: number;
   sandboxCount: number;
@@ -126,26 +116,6 @@ export function resolveAutoWorkbenchTab({
   return "overview";
 }
 
-function mergeEditedOutputPreviews(
-  canonicalPreviews: WorkspaceResultPreview[],
-  editedOutputPreviews: WorkspaceResultPreview[],
-  draftEdits: Record<string, WorkbenchDraftEdit>,
-): WorkspaceResultPreview[] {
-  const editedIds = new Set(Object.keys(draftEdits));
-  if (editedIds.size === 0) {
-    return canonicalPreviews;
-  }
-  const editedById = new Map(
-    editedOutputPreviews.map((preview) => [preview.id, preview]),
-  );
-  return canonicalPreviews.map((preview) => {
-    if (preview.source !== "staged_output" || !editedIds.has(preview.id)) {
-      return preview;
-    }
-    return editedById.get(preview.id) ?? preview;
-  });
-}
-
 export function buildLiveWorkflowViewModel(
   input: LiveWorkflowViewModelInput,
 ): LiveWorkflowViewModel {
@@ -161,19 +131,9 @@ export function buildLiveWorkflowViewModel(
     activeRunId: input.activeRunId,
   });
   const runView = selectedRecord ? runViewFromExecution(selectedRecord) : null;
-  const baseOutputs = extractTaskOutputs(selectedRecord?.result);
-  const editedOutputs = applyDraftEditsToOutputs(baseOutputs, input.draftEdits);
-  const editedOutputPreviews = buildWorkspaceResultPreviewsFromOutputs(editedOutputs);
-  const previews = mergeEditedOutputPreviews(
-    runView?.resultPreviews ?? [],
-    editedOutputPreviews,
-    input.draftEdits,
-  );
+  const previews = runView?.resultPreviews ?? [];
   const reviewItems = runView?.reviewItems ?? [];
   const evidenceItems = runView?.evidenceItems ?? [];
-  const outputSignature = baseOutputs
-    .map((output) => `${output.id}:${output.default_checked !== false}`)
-    .join("|");
   const selectedPreview =
     previews.find((preview) => preview.id === input.selectedPreviewId) ??
     previews[0] ??
@@ -187,14 +147,10 @@ export function buildLiveWorkflowViewModel(
   return {
     records,
     selectedRecord,
-    baseOutputs,
-    editedOutputs,
     previews,
     reviewItems,
     evidenceItems,
-    outputSignature,
     selectedPreview,
-    selectedDraft: selectedPreview ? input.draftEdits[selectedPreview.id] : undefined,
     runningRecord,
     pendingReviewCount,
     sandboxCount,
@@ -211,7 +167,6 @@ export function useLiveWorkflowViewModel(
     focusedRunId,
     activeRunId,
     selectedPreviewId,
-    draftEdits,
   } = input;
   return useMemo(
     () =>
@@ -222,7 +177,6 @@ export function useLiveWorkflowViewModel(
         focusedRunId,
         activeRunId,
         selectedPreviewId,
-        draftEdits,
       }),
     [
       records,
@@ -231,7 +185,6 @@ export function useLiveWorkflowViewModel(
       focusedRunId,
       activeRunId,
       selectedPreviewId,
-      draftEdits,
     ],
   );
 }

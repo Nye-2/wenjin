@@ -14,6 +14,7 @@ import {
   recoverableOutputRefCount,
   safeRuntimeText,
 } from "@/lib/runtime-payload-safety";
+import { filterVisibleWorkspaceResultItems } from "@/lib/workspace-result-kind";
 import {
   buildWorkspaceResultPreviewsFromOutputs,
   buildWorkspaceResultPreviewsFromReviewPacket,
@@ -278,8 +279,12 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     ...reviewResultPreviews,
   ];
   const evidenceItems = buildEvidenceItems(record, resultPreviews);
+  const visibleOutputResultPreviews =
+    filterVisibleWorkspaceResultItems(outputResultPreviews);
   const pendingReviewCount =
-    outputResultPreviews.length + reviewPacketResultPreviews.length + reviewItems.length;
+    visibleOutputResultPreviews.length +
+    reviewPacketResultPreviews.length +
+    reviewItems.length;
   const sandboxCount = countSandboxEvidenceItems(evidenceItems);
   const tokenUsage =
     tokenUsageFromUnknown(taskReport?.token_usage) ??
@@ -510,7 +515,9 @@ export function runViewFromResultCard(
     buildWorkspaceResultPreviewsFromReviewItems(reviewItems);
   const resultPreviews = [...outputResultPreviews, ...reviewResultPreviews];
   const evidenceItems = buildOutputEvidenceItems(resultPreviews);
-  const pendingReviewCount = outputResultPreviews.length + reviewItems.length;
+  const pendingReviewCount =
+    filterVisibleWorkspaceResultItems(outputResultPreviews).length +
+    reviewItems.length;
   const prismReviewCount = countPrismReviewItems(reviewItems);
   const sandboxReviewCount = countSandboxReviewItems(reviewItems);
   const rawFailureMessage = firstStringValue(data.errors?.[0]?.message);
@@ -800,7 +807,7 @@ export function buildEvidenceItems(
 function buildOutputEvidenceItems(
   previews: WorkspaceResultPreview[],
 ): RunViewEvidenceItem[] {
-  return previews.map((preview) => ({
+  return filterVisibleWorkspaceResultItems(previews).map((preview) => ({
     id: preview.id,
     source: "output",
     title: preview.title,

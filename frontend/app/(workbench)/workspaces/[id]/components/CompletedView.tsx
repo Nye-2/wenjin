@@ -285,7 +285,6 @@ export function CompletedView({
             previews={previews}
             selectedId={selectedPreview?.id ?? null}
             onSelect={setSelectedPreviewId}
-            disabled={commitFinal || allowAcceptAll}
           />
           <ResultPreviewDetail
             preview={selectedPreview}
