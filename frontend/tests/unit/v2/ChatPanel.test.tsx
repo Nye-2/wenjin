@@ -664,6 +664,58 @@ describe("ChatPanel v2", () => {
     );
   });
 
+  it("auto-launches a seeded entry for an empty workspace even when another workspace has messages", async () => {
+    const loadHistory = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      activeWorkspaceId: "ws-old",
+      messagesByWorkspace: {
+        "ws-old": [
+          {
+            id: "old-user",
+            role: "user",
+            blocks: [{ kind: "text", content: "old workspace message" }],
+            createdAt: "2026-01-01",
+          },
+        ],
+      },
+      messages: [
+        {
+          id: "old-user",
+          role: "user",
+          blocks: [{ kind: "text", content: "old workspace message" }],
+          createdAt: "2026-01-01",
+        },
+      ],
+      loadHistory,
+      sendMessage,
+      isSending: false,
+    });
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams({
+        feature: "paper_analysis",
+        skill: "paper-analyst",
+        entry: "open",
+        paper_title: "新工作区论文",
+      }),
+    );
+
+    render(<ChatPanel workspaceId="ws-new" data-testid="chat-panel" />);
+
+    expect(screen.queryByText("old workspace message")).not.toBeInTheDocument();
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledWith("ws-new"));
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-new",
+        expect.stringContaining("新工作区论文"),
+        [],
+        expect.objectContaining({
+          skill: "paper-analyst",
+        }),
+      ),
+    );
+  });
+
   it("forwards resume seed metadata on the first manual send without auto-launching", async () => {
     const loadHistory = vi.fn().mockResolvedValue("thread-1");
     const sendMessage = vi.fn().mockResolvedValue(undefined);

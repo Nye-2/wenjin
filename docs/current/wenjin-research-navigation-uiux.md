@@ -39,8 +39,8 @@ Wenjin is a research and writing workbench for Chinese academic, mathematical mo
 
 - Trusted Chrome: workspace identity, surface switch, command bar, status summary, Prism review badge, and Workspace Hub entry.
 - Trace Rail: current objective, node states, timing, tool/sandbox summaries, and artifact links.
-- Evidence Ledger: literature, uploaded files, experiment results, and agent-derived evidence in one filterable surface.
-- Review Queue: staged outputs, Prism file changes, accepted/rejected state, write links, and rollback affordances.
+- Evidence Ledger: literature, uploaded files, experiment results, claim/citation audit rows, sandbox trace, and agent-derived evidence in one filterable surface.
+- Review Queue: staged outputs, Prism file changes, accepted/rejected state, evidence risk state, write links, and rollback affordances.
 - Research Team Roster: real-name role seats, status stripes, capability readiness, quality gates, and output attribution.
 
 ## Interaction Density Rules

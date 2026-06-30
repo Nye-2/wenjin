@@ -30,9 +30,23 @@ export function EvidenceView({
     return items.filter((item) => {
       if (filter === "outputs" && item.source !== "output") return false;
       if (filter === "nodes" && item.source !== "node") return false;
-      if (filter === "sandbox" && !item.summary.toLowerCase().includes("sandbox") && item.kind !== "sandbox") return false;
+      if (filter === "claims" && item.source !== "claim") return false;
+      if (filter === "citations" && item.source !== "citation") return false;
+      if (
+        filter === "sandbox" &&
+        !item.summary.toLowerCase().includes("sandbox") &&
+        item.kind !== "sandbox"
+      ) return false;
       if (!q) return true;
-      return `${item.title} ${item.kind} ${item.summary}`.toLowerCase().includes(q);
+      return [
+        item.title,
+        item.kind,
+        item.summary,
+        item.claimStatus,
+        item.riskReason,
+        ...(item.citationKeys ?? []),
+        ...(item.evidenceRefs ?? []),
+      ].join(" ").toLowerCase().includes(q);
     });
   }, [filter, items, query]);
   const experimentCount = items.filter(
@@ -49,6 +63,12 @@ export function EvidenceView({
     ["all", "全部"],
     ["outputs", "结果"],
     ["nodes", "过程"],
+    ...(items.some((item) => item.source === "claim")
+      ? ([["claims", "论断"]] as Array<[EvidenceFilter, string]>)
+      : []),
+    ...(items.some((item) => item.source === "citation")
+      ? ([["citations", "引用"]] as Array<[EvidenceFilter, string]>)
+      : []),
     ...(experimentCount > 0 ? ([["sandbox", "实验记录"]] as Array<[EvidenceFilter, string]>) : []),
   ];
 
@@ -101,7 +121,9 @@ export function EvidenceView({
                   }}
                 >
                   <span style={styles.evidenceListCheck}>
-                    <span style={styles.readOnlyMark}>只读</span>
+                    <span style={item.riskLevel === "high" ? styles.riskBadge : styles.readOnlyMark}>
+                      {item.riskLevel === "high" ? "高风险" : "只读"}
+                    </span>
                   </span>
                   <span style={styles.evidenceListMain}>
                     <span style={styles.evidenceListTitle}>{item.title}</span>
@@ -127,10 +149,55 @@ export function EvidenceView({
             node={{ id: selected.nodeId, type: selected.kind, label: selected.title }}
             state={selected.nodeState}
           />
+        ) : selected?.source === "claim" || selected?.source === "citation" ? (
+          <StructuredEvidenceDetail item={selected} />
         ) : (
           <EmptyState title="选择一项内容" detail="这里会显示结果、来源详情或过程摘要。" compact />
         )}
       </aside>
+    </div>
+  );
+}
+
+function evidenceStatusLabel(item: EvidenceItem): string {
+  if (item.claimStatus) {
+    return item.claimStatus;
+  }
+  if (item.riskLevel === "high") {
+    return "高风险";
+  }
+  if (item.riskLevel === "warning") {
+    return "提醒";
+  }
+  return "已记录";
+}
+
+function StructuredEvidenceDetail({ item }: { item: EvidenceItem }) {
+  return (
+    <div style={styles.editorPanel}>
+      <div style={styles.sectionTitleSmall}>{item.title}</div>
+      <div style={styles.sectionSubtitle}>{item.summary}</div>
+      <div style={styles.linkWrap}>
+        <span style={item.riskLevel === "high" ? styles.riskBadge : styles.readOnlyMark}>
+          {evidenceStatusLabel(item)}
+        </span>
+        <ResultKindBadge kind={item.kind} />
+      </div>
+      {(item.citationKeys?.length ?? 0) > 0 ? (
+        <div style={styles.fieldLabel}>
+          引用键
+          <div style={styles.tdMuted}>{item.citationKeys?.join(", ")}</div>
+        </div>
+      ) : null}
+      {(item.evidenceRefs?.length ?? 0) > 0 ? (
+        <div style={styles.fieldLabel}>
+          证据引用
+          <div style={styles.tdMuted}>{item.evidenceRefs?.join(", ")}</div>
+        </div>
+      ) : null}
+      {item.riskReason ? (
+        <div style={styles.commitWarning}>{item.riskReason}</div>
+      ) : null}
     </div>
   );
 }

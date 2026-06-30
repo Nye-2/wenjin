@@ -91,6 +91,15 @@ RUNTIME_RESEARCH_EVIDENCE_SURFACES = {
     "output_ref_reuse",
 }
 
+CLAIM_BINDING_GATES = {
+    "claim_evidence_map_required",
+    "claim_source_binding_checked",
+}
+
+CITATION_FABRICATION_GATES = {
+    "no_fabricated_citations",
+}
+
 
 def evaluate_quality_gates(
     quality_pipeline: list[str],
@@ -161,6 +170,14 @@ def evaluate_quality_gates(
             invocations,
             latest=latest,
             capability_policy=capability_policy,
+            team_policy=team_policy,
+            counts=counts,
+            total_invocations=total_invocations,
+        )
+    )
+    gates.extend(
+        _evidence_contract_integrity(
+            latest,
             team_policy=team_policy,
             counts=counts,
             total_invocations=total_invocations,
@@ -770,6 +787,74 @@ def _quality_gates_acknowledged(
             required_fixes=[
                 {
                     "message": "List checked quality gates in output.quality_gates_checked."
+                }
+            ],
+            suggested_recruits=_dedupe_recruits(suggested),
+            next_action="revise_existing" if suggested else "stop_with_warning",
+        )
+    ]
+
+
+def _evidence_contract_integrity(
+    invocations: list[AgentInvocation],
+    *,
+    team_policy: CapabilityTeamPolicy | None,
+    counts: Counter[str] | None,
+    total_invocations: int,
+) -> list[QualityGateResult]:
+    findings: list[dict[str, Any]] = []
+    suggested: list[dict[str, str]] = []
+    for invocation in invocations:
+        if invocation.status != "succeeded":
+            continue
+        output = invocation.output_report if isinstance(invocation.output_report, dict) else {}
+        contract = _quality_contract(invocation)
+        active_gates = {
+            *_string_list(contract.get("quality_gates")),
+            *_string_list(contract.get("acknowledgement_required_gates")),
+        }
+        missing_fields: list[str] = []
+        if active_gates & CLAIM_BINDING_GATES and not (
+            _has_meaningful_field(output, "claim_evidence_map")
+            or _has_meaningful_field(output, "citation_key_audit")
+        ):
+            missing_fields.append("claim_evidence_map or citation_key_audit")
+        if active_gates & CITATION_FABRICATION_GATES and "fabrication_risks" not in output:
+            missing_fields.append("fabrication_risks")
+        if not missing_fields:
+            continue
+        findings.append(
+            {
+                "invocation_id": invocation.id,
+                "template_id": invocation.template_id,
+                "missing_fields": missing_fields,
+                "message": "evidence-dependent quality gates require structured audit fields",
+            }
+        )
+        suggested.extend(
+            _revision_recruit(
+                invocation,
+                reason="evidence_contract_integrity",
+                team_policy=team_policy,
+                counts=counts,
+                total_invocations=total_invocations,
+                already_suggested=len(suggested),
+            )
+        )
+    if not findings:
+        return []
+    return [
+        QualityGateResult(
+            gate_id="evidence_contract_integrity",
+            status="fail",
+            severity="high",
+            findings=findings,
+            required_fixes=[
+                {
+                    "message": (
+                        "Return structured claim/citation audit fields for "
+                        "evidence-dependent quality gates."
+                    )
                 }
             ],
             suggested_recruits=_dedupe_recruits(suggested),

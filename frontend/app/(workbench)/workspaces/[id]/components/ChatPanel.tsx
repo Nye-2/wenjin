@@ -77,9 +77,10 @@ export function ChatPanel({
   "data-testid": testId,
 }: ChatPanelProps) {
   const searchParams = useSearchParams();
-  const messages = useChatStoreV2((s) => s.messages);
+  const messages = useChatStoreV2((s) => s.getWorkspaceMessages(workspaceId));
   const isSending = useChatStoreV2((s) => s.isSending);
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
+  const setActiveWorkspace = useChatStoreV2((s) => s.setActiveWorkspace);
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -214,9 +215,10 @@ export function ChatPanel({
 
   // Load message history on mount
   useEffect(() => {
-    const store = useChatStoreV2.getState();
     let cancelled = false;
-    if (store.messages.length === 0) {
+    setActiveWorkspace(workspaceId);
+    const store = useChatStoreV2.getState();
+    if (store.getWorkspaceMessages(workspaceId).length === 0) {
       void store.loadHistory(workspaceId).then((tid) => {
         if (cancelled) return;
         if (tid) setThreadId(tid);
@@ -234,7 +236,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [setActiveWorkspace, workspaceId]);
 
   useEffect(() => {
     if (

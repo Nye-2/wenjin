@@ -76,6 +76,7 @@
 - `frontend/app/(workbench)/workspaces/[id]/page.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx`
+- `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/useLiveWorkflowViewModel.ts`
 - `frontend/app/(workbench)/workspaces/[id]/components/ResultCard.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/components/CompletedView.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/prism/page.tsx`
@@ -184,6 +185,12 @@ TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_r
 
 `TaskReport.review_packet(schema=wenjin.review_packet.v1)` 是 Academic Harness 的候选结果语义 envelope。RunView 读取 review packet 计算 reviewPacket、supported / needs-confirmation / blocker 计数、质量提示、sandbox/prism 计数和 `preview_results` action；LiveWorkflowPanel 通过 `buildWorkspaceResultPreviewsFromReviewPacket()` 把 packet items 投影为只读预览，并把 high/critical 风险显示为“阻断”、medium 或 warning 显示为“需确认”。保存行为不能直接消费 packet item id；真正写入仍必须走 `TaskReport.outputs`、canonical review items、room commit 或 Prism apply/reject/revert。
 
+LiveWorkflowPanel 内部的 Review / Evidence surface 必须先投影为 `LiveWorkflowViewModel`：
+
+- `frontend/lib/execution-run-view.ts` 负责从 `ExecutionRecord` 派生 `RunView`，包括 result previews、review items、Evidence Ledger rows、claim/citation 审计项、quality highlights 和 sandbox count。
+- `useLiveWorkflowViewModel` 只负责 selected run、previews、review items、evidence items 和当前选择态，不重新解析 quality gates、claim/citation schema 或 node outputs。
+- EvidenceView 只消费 `RunView.evidenceItems` 投影，不展示 raw stdout/stderr、raw findings、schema id 或 internal harness refs。
+
 `run-ui-store` 只允许保存：
 
 - `activeRunId`
@@ -209,6 +216,7 @@ Commit state 是 execution-backed。ResultCard、CompletedView、LiveWorkflowPan
 7. Runs drawer 必须合并 live execution store 与 `/api/workspaces/{workspace_id}/runs`，不得成为第二套执行状态系统。
 8. LiveWorkflowPanel 必须 pin 当前 active/focused run；从 running 到 completed 的状态切换必须来自 execution store / Runs projection，不来自本地计时假设。
 9. Prism editor API client 可以继续位于 `frontend/lib/api/latex.ts`，但它是 Prism LaTeX adapter client；所有 HTTP 调用必须走 `/prism/latex-adapter/*` 或 `/api/prism/latex-adapter/*`，不得调用 `/latex/*` 或 `/api/latex/*`。
+10. Review 默认勾选必须使用 `LiveWorkflowViewModel.defaultCheckedOutputIds`；当 `highRiskOutputIds` 非空时，一键“全部接受”不可用，用户只能逐项确认并保存已勾选。
 
 ### 4.1 全站 UIUX 收敛约束
 

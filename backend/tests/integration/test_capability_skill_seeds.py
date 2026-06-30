@@ -391,6 +391,64 @@ def test_searcher_capabilities_query_uses_runtime_request_fields():
                 )
 
 
+def test_claim_and_citation_audit_skills_have_renderable_item_schemas():
+    skills = _collect_skill_records()
+    claim_map_items = (
+        skills["claim-verifier"]["io_contract"]["output_schema"]["properties"][
+            "claim_evidence_map"
+        ]["items"]
+    )
+    unsupported_items = (
+        skills["claim-verifier"]["io_contract"]["output_schema"]["properties"][
+            "unsupported_claims"
+        ]["items"]
+    )
+    citation_audit_items = (
+        skills["citation-auditor"]["io_contract"]["output_schema"]["properties"][
+            "citation_key_audit"
+        ]["items"]
+    )
+    fabrication_items = (
+        skills["citation-auditor"]["io_contract"]["output_schema"]["properties"][
+            "fabrication_risks"
+        ]["items"]
+    )
+
+    assert set(claim_map_items["required"]) >= {
+        "claim_id",
+        "claim_text",
+        "status",
+        "evidence_refs",
+        "citation_keys",
+    }
+    assert set(unsupported_items["required"]) >= {"claim_id", "claim_text", "required_fix"}
+    assert set(citation_audit_items["required"]) >= {
+        "claim_id",
+        "citation_key",
+        "status",
+        "evidence_refs",
+    }
+    assert set(fabrication_items["required"]) >= {"citation_key", "risk", "required_fix"}
+
+
+def test_research_question_to_paper_method_probe_is_topic_generic():
+    cap_path = SEED_ROOT / "capabilities" / "sci" / "research_question_to_paper.yaml"
+    text = cap_path.read_text(encoding="utf-8")
+    assert "federated_instruction_tuning_adapter_cost" not in text
+    assert "base_params" not in text
+    assert "adapter_params" not in text
+
+    data = yaml.safe_load(text)
+    probe_task = next(
+        task
+        for phase in data["graph_template"]["phases"]
+        for task in phase["tasks"]
+        if task["name"] == "sandbox_method_probe"
+    )
+    assert "method_probe_plan" in probe_task["inputs"]["script"]
+    assert probe_task["outputs"][0]["default_checked"] is False
+
+
 def test_every_capability_required_fields_present():
     required = {
         "schema_version",

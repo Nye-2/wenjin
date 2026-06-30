@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-06-24
+更新时间：2026-06-30
 状态：Current
 适用项目：`wenjin`
 
@@ -26,6 +26,7 @@
 7. `launch_feature` 的 `tool_result.status == "advisory"` 表示尚未进入执行链路；前端只展示补充信息提示，不设置 active run，也不打开 Current run
 8. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
 9. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
+10. 前端 chat store 按 workspace 隔离 message state；`messages` 只代表 active workspace projection，不得用一个 workspace 的历史阻止另一个 workspace seed / history load。
 
 ## 3. Capability 数据驱动
 
@@ -104,7 +105,7 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 
 `review_packet` 是候选结果语义预览层：它帮助用户理解专家产出、证据风险和待确认项，但不直接作为 commit 输入。保存到 Library / Prism files / hidden workspace memory / Decisions / Tasks 仍由 `TaskReport.outputs` 与 `ExecutionCommitService` 完成；稿件审阅变更仍由 Prism review item 的 apply/reject/revert 完成。
 
-Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_workspace_map.v1` summary 和 `research_brief.v1`。初始专家收到 brief/map；后续专家收到 enriched `ResearchStateV1`，其中包含 compact `claim_inventory`、`evidence_packet`、artifact index 和 unresolved blockers。右侧工作台只展示“已支持 / 需确认 / 阻断”一类用户语义，不展示 raw schema、raw expert report 或内部 harness refs。
+Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_workspace_map.v1` summary 和 `research_brief.v1`。初始专家收到 brief/map；后续专家收到 enriched `ResearchStateV1`，其中包含 compact `claim_inventory`、`evidence_packet`、artifact index 和 unresolved blockers。右侧工作台通过 `frontend/lib/execution-run-view.ts` 把候选结果、节点输出、claim/citation 审计项、sandbox trace 和质量门风险投影到 Evidence Ledger；默认视图只展示“已支持 / 需确认 / 阻断”一类用户语义，不展示 raw schema、raw expert report 或内部 harness refs。
 
 ## 5.1 Execution UX 当前收敛
 

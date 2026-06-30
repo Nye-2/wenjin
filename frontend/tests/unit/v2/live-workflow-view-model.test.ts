@@ -280,6 +280,94 @@ describe("live workflow view model", () => {
     expect(model.runningRecord?.id).toBe("run-2");
   });
 
+  it("surfaces claim and citation risks as evidence items", () => {
+    const riskyRecord = baseRecord({
+      id: "risk-1",
+      status: "completed",
+      runtime_state: {
+        quality_gates: [
+          {
+            gate_id: "evidence_contract_integrity",
+            status: "fail",
+            severity: "high",
+          },
+        ],
+      },
+      result: {
+        task_report: {
+          outputs: [
+            {
+              id: "doc-1",
+              kind: "document",
+              preview: "Draft with an unsupported claim",
+              default_checked: true,
+              data: {
+                name: "draft.md",
+                content: "Claim A needs support.",
+              },
+            },
+          ],
+        },
+      },
+      node_states: {
+        reviewer: {
+          status: "completed",
+          output: {
+            claim_evidence_map: [
+              {
+                claim_id: "c1",
+                claim_text: "Claim A needs support.",
+                status: "unsupported",
+                evidence_refs: [
+                  {
+                    ref_type: "library",
+                    ref_id: "paper-1",
+                    citation_key: "smith2025",
+                  },
+                ],
+                citation_keys: ["smith2025"],
+                required_fix: "Add a verified source before committing.",
+              },
+            ],
+            citation_key_audit: [
+              {
+                claim_id: "c1",
+                citation_key: "smith2025",
+                status: "unsupported",
+                evidence_refs: [{ ref_type: "library", ref_id: "paper-1" }],
+              },
+            ],
+            fabrication_risks: [
+              {
+                citation_key: "ghost2024",
+                risk: "Citation key is not present in Library.",
+                required_fix: "Remove or replace with a verified source.",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const model = buildLiveWorkflowViewModel({
+      records: [riskyRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "risk-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+    });
+
+    expect(model.previews.map((item) => item.id)).toContain("doc-1");
+    expect(model.previews.find((item) => item.id === "doc-1")?.defaultChecked).toBe(true);
+    expect(
+      model.evidenceItems.find((item) => item.source === "claim")?.citationKeys,
+    ).toEqual(["smith2025"]);
+    expect(
+      model.evidenceItems.find((item) => item.source === "citation")?.riskLevel,
+    ).toBe("high");
+  });
+
   it("moves completed runs with outputs to review and running runs to run tab", () => {
     expect(
       resolveAutoWorkbenchTab({

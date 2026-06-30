@@ -140,24 +140,38 @@ export interface RunViewReviewPacket {
   blockerCount: number;
 }
 
+export type RunViewEvidenceRiskLevel = "none" | "warning" | "high";
+
+interface RunViewEvidenceBase {
+  id: string;
+  title: string;
+  kind: string;
+  summary: string;
+  claimStatus?: string | null;
+  citationKeys?: string[];
+  evidenceRefs?: string[];
+  riskLevel?: RunViewEvidenceRiskLevel;
+  riskReason?: string | null;
+}
+
 export type RunViewEvidenceItem =
-  | {
-      id: string;
+  | (RunViewEvidenceBase & {
       source: "output";
-      title: string;
-      kind: string;
-      summary: string;
       preview: WorkspaceResultPreview;
-    }
-  | {
-      id: string;
+    })
+  | (RunViewEvidenceBase & {
       source: "node";
-      title: string;
-      kind: string;
-      summary: string;
       nodeId: string;
       nodeState: ExecutionNodeState;
-    };
+    })
+  | (RunViewEvidenceBase & {
+      source: "claim";
+      nodeId: string;
+    })
+  | (RunViewEvidenceBase & {
+      source: "citation";
+      nodeId: string;
+    });
 
 export interface RunViewTeam {
   mode: "team_kernel";
@@ -801,7 +815,14 @@ export function buildEvidenceItems(
       };
     });
   const citationAuditItems = buildCitationSourceAuditEvidenceItems(record);
-  return [...outputItems, ...citationAuditItems, ...nodeItems];
+  const structuredItems = Object.entries(record.node_states ?? {}).flatMap(
+    ([nodeId, state]) => {
+      const node = nodeById.get(nodeId);
+      const title = node?.label ?? node?.task ?? state.label ?? nodeId;
+      return buildStructuredEvidenceItems(nodeId, title, state.output);
+    },
+  );
+  return [...outputItems, ...citationAuditItems, ...nodeItems, ...structuredItems];
 }
 
 function buildOutputEvidenceItems(
@@ -845,6 +866,250 @@ function buildHarnessEvidenceSummary(state: ExecutionNodeState): string[] | null
   return lines.length ? lines : null;
 }
 
+function buildStructuredEvidenceItems(
+  nodeId: string,
+  nodeTitle: string,
+  output: Record<string, unknown> | null | undefined,
+): RunViewEvidenceItem[] {
+  if (!output) {
+    return [];
+  }
+  return [
+    ...buildClaimMapEvidenceItems(nodeId, nodeTitle, output),
+    ...buildUnsupportedClaimEvidenceItems(nodeId, nodeTitle, output),
+    ...buildCitationAuditStructuredEvidenceItems(nodeId, nodeTitle, output),
+    ...buildCitationRiskEvidenceItems(nodeId, nodeTitle, output),
+  ];
+}
+
+function buildClaimMapEvidenceItems(
+  nodeId: string,
+  nodeTitle: string,
+  output: Record<string, unknown>,
+): RunViewEvidenceItem[] {
+  return arrayValue(output.claim_evidence_map).flatMap((rawItem, index) => {
+    const item = objectValue(rawItem);
+    if (!item) return [];
+    const claimId = stringValue(item.claim_id) ?? String(index + 1);
+    const claimText = stringValue(item.claim_text) ?? stringValue(item.claim) ?? `Claim ${claimId}`;
+    const status = stringValue(item.status);
+    const citationKeys = stringArrayValue(item.citation_keys);
+    const evidenceRefs = evidenceRefStrings(item.evidence_refs);
+    const requiredFix = stringValue(item.required_fix);
+    const riskLevel = structuredRiskLevelFromStatus(status);
+    return [
+      {
+        id: `claim:${nodeId}:${claimId}`,
+        source: "claim",
+        title: claimText,
+        kind: "claim",
+        summary: summarizeStructuredEvidence([
+          `节点：${nodeTitle}`,
+          status ? `状态：${status}` : null,
+          citationKeys.length ? `引用：${formatShortList(citationKeys)}` : null,
+          requiredFix,
+        ]),
+        nodeId,
+        claimStatus: status,
+        citationKeys,
+        evidenceRefs,
+        riskLevel,
+        riskReason: riskLevel === "none" ? null : requiredFix,
+      },
+    ];
+  });
+}
+
+function buildUnsupportedClaimEvidenceItems(
+  nodeId: string,
+  nodeTitle: string,
+  output: Record<string, unknown>,
+): RunViewEvidenceItem[] {
+  return arrayValue(output.unsupported_claims).flatMap((rawItem, index) => {
+    const item = objectValue(rawItem);
+    if (!item) return [];
+    const claimId = stringValue(item.claim_id) ?? `unsupported-${index + 1}`;
+    const claimText =
+      stringValue(item.claim_text) ?? stringValue(item.claim) ?? `未支持论断 ${index + 1}`;
+    const requiredFix = stringValue(item.required_fix) ?? stringValue(item.fix);
+    return [
+      {
+        id: `claim:${nodeId}:${claimId}:unsupported`,
+        source: "claim",
+        title: claimText,
+        kind: "claim",
+        summary: summarizeStructuredEvidence([
+          `节点：${nodeTitle}`,
+          "状态：unsupported",
+          requiredFix,
+        ]),
+        nodeId,
+        claimStatus: "unsupported",
+        citationKeys: stringArrayValue(item.citation_keys),
+        evidenceRefs: evidenceRefStrings(item.evidence_refs),
+        riskLevel: "high",
+        riskReason: requiredFix ?? "论断缺少可靠证据绑定。",
+      },
+    ];
+  });
+}
+
+function buildCitationAuditStructuredEvidenceItems(
+  nodeId: string,
+  nodeTitle: string,
+  output: Record<string, unknown>,
+): RunViewEvidenceItem[] {
+  return arrayValue(output.citation_key_audit).flatMap((rawItem, index) => {
+    const item = objectValue(rawItem);
+    if (!item) return [];
+    const citationKey = stringValue(item.citation_key) ?? `citation-${index + 1}`;
+    const claimText = stringValue(item.claim_text) ?? stringValue(item.claim_id);
+    const status = stringValue(item.status);
+    const riskLevel = structuredRiskLevelFromStatus(status);
+    const citationKeys = [citationKey, ...stringArrayValue(item.citation_keys)].filter(
+      (value, keyIndex, all) => value && all.indexOf(value) === keyIndex,
+    );
+    const requiredFix = stringValue(item.required_fix);
+    return [
+      {
+        id: `citation:${nodeId}:${citationKey}:${index}`,
+        source: "citation",
+        title: claimText ? `${citationKey} · ${claimText}` : citationKey,
+        kind: "citation",
+        summary: summarizeStructuredEvidence([
+          `节点：${nodeTitle}`,
+          status ? `状态：${status}` : null,
+          requiredFix,
+        ]),
+        nodeId,
+        claimStatus: status,
+        citationKeys,
+        evidenceRefs: evidenceRefStrings(item.evidence_refs),
+        riskLevel,
+        riskReason: riskLevel === "none" ? null : requiredFix,
+      },
+    ];
+  });
+}
+
+function buildCitationRiskEvidenceItems(
+  nodeId: string,
+  nodeTitle: string,
+  output: Record<string, unknown>,
+): RunViewEvidenceItem[] {
+  const fabricationRisks = arrayValue(output.fabrication_risks).flatMap((rawItem, index) => {
+    const item = objectValue(rawItem);
+    if (!item) return [];
+    const citationKey = stringValue(item.citation_key) ?? `fabrication-risk-${index + 1}`;
+    const reason =
+      stringValue(item.risk) ?? stringValue(item.reason) ?? stringValue(item.required_fix);
+    return [
+      {
+        id: `citation:${nodeId}:${citationKey}:fabrication`,
+        source: "citation" as const,
+        title: citationKey,
+        kind: "citation",
+        summary: summarizeStructuredEvidence([
+          `节点：${nodeTitle}`,
+          "状态：疑似编造引用",
+          reason,
+        ]),
+        nodeId,
+        claimStatus: "fabrication_risk",
+        citationKeys: [citationKey],
+        evidenceRefs: evidenceRefStrings(item.evidence_refs),
+        riskLevel: "high" as const,
+        riskReason: reason ?? "引用无法绑定到已验证来源。",
+      },
+    ];
+  });
+  const missingSources = arrayValue(output.missing_sources).flatMap((rawItem, index) => {
+    const item = objectValue(rawItem);
+    if (!item) return [];
+    const citationKey =
+      stringValue(item.citation_key) ?? stringValue(item.claim_id) ?? `missing-source-${index + 1}`;
+    const reason = stringValue(item.reason) ?? stringValue(item.required_fix);
+    return [
+      {
+        id: `citation:${nodeId}:${citationKey}:missing`,
+        source: "citation" as const,
+        title: citationKey,
+        kind: "citation",
+        summary: summarizeStructuredEvidence([
+          `节点：${nodeTitle}`,
+          "状态：来源缺失",
+          reason,
+        ]),
+        nodeId,
+        claimStatus: "missing_source",
+        citationKeys: [citationKey],
+        evidenceRefs: evidenceRefStrings(item.evidence_refs),
+        riskLevel: "high" as const,
+        riskReason: reason ?? "引用来源缺失。",
+      },
+    ];
+  });
+  return [...fabricationRisks, ...missingSources];
+}
+
+function evidenceRefStrings(value: unknown): string[] {
+  return arrayValue(value)
+    .map((rawItem) => {
+      const direct = stringValue(rawItem);
+      if (direct) return direct;
+      const item = objectValue(rawItem);
+      if (!item) return null;
+      return (
+        stringValue(item.citation_key) ??
+        stringValue(item.ref_id) ??
+        stringValue(item.artifact_id) ??
+        stringValue(item.id) ??
+        stringValue(item.title)
+      );
+    })
+    .filter((item): item is string => Boolean(item));
+}
+
+function structuredRiskLevelFromStatus(
+  status: string | null | undefined,
+): RunViewEvidenceRiskLevel {
+  if (!status) return "none";
+  const normalized = status.toLowerCase();
+  if (
+    [
+      "unsupported",
+      "missing",
+      "fabricated",
+      "fabrication_risk",
+      "fail",
+      "failed",
+      "invalid",
+      "unmatched",
+    ].includes(normalized) ||
+    normalized.includes("missing") ||
+    normalized.includes("fabricat")
+  ) {
+    return "high";
+  }
+  if (
+    [
+      "partial",
+      "weak",
+      "warning",
+      "unverified",
+      "needs_revision",
+      "needs_review",
+    ].includes(normalized)
+  ) {
+    return "warning";
+  }
+  return "none";
+}
+
+function summarizeStructuredEvidence(parts: Array<string | null | undefined>): string {
+  return truncate(parts.filter((part): part is string => Boolean(part)).join(" · "), 220);
+}
+
 function buildCitationSourceAuditEvidenceItems(
   record: ExecutionRecord,
 ): RunViewEvidenceItem[] {
@@ -868,28 +1133,18 @@ function buildCitationSourceAuditEvidenceItems(
         const severity = stringValue(audit.severity) ?? stringValue(gate.severity);
         const status = stringValue(gate.status) ?? "warning";
         const title = `引文与来源风险 · ${qualityGateEvidenceDisplayName(gateId)}`;
-        const nodeState: ExecutionNodeState = {
-          status,
-          node_type: "quality_gate",
-          label: title,
-          output_preview: summary,
-          node_metadata: {
-            quality_gate: {
-              gate_id: gateId,
-              severity,
-              status,
-              finding_count: auditFindings.length,
-            },
-          },
-        };
         items.push({
           id: `quality-gate:${gateId}:citation-source-audit:${items.length + 1}`,
-          source: "node",
+          source: "citation",
           title,
           kind: "citation",
           summary,
           nodeId: `quality-gate:${gateId}`,
-          nodeState,
+          claimStatus: status,
+          citationKeys: stringArrayValue(audit.unknown_refs),
+          evidenceRefs: [],
+          riskLevel: severity === "high" || status === "fail" ? "high" : "warning",
+          riskReason: summary,
         });
         if (items.length >= MAX_CITATION_SOURCE_AUDIT_ITEMS) {
           return items;
