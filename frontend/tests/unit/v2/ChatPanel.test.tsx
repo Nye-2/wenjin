@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
+import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
@@ -33,6 +34,55 @@ describe("ChatPanel v2", () => {
     expect(
       screen.getByPlaceholderText("输入消息... Shift+Enter 换行"),
     ).toBeInTheDocument();
+  });
+
+  it("defines intake guidance for student-heavy workspace types", () => {
+    for (const workspaceType of [
+      "thesis",
+      "math_modeling",
+      "patent",
+      "software_copyright",
+    ] as const) {
+      const guidance = WORKSPACE_TYPE_CONFIG[workspaceType].intakeGuidance;
+      expect(guidance?.checklist.length).toBeGreaterThanOrEqual(4);
+      expect(guidance?.chips.length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("renders intake checklist and sends intake chip prompts", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      sendMessage,
+      messages: [],
+      isSending: false,
+    });
+
+    render(
+      <ChatPanel
+        workspaceId="ws-1"
+        workspaceName="毕业论文"
+        typeConfig={WORKSPACE_TYPE_CONFIG.thesis}
+        data-testid="chat-panel"
+      />,
+    );
+
+    expect(screen.getByText("先准备这些信息")).toBeInTheDocument();
+    expect(screen.getByText("论文题目或研究方向")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "我有题目和初稿，帮我梳理下一步",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "我有题目和初稿，帮我梳理下一步",
+        [],
+        undefined,
+      ),
+    );
   });
 
   it("loads chat models into the composer selector from the model catalog", async () => {

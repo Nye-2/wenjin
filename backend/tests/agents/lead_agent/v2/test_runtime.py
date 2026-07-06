@@ -1,5 +1,6 @@
 """Tests for LeadAgentRuntime (Task 2.5)."""
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,11 +13,12 @@ import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.harness.research_task_eval import evaluate_research_task_evidence
-from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.agents.lead_agent.v2.runtime import ExecutionAborted, LeadAgentRuntime
 from src.agents.lead_agent.v2.runtime_context import RuntimeContextAssembler
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import DISCOVERY_SCHEMA
 from src.agents.lead_agent.v2.sandbox_artifact_review import collect_sandbox_artifact_candidates
 from src.services.token_usage_collector import record_token_usage
+from src.subagents.v2.base import SubagentContext, SubagentResult
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,6 +33,7 @@ SIMPLE_GRAPH_TEMPLATE = {
                     "name": "make_outline",
                     "subagent_type": "react",
                     "display_name": "Make Outline",
+                    "allow_skillless": True,
                 }
             ],
         }
@@ -86,6 +89,121 @@ def test_capability_policy_preserves_research_evidence_contract() -> None:
         "required_surfaces": ["workflow_trace", "output_ref_reuse"],
         "notes": ["reuse output refs before rerunning"],
     }
+
+
+@pytest.mark.asyncio
+async def test_static_graph_preflight_fails_when_task_skill_is_missing() -> None:
+    graph_template = {
+        "phases": [
+            {
+                "name": "draft",
+                "tasks": [
+                    {
+                        "name": "write",
+                        "subagent_type": "react",
+                        "skill_id": "missing-skill",
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    class _FakeClient:
+        async def list_catalog_skills(self):
+            return []
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with (
+        patch(
+            "src.dataservice_client.provider.dataservice_client",
+            return_value=_FakeClientContext(),
+        ),
+        patch(
+            "src.agents.lead_agent.v2.runtime.compile_graph",
+            side_effect=AssertionError("compile_graph should not run after failed preflight"),
+        ),
+    ):
+        report = await runtime.run_session(execution_id="exec-missing-skill", brief=_make_brief())
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert "unknown capability skill: missing-skill" in report.errors[0].error
+
+
+@pytest.mark.asyncio
+async def test_static_graph_preflight_fails_unknown_research_surface_before_compile() -> None:
+    cap = _make_fake_capability(
+        definition_json={
+            "research_evidence": {
+                "required_surfaces": ["ghost_surface"],
+            }
+        }
+    )
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    with patch(
+        "src.agents.lead_agent.v2.runtime.compile_graph",
+        side_effect=AssertionError("compile_graph should not run after failed preflight"),
+    ):
+        report = await runtime.run_session(
+            execution_id="exec-bad-research-surface",
+            brief=_make_brief(),
+        )
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert "unknown research evidence surfaces" in report.errors[0].error
+
+
+@pytest.mark.asyncio
+async def test_static_graph_preflight_fails_unknown_required_tool_before_compile() -> None:
+    graph_template = {
+        "phases": [
+            {
+                "name": "analysis",
+                "tasks": [
+                    {
+                        "name": "run_analysis",
+                        "subagent_type": "react",
+                        "allow_skillless": True,
+                        "required_tools": ["sandbox.run_command"],
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    with patch(
+        "src.agents.lead_agent.v2.runtime.compile_graph",
+        side_effect=AssertionError("compile_graph should not run after failed preflight"),
+    ):
+        report = await runtime.run_session(
+            execution_id="exec-bad-required-tool",
+            brief=_make_brief(),
+        )
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert "unknown capability tool: sandbox.run_command" in report.errors[0].error
 
 
 @pytest.mark.asyncio
@@ -625,10 +743,11 @@ async def test_stage_prism_review_items_from_writer_output():
             {
                 "name": "write",
                 "tasks": [
-                    {
-                        "name": "manuscript_writer",
-                        "subagent_type": "react",
-                        "outputs": [
+                        {
+                            "name": "manuscript_writer",
+                            "subagent_type": "react",
+                            "allow_skillless": True,
+                            "outputs": [
                             {
                                 "kind": "prism_file_change",
                                 "mapping": {
@@ -740,6 +859,7 @@ async def test_run_session_prism_review_items_satisfy_writing_evidence_eval():
                     {
                         "name": "manuscript_writer",
                         "subagent_type": "react",
+                        "allow_skillless": True,
                         "outputs": [
                             {
                                 "kind": "prism_file_change",
@@ -880,10 +1000,11 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
             {
                 "name": "analysis",
                 "tasks": [
-                    {
-                        "name": "experiment_runner",
-                        "subagent_type": "react",
-                    }
+                        {
+                            "name": "experiment_runner",
+                            "subagent_type": "react",
+                            "allow_skillless": True,
+                        }
                 ],
             }
         ]
@@ -1106,6 +1227,7 @@ async def test_node_recording_adds_harness_file_change_summary_metadata():
                     {
                         "name": "writer",
                         "subagent_type": "react",
+                        "allow_skillless": True,
                     }
                 ],
             }
@@ -1181,6 +1303,7 @@ async def test_node_recording_adds_harness_sandbox_execution_summary_metadata():
                     {
                         "name": "experiment_runner",
                         "subagent_type": "react",
+                        "allow_skillless": True,
                     }
                 ],
             }
@@ -1296,6 +1419,63 @@ async def test_node_recording_adds_harness_sandbox_execution_summary_metadata():
     assert reproducibility["dependency_names"] == ["pandas"]
 
 
+@pytest.mark.asyncio
+async def test_persisting_runner_records_cancelled_node_when_abort_arrives_during_node():
+    graph_template = {
+        "phases": [
+            {
+                "name": "analysis",
+                "tasks": [
+                    {
+                        "name": "slow_task",
+                        "subagent_type": "react",
+                        "allow_skillless": True,
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    node_events: list[dict] = []
+    redis = MagicMock()
+    redis.get = AsyncMock(return_value="1")
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    class HangingSubagent:
+        async def run(self, ctx: SubagentContext) -> SubagentResult:
+            await asyncio.sleep(1)
+            return SubagentResult(output={"too_late": True})
+
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+        record_node_event=record_node_event,
+        redis=redis,
+    )
+    runner_factory = runtime._build_persisting_runner_factory(
+        execution_id="exec-static-cancel-node",
+        graph_template=graph_template,
+    )
+    run_node = runner_factory(HangingSubagent, {"name": "slow_task", "subagent_type": "react"})
+
+    with pytest.raises(ExecutionAborted):
+        await run_node(
+            {
+                "workspace_id": "ws-001",
+                "execution_id": "exec-static-cancel-node",
+                "inputs_for_tasks": {"slow_task": {"topic": "cancel"}},
+                "workspace_data": {},
+                "node_results": {},
+                "capability_policy": {},
+            }
+        )
+
+    assert [event["status"] for event in node_events] == ["running", "cancelled"]
+    assert node_events[-1]["node_id"] == "analysis__slow_task"
+
+
 def test_collect_sandbox_artifact_candidates_rejects_internal_and_traversal_paths():
     node_results = {
         "experiment_runner": {
@@ -1348,6 +1528,7 @@ def test_collect_outputs_adds_policy_memory_candidates_from_brief():
                         {
                             "name": "writer",
                             "subagent_type": "react",
+                            "allow_skillless": True,
                             "outputs": [],
                         }
                     ],
@@ -1402,6 +1583,7 @@ def test_collect_outputs_does_not_duplicate_explicit_memory_outputs():
                         {
                             "name": "writer",
                             "subagent_type": "react",
+                            "allow_skillless": True,
                             "outputs": [
                                 {
                                     "kind": "memory_fact",
@@ -1447,6 +1629,7 @@ async def test_stage_prism_review_items_normalizes_tex_markdown_output():
                     {
                         "name": "manuscript_writer",
                         "subagent_type": "react",
+                        "allow_skillless": True,
                         "outputs": [
                             {
                                 "kind": "prism_file_change",
@@ -1530,6 +1713,7 @@ async def test_stage_prism_review_items_blocks_missing_library_citation_keys():
                     {
                         "name": "manuscript_writer",
                         "subagent_type": "react",
+                        "allow_skillless": True,
                         "outputs": [
                             {
                                 "kind": "prism_file_change",
@@ -1624,6 +1808,7 @@ async def test_stage_prism_review_items_records_valid_library_citation_usage():
                     {
                         "name": "manuscript_writer",
                         "subagent_type": "react",
+                        "allow_skillless": True,
                         "outputs": [
                             {
                                 "kind": "prism_file_change",
@@ -1737,6 +1922,7 @@ async def test_stage_prism_review_items_does_not_record_usage_for_non_library_ke
                     {
                         "name": "manuscript_writer",
                         "subagent_type": "react",
+                        "allow_skillless": True,
                         "outputs": [
                             {
                                 "kind": "prism_file_change",

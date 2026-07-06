@@ -42,6 +42,35 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
     expect(previews[0]?.metadataLines.join(" ")).not.toContain("debug logs");
   });
 
+  it("keeps safe figure image urls and rejects unsafe inline urls", () => {
+    const previews = buildWorkspaceResultPreviewsFromOutputs([
+      {
+        id: "fig-safe",
+        kind: "figure",
+        preview: "Safe figure",
+        data: {
+          title: "Safe figure",
+          preview_url: "/api/workspaces/ws-1/files/outputs/figures/safe.png",
+          image_url: "data:image/png;base64,unsafe",
+        },
+      },
+      {
+        id: "fig-unsafe",
+        kind: "figure",
+        preview: "Unsafe figure",
+        data: {
+          title: "Unsafe figure",
+          preview_url: "javascript:alert(1)",
+        },
+      },
+    ]);
+
+    expect(previews[0]?.previewUrl).toBe(
+      "/api/workspaces/ws-1/files/outputs/figures/safe.png",
+    );
+    expect(previews[1]?.previewUrl).toBeNull();
+  });
+
   it("projects figure-like document outputs as figure image previews", () => {
     const previews = buildWorkspaceResultPreviewsFromOutputs([
       {
@@ -71,6 +100,34 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
       subtitle: "Ablation comparison for accepted variants.",
     });
     expect(previews[0]?.metadataLines).toEqual([]);
+  });
+
+  it("projects document diff outputs as readable diff previews", () => {
+    const previews = buildWorkspaceResultPreviewsFromOutputs([
+      {
+        id: "doc-diff-1",
+        kind: "document",
+        preview: "研究方法修改",
+        data: {
+          name: "method.md",
+          mime_type: "text/markdown",
+          diff: {
+            summary: "补充数据来源说明。",
+            before: "我们使用公开数据。",
+            after: "我们使用 Kaggle 公开数据集，并记录下载时间。",
+          },
+        },
+      },
+    ]);
+
+    expect(previews[0]).toMatchObject({
+      id: "doc-diff-1",
+      kind: "document",
+      previewMode: "document_diff",
+      title: "研究方法修改",
+    });
+    expect(previews[0]?.previewText).toContain("修改前");
+    expect(previews[0]?.previewText).toContain("修改后");
   });
 
   it("projects sandbox figure review items as image previews without making them output-committable", () => {
@@ -165,5 +222,36 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
       canCommit: false,
     });
     expect(previews[1]?.metadataLines.join(" ")).toContain("状态 阻断");
+  });
+
+  it("projects review packet document diffs as readable diff previews", () => {
+    const previews = buildWorkspaceResultPreviewsFromReviewPacket({
+      packet_id: "packet-diff",
+      completion_status: "partial",
+      items: [
+        {
+          item_id: "writer-diff",
+          kind: "document",
+          title: "主稿修改",
+          summary: "改写方法段落。",
+          preview: {
+            format: "diff",
+            before: "原方法段落。",
+            after: "改写后的方法段落。",
+          },
+          default_checked: false,
+          can_commit: true,
+        },
+      ],
+    });
+
+    expect(previews[0]).toMatchObject({
+      id: "packet:writer-diff",
+      kind: "document",
+      previewMode: "document_diff",
+      title: "主稿修改",
+    });
+    expect(previews[0]?.previewText).toContain("修改前");
+    expect(previews[0]?.previewText).toContain("修改后");
   });
 });

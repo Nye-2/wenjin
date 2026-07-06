@@ -184,6 +184,21 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
+                check_id="change_set_writeback_gate",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/contracts/test_change_set.py",
+                    "tests/services/test_change_policy.py",
+                    "tests/services/test_change_set_service.py",
+                    "tests/services/test_change_set_review_service.py",
+                    "tests/services/test_execution_commit_service.py",
+                    "tests/gateway/routers/test_execution_commit_router.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
                 check_id="execution_commit_writeback_security",
                 command=self._uv_command(
                     "run",
@@ -215,6 +230,21 @@ class ReleaseGateService:
                     "tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy",
                     "tests/integration/test_chat_to_feature_launch.py",
                     "tests/tools/test_launch_feature_tool.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
+                check_id="execution_worker_lease_gate",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/dataservice/test_execution_domain.py",
+                    "tests/dataservice/test_foundation.py::test_dataservice_client_claim_and_heartbeat_execution_lease",
+                    "tests/services/test_execution_service_node_state.py",
+                    "tests/task/test_execution_task.py",
+                    "tests/execution/test_engine.py",
+                    "tests/services/test_execution_cancel.py",
                     "-q",
                 ),
                 cwd=self.backend_root,
@@ -272,6 +302,23 @@ class ReleaseGateService:
             ReleaseGateCommand(
                 check_id="frontend_lint",
                 command=("npm", "run", "lint"),
+                cwd=self.project_root / "frontend",
+            ),
+            ReleaseGateCommand(
+                check_id="frontend_review_changes_gate",
+                command=(
+                    "npx",
+                    "vitest",
+                    "run",
+                    "tests/unit/v2/CompletedView.test.tsx",
+                    "tests/unit/v2/ResultCard.test.tsx",
+                    "tests/unit/v2/ResultPreviewRenderer.test.tsx",
+                    "tests/unit/lib/workspace-result-preview.test.ts",
+                    "tests/unit/lib/execution-commit.test.ts",
+                    "tests/unit/v2/execution-run-view.test.ts",
+                    "tests/unit/v2/LiveWorkflowPanel.test.tsx",
+                    "tests/unit/v2/live-workflow-view-model.test.ts",
+                ),
                 cwd=self.project_root / "frontend",
             ),
             ReleaseGateCommand(

@@ -6,24 +6,29 @@ of user selection). Idempotent via idempotency_key (Redis-backed cache, 24h TTL)
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import json
 import logging
 import re
 import uuid
-import hashlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 
 from src.agents.contracts.task_report import TaskReport
+from src.contracts.change_set import ChangeSet
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.execution import ExecutionEventCreatePayload
 from src.dataservice_client.contracts.prism import (
     PrismFileRestorePayload,
     PrismWorkspaceFileUpsertPayload,
 )
-from src.dataservice_client.contracts.rooms import RoomCandidatePayload
+from src.dataservice_client.contracts.rooms import (
+    DecisionSetPayload,
+    WorkspaceTaskCreatePayload,
+)
 from src.dataservice_client.contracts.source import (
     SourceExternalIdCreatePayload,
     SourceImportPayload,
@@ -33,6 +38,10 @@ from src.dataservice_client.contracts.workspace_memory import (
     WorkspaceMemoryMergePayload,
 )
 from src.dataservice_client.provider import dataservice_client
+from src.services.change_unit_materializer import (
+    ChangeUnitMaterializationResult,
+    materialize_accepted_change_units,
+)
 from src.services.execution_service import ExecutionService
 from src.services.references import SourceBibliographyService
 from src.workspace_events import publish_workspace_event
@@ -41,9 +50,81 @@ logger = logging.getLogger(__name__)
 
 _CITATION_KEY_RE = re.compile(r"[^a-z0-9]+")
 _PRISM_SUPPORTED_EXTENSIONS = {".md", ".markdown", ".tex", ".bib", ".png", ".jpg", ".jpeg", ".webp", ".svg"}
-_COUNT_ROOM_KEYS = ("library", "prism", "memory", "decisions", "tasks")
-_ROOM_TARGET_KEYS = ("prism", "library", "memory", "decisions", "tasks")
+_COUNT_ROOM_KEYS = ("library", "prism", "memory", "decisions", "tasks", "sandbox", "settings")
+_ROOM_TARGET_KEYS = ("prism", "library", "memory", "decisions", "tasks", "sandbox", "settings")
+_CHANGE_UNIT_MATERIALIZATION_RESULT_KEY = "change_unit_materialization"
+_CHANGE_SET_TEMP_RESULT_KEYS = [
+    "change_set",
+    "change_set_review_state",
+    "unit_states",
+    _CHANGE_UNIT_MATERIALIZATION_RESULT_KEY,
+]
+_RECEIPT_ROOM_TARGET_KEYS = (
+    "output_id",
+    "item_id",
+    "file_id",
+    "path",
+    "content_hash",
+    "document_id",
+    "revision",
+)
 _COMMIT_LOCK_TTL_SECONDS = 60
+_MAX_COMMIT_ID_COUNT = 200
+_MAX_COMMIT_ID_LENGTH = 160
+_BULK_UNSAFE_KINDS = {"decision", "library_item"}
+_BULK_UNSAFE_REVIEW_KINDS = {"reference", "warning"}
+_BULK_UNSAFE_REVIEW_RISK_LEVELS = {"medium", "high", "critical"}
+_BULK_UNSAFE_FLAG_KEYS = {
+    "citation_audit",
+    "citation_gap",
+    "evidence_gap",
+    "manual_review_required",
+    "needs_review",
+    "requires_manual_review",
+    "review_required",
+    "unsupported_claim",
+}
+_BULK_UNSAFE_REF_KEYS = {
+    "claim_refs",
+    "evidence_refs",
+}
+_BULK_UNSAFE_STATUS_KEYS = {
+    "risk",
+    "risk_level",
+    "support_level",
+    "support_state",
+    "support_status",
+}
+_BULK_UNSAFE_STATUS_VALUES = {
+    "blocked",
+    "blocker",
+    "critical",
+    "evidence_gap",
+    "high",
+    "manual_review",
+    "medium",
+    "needs_review",
+    "requires_manual_review",
+    "unsupported",
+    "unsupported_claim",
+    "weak",
+}
+_BULK_UNSAFE_STRUCTURED_VALUES = {
+    "citation_audit",
+    "citation_gap",
+    "evidence_gap",
+    "manual_review_required",
+    "requires_manual_review",
+    "review_required",
+    "unsupported_claim",
+}
+_MEMORY_STRONG_UNSAFE_PHRASES = (
+    "citation gap",
+    "evidence gap",
+    "manual review required",
+    "requires manual review",
+    "unsupported claim",
+)
 
 
 class ExecutionCommitNotFoundError(LookupError):
@@ -150,6 +231,7 @@ class ExecutionCommitService:
         actor_user_id: str,
         accept_all: bool = False,
         accepted_ids: list[str] | None = None,
+        accepted_unit_ids: list[str] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Commit accepted outputs to rooms and record run history.
@@ -158,7 +240,8 @@ class ExecutionCommitService:
             execution_id: The execution to commit outputs for.
             actor_user_id: Authenticated user attempting the writeback.
             accept_all: If True, all outputs in the TaskReport are written.
-            accepted_ids: Specific output IDs to write (ignored when accept_all=True).
+            accepted_ids: Specific historical output IDs to write (ignored when accept_all=True).
+            accepted_unit_ids: Specific accepted ChangeUnit IDs to materialize.
             idempotency_key: Optional key for idempotent repeat calls (24h cache).
 
         Returns:
@@ -174,6 +257,7 @@ class ExecutionCommitService:
             raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
         if str(execution.user_id) != str(actor_user_id):
             raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+        await self._ensure_active_workspace_membership(execution, actor_user_id=actor_user_id)
 
         result_payload = _execution_result_payload(execution)
         if result_payload is not None:
@@ -190,24 +274,52 @@ class ExecutionCommitService:
         # 3. Select outputs. Partial/cancelled runs may expose useful candidates,
         # but they must be intentionally selected by the user.
         output_by_id = {output.id: output for output in report.outputs}
-        if accept_all:
+        selected_unit_ids: list[str] | None = None
+        selected_change_set: ChangeSet | None = None
+        has_change_set = _result_has_change_set(result_payload)
+        if accept_all and accepted_unit_ids is not None:
+            raise ValueError("accept_all cannot be combined with accepted_unit_ids")
+        if accepted_ids is not None and accepted_unit_ids is not None:
+            raise ValueError("accepted_ids cannot be combined with accepted_unit_ids")
+        if has_change_set and accepted_unit_ids is None and (accept_all or accepted_ids is not None):
+            raise ValueError("ChangeSet executions must be saved with accepted_unit_ids")
+
+        if accepted_unit_ids is not None:
+            selection_provided = True
+            unit_selection = _select_outputs_for_change_units(
+                result_payload,
+                report=report,
+                accepted_unit_ids=accepted_unit_ids,
+            )
+            selected = unit_selection["outputs"]
+            selected_unit_ids = unit_selection["unit_ids"]
+            selected_change_set = unit_selection["change_set"]
+        elif accept_all:
             selection_provided = True
             if report.status != "completed":
                 raise ValueError(
                     "accept_all is only allowed for completed executions; "
                     "use accepted_ids for partial results"
                 )
+            if _report_has_bulk_unsafe_outputs(report):
+                raise ValueError(
+                    "Some outputs need explicit review/selection before they can be "
+                    "saved. Review and select those outputs individually instead of "
+                    "using accept all."
+                )
             selected = list(report.outputs)
+            _validate_selected_outputs_against_change_set(result_payload, selected)
         elif accepted_ids is not None:
             selection_provided = True
-            id_set = set(accepted_ids)
+            id_set = set(_normalize_selected_ids(accepted_ids, field_name="accepted_ids"))
             missing_ids = sorted(id_set - set(output_by_id))
             if missing_ids:
                 raise ValueError(
                     "accepted_ids contains unknown output id(s): "
-                    + ", ".join(missing_ids)
+                    + _format_limited_id_list(missing_ids)
                 )
             selected = [o for o in report.outputs if o.id in id_set]
+            _validate_selected_outputs_against_change_set(result_payload, selected)
         else:
             selection_provided = False
             selected = []
@@ -269,185 +381,225 @@ class ExecutionCommitService:
                 )
             if str(claim_execution.user_id) != str(actor_user_id):
                 raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+            await self._ensure_active_workspace_membership(
+                claim_execution,
+                actor_user_id=actor_user_id,
+            )
             if not claim_execution.result or "task_report" not in claim_execution.result:
                 raise ValueError(f"execution {execution_id} has no task_report")
             execution = claim_execution
+            report = TaskReport.model_validate(execution.result["task_report"])
+            if selected_unit_ids is not None:
+                unit_selection = _select_outputs_for_change_units(
+                    execution.result,
+                    report=report,
+                    accepted_unit_ids=selected_unit_ids,
+                )
+                selected = unit_selection["outputs"]
+                selected_unit_ids = unit_selection["unit_ids"]
+                selected_change_set = unit_selection["change_set"]
+            else:
+                _validate_selected_outputs_against_change_set(execution.result, selected)
             claimed_for_materialization = True
-
-            room_candidates: list[RoomCandidatePayload] = []
 
             # 5. Write to rooms
             async with self._client() as dataservice:
-                existing_prism_files_by_path = await _existing_prism_files_by_path(
-                    dataservice=dataservice,
-                    workspace_id=execution.workspace_id,
-                )
-                memory_items: list[tuple[str, WorkspaceMemoryItemPayload]] = []
-                for output in selected:
-                    kind = output.kind
-                    data = (
-                        output.data.model_dump()
-                        if hasattr(output.data, "model_dump")
-                        else dict(output.data)
+                if selected_unit_ids is not None:
+                    if selected_change_set is None:
+                        raise ExecutionCommitPersistenceError(
+                            "accepted_unit_ids requires a valid ChangeSet"
+                        )
+                    progress_state = _change_unit_materialization_progress(
+                        execution.result,
+                        execution_id=execution_id,
+                        accepted_unit_ids=selected_unit_ids,
                     )
+                    counts = _merge_counts(counts, progress_state["counts"])
+                    room_targets = _merge_room_targets(
+                        room_targets,
+                        progress_state["room_targets"],
+                    )
+                    completed_unit_ids: set[str] = set(progress_state["completed_unit_ids"])
 
-                    if kind == "library_item":
-                        import_result = await dataservice.import_source(
-                            _source_import_payload(
-                                workspace_id=execution.workspace_id,
-                                execution_id=execution_id,
+                    async def record_unit_materialized(
+                        unit_id: str,
+                        unit_result: ChangeUnitMaterializationResult,
+                    ) -> None:
+                        nonlocal counts, room_targets
+
+                        counts = _merge_counts(counts, unit_result.counts)
+                        room_targets = _merge_room_targets(
+                            room_targets,
+                            unit_result.room_targets,
+                        )
+                        completed_unit_ids.add(unit_id)
+                        await self.execution.patch_execution_result(
+                            execution_id,
+                            result_patch={
+                                _CHANGE_UNIT_MATERIALIZATION_RESULT_KEY: (
+                                    _build_change_unit_materialization_progress(
+                                        execution_id=execution_id,
+                                        accepted_unit_ids=selected_unit_ids or [],
+                                        completed_unit_ids=completed_unit_ids,
+                                        counts=counts,
+                                        room_targets=room_targets,
+                                    )
+                                )
+                            },
+                            commit=True,
+                        )
+
+                    materialized = await materialize_accepted_change_units(
+                        dataservice=dataservice,
+                        execution=execution,
+                        report=report,
+                        change_set=selected_change_set,
+                        accepted_unit_ids=selected_unit_ids,
+                        completed_unit_ids=completed_unit_ids,
+                        on_unit_materialized=record_unit_materialized,
+                    )
+                    if not completed_unit_ids:
+                        counts = _merge_counts(counts, materialized.counts)
+                        room_targets = _merge_room_targets(
+                            room_targets,
+                            materialized.room_targets,
+                        )
+                else:
+                    existing_prism_files_by_path = await _existing_prism_files_by_path(
+                        dataservice=dataservice,
+                        workspace_id=execution.workspace_id,
+                    )
+                    memory_items: list[tuple[str, WorkspaceMemoryItemPayload]] = []
+                    for output in selected:
+                        kind = output.kind
+                        data = (
+                            output.data.model_dump()
+                            if hasattr(output.data, "model_dump")
+                            else dict(output.data)
+                        )
+
+                        if kind == "library_item":
+                            import_result = await dataservice.import_source(
+                                _source_import_payload(
+                                    workspace_id=execution.workspace_id,
+                                    execution_id=execution_id,
+                                    data=data,
+                                )
+                            )
+                            counts["library"] += 1
+                            room_targets["library"].append(
+                                {"output_id": output.id, "item_id": import_result.source.id}
+                            )
+
+                        elif kind == "document":
+                            prism_payload = _document_prism_payload(
+                                execution=execution,
+                                output_id=output.id,
                                 data=data,
                             )
-                        )
-                        counts["library"] += 1
-                        room_targets["library"].append(
-                            {"output_id": output.id, "item_id": import_result.source.id}
-                        )
-
-                    elif kind == "document":
-                        prism_payload = _document_prism_payload(
-                            execution=execution,
-                            output_id=output.id,
-                            data=data,
-                        )
-                        if prism_payload is None:
-                            logger.warning(
-                                "Skipping document commit '%s' for execution %s: no Prism-compatible content",
-                                data.get("name"),
-                                execution_id,
+                            if prism_payload is None:
+                                logger.warning(
+                                    "Skipping document commit '%s' for execution %s: no Prism-compatible content",
+                                    data.get("name"),
+                                    execution_id,
+                                )
+                                continue
+                            previous_file = existing_prism_files_by_path.get(prism_payload.path)
+                            write = await dataservice.upsert_prism_workspace_file(
+                                execution.workspace_id,
+                                prism_payload,
                             )
-                            continue
-                        previous_file = existing_prism_files_by_path.get(prism_payload.path)
-                        write = await dataservice.upsert_prism_workspace_file(
-                            execution.workspace_id,
-                            prism_payload,
-                        )
-                        existing_prism_files_by_path[write.file.path] = write.file
-                        if write.changed and write.version is not None:
-                            counts["prism"] += 1
-                            room_targets["prism"].append(
-                                _prism_room_target(
-                                    output_id=output.id,
-                                    file_id=write.file.id,
-                                    path=write.file.path,
-                                    version_id=write.version.id,
-                                    content_hash=write.version.content_hash,
-                                    previous_version_id=(
-                                        previous_file.current_version_id
-                                        if previous_file is not None
-                                        else None
+                            existing_prism_files_by_path[write.file.path] = write.file
+                            if write.changed and write.version is not None:
+                                counts["prism"] += 1
+                                room_targets["prism"].append(
+                                    _prism_room_target(
+                                        output_id=output.id,
+                                        file_id=write.file.id,
+                                        path=write.file.path,
+                                        version_id=write.version.id,
+                                        content_hash=write.version.content_hash,
+                                        previous_version_id=(
+                                            previous_file.current_version_id
+                                            if previous_file is not None
+                                            else None
+                                        ),
+                                        previous_hash=(
+                                            previous_file.content_hash
+                                            if previous_file is not None
+                                            else None
+                                        ),
+                                        created_file=previous_file is None,
+                                    )
+                                )
+
+                        elif kind == "memory_fact":
+                            memory_items.append(
+                                (
+                                    output.id,
+                                    WorkspaceMemoryItemPayload(
+                                        category=str(data.get("category") or "context"),
+                                        content=str(data.get("content") or ""),
+                                        confidence=float(data.get("confidence", 1.0) or 1.0),
                                     ),
-                                    previous_hash=(
-                                        previous_file.content_hash
-                                        if previous_file is not None
-                                        else None
-                                    ),
-                                    created_file=previous_file is None,
                                 )
                             )
 
-                    elif kind == "memory_fact":
-                        memory_items.append(
-                            (
-                                output.id,
-                                WorkspaceMemoryItemPayload(
-                                    category=str(data.get("category") or "context"),
-                                    content=str(data.get("content") or ""),
+                        elif kind == "decision":
+                            decision = await dataservice.set_room_decision(
+                                DecisionSetPayload(
+                                    workspace_id=execution.workspace_id,
+                                    key=str(data["key"]),
+                                    value=str(data["value"]),
                                     confidence=float(data.get("confidence", 1.0) or 1.0),
-                                ),
+                                    extracted_by=f"execution:{execution_id}",
+                                )
                             )
+                            counts["decisions"] += 1
+                            room_targets["decisions"].append(
+                                {"output_id": output.id, "item_id": decision.id}
+                            )
+
+                        elif kind == "task":
+                            priority = data["priority"] if isinstance(data.get("priority"), int) else 0
+                            task = await dataservice.create_room_task(
+                                WorkspaceTaskCreatePayload(
+                                    workspace_id=execution.workspace_id,
+                                    title=str(data["title"]),
+                                    description=data.get("description"),
+                                    priority=priority,
+                                    related_execution_ids=[execution_id],
+                                    created_by=f"execution:{execution_id}",
+                                )
+                            )
+                            counts["tasks"] += 1
+                            room_targets["tasks"].append(
+                                {"output_id": output.id, "item_id": task.id}
+                            )
+
+                    if memory_items:
+                        memory_review_result = await dataservice.merge_workspace_memory(
+                            execution.workspace_id,
+                            WorkspaceMemoryMergePayload(
+                                workspace_id=execution.workspace_id,
+                                items=[item for _, item in memory_items],
+                                update_reason="execution_commit",
+                                updated_by=f"execution:{execution_id}",
+                                source_execution_id=execution_id,
+                            ),
                         )
-
-                    elif kind == "decision":
-                        room_candidates.append(
-                            RoomCandidatePayload(
-                                source_item_id=output.id,
-                                target_kind="decision",
-                                title=f"Decision: {data['key']}",
-                                summary=data["value"],
-                                payload_json={
-                                    "key": data["key"],
-                                    "value": data["value"],
-                                    "confidence": data.get("confidence", 1.0),
-                                    "extracted_by": f"execution:{execution_id}",
-                                },
-                                preview_json={"key": data["key"], "value": data["value"]},
-                                provenance_json={
-                                    "execution_id": execution_id,
-                                    "output_id": output.id,
-                                },
-                            )
-                        )
-
-                    elif kind == "task":
-                        priority = data["priority"] if isinstance(data.get("priority"), int) else 0
-                        room_candidates.append(
-                            RoomCandidatePayload(
-                                source_item_id=output.id,
-                                target_kind="workspace_task",
-                                title=f"Task: {data['title']}",
-                                summary=data.get("description"),
-                                payload_json={
-                                    "title": data["title"],
-                                    "description": data.get("description"),
-                                    "priority": priority,
-                                    "related_execution_ids": [execution_id],
-                                    "created_by": f"execution:{execution_id}",
-                                },
-                                preview_json={"title": data["title"]},
-                                provenance_json={
-                                    "execution_id": execution_id,
-                                    "output_id": output.id,
-                                },
-                            )
-                        )
-
-                room_review_result = None
-                if room_candidates:
-                    room_review_result = await dataservice.stage_and_apply_room_candidates(
-                        workspace_id=execution.workspace_id,
-                        execution_id=execution_id,
-                        candidates=room_candidates,
-                    )
-                    for key, value in room_review_result.counts.items():
-                        if key in counts:
-                            counts[key] += value
-                    for item in room_review_result.item_results:
-                        room = item.get("room")
-                        source_item_id = item.get("source_item_id")
-                        record_id = item.get("record_id")
-                        if room in room_targets and source_item_id and record_id:
-                            room_targets[room].append(
-                                {
-                                    "output_id": str(source_item_id),
-                                    "item_id": str(record_id),
-                                }
-                            )
-
-                memory_review_result = None
-                if memory_items:
-                    memory_review_result = await dataservice.merge_workspace_memory(
-                        execution.workspace_id,
-                        WorkspaceMemoryMergePayload(
-                            workspace_id=execution.workspace_id,
-                            items=[item for _, item in memory_items],
-                            update_reason="execution_commit",
-                            updated_by=f"execution:{execution_id}",
-                            source_execution_id=execution_id,
-                        ),
-                    )
-                    if memory_review_result.changed:
-                        counts["memory"] += 1
-                        for output_id, _item in memory_items:
-                            room_targets["memory"].append(
-                                {
-                                    "output_id": output_id,
-                                    "item_id": memory_review_result.document.id,
-                                    "document_id": memory_review_result.document.id,
-                                    "revision": str(memory_review_result.document.revision),
-                                    "content_hash": memory_review_result.document.content_hash,
-                                }
-                            )
+                        if memory_review_result.changed:
+                            counts["memory"] += 1
+                            for output_id, _item in memory_items:
+                                room_targets["memory"].append(
+                                    {
+                                        "output_id": output_id,
+                                        "item_id": memory_review_result.document.id,
+                                        "document_id": memory_review_result.document.id,
+                                        "revision": str(memory_review_result.document.revision),
+                                        "content_hash": memory_review_result.document.content_hash,
+                                    }
+                                )
 
                 if counts["library"] > 0:
                     await self._sync_prism_bibliography(
@@ -469,7 +621,10 @@ class ExecutionCommitService:
                             "status": report.status,
                             "duration_seconds": report.duration_seconds,
                             "token_usage": report.token_usage or {},
-                            "artifact_count": len(selected),
+                            "artifact_count": _committed_artifact_count(
+                                selected_outputs=selected,
+                                selected_unit_ids=selected_unit_ids,
+                            ),
                         },
                     ),
                 )
@@ -478,7 +633,10 @@ class ExecutionCommitService:
             accepted_output_ids = [output.id for output in selected]
             accepted_output_id_set = set(accepted_output_ids)
             commit_state = _build_commit_state(
-                status="committed" if selected else "discarded",
+                status=_commit_status_for_selection(
+                    selected_outputs=selected,
+                    selected_unit_ids=selected_unit_ids,
+                ),
                 accepted_ids=accepted_output_ids,
                 rejected_ids=[
                     output.id
@@ -488,22 +646,19 @@ class ExecutionCommitService:
                 counts=counts,
                 room_targets=room_targets,
                 committed_at=committed_at,
-                review_batch_id=(
-                    room_review_result.review_batch_id
-                    if room_review_result is not None
-                    else None
-                ),
+                accepted_unit_ids=selected_unit_ids,
             )
             result = _response_from_commit_state(commit_state)
-            if room_review_result is not None:
-                result["review_batch_id"] = room_review_result.review_batch_id
-                result["room_review_results"] = room_review_result.item_results
 
-            result_payload = dict(execution.result)
+            result_payload, delete_result_keys = _compact_change_set_after_commit(
+                dict(execution.result),
+                commit_state=commit_state,
+            )
             result_payload["commit_state"] = commit_state
             persisted_execution = await self.execution.finalize_execution_commit(
                 execution_id,
                 result=result_payload,
+                delete_result_keys=delete_result_keys,
                 commit_token=commit_token,
                 commit=True,
             )
@@ -596,6 +751,7 @@ class ExecutionCommitService:
             raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
         if str(execution.user_id) != str(actor_user_id):
             raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+        await self._ensure_active_workspace_membership(execution, actor_user_id=actor_user_id)
 
         result_payload = _execution_result_payload(execution)
         if result_payload is None:
@@ -674,12 +830,18 @@ class ExecutionCommitService:
                 if deleted:
                     revert_counts["tasks"] += 1
 
+        for room in ("sandbox", "settings"):
+            for target in room_targets[room]:
+                revert_skipped.setdefault(room, []).append(
+                    _manual_revert_skip_target(target)
+                )
+
         reverted_state = _build_reverted_commit_state(
             commit_state,
             reverted_at=datetime.now(UTC).isoformat(),
             reverted_by=actor_user_id,
             revert_counts=revert_counts,
-            revert_skipped=revert_skipped,
+            revert_skipped=_non_empty_revert_skipped(revert_skipped),
         )
         next_result_payload = dict(result_payload)
         next_result_payload["commit_state"] = reverted_state
@@ -715,6 +877,7 @@ class ExecutionCommitService:
                         "runs",
                         "references",
                         "prism",
+                        "settings",
                     ]
                 },
             )
@@ -745,6 +908,27 @@ class ExecutionCommitService:
 
         referral_svc = ReferralService()
         await referral_svc.fire_first_task_for_referrer(user_id)
+
+    async def _ensure_active_workspace_membership(
+        self,
+        execution: Any,
+        *,
+        actor_user_id: str,
+    ) -> None:
+        workspace_id = str(getattr(execution, "workspace_id", "") or "")
+        if not workspace_id:
+            return
+        async with self._client() as dataservice:
+            checker = getattr(dataservice, "workspace_has_active_membership", None)
+            if not callable(checker):
+                return
+            result = checker(workspace_id=workspace_id, user_id=str(actor_user_id))
+            if inspect.isawaitable(result):
+                result = await result
+            if result is False:
+                raise ExecutionCommitNotFoundError(
+                    f"execution {getattr(execution, 'id', '')} not found"
+                )
 
     async def _sync_prism_bibliography(
         self,
@@ -801,11 +985,569 @@ def _empty_room_targets() -> dict[str, list[dict[str, Any]]]:
     return {key: [] for key in _ROOM_TARGET_KEYS}
 
 
+def _merge_counts(
+    base: dict[str, int],
+    incoming: dict[str, Any] | None,
+) -> dict[str, int]:
+    merged = {key: int(base.get(key, 0)) for key in _COUNT_ROOM_KEYS}
+    for key in _COUNT_ROOM_KEYS:
+        value = (incoming or {}).get(key, 0)
+        merged[key] += int(value) if isinstance(value, int) and not isinstance(value, bool) else 0
+    return merged
+
+
+def _merge_room_targets(
+    base: dict[str, list[dict[str, Any]]],
+    incoming: dict[str, Any] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    merged = _copy_room_targets(base)
+    if not isinstance(incoming, dict):
+        return merged
+    seen = {
+        _room_target_identity(room, target)
+        for room, targets in merged.items()
+        for target in targets
+    }
+    for room in _ROOM_TARGET_KEYS:
+        targets = incoming.get(room)
+        if not isinstance(targets, list):
+            continue
+        for target in targets:
+            if not isinstance(target, dict):
+                continue
+            compact = dict(target)
+            identity = _room_target_identity(room, compact)
+            if identity in seen:
+                continue
+            merged[room].append(compact)
+            seen.add(identity)
+    return merged
+
+
+def _commit_status_for_selection(
+    *,
+    selected_outputs: list[Any],
+    selected_unit_ids: list[str] | None,
+) -> str:
+    if selected_unit_ids is not None:
+        return "committed" if selected_unit_ids else "discarded"
+    return "committed" if selected_outputs else "discarded"
+
+
+def _committed_artifact_count(
+    *,
+    selected_outputs: list[Any],
+    selected_unit_ids: list[str] | None,
+) -> int:
+    return len(selected_unit_ids) if selected_unit_ids is not None else len(selected_outputs)
+
+
+def _room_target_identity(room: str, target: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        room,
+        str(target.get("unit_id") or ""),
+        str(target.get("item_id") or target.get("file_id") or target.get("artifact_id") or ""),
+        str(target.get("path") or target.get("output_id") or ""),
+    )
+
+
+def _change_unit_materialization_progress(
+    result_payload: dict[str, Any] | None,
+    *,
+    execution_id: str,
+    accepted_unit_ids: list[str],
+) -> dict[str, Any]:
+    accepted = list(dict.fromkeys(accepted_unit_ids))
+    accepted_set = set(accepted)
+    empty = {
+        "completed_unit_ids": [],
+        "counts": _empty_counts(),
+        "room_targets": _empty_room_targets(),
+    }
+    if not isinstance(result_payload, dict):
+        return empty
+    raw = result_payload.get(_CHANGE_UNIT_MATERIALIZATION_RESULT_KEY)
+    if not isinstance(raw, dict):
+        return empty
+    raw_execution_id = raw.get("execution_id")
+    if raw_execution_id and str(raw_execution_id) != str(execution_id):
+        return empty
+    raw_accepted_value = raw.get("accepted_unit_ids")
+    raw_accepted = (
+        [str(unit_id) for unit_id in raw_accepted_value]
+        if isinstance(raw_accepted_value, list)
+        else []
+    )
+    if raw_accepted and raw_accepted != accepted:
+        return empty
+
+    raw_completed_value = raw.get("completed_unit_ids")
+    raw_completed = raw_completed_value if isinstance(raw_completed_value, list) else []
+    completed = [
+        str(unit_id)
+        for unit_id in raw_completed
+        if str(unit_id) in accepted_set
+    ]
+    if not completed:
+        return empty
+
+    room_targets = _empty_room_targets()
+    completed_set = set(completed)
+    for room, targets in _copy_room_targets(raw.get("room_targets")).items():
+        room_targets[room] = [
+            target
+            for target in targets
+            if str(target.get("unit_id") or "") in completed_set
+        ]
+
+    raw_counts = raw.get("counts")
+    counts = raw_counts if isinstance(raw_counts, dict) else {}
+    return {
+        "completed_unit_ids": completed,
+        "counts": {
+            key: int(counts.get(key, 0))
+            if isinstance(counts.get(key, 0), int)
+            and not isinstance(counts.get(key, 0), bool)
+            else 0
+            for key in _COUNT_ROOM_KEYS
+        },
+        "room_targets": room_targets,
+    }
+
+
+def _build_change_unit_materialization_progress(
+    *,
+    execution_id: str,
+    accepted_unit_ids: list[str],
+    completed_unit_ids: set[str],
+    counts: dict[str, int],
+    room_targets: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    accepted = list(dict.fromkeys(accepted_unit_ids))
+    ordered_completed = [unit_id for unit_id in accepted if unit_id in completed_unit_ids]
+    return {
+        "schema_version": "wenjin.change_unit_materialization.v1",
+        "execution_id": execution_id,
+        "accepted_unit_ids": accepted,
+        "completed_unit_ids": ordered_completed,
+        "counts": {key: int(counts.get(key, 0)) for key in _COUNT_ROOM_KEYS},
+        "room_targets": _copy_room_targets(room_targets),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+
+
 def _noop_commit_response() -> dict[str, Any]:
     return {
         "committed": _empty_counts(),
         "room_targets": _empty_room_targets(),
     }
+
+
+def _normalize_selected_ids(values: list[str], *, field_name: str) -> list[str]:
+    if len(values) > _MAX_COMMIT_ID_COUNT:
+        raise ValueError(f"{field_name} must contain at most {_MAX_COMMIT_ID_COUNT} ids")
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item_id = str(value or "").strip()
+        if not item_id:
+            raise ValueError(f"{field_name} must not contain blank ids")
+        if len(item_id) > _MAX_COMMIT_ID_LENGTH:
+            raise ValueError(f"{field_name} contains an id longer than {_MAX_COMMIT_ID_LENGTH} chars")
+        if item_id in seen:
+            continue
+        result.append(item_id)
+        seen.add(item_id)
+    return result
+
+
+def _validate_selected_outputs_against_change_set(
+    result_payload: dict[str, Any] | None,
+    selected_outputs: list[Any],
+) -> None:
+    if not selected_outputs or result_payload is None:
+        return
+    raw_change_set = result_payload.get("change_set")
+    if not isinstance(raw_change_set, dict):
+        return
+    try:
+        change_set = ChangeSet.model_validate(raw_change_set)
+    except Exception as exc:
+        raise ValueError("execution ChangeSet is invalid; refresh and review changes again") from exc
+
+    review_state = _normalized_change_set_review_state(
+        result_payload.get("change_set_review_state")
+    )
+    units_by_output_id: dict[str, list[Any]] = {}
+    for unit in change_set.units:
+        output_id = _clean_optional_id(unit.provenance.get("output_id"))
+        if not output_id:
+            continue
+        units_by_output_id.setdefault(output_id, []).append(unit)
+
+    rejected_output_ids: list[str] = []
+    blocked_output_ids: list[str] = []
+    missing_output_ids: list[str] = []
+    for output in selected_outputs:
+        output_id = _clean_optional_id(getattr(output, "id", None))
+        if not output_id:
+            continue
+        units = units_by_output_id.get(output_id) or []
+        if not units:
+            missing_output_ids.append(output_id)
+            continue
+        if any(unit.default_apply_state == "blocked" for unit in units):
+            blocked_output_ids.append(output_id)
+            continue
+        if any(_effective_change_unit_state(unit.id, unit.default_apply_state, review_state) != "accepted" for unit in units):
+            rejected_output_ids.append(output_id)
+
+    if missing_output_ids:
+        raise ValueError(
+            "selected output id(s) are not present in this execution ChangeSet: "
+            + _format_limited_id_list(sorted(missing_output_ids))
+        )
+    if blocked_output_ids:
+        raise ValueError(
+            "selected output id(s) are blocked and cannot be saved directly: "
+            + _format_limited_id_list(sorted(blocked_output_ids))
+        )
+    if rejected_output_ids:
+        raise ValueError(
+            "selected output id(s) must be accepted in Review & Changes before saving: "
+            + _format_limited_id_list(sorted(rejected_output_ids))
+        )
+
+
+def _result_has_change_set(result_payload: dict[str, Any] | None) -> bool:
+    return isinstance(result_payload, dict) and isinstance(result_payload.get("change_set"), dict)
+
+
+def _select_outputs_for_change_units(
+    result_payload: dict[str, Any] | None,
+    *,
+    report: TaskReport,
+    accepted_unit_ids: list[str],
+) -> dict[str, Any]:
+    if result_payload is None:
+        raise ValueError("accepted_unit_ids can only be used when execution has a result payload")
+    raw_change_set = result_payload.get("change_set")
+    if not isinstance(raw_change_set, dict):
+        raise ValueError("accepted_unit_ids can only be used when execution has a ChangeSet")
+    try:
+        change_set = ChangeSet.model_validate(raw_change_set)
+    except Exception as exc:
+        raise ValueError("execution ChangeSet is invalid; refresh and review changes again") from exc
+
+    selected_unit_ids = _normalize_selected_ids(
+        accepted_unit_ids,
+        field_name="accepted_unit_ids",
+    )
+    units_by_id = {unit.id: unit for unit in change_set.units}
+    missing_unit_ids = sorted(set(selected_unit_ids) - set(units_by_id))
+    if missing_unit_ids:
+        raise ValueError(
+            "accepted_unit_ids contains unknown unit id(s): "
+            + _format_limited_id_list(missing_unit_ids)
+        )
+
+    review_state = _normalized_change_set_review_state(
+        result_payload.get("change_set_review_state")
+    )
+    outputs_by_id = {output.id: output for output in report.outputs}
+    selected_output_ids: list[str] = []
+    blocked_unit_ids: list[str] = []
+    unaccepted_unit_ids: list[str] = []
+    unsupported_unit_ids: list[str] = []
+    missing_output_ids: list[str] = []
+    seen_output_ids: set[str] = set()
+
+    for unit_id in selected_unit_ids:
+        unit = units_by_id[unit_id]
+        if unit.default_apply_state == "blocked":
+            blocked_unit_ids.append(unit_id)
+            continue
+        if _effective_change_unit_state(unit.id, unit.default_apply_state, review_state) != "accepted":
+            unaccepted_unit_ids.append(unit_id)
+            continue
+        output_id = _clean_optional_id(
+            unit.provenance.get("output_id") or unit.provenance.get("source_output_id")
+        )
+        if not output_id:
+            if unit.materialization is None:
+                unsupported_unit_ids.append(unit_id)
+            continue
+        if output_id not in outputs_by_id:
+            missing_output_ids.append(output_id)
+            continue
+        if output_id not in seen_output_ids:
+            selected_output_ids.append(output_id)
+            seen_output_ids.add(output_id)
+
+    if blocked_unit_ids:
+        raise ValueError(
+            "accepted_unit_ids contains blocked unit(s): "
+            + _format_limited_id_list(blocked_unit_ids)
+        )
+    if unaccepted_unit_ids:
+        raise ValueError(
+            "accepted_unit_ids must be accepted in Review & Changes before saving: "
+            + _format_limited_id_list(unaccepted_unit_ids)
+        )
+    if unsupported_unit_ids:
+        raise ValueError(
+            "accepted_unit_ids contains unit(s) without materializable output provenance: "
+            + _format_limited_id_list(unsupported_unit_ids)
+        )
+    if missing_output_ids:
+        raise ValueError(
+            "accepted_unit_ids references missing output id(s): "
+            + _format_limited_id_list(sorted(set(missing_output_ids)))
+        )
+
+    return {
+        "change_set": change_set,
+        "unit_ids": selected_unit_ids,
+        "outputs": [output for output in report.outputs if output.id in seen_output_ids],
+    }
+
+
+def _compact_change_set_after_commit(
+    result_payload: dict[str, Any],
+    *,
+    commit_state: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    delete_keys = [key for key in _CHANGE_SET_TEMP_RESULT_KEYS if key in result_payload]
+    if not delete_keys:
+        return result_payload, []
+
+    next_result = dict(result_payload)
+    receipt = _change_set_receipt(result_payload, commit_state=commit_state)
+    for key in delete_keys:
+        next_result.pop(key, None)
+    next_result["change_set_receipt"] = receipt
+    return next_result, delete_keys
+
+
+def _change_set_receipt(
+    result_payload: dict[str, Any],
+    *,
+    commit_state: dict[str, Any],
+) -> dict[str, Any]:
+    raw_change_set = result_payload.get("change_set")
+    change_set = raw_change_set if isinstance(raw_change_set, dict) else {}
+    review_state = _normalized_change_set_review_state(
+        result_payload.get("change_set_review_state")
+    )
+    units = change_set.get("units")
+    unit_count = len(units) if isinstance(units, list) else 0
+    return {
+        "schema_version": "wenjin.change_set.receipt.v1",
+        "retention": "compacted_after_commit",
+        "execution_id": _clean_optional_id(change_set.get("execution_id")),
+        "workspace_id": _clean_optional_id(change_set.get("workspace_id")),
+        "write_mode": _clean_optional_id(change_set.get("write_mode")),
+        "summary": _clean_optional_id(change_set.get("summary")),
+        "unit_count": unit_count,
+        "accepted_unit_ids": sorted(review_state["accepted"]),
+        "rejected_unit_ids": sorted(review_state["rejected"]),
+        "undone_unit_ids": sorted(review_state["undone"]),
+        "accepted_output_ids": list(commit_state.get("accepted_ids") or []),
+        "rejected_output_ids": list(commit_state.get("rejected_ids") or []),
+        "committed_at": commit_state.get("committed_at"),
+        "targets": _receipt_room_targets(commit_state.get("room_targets")),
+    }
+
+
+def _receipt_room_targets(value: Any) -> dict[str, list[dict[str, Any]]]:
+    room_targets = _copy_room_targets(value if isinstance(value, dict) else {})
+    receipt_targets: dict[str, list[dict[str, Any]]] = {}
+    for room in _ROOM_TARGET_KEYS:
+        items: list[dict[str, Any]] = []
+        for target in room_targets.get(room, []):
+            compact = {
+                key: target[key]
+                for key in _RECEIPT_ROOM_TARGET_KEYS
+                if key in target and target[key] is not None
+            }
+            if compact:
+                items.append(compact)
+        receipt_targets[room] = items
+    return receipt_targets
+
+
+def _normalized_change_set_review_state(value: Any) -> dict[str, set[str]]:
+    raw = value if isinstance(value, dict) else {}
+    return {
+        "accepted": set(_normalize_review_ids(raw.get("accepted_unit_ids"))),
+        "rejected": set(_normalize_review_ids(raw.get("rejected_unit_ids"))),
+        "undone": set(_normalize_review_ids(raw.get("undone_unit_ids"))),
+    }
+
+
+def _normalize_review_ids(value: Any) -> list[str]:
+    if not isinstance(value, list | tuple | set | frozenset):
+        return []
+    return [item_id for item_id in (_clean_optional_id(item) for item in value) if item_id]
+
+
+def _effective_change_unit_state(
+    unit_id: str,
+    default_state: str,
+    review_state: dict[str, set[str]],
+) -> str:
+    if unit_id in review_state["undone"]:
+        return "undone"
+    if unit_id in review_state["rejected"]:
+        return "rejected"
+    if unit_id in review_state["accepted"]:
+        return "accepted"
+    return default_state
+
+
+def _clean_optional_id(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _format_limited_id_list(values: list[str], *, limit: int = 8) -> str:
+    visible = values[:limit]
+    suffix = f" (and {len(values) - limit} more)" if len(values) > limit else ""
+    return ", ".join(visible) + suffix
+
+
+def _report_has_bulk_unsafe_outputs(report: TaskReport) -> bool:
+    if any(_output_requires_explicit_selection(output) for output in report.outputs):
+        return True
+    if report.review_packet is not None:
+        if any(
+            _review_item_requires_explicit_selection(item.model_dump())
+            for item in report.review_packet.items
+        ):
+            return True
+    return any(_review_item_requires_explicit_selection(item) for item in report.review_items)
+
+
+def _output_requires_explicit_selection(output: Any) -> bool:
+    if output.default_checked is False:
+        return True
+    if output.kind in _BULK_UNSAFE_KINDS:
+        return True
+
+    data = output.data.model_dump() if hasattr(output.data, "model_dump") else {}
+    if output.kind == "document":
+        data = {key: value for key, value in data.items() if key != "content"}
+    if output.kind == "memory_fact" and _contains_memory_strong_unsafe_phrase(
+        data.get("content")
+    ):
+        return True
+    return _contains_structured_bulk_unsafe_signal(data)
+
+
+def _review_item_requires_explicit_selection(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    if item.get("default_checked") is False:
+        return True
+    if item.get("can_commit") is False:
+        return True
+    if str(item.get("kind") or "").lower() in _BULK_UNSAFE_REVIEW_KINDS:
+        return True
+
+    risk = item.get("risk")
+    if isinstance(risk, dict):
+        level = str(risk.get("level") or "").lower()
+        if level in _BULK_UNSAFE_REVIEW_RISK_LEVELS:
+            return True
+
+    ref_fields = ("claim_refs", "evidence_refs", "quality_surfaces")
+    if any(item.get(field) for field in ref_fields):
+        return True
+    return _contains_structured_bulk_unsafe_signal(
+        item,
+        item.get("source"),
+        item.get("preview"),
+        item.get("provenance"),
+    )
+
+
+def _contains_structured_bulk_unsafe_signal(*values: Any) -> bool:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            for key, nested_value in value.items():
+                if _structured_key_value_requires_explicit_selection(key, nested_value):
+                    return True
+                if isinstance(nested_value, (dict, list)) and _contains_structured_bulk_unsafe_signal(
+                    nested_value
+                ):
+                    return True
+            continue
+        if isinstance(value, list):
+            if _contains_structured_bulk_unsafe_signal(*value):
+                return True
+            continue
+    return False
+
+
+def _structured_key_value_requires_explicit_selection(key: Any, value: Any) -> bool:
+    normalized_key = _normalized_signal_text(key)
+    if normalized_key == "default_checked" and value is False:
+        return True
+    if normalized_key == "can_commit" and value is False:
+        return True
+    if normalized_key in _BULK_UNSAFE_FLAG_KEYS:
+        return _truthy_metadata_flag(value)
+    if normalized_key in _BULK_UNSAFE_REF_KEYS:
+        return bool(value)
+    if normalized_key == "quality_surfaces":
+        return bool(value)
+    if normalized_key in _BULK_UNSAFE_STATUS_KEYS:
+        return _status_value_requires_explicit_selection(value)
+    return _short_structured_value_requires_explicit_selection(value)
+
+
+def _status_value_requires_explicit_selection(value: Any) -> bool:
+    if isinstance(value, dict):
+        level = value.get("level")
+        if level is not None and _status_value_requires_explicit_selection(level):
+            return True
+        return _contains_structured_bulk_unsafe_signal(value)
+    if isinstance(value, list):
+        return any(_status_value_requires_explicit_selection(item) for item in value)
+    return _normalized_signal_text(value) in _BULK_UNSAFE_STATUS_VALUES
+
+
+def _short_structured_value_requires_explicit_selection(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    if len(value) > 80:
+        return False
+    return _normalized_signal_text(value) in _BULK_UNSAFE_STRUCTURED_VALUES
+
+
+def _contains_memory_strong_unsafe_phrase(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = _phrase_text(value)
+    return any(phrase in text for phrase in _MEMORY_STRONG_UNSAFE_PHRASES)
+
+
+def _normalized_signal_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
+
+
+def _phrase_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _truthy_metadata_flag(value: Any) -> bool:
+    if value is False or value is None:
+        return False
+    if isinstance(value, str) and _normalized_signal_text(value) in {"", "0", "false", "no"}:
+        return False
+    return bool(value)
 
 
 async def _read_commit_cache(redis: Any, cache_key: str) -> dict[str, Any] | None:
@@ -864,7 +1606,7 @@ def _build_commit_state(
     counts: dict[str, int],
     room_targets: dict[str, list[dict[str, Any]]],
     committed_at: str,
-    review_batch_id: str | None,
+    accepted_unit_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     commit_state: dict[str, Any] = {
         "status": status,
@@ -874,8 +1616,8 @@ def _build_commit_state(
         "room_targets": _copy_room_targets(room_targets),
         "committed_at": committed_at,
     }
-    if review_batch_id is not None:
-        commit_state["review_batch_id"] = review_batch_id
+    if accepted_unit_ids is not None:
+        commit_state["accepted_unit_ids"] = list(accepted_unit_ids)
     return commit_state
 
 
@@ -897,6 +1639,23 @@ def _build_reverted_commit_state(
     if revert_skipped:
         reverted_state["revert_skipped"] = revert_skipped
     return reverted_state
+
+
+def _non_empty_revert_skipped(
+    skipped: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]] | None:
+    result = {room: targets for room, targets in skipped.items() if targets}
+    return result or None
+
+
+def _manual_revert_skip_target(target: dict[str, Any]) -> dict[str, Any]:
+    skipped = {
+        key: value
+        for key, value in target.items()
+        if key in {"output_id", "item_id", "unit_id", "settings_keys"} and value is not None
+    }
+    skipped["reason"] = "manual_revert_required"
+    return skipped
 
 
 def _ensure_commit_state_persisted(
@@ -988,7 +1747,7 @@ def _valid_commit_state(value: Any) -> dict[str, Any] | None:
 def _response_from_commit_state(commit_state: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {
         "committed": {
-            key: int(commit_state["counts"].get(key, 0))
+            key: int(commit_state["counts"][key])
             for key in _COUNT_ROOM_KEYS
         },
         "room_targets": _copy_room_targets(commit_state["room_targets"]),
@@ -1294,4 +2053,3 @@ def _verified_at(
     if evidence_level != "metadata_only":
         return datetime.now(UTC)
     return None
-

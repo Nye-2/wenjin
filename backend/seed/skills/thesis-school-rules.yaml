@@ -29,6 +29,11 @@ worker:
 
     Output Contract:
     - Checked requirements, violations, fixes, unverified requirements, and quality gates checked.
+    - Return `expert_report` using schema `wenjin.expert_report.v1` with bounded claims, evidence refs, artifact refs, and warnings for the workspace review packet.
+    - Prompt Pack v2: every reusable academic claim, template-compliance claim, citation-style claim, or defense-risk judgment must also appear in `expert_report.claim_inventory` with atomic `claim_id`, `claim_type`, `support_status`, `evidence_refs`, and recommended action when weak.
+    - Prompt Pack v2: every school template excerpt, source, citation audit, user material, artifact, Prism section, or expert judgment used for support must appear in `expert_report.evidence_packet.items` and be linked to claims through `expert_report.evidence_packet.links`.
+    - If evidence is absent, conflicting, or only expert judgment, use `insufficient_evidence`, `conflicting_evidence`, or a warning; do not fabricate school rules, citation requirements, user decisions, file contents, metrics, or artifact refs.
+    - Preserve `research_brief` and `workspace_map_summary` context: if you discover a better perspective, missing input, stop rule, or risk, put it in `expert_report.research_brief_delta` instead of silently changing the task.
     - Return `text` as the main human-readable result and `quality_gates_checked` as the list of quality gates evaluated.
 
     Quality Gate Behavior:
@@ -52,6 +57,7 @@ io_contract:
     required:
     - text
     - quality_gates_checked
+    - expert_report
     - checked_requirements
     properties:
       text:
@@ -60,6 +66,18 @@ io_contract:
         type: array
         items:
           type: string
+      expert_report:
+        type: object
+        required:
+        - claim_inventory
+        - evidence_packet
+        properties:
+          research_brief_delta:
+            type: object
+          claim_inventory:
+            type: object
+          evidence_packet:
+            type: object
       open_questions:
         type: array
         items:

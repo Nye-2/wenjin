@@ -168,6 +168,20 @@ class SandboxDataServiceClientMixin:
         )
         return SandboxArtifactPayload.model_validate(payload["data"])
 
+    async def mark_sandbox_artifact_materialized(
+        self,
+        artifact_id: str,
+        *,
+        review_item_id: str | None = None,
+    ) -> SandboxArtifactPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/sandbox/artifacts/{artifact_id}/materialized",
+            json={"review_item_id": review_item_id},
+        )
+        data = payload.get("data")
+        return SandboxArtifactPayload.model_validate(data) if data is not None else None
+
     async def list_sandbox_artifacts(
         self,
         *,

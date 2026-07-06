@@ -1094,7 +1094,7 @@ export const styles: Record<string, CSSProperties> = {
     borderRadius: 999,
     border: "1px solid rgba(220, 38, 38, 0.16)",
     background: "rgba(220, 38, 38, 0.08)",
-    color: "var(--v2-status-error)",
+    color: "var(--wjn-error)",
     fontSize: 11,
     fontWeight: 750,
     whiteSpace: "nowrap",
@@ -1127,18 +1127,6 @@ export const styles: Record<string, CSSProperties> = {
     fontSize: 12,
     lineHeight: 1.45,
     marginBottom: 10,
-  },
-  autoCommitStatus: {
-    display: "flex",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-    minHeight: 32,
-  },
-  autoCommitLabel: {
-    color: "var(--wjn-success)",
-    fontSize: 12.5,
-    fontWeight: 700,
   },
   inlineGhostButton: {
     display: "inline-flex",

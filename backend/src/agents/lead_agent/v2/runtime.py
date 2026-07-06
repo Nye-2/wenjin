@@ -18,6 +18,11 @@ from src.agents.contracts.task_report import (
     TaskReport,
 )
 from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
+from src.agents.lead_agent.v2.capability_preflight import (
+    CapabilityPreflightError,
+    static_graph_skill_ids,
+    validate_static_graph_preflight,
+)
 from src.agents.lead_agent.v2.compiler import compile_graph
 from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
 from src.agents.lead_agent.v2.prism_review_staging import (
@@ -146,6 +151,7 @@ class LeadAgentRuntime:
         redis: Any | None = None,
         set_graph_structure: Callable | None = None,
         record_node_event: Callable | None = None,
+        dataservice: Any | None = None,
     ) -> None:
         """
         Args:
@@ -173,6 +179,8 @@ class LeadAgentRuntime:
                         token_usage: dict | None = None,
                         error: str | None = None,
                     ) -> None
+            dataservice: Optional DataService client override for catalog
+                lookups in tests or embedded runtimes. Defaults to the provider.
         """
         self.resolver = resolver
         self.publish_event = publish_event or _noop_publish
@@ -180,6 +188,7 @@ class LeadAgentRuntime:
         self.redis = redis
         self.set_graph_structure = set_graph_structure
         self.record_node_event = record_node_event or _noop_record_node
+        self.dataservice = dataservice
         self.context_assembler = RuntimeContextAssembler()
 
     async def run_session(
@@ -258,6 +267,32 @@ class LeadAgentRuntime:
                 logger.warning("Failed to persist graph_structure", exc_info=True)
 
         capability_policy = self._capability_policy(cap)
+        try:
+            skills = await self._load_skills_for_template(cap.graph_template)
+            validate_static_graph_preflight(
+                capability=cap,
+                capability_policy=capability_policy,
+                skills=skills,
+            )
+        except CapabilityPreflightError as exc:
+            errors = [ResultError(phase="-", task="-", error=str(exc))]
+            report = TaskReport(
+                execution_id=execution_id,
+                capability_id=brief.capability_id,
+                status="failed_partial",
+                duration_seconds=int((datetime.now(UTC) - started_at).total_seconds()),
+                token_usage=None,
+                narrative=f"能力配置预检失败：{exc}",
+                outputs=[],
+                review_items=[],
+                errors=errors,
+            )
+            await self.publish_event(
+                execution_id,
+                "execution.completed",
+                report.model_dump(mode="json"),
+            )
+            return report
         context_requirements = self.context_assembler.context_requirements_from_brief(brief)
         workspace_data = (
             await self.context_assembler.load_workspace_data(
@@ -290,9 +325,6 @@ class LeadAgentRuntime:
         try:
             # Compile + Execute — both are wrapped so unknown subagent_type is also caught
             try:
-                # Pre-load skills referenced by tasks
-                skills = await self._load_skills_for_template(cap.graph_template)
-
                 # Check abort before starting (covers cancel-before-run race)
                 if await self._check_abort(execution_id):
                     raise ExecutionAborted(f"execution {execution_id} was cancelled before start")
@@ -389,6 +421,9 @@ class LeadAgentRuntime:
         definition = getattr(cap, "definition_json", None)
         if not isinstance(definition, dict):
             definition = {}
+        runtime = getattr(cap, "runtime", None)
+        if not isinstance(runtime, dict):
+            runtime = {}
         return {
             "mission": dict(definition.get("mission") or {}),
             "context_policy": dict(definition.get("context_policy") or {}),
@@ -396,6 +431,16 @@ class LeadAgentRuntime:
             "review_policy": dict(definition.get("review_policy") or {}),
             "citation_policy": dict(definition.get("citation_policy") or {}),
             "research_evidence": dict(definition.get("research_evidence") or {}),
+            "tool_policy": dict(definition.get("tool_policy") or {}),
+            "runtime": dict(runtime),
+            "allowed_tools": list(definition.get("allowed_tools") or []),
+            "capability_tools": list(definition.get("capability_tools") or []),
+            "tools": list(definition.get("tools") or []),
+            "permissions": list(
+                definition.get("permissions")
+                or definition.get("allowed_permissions")
+                or []
+            ),
             "quality_gates": list(definition.get("quality_gates") or []),
         }
 
@@ -410,21 +455,18 @@ class LeadAgentRuntime:
         """Pre-load all skills referenced by tasks in the template."""
         from src.dataservice_client.provider import dataservice_client
 
-        skill_ids: set[str] = set()
-        for phase in template.get("phases", []):
-            for task in phase.get("tasks", []):
-                sid = task.get("skill_id")
-                if sid:
-                    skill_ids.add(sid)
+        skill_ids = static_graph_skill_ids(template)
         if not skill_ids:
             return {}
         try:
-            async with dataservice_client() as client:
-                skills = await client.list_catalog_skills()
-                return {skill.id: skill for skill in skills if skill.id in skill_ids}
-        except Exception:
-            logger.warning("Failed to pre-load skills", exc_info=True)
-            return {}
+            if self.dataservice is not None:
+                skills = await self.dataservice.list_catalog_skills()
+            else:
+                async with dataservice_client() as client:
+                    skills = await client.list_catalog_skills()
+        except Exception as exc:
+            raise CapabilityPreflightError(f"skill catalog unavailable: {exc}") from exc
+        return {skill.id: skill for skill in skills if skill.id in skill_ids}
 
     async def _load_review_items_for_execution(
         self,
@@ -563,6 +605,8 @@ class LeadAgentRuntime:
                 task_spec,
                 emit_delta=_node_emit_delta,
                 publish_event=publish,
+                abort_check=lambda: self._check_abort(execution_id),
+                abort_exc=ExecutionAborted,
             )
             raw_inputs_template = task_spec.get("inputs") or {}
 
@@ -610,7 +654,32 @@ class LeadAgentRuntime:
                         exc_info=True,
                     )
 
-                result_state = await inner(state)
+                try:
+                    result_state = await inner(state)
+                except ExecutionAborted:
+                    completed_at = datetime.now(UTC)
+                    try:
+                        await _flush_delta(meta["node_id"])
+                        await recorder(
+                            execution_id=execution_id,
+                            node_id=meta["node_id"],
+                            node_type=meta["node_type"],
+                            label=meta.get("label"),
+                            status="cancelled",
+                            completed_at=completed_at,
+                        )
+                        await _emit(
+                            meta["node_id"],
+                            "cancelled",
+                            completed_at=completed_at.isoformat(),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to record node cancellation for %s",
+                            meta["node_id"],
+                            exc_info=True,
+                        )
+                    raise
 
                 # Resolve the per-node payload from the latest node_results.
                 node_result = (result_state or {}).get("node_results", {}).get(task_name, {})

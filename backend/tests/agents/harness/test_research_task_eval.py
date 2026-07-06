@@ -1523,6 +1523,77 @@ def test_research_task_eval_fails_review_packet_completeness_when_packet_empty()
     assert evaluation.coverage == {"review_packet_completeness": "fail"}
 
 
+def test_research_task_eval_fails_review_packet_completeness_with_only_warning_text() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="sci_literature_positioning",
+            status="failed_partial",
+            duration_seconds=1,
+            narrative="partial",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="sci_literature_positioning",
+                title="文献定位与创新点",
+                summary="warning only",
+                completion_status="partial",
+                items=[
+                    ReviewPacketItem(
+                        item_id="warning-1",
+                        kind="warning",
+                        title="证据链阻断",
+                        summary="claim claim-1 references missing evidence: missing-ev",
+                        default_checked=False,
+                        can_commit=False,
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("review_packet_completeness",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"review_packet_completeness": "fail"}
+    assert evaluation.evidence["review_packet_completeness"]["previewable_count"] == 1
+    assert evaluation.evidence["review_packet_completeness"]["deliverable_count"] == 0
+
+
+def test_research_task_eval_fails_review_packet_completeness_for_unanchored_deliverable() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="sci_literature_positioning",
+            status="completed",
+            duration_seconds=1,
+            narrative="completed",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="sci_literature_positioning",
+                title="文献定位与创新点",
+                summary="looks complete",
+                completion_status="complete",
+                items=[
+                    ReviewPacketItem(
+                        item_id="item-shallow-1",
+                        kind="document",
+                        title="结论摘要",
+                        summary="本文有创新点。",
+                        default_checked=True,
+                        can_commit=True,
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("review_packet_completeness",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"review_packet_completeness": "fail"}
+    assert evaluation.evidence["review_packet_completeness"]["substantive_deliverable_count"] == 0
+
+
 def test_research_task_eval_passes_claim_evidence_alignment_for_supported_claim() -> None:
     evaluation = evaluate_research_task_evidence(
         TaskReport(
@@ -1546,6 +1617,7 @@ def test_research_task_eval_passes_claim_evidence_alignment_for_supported_claim(
                         summary="supported",
                         claim_refs=["claim-1"],
                         evidence_refs=["library_reference:source-1"],
+                        quality_surfaces=["claim_evidence_alignment"],
                         default_checked=True,
                         can_commit=True,
                     )
@@ -1560,6 +1632,45 @@ def test_research_task_eval_passes_claim_evidence_alignment_for_supported_claim(
         "claim_evidence_alignment": "pass",
         "review_packet_completeness": "pass",
     }
+
+
+def test_research_task_eval_fails_claim_evidence_alignment_without_quality_surface() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="sci_literature_positioning",
+            status="completed",
+            duration_seconds=1,
+            narrative="completed",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="sci_literature_positioning",
+                title="文献定位与创新点",
+                summary="shallow refs",
+                completion_status="complete",
+                items=[
+                    ReviewPacketItem(
+                        item_id="item-1",
+                        kind="document",
+                        title="report",
+                        summary="has refs but no checked quality surface",
+                        claim_refs=["claim-1"],
+                        evidence_refs=["library_reference:source-1"],
+                        default_checked=True,
+                        can_commit=True,
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("claim_evidence_alignment",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"claim_evidence_alignment": "fail"}
+    assert evaluation.evidence["claim_evidence_alignment"]["unchecked_quality_surface_item_ids"] == [
+        "item-1"
+    ]
 
 
 def test_research_task_eval_fails_claim_evidence_alignment_for_high_risk_warning() -> None:
@@ -1599,4 +1710,79 @@ def test_research_task_eval_fails_claim_evidence_alignment_for_high_risk_warning
     assert evaluation.coverage == {"claim_evidence_alignment": "fail"}
     assert evaluation.evidence["claim_evidence_alignment"]["high_risk_warning_item_ids"] == [
         "claim-warning-1"
+    ]
+
+
+def test_research_task_eval_passes_risk_evidence_for_anchored_warning() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="idea_to_proposal_package",
+            status="completed",
+            duration_seconds=1,
+            narrative="completed",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="idea_to_proposal_package",
+                title="风险复核",
+                summary="1 risk",
+                completion_status="complete",
+                items=[
+                    ReviewPacketItem(
+                        item_id="risk-1",
+                        kind="warning",
+                        title="里程碑风险",
+                        summary="第三阶段时间不足，需要压缩实验范围。",
+                        preview={"format": "markdown", "excerpt": "风险来源：项目周期约束。"},
+                        quality_surfaces=["risk_evidence"],
+                        risk={"level": "medium", "reasons": ["timeline"]},
+                        can_commit=False,
+                        default_checked=False,
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("risk_evidence",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"risk_evidence": "pass"}
+    assert evaluation.evidence["risk_evidence"]["anchored_risk_item_count"] == 1
+
+
+def test_research_task_eval_passes_ai_use_disclosure_for_review_packet_item() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="math_modeling_paper_pack",
+            status="completed",
+            duration_seconds=1,
+            narrative="completed",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="math_modeling_paper_pack",
+                title="AI 使用声明",
+                summary="1 disclosure",
+                completion_status="complete",
+                items=[
+                    ReviewPacketItem(
+                        item_id="ai-disclosure-1",
+                        kind="document",
+                        title="AI 使用声明",
+                        summary="未使用生成式 AI 生成数据或图表。",
+                        quality_surfaces=["ai_use_disclosure"],
+                        evidence_refs=["user_material:ai_policy"],
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("ai_use_disclosure",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"ai_use_disclosure": "pass"}
+    assert evaluation.evidence["ai_use_disclosure"]["disclosure_item_ids"] == [
+        "ai-disclosure-1"
     ]

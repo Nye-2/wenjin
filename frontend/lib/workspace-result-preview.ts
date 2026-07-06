@@ -10,7 +10,8 @@ type PreviewMode =
   | "outline"
   | "citation"
   | "structured_json"
-  | "image";
+  | "image"
+  | "document_diff";
 
 type PreviewKind =
   | "document"
@@ -47,6 +48,7 @@ export interface WorkspaceResultPreview {
   previewMode: PreviewMode;
   previewText: string | null;
   previewPath?: string | null;
+  previewUrl?: string | null;
   metadata?: Record<string, unknown> | null;
   metadataLines: string[];
   defaultChecked: boolean;
@@ -126,6 +128,52 @@ function safeContentText(value: unknown): string | null {
     return null;
   }
   return text;
+}
+
+function documentDiffTextFromSource(value: unknown): string | null {
+  const source = readObject(value);
+  if (!source) {
+    return null;
+  }
+
+  const diff =
+    readObject(source.diff) ??
+    readObject(source.document_diff) ??
+    readObject(source.preview_diff) ??
+    source;
+  const summary = safeContentText(diff.summary);
+  const before = firstNonNull(
+    safeContentText(diff.before),
+    safeContentText(diff.before_text),
+    safeContentText(diff.original),
+    safeContentText(diff.previous),
+    safeContentText(diff.old),
+  );
+  const after = firstNonNull(
+    safeContentText(diff.after),
+    safeContentText(diff.after_text),
+    safeContentText(diff.revised),
+    safeContentText(diff.current),
+    safeContentText(diff.new),
+  );
+  const patch = firstNonNull(
+    safeContentText(diff.patch),
+    safeContentText(diff.unified_diff),
+    safeContentText(diff.diff_text),
+  );
+
+  if (!before && !after && !patch) {
+    return null;
+  }
+
+  return [
+    summary,
+    before ? `修改前\n${before}` : null,
+    after ? `修改后\n${after}` : null,
+    patch ? `差异\n${patch}` : null,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join("\n\n");
 }
 
 export function buildWorkspaceResultPreviewsFromOutputs(
@@ -255,6 +303,25 @@ export function buildWorkspaceResultPreviewsFromOutputs(
   });
 }
 
+export function outputsWithSafeDefaultChecks(
+  outputs: unknown,
+  allowDefaultChecked: boolean,
+): unknown {
+  if (allowDefaultChecked || !Array.isArray(outputs)) {
+    return outputs;
+  }
+  return outputs.map((item) => {
+    const output = readObject(item);
+    if (!output) {
+      return item;
+    }
+    return {
+      ...output,
+      default_checked: false,
+    };
+  });
+}
+
 export function buildWorkspaceResultPreviewsFromReviewItems(
   reviewItems: unknown,
 ): WorkspaceResultPreview[] {
@@ -333,6 +400,12 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
         },
         previewMode: "image",
         previewPath,
+        previewUrl: firstSafeImageUrl(
+          readString(preview?.preview_url),
+          readString(preview?.image_url),
+          readString(preview?.url),
+          readString(target?.preview_url),
+        ),
         previewText: summary ?? (rawSummary ? "待确认结果" : previewPath),
         metadata,
         metadataLines,
@@ -378,11 +451,17 @@ export function buildWorkspaceResultPreviewsFromReviewPacket(
       readString(preview?.path),
       ...readStringArray(item.artifact_refs).map((ref) => ref.replace(/^artifact:/, "")),
     );
-    const previewMode = resolveReviewPacketPreviewMode({
-      kind,
-      format: readString(preview?.format),
-      previewPath,
-    });
+    const diffText =
+      kind === "document"
+        ? documentDiffTextFromSource(preview) ?? documentDiffTextFromSource(item)
+        : null;
+    const previewMode = diffText
+      ? "document_diff"
+      : resolveReviewPacketPreviewMode({
+          kind,
+          format: readString(preview?.format),
+          previewPath,
+        });
     const metadata: Record<string, unknown> = {
       packet_id: packetId,
       packet_status: packetStatus,
@@ -419,6 +498,7 @@ export function buildWorkspaceResultPreviewsFromReviewPacket(
         previewMode,
         previewPath,
         previewText:
+          diffText ??
           readString(preview?.excerpt) ??
           summary ??
           JSON.stringify(item, null, 2),
@@ -439,6 +519,8 @@ export function buildDocumentRoomPreview(
   const mimeType = readString(document.mime_type);
   const docKind = readString(document.doc_kind) ?? readString(document.kind);
   const content = safeContentText(metadata?.content);
+  const diffText =
+    documentDiffTextFromSource(metadata) ?? documentDiffTextFromSource(document);
   return {
     id: readString(document.id) ?? "document",
     source: "document_room",
@@ -447,8 +529,10 @@ export function buildDocumentRoomPreview(
     subtitle: docKind ? documentKindLabel(docKind) : mimeType,
     badge: "文档",
     data: document,
-    previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
-    previewText: content ?? safeStructuredFallback(metadata, "已生成文档候选"),
+    previewMode: diffText
+      ? "document_diff"
+      : resolveDocumentPreviewMode(mimeType, docKind, content),
+    previewText: diffText ?? content ?? safeStructuredFallback(metadata, "已生成文档候选"),
     metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
     ),
@@ -503,8 +587,11 @@ function buildDocumentPreview(options: {
   const mimeType = readString(data?.mime_type);
   const docKind = readString(data?.doc_kind);
   const content = safeContentText(data?.content);
+  const diffText = documentDiffTextFromSource(data);
   const previewText =
-    firstNonNull(content, preview) ?? safeStructuredFallback(data, "已生成文档候选");
+    diffText ??
+    firstNonNull(content, preview) ??
+    safeStructuredFallback(data, "已生成文档候选");
 
   return {
     id,
@@ -514,7 +601,9 @@ function buildDocumentPreview(options: {
     subtitle: name && preview !== name ? name : docKind ? documentKindLabel(docKind) : null,
     badge: "文档",
     data,
-    previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
+    previewMode: diffText
+      ? "document_diff"
+      : resolveDocumentPreviewMode(mimeType, docKind, content),
     previewText,
     metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
@@ -587,6 +676,13 @@ function buildFigurePreview(options: {
     ),
   );
   const previewPath = resolveFigurePreviewPath(data, preview);
+  const previewUrl = firstSafeImageUrl(
+    readString(data?.preview_url),
+    readString(data?.image_url),
+    readString(data?.url),
+    readString(data?.signed_url),
+    readString(manifest?.preview_url),
+  );
   const metadata = buildFigureMetadata(data);
 
   return {
@@ -599,6 +695,7 @@ function buildFigurePreview(options: {
     data,
     previewMode: "image",
     previewPath,
+    previewUrl,
     previewText: caption ?? previewPath ?? title,
     metadata,
     metadataLines: [],
@@ -680,6 +777,29 @@ function firstWorkspaceImagePath(...values: Array<string | null>): string | null
     }
   }
   return null;
+}
+
+function firstSafeImageUrl(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (value && isSafeImageUrl(value)) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function isSafeImageUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) {
+    return false;
+  }
+  if (trimmed.startsWith("https://")) {
+    return true;
+  }
+  if (trimmed.startsWith("/api/") || trimmed.startsWith("/workspaces/")) {
+    return !trimmed.startsWith("//");
+  }
+  return false;
 }
 
 function isWorkspaceImagePath(value: string): boolean {

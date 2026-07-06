@@ -61,8 +61,11 @@ from src.dataservice_client.contracts.execution import (
     ExecutionCommitFailPayload,
     ExecutionCommitFinalizePayload,
     ExecutionCommitResetPayload,
+    ExecutionLeaseClaimPayload,
+    ExecutionLeaseHeartbeatPayload,
     ExecutionNodePatchPayload,
     ExecutionNodeUpsertPayload,
+    ExecutionResultPatchPayload,
 )
 from src.dataservice_client.contracts.latex import (
     LatexCompileHistoryCreatePayload,
@@ -353,12 +356,187 @@ async def test_dataservice_client_claim_execution_commit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dataservice_client_claim_and_heartbeat_execution_lease() -> None:
+    seen: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        seen.append((request.method, request.url.path, body))
+        execution = {
+            "id": "exec-lease",
+            "user_id": "user-1",
+            "workspace_id": "ws-1",
+            "execution_type": "feature",
+            "status": "running",
+            "task_brief_json": {},
+            "runtime_state_json": {
+                "execution_lease": {
+                    "worker_id": body["worker_id"],
+                    "claimed_at": "2026-07-06T08:00:00+00:00",
+                    "last_heartbeat_at": "2026-07-06T08:00:00+00:00",
+                    "lease_expires_at": "2026-07-06T08:02:00+00:00",
+                }
+            },
+            "worker_task_id": body["worker_id"],
+        }
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "status": "claimed" if request.url.path.endswith("/lease-claim") else "heartbeat",
+                    "execution": execution,
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        claim = await client.claim_execution_lease(
+            "exec-lease",
+            ExecutionLeaseClaimPayload(worker_id="worker-1", ttl_seconds=120),
+        )
+        heartbeat = await client.heartbeat_execution_lease(
+            "exec-lease",
+            ExecutionLeaseHeartbeatPayload(worker_id="worker-1", ttl_seconds=120),
+        )
+
+    assert claim["status"] == "claimed"
+    assert claim["execution"].worker_task_id == "worker-1"
+    assert heartbeat["status"] == "heartbeat"
+    assert seen == [
+        (
+            "POST",
+            "/internal/v1/executions/exec-lease/lease-claim",
+            {"worker_id": "worker-1", "ttl_seconds": 120, "claimed_at": None},
+        ),
+        (
+            "POST",
+            "/internal/v1/executions/exec-lease/lease-heartbeat",
+            {"worker_id": "worker-1", "ttl_seconds": 120, "heartbeat_at": None},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_patch_execution_result() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "PATCH"
+        assert request.url.path == "/internal/v1/executions/exec-1/result"
+        assert json.loads(request.content.decode()) == {
+            "result_patch": {
+                "change_set_review_state": {
+                    "accepted_unit_ids": ["unit-1"],
+                    "rejected_unit_ids": [],
+                    "undone_unit_ids": [],
+                }
+            }
+        }
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "id": "exec-1",
+                    "user_id": "user-1",
+                    "workspace_id": "ws-1",
+                    "execution_type": "feature",
+                    "status": "completed",
+                    "task_brief_json": {},
+                    "result_json": {
+                        "commit_state": {"status": "committed"},
+                        "change_set_review_state": {
+                            "accepted_unit_ids": ["unit-1"],
+                            "rejected_unit_ids": [],
+                            "undone_unit_ids": [],
+                        },
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        execution = await client.patch_execution_result(
+            "exec-1",
+            ExecutionResultPatchPayload(
+                result_patch={
+                    "change_set_review_state": {
+                        "accepted_unit_ids": ["unit-1"],
+                        "rejected_unit_ids": [],
+                        "undone_unit_ids": [],
+                    }
+                },
+            ),
+        )
+
+    assert execution is not None
+    assert execution.result["commit_state"]["status"] == "committed"
+    assert execution.result["change_set_review_state"]["accepted_unit_ids"] == ["unit-1"]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_mark_sandbox_artifact_materialized() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/internal/v1/sandbox/artifacts/artifact-1/materialized"
+        assert json.loads(request.content.decode()) == {"review_item_id": "review-1"}
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "id": "artifact-1",
+                    "workspace_id": "ws-1",
+                    "sandbox_environment_id": "env-1",
+                    "sandbox_job_id": "job-1",
+                    "workspace_asset_id": "asset-1",
+                    "artifact_kind": "report",
+                    "path": "/workspace/reports/analysis.md",
+                    "materialization_status": "applied",
+                    "reproducibility_json": {},
+                    "metadata_json": {},
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        artifact = await client.mark_sandbox_artifact_materialized(
+            "artifact-1",
+            review_item_id="review-1",
+        )
+
+    assert artifact is not None
+    assert artifact.id == "artifact-1"
+    assert artifact.materialization_status == "applied"
+
+
+def test_dataservice_client_result_patch_payload_rejects_commit_state() -> None:
+    with pytest.raises(ValueError, match="Unsupported execution result patch key"):
+        ExecutionResultPatchPayload(result_patch={"commit_state": {"status": "committed"}})
+
+
+@pytest.mark.asyncio
 async def test_dataservice_client_finalize_execution_commit() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.path == "/internal/v1/executions/exec-claim/commit-finalize"
         assert json.loads(request.content.decode()) == {
             "commit_token": "token-1",
+            "delete_result_keys": [],
             "result_json": {
                 "task_report": {"status": "completed"},
                 "commit_state": {"status": "committed"},

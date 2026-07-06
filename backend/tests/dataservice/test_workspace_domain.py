@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from src.database.models.workspace import WorkspaceType
 from src.database.models.workspace_settings import WorkspaceSettings
@@ -59,6 +60,7 @@ async def test_create_workspace_creates_owner_membership_and_settings() -> None:
     assert workspace.type == WorkspaceType.THESIS
     assert workspace.config["language"] == "zh"
     assert workspace.config["rollout"]["thread_cockpit_enabled"] is True
+    assert workspace.config["write_mode"] == "auto_draft"
     assert any(isinstance(item, WorkspaceMembership) for item in session.added)
     assert any(isinstance(item, WorkspaceSettings) for item in session.added)
     session.commit.assert_awaited_once()
@@ -104,9 +106,21 @@ async def test_get_or_create_workspace_settings_creates_default_record() -> None
     values = service.repository.create_workspace_settings_from_values.call_args.kwargs["values"]  # type: ignore[attr-defined]
     assert values["thinking_enabled"] is True
     assert values["sandbox_provider"] == "local"
+    assert values["settings_json"]["write_mode"] == "auto_draft"
     assert record.workspace_id == "ws-1"
     assert record.capability_overrides == {}
+    assert record.write_mode == "auto_draft"
+    assert record.settings_json["write_mode"] == "auto_draft"
     session.commit.assert_awaited_once()
+
+
+def test_workspace_settings_record_projects_missing_write_mode_default() -> None:
+    settings = _settings_row()
+
+    record = DataServiceWorkspaceService.to_settings_record(settings)
+
+    assert record.write_mode == "auto_draft"
+    assert record.settings_json["write_mode"] == "auto_draft"
 
 
 @pytest.mark.asyncio
@@ -129,6 +143,59 @@ async def test_update_workspace_settings_returns_projection() -> None:
     assert record.default_model == "mimo-v2.5-pro"
     assert record.thinking_enabled is False
     assert record.capability_overrides == {"cap": {"enabled": False}}
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_workspace_settings_write_mode_preserves_settings_json_keys() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
+    settings = _settings_row()
+    settings.settings_json = {"language": "zh", "rollout": {"thread_cockpit_enabled": False}}
+    service.repository.get_workspace_settings = AsyncMock(return_value=settings)  # type: ignore[method-assign]
+
+    record = await service.update_workspace_settings(
+        "ws-1",
+        command=WorkspaceSettingsUpdateCommand(write_mode="strict_review"),
+    )
+
+    assert record is not None
+    assert settings.settings_json == {
+        "language": "zh",
+        "rollout": {"thread_cockpit_enabled": False},
+        "write_mode": "strict_review",
+    }
+    assert record.write_mode == "strict_review"
+    session.commit.assert_awaited_once()
+
+
+def test_workspace_settings_update_rejects_invalid_write_mode() -> None:
+    with pytest.raises(ValidationError):
+        WorkspaceSettingsUpdateCommand(write_mode="review_everything")
+
+
+def test_workspace_settings_update_trims_write_mode() -> None:
+    command = WorkspaceSettingsUpdateCommand(write_mode=" ask_workspace_write ")
+
+    assert command.write_mode == "ask_workspace_write"
+
+
+@pytest.mark.asyncio
+async def test_update_workspace_settings_write_mode_null_does_not_overwrite_existing_mode() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
+    settings = _settings_row()
+    settings.settings_json = {"write_mode": "strict_review", "language": "zh"}
+    service.repository.get_workspace_settings = AsyncMock(return_value=settings)  # type: ignore[method-assign]
+
+    record = await service.update_workspace_settings(
+        "ws-1",
+        command=WorkspaceSettingsUpdateCommand(write_mode=None),
+    )
+
+    assert record is not None
+    assert settings.settings_json == {"write_mode": "strict_review", "language": "zh"}
+    assert record.write_mode == "strict_review"
     session.commit.assert_awaited_once()
 
 

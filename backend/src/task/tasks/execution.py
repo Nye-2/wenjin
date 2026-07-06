@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -15,6 +17,8 @@ from src.dataservice_client.contracts.conversation import ConversationMessageCre
 
 logger = logging.getLogger(__name__)
 
+_EXECUTION_LEASE_HEARTBEAT_INTERVAL_SECONDS = 30
+_EXECUTION_LEASE_TTL_SECONDS = 120
 _TERMINAL_EXECUTION_STATUSES = frozenset(
     {
         "completed",
@@ -28,6 +32,76 @@ _TERMINAL_EXECUTION_STATUSES = frozenset(
 def is_terminal_execution_status(status: Any) -> bool:
     """Return whether a redelivered execution task should no-op."""
     return str(status or "").strip().lower() in _TERMINAL_EXECUTION_STATUSES
+
+
+def _execution_worker_id(task_self: Any, execution_id: str) -> str:
+    request = getattr(task_self, "request", None)
+    request_id = str(getattr(request, "id", "") or "").strip()
+    if request_id:
+        return request_id[:36]
+    return str(execution_id or "")[:36]
+
+
+async def _heartbeat_execution_lease_loop(
+    *,
+    execution_service: Any,
+    execution_id: str,
+    worker_id: str,
+    interval_seconds: float = _EXECUTION_LEASE_HEARTBEAT_INTERVAL_SECONDS,
+    ttl_seconds: int = _EXECUTION_LEASE_TTL_SECONDS,
+) -> str:
+    while True:
+        await asyncio.sleep(interval_seconds)
+        heartbeat = await execution_service.heartbeat_execution_lease(
+            execution_id=execution_id,
+            worker_id=worker_id,
+            ttl_seconds=ttl_seconds,
+        )
+        status = str((heartbeat or {}).get("status") or "")
+        if status != "heartbeat":
+            logger.warning(
+                "execution lease heartbeat stopped for %s: %s",
+                execution_id,
+                status or "unknown",
+            )
+            return status or "unknown"
+
+
+async def _run_with_execution_lease_heartbeat(
+    runner: Awaitable[Any],
+    *,
+    execution_service: Any,
+    execution_id: str,
+    worker_id: str,
+    interval_seconds: float = _EXECUTION_LEASE_HEARTBEAT_INTERVAL_SECONDS,
+    ttl_seconds: int = _EXECUTION_LEASE_TTL_SECONDS,
+) -> Any:
+    runner_task = asyncio.create_task(runner)
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_execution_lease_loop(
+            execution_service=execution_service,
+            execution_id=execution_id,
+            worker_id=worker_id,
+            interval_seconds=interval_seconds,
+            ttl_seconds=ttl_seconds,
+        )
+    )
+    done, _ = await asyncio.wait(
+        {runner_task, heartbeat_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    if heartbeat_task in done:
+        status = heartbeat_task.result()
+        if not runner_task.done():
+            runner_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await runner_task
+        raise RuntimeError(f"Execution lease lost: {status}")
+
+    heartbeat_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await heartbeat_task
+    return await runner_task
 
 
 def _result_card_data_from_task_report(execution_id: str, task_report: dict[str, Any]) -> dict[str, Any]:
@@ -151,7 +225,11 @@ async def _resolve_execution_workspace_type(
     return workspace_type
 
 
-async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
+async def _execute_execution_async(
+    execution_id: str,
+    *,
+    worker_id: str | None = None,
+) -> dict[str, Any]:
     from src.academic.cache.redis_client import redis_client
     from src.dataservice_client.provider import dataservice_client
     from src.services.capability_resolver import CapabilityResolver
@@ -185,6 +263,31 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
                 "skipped": True,
                 "reason": "execution_already_terminal",
             }
+
+        lease_worker_id = worker_id or str(execution_id)[:36]
+        lease = await execution_service.claim_execution_lease(
+            execution_id=execution_id,
+            worker_id=lease_worker_id,
+            ttl_seconds=_EXECUTION_LEASE_TTL_SECONDS,
+        )
+        lease_status = str((lease or {}).get("status") or "")
+        if lease_status != "claimed":
+            logger.info(
+                "skipping execution %s because lease status is %s",
+                execution_id,
+                lease_status or "unknown",
+            )
+            return {
+                "ok": lease_status not in {"not_found"},
+                "execution_id": execution_id,
+                "status": getattr(record, "status", "unknown"),
+                "skipped": True,
+                "reason": f"execution_lease_{lease_status or 'unknown'}",
+            }
+
+        leased_record = lease.get("execution") if isinstance(lease, dict) else None
+        if leased_record is not None:
+            record = leased_record
 
         workspace_id = str(record.workspace_id) if record.workspace_id else None
 
@@ -294,7 +397,12 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         )
 
         try:
-            await engine.run(execution_id)
+            await _run_with_execution_lease_heartbeat(
+                engine.run(execution_id),
+                execution_service=execution_service,
+                execution_id=execution_id,
+                worker_id=lease_worker_id,
+            )
             final = await execution_service.get_by_id(execution_id)
             if final is not None and final.status in {"completed", "failed_partial", "cancelled"}:
                 try:
@@ -323,7 +431,12 @@ def _execute_execution_entry(
         Callable[[Awaitable[dict[str, Any]]], dict[str, Any]],
         run_worker_coroutine,
     )
-    return runner(_execute_execution_async(execution_id))
+    return runner(
+        _execute_execution_async(
+            execution_id,
+            worker_id=_execution_worker_id(_self, execution_id),
+        )
+    )
 
 
 execute_execution = shared_task(

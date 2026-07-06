@@ -52,6 +52,17 @@ _CORE_BLOCKING_CLAIM_TYPES = {
     "writing_revision",
 }
 _ARTIFACT_REQUIRED_CLAIM_TYPES = {"numeric_result", "figure_or_table_interpretation"}
+_SUPPORTIVE_RELATIONS = {"supports", "partially_supports", "qualifies"}
+_REVIEWABLE_EVIDENCE_TYPES = {
+    "library_source",
+    "external_source",
+    "citation_audit",
+    "dataset",
+    "script",
+    "sandbox_artifact",
+    "prism_section",
+    "user_provided_material",
+}
 _MAX_TEXT = 700
 _MAX_SHORT_TEXT = 220
 
@@ -180,6 +191,9 @@ def validate_claim_evidence_alignment(
         if missing_refs:
             blockers.append(f"claim {claim.claim_id} references missing evidence: {', '.join(missing_refs)}")
 
+        if claim.claim_type in _CORE_BLOCKING_CLAIM_TYPES and not claim.evidence_refs:
+            blockers.append(f"claim {claim.claim_id} requires evidence refs for core claim type {claim.claim_type}")
+
         if claim.claim_type in _ARTIFACT_REQUIRED_CLAIM_TYPES and not claim.artifact_refs:
             blockers.append(f"claim {claim.claim_id} requires artifact evidence for {claim.claim_type}")
 
@@ -197,6 +211,24 @@ def validate_claim_evidence_alignment(
             for ref in claim.evidence_refs
             if ref in evidence_by_id
         ]
+        supportive_evidence_ids = _supportive_evidence_ids_for_claim(claim, evidence.links)
+        supportive_evidence = [
+            item for item in referenced_evidence if item.evidence_id in supportive_evidence_ids
+        ]
+        if claim.support_status == "supported":
+            if not claim.evidence_refs:
+                blockers.append(f"claim {claim.claim_id} is marked supported but has no evidence_refs")
+            if referenced_evidence and not any(_is_verified_or_reviewable_evidence(item) for item in referenced_evidence):
+                blockers.append(
+                    f"claim {claim.claim_id} is marked supported but has no verified or reviewable evidence"
+                )
+            if referenced_evidence and not any(item.relevance in {"direct", "indirect"} for item in referenced_evidence):
+                blockers.append(f"claim {claim.claim_id} is marked supported but has no direct or indirect evidence")
+            if referenced_evidence and not supportive_evidence_ids:
+                warnings.append(f"claim {claim.claim_id} has evidence_refs but no supportive evidence link")
+            elif supportive_evidence and not any(item.relevance == "direct" for item in supportive_evidence):
+                warnings.append(f"claim {claim.claim_id} has no direct supportive evidence")
+
         if referenced_evidence and all(item.evidence_type == "expert_judgment" for item in referenced_evidence):
             warnings.append(f"claim {claim.claim_id} uses only expert_judgment evidence")
         if referenced_evidence and all(item.support_strength == "weak" for item in referenced_evidence):
@@ -225,6 +257,24 @@ def validate_claim_evidence_alignment(
         blocking_reasons=_dedupe_strings(blockers),
         warnings=_dedupe_strings(warnings),
     )
+
+
+def _supportive_evidence_ids_for_claim(claim: AtomicClaimV1, links: list[EvidenceLinkV1]) -> set[str]:
+    return {
+        link.evidence_id
+        for link in links
+        if link.claim_id == claim.claim_id and link.support_relation in _SUPPORTIVE_RELATIONS
+    }
+
+
+def _is_verified_or_reviewable_evidence(item: EvidenceItemV1) -> bool:
+    if item.verification.status == "verified":
+        return True
+    if item.verification.status == "failed":
+        return False
+    if item.evidence_type not in _REVIEWABLE_EVIDENCE_TYPES:
+        return False
+    return bool(item.source_key or item.locator or item.excerpt)
 
 
 def sanitize_claim_inventory(value: Any, *, limit: int = 80) -> ClaimInventoryV1 | None:

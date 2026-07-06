@@ -2,11 +2,14 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from src.agents.harness.tool_names import expand_tool_names
 from src.agents.lead_agent.v2.template import (
     build_task_render_context,
     render_template,
@@ -18,6 +21,8 @@ from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY
 
 logger = logging.getLogger(__name__)
+DEFAULT_STATIC_NODE_TIMEOUT_SECONDS = 120.0
+STATIC_ABORT_POLL_INTERVAL_SECONDS = 0.05
 
 
 def compile_graph(
@@ -63,6 +68,8 @@ def compile_graph(
             return _default_runner_factory(
                 subagent_cls,
                 task_spec,
+                abort_check=abort_check,
+                abort_exc=ExecutionAborted,
                 publish_event=publish_event,
             )
     else:
@@ -125,6 +132,8 @@ def _default_runner_factory(
     task_spec: dict,
     emit_delta: Callable | None = None,
     publish_event: Callable | None = None,
+    abort_check: Callable | None = None,
+    abort_exc: type[BaseException] | None = None,
 ) -> Callable:
     """Build a default async node function that runs the subagent and stores results.
 
@@ -185,10 +194,24 @@ def _default_runner_factory(
             emit_delta=emit_delta,
             publish_event=publish_event,
         )
+        try:
+            ctx.tools = _resolve_static_graph_tools(ctx, task_spec)
+        except Exception as exc:
+            node_results = dict(state.get("node_results", {}))
+            node_results[_task_name] = {"error": str(exc)}
+            return {"node_results": node_results}
         last_error: Exception | None = None
         for attempt in range(_max_attempts):
             try:
-                result: SubagentResult = await subagent_cls().run(ctx)
+                result: SubagentResult = await _run_static_subagent_attempt(
+                    subagent_cls().run(ctx),
+                    task_name=_task_name,
+                    task_spec=task_spec,
+                    capability_policy=ctx.capability_policy,
+                    skill=ctx.skill,
+                    abort_check=abort_check,
+                    abort_exc=abort_exc,
+                )
                 node_results = dict(state.get("node_results", {}))
                 node_results[_task_name] = {
                     "output": result.output,
@@ -198,6 +221,8 @@ def _default_runner_factory(
                 }
                 return {"node_results": node_results}
             except Exception as exc:
+                if abort_exc is not None and isinstance(exc, abort_exc):
+                    raise
                 last_error = exc
                 if attempt < _max_attempts - 1:
                     await asyncio.sleep(2**attempt)
@@ -208,6 +233,183 @@ def _default_runner_factory(
         return {"node_results": node_results}
 
     return run_node
+
+
+async def _run_static_subagent_attempt(
+    awaitable,
+    *,
+    task_name: str,
+    task_spec: dict[str, Any],
+    capability_policy: dict[str, Any],
+    skill: Any | None,
+    abort_check: Callable | None,
+    abort_exc: type[BaseException] | None,
+) -> SubagentResult:
+    timeout_seconds = _static_node_timeout_seconds(
+        task_spec=task_spec,
+        capability_policy=capability_policy,
+        skill=skill,
+    )
+    task = asyncio.create_task(awaitable)
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            raise TimeoutError(
+                f"Subagent task {task_name} timed out after {timeout_seconds:g}s"
+            )
+        done, _ = await asyncio.wait(
+            {task},
+            timeout=min(STATIC_ABORT_POLL_INTERVAL_SECONDS, remaining),
+        )
+        if task in done:
+            return task.result()
+        if abort_check is not None and await _safe_abort_check(abort_check):
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            if abort_exc is not None:
+                raise abort_exc("abort signal detected")
+            raise asyncio.CancelledError("abort signal detected")
+
+
+async def _safe_abort_check(abort_check: Callable) -> bool:
+    try:
+        return bool(await abort_check())
+    except Exception:
+        return False
+
+
+def _static_node_timeout_seconds(
+    *,
+    task_spec: dict[str, Any],
+    capability_policy: dict[str, Any],
+    skill: Any | None,
+) -> float:
+    configured = (
+        task_spec.get("react_timeout_seconds")
+        or task_spec.get("timeout_seconds")
+        or _mapping_value(capability_policy.get("limits"), "react_timeout_seconds", "timeout_seconds")
+        or _mapping_value(
+            capability_policy.get("sandbox_policy"),
+            "react_timeout_seconds",
+            "timeout_seconds",
+        )
+        or _mapping_value(
+            _mapping_value(capability_policy.get("sandbox_policy"), "resource_limits"),
+            "react_timeout_seconds",
+            "timeout_seconds",
+        )
+        or _mapping_value(getattr(skill, "config", None), "react_timeout_seconds", "timeout_seconds")
+        or _mapping_value(skill.get("config") if isinstance(skill, dict) else None, "react_timeout_seconds", "timeout_seconds")
+    )
+    try:
+        timeout_seconds = float(configured) if configured is not None else DEFAULT_STATIC_NODE_TIMEOUT_SECONDS
+    except (TypeError, ValueError):
+        timeout_seconds = DEFAULT_STATIC_NODE_TIMEOUT_SECONDS
+    return max(0.001, min(timeout_seconds, DEFAULT_STATIC_NODE_TIMEOUT_SECONDS))
+
+
+def _mapping_value(value: Any, *keys: str) -> Any:
+    if not isinstance(value, dict):
+        return None
+    for key in keys:
+        item = value.get(key)
+        if item is not None:
+            return item
+    return None
+
+
+def _resolve_static_graph_tools(ctx: SubagentContext, task_spec: dict[str, Any]) -> list[str]:
+    """Resolve static graph tools through the same harness policy as React."""
+
+    if not _static_graph_declares_tool_policy(ctx, task_spec):
+        return []
+    requested_tools = list(
+        expand_tool_names(
+            [
+                *_string_list(task_spec.get("tools")),
+                *_string_list(task_spec.get("required_tools")),
+            ]
+        )
+    )
+    ctx.tools = requested_tools
+    from src.agents.harness.langchain_adapter import build_harness_run_context
+    from src.agents.harness.policy import resolve_harness_policy
+
+    policy = resolve_harness_policy(build_harness_run_context(ctx))
+    required_tools = set(expand_tool_names(_string_list(task_spec.get("required_tools"))))
+    denied_required = [tool for tool in required_tools if tool not in policy.allowed_tools]
+    if denied_required:
+        raise RuntimeError(
+            "required static graph tools denied by harness policy: "
+            + ", ".join(denied_required)
+        )
+    return list(policy.allowed_tools)
+
+
+def _static_graph_declares_tool_policy(ctx: SubagentContext, task_spec: dict[str, Any]) -> bool:
+    if _string_list(task_spec.get("tools")) or _string_list(task_spec.get("required_tools")):
+        return True
+    if _capability_declares_tools(ctx.capability_policy):
+        return True
+    return _skill_declares_tools(ctx.skill)
+
+
+def _capability_declares_tools(policy: Any) -> bool:
+    if not isinstance(policy, dict):
+        return False
+    for key in ("allowed_tools", "capability_tools", "tools", "permissions", "allowed_permissions"):
+        if _string_list(policy.get(key)):
+            return True
+    runtime = policy.get("runtime")
+    if isinstance(runtime, dict) and _string_list(runtime.get("allowed_tools")):
+        return True
+    tool_policy = policy.get("tool_policy")
+    if isinstance(tool_policy, dict) and _string_list(tool_policy.get("allowed_tools")):
+        return True
+    sandbox_policy = policy.get("sandbox_policy")
+    if isinstance(sandbox_policy, dict):
+        mode = str(sandbox_policy.get("mode") or "").strip().lower()
+        if mode == "required" or _string_list(sandbox_policy.get("allowed_operations")):
+            return True
+    return False
+
+
+def _skill_declares_tools(skill: Any) -> bool:
+    if not skill:
+        return False
+    if isinstance(skill, dict):
+        if "allowed_tools" in skill or _string_list(skill.get("allowed_tools")):
+            return True
+        config = skill.get("config")
+        if isinstance(config, dict) and "allowed_tools" in config:
+            return True
+        skill_json = skill.get("skill_json")
+        if isinstance(skill_json, dict) and isinstance(skill_json.get("sandbox_access"), dict):
+            return True
+        return False
+    if _string_list(getattr(skill, "allowed_tools", None)):
+        return True
+    config = getattr(skill, "config", None)
+    return isinstance(config, dict) and (
+        "allowed_tools" in config or isinstance(config.get("sandbox_access"), dict)
+    )
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        raw_items = list(value)
+    else:
+        return []
+    return [text for item in raw_items for text in [str(item).strip()] if text]
 
 
 def _wrap_with_abort_check(node_fn: Callable, abort_check: Callable, abort_exc: type) -> Callable:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   buildCommittedRoomLinks,
@@ -8,19 +8,29 @@ import {
   commitExecutionOutputs,
   commitStateFromCommitResponse,
   commitStateRoomTargets,
+  type ExecutionCommitRequest,
   isExecutionCommitted,
   isExecutionDiscarded,
   isExecutionReverted,
   readCommitStateFromResult,
+  resolveExecutionCommitState,
   type ExecutionCommitState,
   undoExecutionCommit,
 } from "@/lib/execution-commit";
+import {
+  acceptedUnitIdsFromChangeSet,
+  changeSetViewFromResult,
+  commitPreviewsForChangeSetReview,
+} from "@/lib/change-set-view";
 import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 import {
   filterVisibleWorkspaceResultItems,
   groupWorkspaceResultPreviews,
 } from "@/lib/workspace-result-kind";
-import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
+import {
+  buildWorkspaceResultPreviewsFromOutputs,
+  outputsWithSafeDefaultChecks,
+} from "@/lib/workspace-result-preview";
 import {
   PrismReviewList,
   prismReviewItemHref,
@@ -40,7 +50,7 @@ function reviewNotice(items: WorkspacePrismReviewItem[]): string {
   const prismCount = items.filter(isPrismReviewItem).length;
   const artifactCount = items.filter((item) => item.kind === "sandbox_artifact").length;
   if (prismCount === items.length) {
-    return `Prism 有 ${items.length} 项待确认修改`;
+    return `文档编辑器有 ${items.length} 项待确认修改`;
   }
   if (artifactCount === items.length) {
     return `结果有 ${items.length} 项可查看`;
@@ -64,13 +74,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
   } = data;
   const canSaveAll = status === "completed";
   const safeOutputs = useMemo(
-    () =>
-      canSaveAll
-        ? outputs
-        : outputs.map((output) => ({
-            ...output,
-            default_checked: false,
-          })),
+    () => outputsWithSafeDefaultChecks(outputs, canSaveAll),
     [canSaveAll, outputs],
   );
 
@@ -105,20 +109,24 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
   const executionResult = useExecutionStore(
     (state) => state.executions.get(execution_id)?.result,
   );
-  const hasExecutionRecord = useExecutionStore((state) =>
-    state.executions.has(execution_id),
+  const changeSet = useMemo(
+    () => changeSetViewFromResult(executionResult ?? data),
+    [data, executionResult],
   );
   const upsertExecution = useExecutionStore((state) => state.upsertExecution);
+  const [idempotencyKey] = useState(() => generateUUID());
   const [localCommitState, setLocalCommitState] =
     useState<ExecutionCommitState | null>(null);
+  const [committing, setCommitting] = useState(false);
   const [reverting, setReverting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const autoCommitAttemptedRef = useRef(false);
-  const idempotencyKeyRef = useRef<string | null>(null);
   const durableCommitState = readCommitStateFromResult(executionResult);
   const dataCommitState = readCommitStateFromResult(data);
-  const effectiveCommitState =
-    localCommitState ?? durableCommitState ?? dataCommitState;
+  const effectiveCommitState = resolveExecutionCommitState({
+    localCommitState,
+    durableCommitState,
+    fallbackCommitState: dataCommitState,
+  });
   const committed = isExecutionCommitted(effectiveCommitState);
   const discarded = isExecutionDiscarded(effectiveCommitState);
   const reverted = isExecutionReverted(effectiveCommitState);
@@ -132,65 +140,91 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       }),
     [effectiveCommitState, previews, workspaceId],
   );
+  const acceptedCommitPreviews = useMemo(
+    () =>
+      commitPreviewsForChangeSetReview({
+        changeSet,
+        previews,
+        visiblePreviews,
+      }),
+    [changeSet, previews, visiblePreviews],
+  );
+  const acceptedUnitIds = useMemo(
+    () => acceptedUnitIdsFromChangeSet(changeSet),
+    [changeSet],
+  );
+  const saveCount = changeSet
+    ? acceptedUnitIds.length
+    : acceptedCommitPreviews.length;
+  const receiptPendingCount =
+    visiblePreviews.length > 0 ? visiblePreviews.length : saveCount;
+  const receiptResultCount =
+    commitFinal
+      ? committedResultCount(effectiveCommitState) ?? receiptPendingCount
+      : receiptPendingCount;
+  const receiptStatusText = commitFinal
+    ? discarded
+      ? `${receiptPendingCount} 项结果已暂不保存`
+      : reverted
+        ? `${receiptResultCount} 项结果已撤回`
+        : `${receiptResultCount} 项结果已写入`
+    : `${receiptPendingCount} 项结果待审核保存`;
+  const showResultPackage =
+    visiblePreviews.length > 0 ||
+    (canSaveAll && Boolean(workspaceId) && saveCount > 0) ||
+    commitFinal ||
+    Boolean(commitError);
 
-  useEffect(() => {
+  async function commitSelected() {
     if (
-      !canSaveAll ||
-      commitFinal ||
       !workspaceId ||
-      hasExecutionRecord ||
-      autoCommitAttemptedRef.current ||
-      !visiblePreviews.some((preview) => preview.canCommit)
+      commitFinal ||
+      committing ||
+      reverting ||
+      saveCount === 0
     ) {
       return;
     }
-    autoCommitAttemptedRef.current = true;
-    idempotencyKeyRef.current = idempotencyKeyRef.current ?? crypto.randomUUID();
+    const body: ExecutionCommitRequest =
+      changeSet && acceptedUnitIds.length > 0
+        ? { accepted_unit_ids: acceptedUnitIds }
+        : { accepted_ids: acceptedCommitPreviews.map((preview) => preview.id) };
     setCommitError(null);
-
-    async function autoCommit() {
-      try {
-        const response = await commitExecutionOutputs({
-          executionId: execution_id,
-          idempotencyKey: idempotencyKeyRef.current!,
-          body: { accept_all: true },
-        });
-        const nextCommitState = commitStateFromCommitResponse(response);
-        if (!nextCommitState) {
-          setCommitError(COMMIT_STATE_SYNC_ERROR);
-          return;
-        }
-        setLocalCommitState(nextCommitState);
-        const currentRecord =
-          useExecutionStore.getState().executions.get(execution_id);
-        if (currentRecord) {
-          upsertExecution({
-            ...currentRecord,
-            result: {
-              ...(currentRecord.result ?? {}),
-              commit_state: nextCommitState,
-            },
-          });
-        }
-      } catch (error) {
-        setCommitError(
-          error instanceof Error && !error.message.startsWith("Failed")
-            ? error.message
-            : "保存结果失败，请稍后重试",
-        );
+    setCommitting(true);
+    try {
+      const response = await commitExecutionOutputs({
+        executionId: execution_id,
+        idempotencyKey,
+        body,
+      });
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setLocalCommitState(null);
+        setCommitError(COMMIT_STATE_SYNC_ERROR);
+        return;
       }
+      setLocalCommitState(nextCommitState);
+      const currentRecord =
+        useExecutionStore.getState().executions.get(execution_id);
+      if (currentRecord) {
+        upsertExecution({
+          ...currentRecord,
+          result: {
+            ...(currentRecord.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
+    } catch (error) {
+      setCommitError(
+        error instanceof Error && !error.message.startsWith("Failed")
+          ? error.message
+          : "保存结果失败，请稍后重试",
+      );
+    } finally {
+      setCommitting(false);
     }
-
-    void autoCommit();
-  }, [
-    canSaveAll,
-    commitFinal,
-    execution_id,
-    hasExecutionRecord,
-    upsertExecution,
-    visiblePreviews,
-    workspaceId,
-  ]);
+  }
 
   async function undoCommit() {
     if (!committed || reverting) {
@@ -257,7 +291,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
           {status === "completed" ? "✓" : status === "failed_partial" ? "!" : "×"}
         </span>
         <span style={styles.headerTitle}>
-          {capability_name ?? "Execution"} {statusLabel}
+          {capability_name ?? "运行"} {statusLabel}
         </span>
         {duration_seconds != null ? (
           <span style={styles.duration}>{duration_seconds}s</span>
@@ -288,17 +322,11 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
         </div>
       ) : null}
 
-      {visiblePreviews.length > 0 ? (
+      {showResultPackage ? (
         <div style={styles.packageShell}>
           <div style={styles.packageHeader}>
             <div style={styles.receiptMeta}>
-              <span>
-                {commitFinal
-                  ? reverted
-                    ? `${visiblePreviews.length} 项结果已撤回`
-                    : `${visiblePreviews.length} 项结果已写入`
-                  : `${visiblePreviews.length} 项结果正在写入`}
-              </span>
+              <span>{receiptStatusText}</span>
             </div>
             <div style={styles.groupStats}>
               {previewGroups.map((group) => (
@@ -372,7 +400,24 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
               查看运行
             </button>
             {canSaveAll && !commitFinal ? (
-              <span style={styles.statusText}>正在自动写入工作区...</span>
+              <span style={styles.statusText}>可保存结果，也可查看运行详情</span>
+            ) : null}
+            {canSaveAll && !commitFinal && workspaceId && saveCount > 0 ? (
+              <button
+                type="button"
+                onClick={commitSelected}
+                disabled={committing || reverting}
+                style={{
+                  ...styles.secondaryButton,
+                  ...(committing ? styles.buttonDisabled : null),
+                }}
+              >
+                {committing
+                  ? "保存中..."
+                  : commitError
+                    ? `重试保存（${saveCount} 项）`
+                    : `保存已确认结果（${saveCount} 项）`}
+              </button>
             ) : null}
             {discarded ? (
               <span style={styles.statusText}>已暂不保存</span>
@@ -644,3 +689,20 @@ const styles: Record<string, React.CSSProperties> = {
     textDecoration: "none",
   },
 };
+
+function committedResultCount(state: ExecutionCommitState | null): number | null {
+  if (!state) return null;
+  const total = Object.values(state.counts).reduce((sum, count) => sum + count, 0);
+  return total > 0 ? total : null;
+}
+
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}

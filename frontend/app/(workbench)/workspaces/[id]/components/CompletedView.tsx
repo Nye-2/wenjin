@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { resolveExecutionNextActionPresentation } from "@/lib/block-actions";
+import {
+  acceptedUnitIdsFromChangeSet,
+  changeSetViewFromResult,
+  commitPreviewsForChangeSetReview,
+} from "@/lib/change-set-view";
 import {
   buildCommittedRoomLinks,
   COMMIT_STATE_SYNC_ERROR,
   commitExecutionOutputs,
   commitStateFromCommitResponse,
   commitStateRoomTargets,
+  type ExecutionCommitRequest,
   isExecutionDiscarded,
   isExecutionReverted,
   readCommitStateFromResult,
+  resolveExecutionCommitState,
   type ExecutionCommitState,
   undoExecutionCommit,
 } from "@/lib/execution-commit";
@@ -20,7 +27,10 @@ import {
   safeRuntimeText,
 } from "@/lib/runtime-payload-safety";
 import { filterVisibleWorkspaceResultItems } from "@/lib/workspace-result-kind";
-import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
+import {
+  buildWorkspaceResultPreviewsFromOutputs,
+  outputsWithSafeDefaultChecks,
+} from "@/lib/workspace-result-preview";
 import {
   PrismReviewList,
   prismReviewItemHref,
@@ -45,6 +55,7 @@ export interface CompletedViewProps {
   workspaceId?: string | null;
   featureId?: string | null;
   executionId?: string | null;
+  executionStatus?: string | null;
   resultSummary?: string | null;
   result?: Record<string, unknown> | null;
   reviewItems?: WorkspacePrismReviewItem[];
@@ -55,6 +66,7 @@ export function CompletedView({
   workspaceId,
   featureId,
   executionId,
+  executionStatus,
   resultSummary,
   result,
   reviewItems = [],
@@ -64,6 +76,7 @@ export function CompletedView({
   const upsertExecution = useExecutionStore((state) => state.upsertExecution);
 
   const taskReport = getTaskReport(result);
+  const changeSet = useMemo(() => changeSetViewFromResult(result), [result]);
   const durableCommitState = readCommitStateFromResult(result);
   const effectiveReviewItems =
     reviewItems.length > 0 ? reviewItems : readReviewItems(taskReport?.review_items);
@@ -72,10 +85,11 @@ export function CompletedView({
     safeRuntimeText(taskReport?.result_summary, 220) ||
     safeRuntimeText(taskReport?.narrative, 220) ||
     "运行结果已生成。";
-  const taskStatus = readString(taskReport?.status) || "completed";
+  const taskStatus =
+    readString(executionStatus) || readString(taskReport?.status) || "completed";
   const allowAcceptAll = taskStatus === "completed";
   const taskOutputs = useMemo(
-    () => outputsWithSafeDefaults(taskReport?.outputs, allowAcceptAll),
+    () => outputsWithSafeDefaultChecks(taskReport?.outputs, allowAcceptAll),
     [allowAcceptAll, taskReport?.outputs],
   );
   const rawPreviews = useMemo(
@@ -107,8 +121,10 @@ export function CompletedView({
   const [committing, setCommitting] = useState(false);
   const [reverting, setReverting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const autoCommitAttemptedRef = useRef<Set<string>>(new Set());
-  const effectiveCommitState = localCommitState ?? durableCommitState;
+  const effectiveCommitState = resolveExecutionCommitState({
+    localCommitState,
+    durableCommitState,
+  });
   const commitFinal = Boolean(effectiveCommitState);
   const discarded = isExecutionDiscarded(effectiveCommitState);
   const reverted = isExecutionReverted(effectiveCommitState);
@@ -127,6 +143,22 @@ export function CompletedView({
     setReverting(false);
     setCommitError(null);
   }, [executionId]);
+  const acceptedCommitPreviews = useMemo(
+    () =>
+      commitPreviewsForChangeSetReview({
+        changeSet,
+        previews: rawPreviews,
+        visiblePreviews: previews,
+      }),
+    [changeSet, previews, rawPreviews],
+  );
+  const acceptedUnitIds = useMemo(
+    () => acceptedUnitIdsFromChangeSet(changeSet),
+    [changeSet],
+  );
+  const saveCount = changeSet
+    ? acceptedUnitIds.length
+    : acceptedCommitPreviews.length;
   const taskErrors = taskReport?.errors;
   const errorItems = Array.isArray(taskErrors) ? taskErrors.slice(0, 3) : [];
   const actionContext = getCompletedActionContext({
@@ -151,11 +183,113 @@ export function CompletedView({
     taskReport,
     taskStatus,
   });
+  const shouldShowWritebackControls =
+    Boolean(executionId) &&
+    (previews.length > 0 ||
+      saveCount > 0 ||
+      commitFinal ||
+      Boolean(commitError) ||
+      !allowAcceptAll);
+  const writebackControls = shouldShowWritebackControls ? (
+    <div style={{ marginBottom: 12 }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          color: "var(--wjn-text)",
+          marginBottom: 8,
+        }}
+      >
+        工作区写入
+      </div>
+      {!allowAcceptAll ? (
+        <div style={styles.partialNotice}>
+          本次运行未完整完成，候选结果只作为证据预览；需要继续处理时，请在左侧补充指令。
+        </div>
+      ) : null}
+      {allowAcceptAll ? (
+        <div style={styles.writebackStatus}>
+          <span style={styles.writebackLabel}>
+            {reverting
+              ? "正在撤回本次保存..."
+              : reverted
+                ? "已撤回本次保存"
+                : discarded
+                  ? "已暂不保存"
+                  : commitFinal
+                    ? "已写入工作区"
+                    : committing
+                      ? "正在写入工作区..."
+                      : commitError
+                        ? "保存状态异常"
+                        : "待审核保存"}
+          </span>
+          {!commitFinal && saveCount > 0 ? (
+            <button
+              type="button"
+              onClick={commitSelected}
+              disabled={committing || reverting}
+              style={styles.inlineGhostButton}
+            >
+              {committing
+                ? "保存中..."
+                : commitError
+                  ? `重试保存（${saveCount} 项）`
+                  : `保存已确认结果（${saveCount} 项）`}
+            </button>
+          ) : null}
+          {effectiveCommitState?.status === "committed" ? (
+            <button
+              type="button"
+              onClick={undoCommit}
+              disabled={reverting}
+              style={styles.inlineGhostButton}
+            >
+              {reverting ? "撤回中..." : "撤回本次保存"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {commitError ? (
+        <div style={styles.commitError}>{commitError}</div>
+      ) : null}
+      {commitLinks.length > 0 ? (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            marginTop: 10,
+          }}
+        >
+          {commitLinks.map((link) => (
+            <WorkspaceActionLink
+              key={link.key}
+              href={link.href}
+              style={styles.reviewActionLink}
+            >
+              {link.label}
+            </WorkspaceActionLink>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
 
-  async function commit(body: Record<string, unknown>) {
-    if (!executionId || commitFinal || committing || reverting) {
+  async function commitSelected() {
+    if (
+      !executionId ||
+      commitFinal ||
+      committing ||
+      reverting ||
+      saveCount === 0
+    ) {
       return;
     }
+    const body: ExecutionCommitRequest =
+      changeSet && acceptedUnitIds.length > 0
+        ? { accepted_unit_ids: acceptedUnitIds }
+        : { accepted_ids: acceptedCommitPreviews.map((preview) => preview.id) };
     setCommitError(null);
     setCommitting(true);
     try {
@@ -192,29 +326,9 @@ export function CompletedView({
     }
   }
 
-  useEffect(() => {
-    if (
-      !executionId ||
-      !allowAcceptAll ||
-      commitFinal ||
-      committing ||
-      reverting ||
-      previews.length === 0
-    ) {
-      return;
-    }
-    const attempted = autoCommitAttemptedRef.current;
-    if (attempted.has(executionId)) {
-      return;
-    }
-    attempted.add(executionId);
-    void commit({ accept_all: true });
-  }, [allowAcceptAll, commitFinal, committing, executionId, previews.length, reverting]);
-
   async function undoCommit() {
     if (
       !executionId ||
-      committing ||
       reverting ||
       !effectiveCommitState ||
       effectiveCommitState.status !== "committed"
@@ -293,87 +407,7 @@ export function CompletedView({
               actionContext.actions.length > 0 ||
               actionContext.reviewItems.length > 0 ? (
                 <div style={styles.actionFooter}>
-                  {executionId ? (
-                    <div style={{ marginBottom: 12 }}>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: "var(--wjn-text)",
-                          marginBottom: 8,
-                        }}
-                      >
-                        工作区写入
-                      </div>
-                      {!allowAcceptAll ? (
-                        <div style={styles.partialNotice}>
-                          本次运行未完整完成，候选结果只作为证据预览；需要继续处理时，请在左侧补充指令。
-                        </div>
-                      ) : null}
-                      {allowAcceptAll ? (
-                        <div style={styles.autoCommitStatus}>
-                          <span style={styles.autoCommitLabel}>
-                            {reverting
-                              ? "正在撤回本次保存..."
-                              : reverted
-                                ? "已撤回本次保存"
-                                : discarded
-                                  ? "已暂不保存"
-                                  : commitFinal
-                                    ? "已写入工作区"
-                                    : committing
-                                      ? "正在自动写入工作区..."
-                                      : commitError
-                                        ? "自动写入失败"
-                                        : "等待自动写入"}
-                          </span>
-                          {effectiveCommitState?.status === "committed" ? (
-                            <button
-                              type="button"
-                              onClick={undoCommit}
-                              disabled={reverting}
-                              style={styles.inlineGhostButton}
-                            >
-                              {reverting ? "撤回中..." : "撤回本次保存"}
-                            </button>
-                          ) : null}
-                          {!commitFinal && commitError ? (
-                            <button
-                              type="button"
-                              onClick={() => commit({ accept_all: true })}
-                              disabled={committing}
-                              style={styles.inlineGhostButton}
-                            >
-                              重试写入
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {commitError ? (
-                        <div style={styles.commitError}>{commitError}</div>
-                      ) : null}
-                      {commitLinks.length > 0 ? (
-                        <div
-                          style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: 8,
-                            marginTop: 10,
-                          }}
-                        >
-                          {commitLinks.map((link) => (
-                            <WorkspaceActionLink
-                              key={link.key}
-                              href={link.href}
-                              style={styles.reviewActionLink}
-                            >
-                              {link.label}
-                            </WorkspaceActionLink>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                  {writebackControls}
 
                   {(actionContext.reviewItems.length > 0 ||
                     actionContext.actions.length > 0) && (
@@ -477,7 +511,9 @@ export function CompletedView({
       )}
 
       {previews.length === 0 &&
-        (actionContext.actions.length > 0 || actionContext.reviewItems.length > 0) && (
+        (writebackControls ||
+          actionContext.actions.length > 0 ||
+          actionContext.reviewItems.length > 0) && (
         <div
           style={{
             marginBottom: 12,
@@ -487,16 +523,21 @@ export function CompletedView({
             border: "1px solid var(--wjn-accent-soft)",
           }}
         >
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--wjn-text)",
-              marginBottom: actionContext.reviewItems.length > 0 ? 8 : 0,
-            }}
-          >
-            {actionContext.reviewItems.length > 0 ? "待确认修改" : "下一步操作"}
-          </div>
+          {writebackControls}
+
+          {actionContext.reviewItems.length > 0 ||
+          actionContext.actions.length > 0 ? (
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "var(--wjn-text)",
+                marginBottom: actionContext.reviewItems.length > 0 ? 8 : 0,
+              }}
+            >
+              {actionContext.reviewItems.length > 0 ? "待确认修改" : "下一步操作"}
+            </div>
+          ) : null}
 
           {actionContext.reviewItems.length > 0 && (
             <>
@@ -591,25 +632,6 @@ function readReviewItems(value: unknown): WorkspacePrismReviewItem[] {
     .map((item) => readObject(item))
     .filter((item): item is Record<string, unknown> => item !== null)
     .map((item) => item as unknown as WorkspacePrismReviewItem);
-}
-
-function outputsWithSafeDefaults(
-  outputs: unknown,
-  allowDefaultChecked: boolean,
-): unknown {
-  if (allowDefaultChecked || !Array.isArray(outputs)) {
-    return outputs;
-  }
-  return outputs.map((item) => {
-    const output = readObject(item);
-    if (!output) {
-      return item;
-    }
-    return {
-      ...output,
-      default_checked: false,
-    };
-  });
 }
 
 function buildCompletedResultStatusLines({
@@ -757,14 +779,14 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.45,
     marginBottom: 10,
   },
-  autoCommitStatus: {
+  writebackStatus: {
     display: "flex",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 8,
     minHeight: 30,
   },
-  autoCommitLabel: {
+  writebackLabel: {
     color: "var(--wjn-success)",
     fontSize: 12,
     fontWeight: 650,

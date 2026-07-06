@@ -21,8 +21,8 @@ from src.agents.contracts.task_report import (
     TaskData,
     TaskOutput,
 )
-from src.contracts.team_expert import ExpertReportV1
 from src.agents.harness.claim_evidence import validate_claim_evidence_alignment
+from src.contracts.team_expert import ExpertReportV1
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +212,24 @@ def review_packet_from_expert_reports(
     normalized_status = _review_packet_completion_status(completion_status)
     items: list[ReviewPacketItem] = []
     for report_index, report in enumerate(reports):
+        nested_claim_refs: list[str] = []
+        nested_evidence_refs: list[str] = []
+        claim_evidence_decision = None
+        if report.claim_inventory or report.evidence_packet:
+            claim_evidence_decision = validate_claim_evidence_alignment(
+                report.claim_inventory,
+                report.evidence_packet,
+            )
+            nested_claim_refs = [
+                claim.claim_id
+                for claim in (report.claim_inventory.claims if report.claim_inventory else [])
+                if claim.claim_id
+            ]
+            nested_evidence_refs = [
+                item.evidence_id
+                for item in (report.evidence_packet.items if report.evidence_packet else [])
+                if item.evidence_id
+            ]
         artifact_refs = [
             f"artifact:{artifact.path}"
             for artifact in report.artifacts
@@ -227,6 +245,18 @@ def review_packet_from_expert_reports(
             for claim in report.claims
             if claim.support_level in {"verified", "supported", "plausible"}
         ]
+        claim_refs = _unique_strings([*claim_refs, *nested_claim_refs])
+        evidence_refs = _unique_strings([*evidence_refs, *nested_evidence_refs])
+        quality_surfaces = _unique_strings(
+            [
+                *list(report.quality_gates_checked),
+                *(["claim_evidence_alignment"] if claim_evidence_decision is not None else []),
+            ]
+        )
+        has_claim_evidence_blocker = (
+            claim_evidence_decision is not None
+            and bool(claim_evidence_decision.blocking_reasons)
+        )
         if report.summary or artifact_refs or claim_refs:
             items.append(
                 ReviewPacketItem(
@@ -239,9 +269,13 @@ def review_packet_from_expert_reports(
                     claim_refs=claim_refs,
                     evidence_refs=evidence_refs,
                     artifact_refs=artifact_refs,
-                    quality_surfaces=list(report.quality_gates_checked),
+                    quality_surfaces=quality_surfaces,
                     risk=_risk_from_report(report),
-                    default_checked=normalized_status == "complete" and not _report_has_unsupported_claims(report),
+                    default_checked=(
+                        normalized_status == "complete"
+                        and not _report_has_unsupported_claims(report)
+                        and not has_claim_evidence_blocker
+                    ),
                     can_commit=True,
                     provenance={"execution_id": execution_id, "expert_id": report.expert_id},
                 )
@@ -260,7 +294,7 @@ def review_packet_from_expert_reports(
                     source={"expert_id": report.expert_id, "skill_id": report.skill_id},
                     claim_refs=[claim.claim_id],
                     evidence_refs=list(claim.evidence_ids),
-                    quality_surfaces=list(report.quality_gates_checked),
+                    quality_surfaces=quality_surfaces,
                     risk={
                         "level": "high",
                         "reasons": claim.limitations or ["claim is not sufficiently supported"],
@@ -270,20 +304,13 @@ def review_packet_from_expert_reports(
                     provenance={"execution_id": execution_id, "expert_id": report.expert_id},
                 )
             )
-        if report.claim_inventory or report.evidence_packet:
-            decision = validate_claim_evidence_alignment(report.claim_inventory, report.evidence_packet)
-            nested_claim_refs = [
-                claim.claim_id
-                for claim in (report.claim_inventory.claims if report.claim_inventory else [])
-                if claim.claim_id
+        if claim_evidence_decision is not None:
+            reasons = [
+                *claim_evidence_decision.blocking_reasons,
+                *claim_evidence_decision.warnings,
             ]
-            nested_evidence_refs = [
-                item.evidence_id
-                for item in (report.evidence_packet.items if report.evidence_packet else [])
-                if item.evidence_id
-            ]
-            for warning_index, reason in enumerate([*decision.blocking_reasons, *decision.warnings][:8]):
-                is_blocker = warning_index < len(decision.blocking_reasons)
+            for warning_index, reason in enumerate(reasons[:8]):
+                is_blocker = warning_index < len(claim_evidence_decision.blocking_reasons)
                 items.append(
                     ReviewPacketItem(
                         item_id=(
@@ -326,6 +353,18 @@ def _review_packet_completion_status(value: str) -> ReviewPacketCompletionStatus
     if value in {"complete", "partial", "failed", "cancelled"}:
         return value  # type: ignore[return-value]
     return "partial"
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        result.append(text)
+        seen.add(text)
+    return result
 
 
 def _review_packet_title_for_report(report: ExpertReportV1) -> str:

@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useSearchParams } from "next/navigation";
@@ -31,9 +32,23 @@ const SETTINGS_ROOMS = new Set<string>([
   "decisions",
   "settings",
 ]);
+const MIN_SPLIT_PERCENT = 28;
+const MAX_SPLIT_PERCENT = 72;
+const SPLIT_KEYBOARD_STEP = 0.02;
+const SPLIT_KEYBOARD_LARGE_STEP = 0.1;
 
 type SettingsTab = "decisions" | "settings";
 type RoomKey = WorkspaceHubRoomKey;
+type MobileSurface = "chat" | "run" | "review";
+
+const MOBILE_SURFACE_TABS: Array<{
+  key: MobileSurface;
+  label: string;
+}> = [
+  { key: "chat", label: "对话" },
+  { key: "run", label: "进展" },
+  { key: "review", label: "复核" },
+];
 
 export default function V2Page({
   params,
@@ -77,9 +92,13 @@ export default function V2Page({
   const resetSplitRatio = useWorkbenchLayoutStore(
     (state) => state.resetSplitRatio,
   );
+  const setActiveWorkbenchTab = useWorkbenchLayoutStore(
+    (state) => state.setActiveWorkbenchTab,
+  );
   const { pendingReviewCount, activeRunCount, completedRunCount } =
     useWorkspaceChromeCounts(id);
   const splitRootRef = useRef<HTMLDivElement>(null);
+  const [mobileSurface, setMobileSurface] = useState<MobileSurface>("chat");
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");
@@ -149,6 +168,51 @@ export default function V2Page({
     [isWorkbenchFullscreen, setSplitRatio],
   );
 
+  const handleResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (isWorkbenchFullscreen) {
+        return;
+      }
+
+      const step = event.shiftKey
+        ? SPLIT_KEYBOARD_LARGE_STEP
+        : SPLIT_KEYBOARD_STEP;
+      let nextRatio: number | null = null;
+      if (event.key === "ArrowLeft") {
+        nextRatio = splitRatio - step;
+      } else if (event.key === "ArrowRight") {
+        nextRatio = splitRatio + step;
+      } else if (event.key === "Home") {
+        nextRatio = MIN_SPLIT_PERCENT / 100;
+      } else if (event.key === "End") {
+        nextRatio = MAX_SPLIT_PERCENT / 100;
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        resetSplitRatio();
+        return;
+      }
+
+      if (nextRatio === null) {
+        return;
+      }
+      event.preventDefault();
+      setSplitRatio(nextRatio);
+    },
+    [isWorkbenchFullscreen, resetSplitRatio, setSplitRatio, splitRatio],
+  );
+
+  const handleMobileSurfaceChange = useCallback(
+    (surface: MobileSurface) => {
+      setMobileSurface(surface);
+      if (surface === "run") {
+        setActiveWorkbenchTab("run");
+      } else if (surface === "review") {
+        setActiveWorkbenchTab("review");
+      }
+    },
+    [setActiveWorkbenchTab],
+  );
+
   // Map topbar room selection to panels
   const settingsOpen = activeRoom != null && SETTINGS_ROOMS.has(activeRoom);
   const settingsTab: SettingsTab =
@@ -180,15 +244,20 @@ export default function V2Page({
         className={`relative flex min-h-0 flex-1 ${isNarrowViewport ? "flex-col" : ""}`}
         data-testid="workbench-split-root"
       >
+        {isNarrowViewport && !isWorkbenchFullscreen ? (
+          <MobileSurfaceTabs
+            activeSurface={mobileSurface}
+            onChange={handleMobileSurfaceChange}
+          />
+        ) : null}
         {isNarrowViewport ? (
-          !isWorkbenchFullscreen ? (
+          !isWorkbenchFullscreen && mobileSurface === "chat" ? (
             <div
               data-testid="chat-region"
               style={{
-                height: "48%",
+                flex: 1,
                 minHeight: 260,
                 minWidth: 0,
-                borderBottom: "1px solid var(--wjn-line)",
               }}
             >
               <ChatPanel
@@ -227,10 +296,15 @@ export default function V2Page({
               role="separator"
               aria-orientation="vertical"
               aria-label="调整对话与工作台宽度"
+              aria-valuemin={MIN_SPLIT_PERCENT}
+              aria-valuemax={MAX_SPLIT_PERCENT}
+              aria-valuenow={Math.round(splitRatio * 100)}
+              tabIndex={0}
               data-testid="workbench-resizer"
               onPointerDown={handleResizePointerDown}
+              onKeyDown={handleResizeKeyDown}
               onDoubleClick={resetSplitRatio}
-              title="拖拽调整宽度，双击恢复默认"
+              title="拖拽调整宽度，方向键微调，双击或回车恢复默认"
               style={{
                 width: 8,
                 flex: "0 0 8px",
@@ -244,23 +318,25 @@ export default function V2Page({
             />
           </>
         ) : null}
-        <div
-          data-testid="workbench-region"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            height: isNarrowViewport && !isWorkbenchFullscreen ? undefined : "100%",
-            minHeight: 0,
-          }}
-        >
-          <LiveWorkflowPanel
-            workspaceId={id}
-            typeConfig={typeConfig ?? undefined}
-            features={features}
-            className="h-full"
-            data-testid="workflow-panel"
-          />
-        </div>
+        {!isNarrowViewport || isWorkbenchFullscreen || mobileSurface !== "chat" ? (
+          <div
+            data-testid="workbench-region"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: isNarrowViewport && !isWorkbenchFullscreen ? undefined : "100%",
+              minHeight: 0,
+            }}
+          >
+            <LiveWorkflowPanel
+              workspaceId={id}
+              typeConfig={typeConfig ?? undefined}
+              features={features}
+              className="h-full"
+              data-testid="workflow-panel"
+            />
+          </div>
+        ) : null}
 
         {/* Room drawers */}
         <LibraryDrawer
@@ -297,6 +373,57 @@ export default function V2Page({
         onDismiss={() => setCompactToastVisible(false)}
       />
     </div>
+  );
+}
+
+function MobileSurfaceTabs({
+  activeSurface,
+  onChange,
+}: {
+  activeSurface: MobileSurface;
+  onChange: (surface: MobileSurface) => void;
+}) {
+  return (
+    <nav
+      role="tablist"
+      aria-label="移动端工作区视图"
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+        gap: 4,
+        padding: "8px 10px",
+        borderBottom: "1px solid var(--wjn-line)",
+        background: "rgba(255,255,255,0.86)",
+      }}
+    >
+      {MOBILE_SURFACE_TABS.map((tab) => {
+        const active = tab.key === activeSurface;
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            aria-label={tab.label}
+            onClick={() => onChange(tab.key)}
+            style={{
+              height: 34,
+              borderRadius: "var(--wjn-radius)",
+              border: active
+                ? "1px solid var(--wjn-accent-line)"
+                : "1px solid transparent",
+              background: active ? "var(--wjn-accent-soft)" : "transparent",
+              color: active ? "var(--wjn-accent-strong)" : "var(--wjn-text-secondary)",
+              fontSize: 13,
+              fontWeight: 650,
+              fontFamily: "var(--wjn-font-sans)",
+            }}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.contracts.change_set import normalize_write_mode
 from src.database.models.workspace import WorkspaceType
 
 THREAD_COCKPIT_DEFAULT_TYPES = {
@@ -39,3 +40,18 @@ def with_rollout_defaults(
     rollout_config.setdefault("thread_cockpit_enabled", resolved_type.value in THREAD_COCKPIT_DEFAULT_TYPES)
     base["rollout"] = rollout_config
     return base
+
+
+def with_write_mode_default(settings_json: dict[str, Any] | None) -> dict[str, Any]:
+    """Inject the workspace write-mode default without overwriting valid overrides."""
+    base = dict(settings_json or {})
+    base["write_mode"] = normalize_write_mode(base.get("write_mode"))
+    return base
+
+
+def with_workspace_settings_defaults(
+    workspace_type: WorkspaceType | str,
+    settings_json: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Inject all workspace settings defaults without overwriting valid overrides."""
+    return with_write_mode_default(with_rollout_defaults(workspace_type, settings_json))

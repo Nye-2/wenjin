@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -17,8 +17,11 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionCommitResetCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
+    ExecutionLeaseClaimCommand,
+    ExecutionLeaseHeartbeatCommand,
     ExecutionNodePatchCommand,
     ExecutionNodeUpsertCommand,
+    ExecutionResultPatchCommand,
     ExecutionUpdateCommand,
     GenerationRecordCreateCommand,
 )
@@ -146,6 +149,7 @@ class FakeExecutionRepository:
         self.events: list[SimpleNamespace] = []
         self.compute_session: SimpleNamespace | None = None
         self.nodes: list[SimpleNamespace] = []
+        self.node_upsert_count = 0
         self.generation_records: list[SimpleNamespace] = []
         self.locked_execution_ids: list[str] = []
 
@@ -282,6 +286,21 @@ class FakeExecutionRepository:
         self.nodes.append(node)
         return node
 
+    async def upsert_node(self, values: dict[str, Any]) -> SimpleNamespace:
+        self.node_upsert_count += 1
+        existing = await self.get_node_by_node_id(
+            execution_id=str(values["execution_id"]),
+            node_id=str(values["node_id"]),
+        )
+        if existing is None:
+            return self.create_node(values)
+        for key, value in values.items():
+            if key in {"id", "execution_id", "node_id", "created_at"}:
+                continue
+            if value is not None:
+                setattr(existing, key, value)
+        return existing
+
     async def list_events(self, execution_id: str) -> list[SimpleNamespace]:
         return [event for event in self.events if event.execution_id == execution_id]
 
@@ -415,6 +434,274 @@ async def test_update_execution_maps_v2_fields_to_storage_fields() -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_execution_rejects_unexpected_status_under_lock() -> None:
+    service, repository, session = _service()
+    repository.record = _execution({"id": "exec-1", "status": "cancelling"})
+
+    updated = await service.update_execution(
+        "exec-1",
+        ExecutionUpdateCommand(
+            expected_status="running",
+            status="completed",
+            result_json={"task_report": {"status": "completed"}},
+        ),
+    )
+
+    assert updated is None
+    assert repository.locked_execution_ids == ["exec-1"]
+    assert repository.record.status == "cancelling"
+    assert repository.record.result is None
+    assert session.commit_count == 0
+
+
+@pytest.mark.asyncio
+async def test_patch_execution_result_merges_patch_under_lock() -> None:
+    service, repository, session = _service()
+    review_state = {
+        "schema_version": "wenjin.change_set.review_state.v1",
+        "accepted_unit_ids": ["unit-1"],
+        "rejected_unit_ids": [],
+        "undone_unit_ids": [],
+        "updated_at": "2026-07-06T00:00:00+00:00",
+    }
+    materialization_progress = {
+        "schema_version": "wenjin.change_unit_materialization.v1",
+        "execution_id": "exec-1",
+        "accepted_unit_ids": ["unit-1"],
+        "completed_unit_ids": ["unit-1"],
+        "counts": {"decisions": 1},
+        "room_targets": {"decisions": [{"unit_id": "unit-1", "item_id": "dec-1"}]},
+    }
+    repository.record = _execution(
+        {
+            "id": "exec-1",
+            "result": {
+                "change_set": {"execution_id": "exec-1", "units": []},
+                "commit_state": {
+                    "status": "committed",
+                    "accepted_ids": ["doc-1"],
+                    "rejected_ids": [],
+                    "counts": {"prism": 1},
+                    "room_targets": {"prism": [{"output_id": "doc-1"}]},
+                },
+            },
+        }
+    )
+
+    patched = await service.patch_execution_result(
+        "exec-1",
+        ExecutionResultPatchCommand(
+            result_patch={
+                "change_set_review_state": review_state,
+                "change_unit_materialization": materialization_progress,
+            },
+        ),
+    )
+
+    assert patched is not None
+    assert repository.locked_execution_ids == ["exec-1"]
+    assert repository.record.result["commit_state"]["status"] == "committed"
+    assert repository.record.result["change_set_review_state"] == review_state
+    assert repository.record.result["change_unit_materialization"] == materialization_progress
+    assert patched.result_json["change_set_review_state"] == review_state
+    assert patched.result_json["change_unit_materialization"] == materialization_progress
+    assert session.commit_count == 1
+
+
+def test_execution_result_patch_rejects_commit_state_patch() -> None:
+    with pytest.raises(ValueError, match="Unsupported execution result patch key"):
+        ExecutionResultPatchCommand(result_patch={"commit_state": {"status": "committed"}})
+
+
+@pytest.mark.asyncio
+async def test_claim_execution_lease_sets_runtime_state_under_lock() -> None:
+    service, repository, session = _service()
+    claimed_at = datetime(2026, 7, 6, 8, 0, tzinfo=UTC)
+    repository.record = _execution(
+        {
+            "id": "exec-lease",
+            "status": "pending",
+            "runtime_state": {"phase": "queued"},
+        }
+    )
+
+    claim = await service.claim_execution_lease(
+        "exec-lease",
+        ExecutionLeaseClaimCommand(
+            worker_id="worker-1",
+            ttl_seconds=60,
+            claimed_at=claimed_at,
+        ),
+    )
+
+    assert claim["status"] == "claimed"
+    assert repository.locked_execution_ids == ["exec-lease"]
+    assert repository.record.worker_task_id == "worker-1"
+    assert repository.record.runtime_state["phase"] == "queued"
+    assert repository.record.runtime_state["execution_lease"] == {
+        "worker_id": "worker-1",
+        "claimed_at": claimed_at.isoformat(),
+        "last_heartbeat_at": claimed_at.isoformat(),
+        "lease_expires_at": (claimed_at + timedelta(seconds=60)).isoformat(),
+    }
+    assert claim["execution"].worker_task_id == "worker-1"
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_claim_execution_lease_rejects_active_other_worker() -> None:
+    service, repository, session = _service()
+    now = datetime(2026, 7, 6, 8, 0, tzinfo=UTC)
+    repository.record = _execution(
+        {
+            "id": "exec-lease",
+            "status": "running",
+            "runtime_state": {
+                "execution_lease": {
+                    "worker_id": "worker-1",
+                    "claimed_at": now.isoformat(),
+                    "last_heartbeat_at": now.isoformat(),
+                    "lease_expires_at": (now + timedelta(minutes=5)).isoformat(),
+                }
+            },
+            "worker_task_id": "worker-1",
+        }
+    )
+
+    claim = await service.claim_execution_lease(
+        "exec-lease",
+        ExecutionLeaseClaimCommand(
+            worker_id="worker-2",
+            ttl_seconds=60,
+            claimed_at=now + timedelta(seconds=30),
+        ),
+    )
+
+    assert claim["status"] == "in_progress"
+    assert repository.record.worker_task_id == "worker-1"
+    assert repository.record.runtime_state["execution_lease"]["worker_id"] == "worker-1"
+    assert session.commit_count == 0
+
+
+@pytest.mark.asyncio
+async def test_claim_execution_lease_takes_over_expired_lease() -> None:
+    service, repository, session = _service()
+    previous = datetime(2026, 7, 6, 8, 0, tzinfo=UTC)
+    claimed_at = previous + timedelta(minutes=10)
+    repository.record = _execution(
+        {
+            "id": "exec-lease",
+            "status": "running",
+            "runtime_state": {
+                "phase": "running",
+                "execution_lease": {
+                    "worker_id": "worker-1",
+                    "claimed_at": previous.isoformat(),
+                    "last_heartbeat_at": previous.isoformat(),
+                    "lease_expires_at": (previous + timedelta(minutes=2)).isoformat(),
+                },
+            },
+            "worker_task_id": "worker-1",
+        }
+    )
+
+    claim = await service.claim_execution_lease(
+        "exec-lease",
+        ExecutionLeaseClaimCommand(
+            worker_id="worker-2",
+            ttl_seconds=90,
+            claimed_at=claimed_at,
+        ),
+    )
+
+    assert claim["status"] == "claimed"
+    assert repository.record.worker_task_id == "worker-2"
+    assert repository.record.runtime_state["phase"] == "running"
+    assert repository.record.runtime_state["execution_lease"] == {
+        "worker_id": "worker-2",
+        "claimed_at": claimed_at.isoformat(),
+        "last_heartbeat_at": claimed_at.isoformat(),
+        "lease_expires_at": (claimed_at + timedelta(seconds=90)).isoformat(),
+    }
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_execution_lease_extends_owned_lease() -> None:
+    service, repository, session = _service()
+    claimed_at = datetime(2026, 7, 6, 8, 0, tzinfo=UTC)
+    heartbeat_at = claimed_at + timedelta(seconds=30)
+    repository.record = _execution(
+        {
+            "id": "exec-lease",
+            "status": "running",
+            "runtime_state": {
+                "execution_lease": {
+                    "worker_id": "worker-1",
+                    "claimed_at": claimed_at.isoformat(),
+                    "last_heartbeat_at": claimed_at.isoformat(),
+                    "lease_expires_at": (claimed_at + timedelta(minutes=2)).isoformat(),
+                }
+            },
+            "worker_task_id": "worker-1",
+        }
+    )
+
+    heartbeat = await service.heartbeat_execution_lease(
+        "exec-lease",
+        ExecutionLeaseHeartbeatCommand(
+            worker_id="worker-1",
+            ttl_seconds=120,
+            heartbeat_at=heartbeat_at,
+        ),
+    )
+
+    assert heartbeat["status"] == "heartbeat"
+    assert repository.record.runtime_state["execution_lease"] == {
+        "worker_id": "worker-1",
+        "claimed_at": claimed_at.isoformat(),
+        "last_heartbeat_at": heartbeat_at.isoformat(),
+        "lease_expires_at": (heartbeat_at + timedelta(seconds=120)).isoformat(),
+    }
+    assert repository.record.worker_task_id == "worker-1"
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_execution_lease_rejects_other_worker() -> None:
+    service, repository, session = _service()
+    now = datetime(2026, 7, 6, 8, 0, tzinfo=UTC)
+    repository.record = _execution(
+        {
+            "id": "exec-lease",
+            "status": "running",
+            "runtime_state": {
+                "execution_lease": {
+                    "worker_id": "worker-1",
+                    "claimed_at": now.isoformat(),
+                    "last_heartbeat_at": now.isoformat(),
+                    "lease_expires_at": (now + timedelta(minutes=2)).isoformat(),
+                }
+            },
+            "worker_task_id": "worker-1",
+        }
+    )
+
+    heartbeat = await service.heartbeat_execution_lease(
+        "exec-lease",
+        ExecutionLeaseHeartbeatCommand(
+            worker_id="worker-2",
+            heartbeat_at=now + timedelta(seconds=10),
+        ),
+    )
+
+    assert heartbeat["status"] == "owner_mismatch"
+    assert repository.record.worker_task_id == "worker-1"
+    assert repository.record.runtime_state["execution_lease"]["worker_id"] == "worker-1"
+    assert session.commit_count == 0
+
+
+@pytest.mark.asyncio
 async def test_reconcile_interrupted_executions_marks_in_flight_terminal() -> None:
     service, repository, session = _service()
     repository.record = _execution({"id": "exec-1", "status": "running"})
@@ -424,6 +711,64 @@ async def test_reconcile_interrupted_executions_marks_in_flight_terminal() -> No
     assert reconciled == 1
     assert repository.record.status == "failed"
     assert repository.record.error == "Execution interrupted by process restart"
+    assert repository.record.completed_at is not None
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_interrupted_executions_skips_active_lease() -> None:
+    service, repository, session = _service()
+    now = datetime.now(UTC)
+    repository.record = _execution(
+        {
+            "id": "exec-lease",
+            "status": "running",
+            "runtime_state": {
+                "execution_lease": {
+                    "worker_id": "worker-1",
+                    "claimed_at": now.isoformat(),
+                    "last_heartbeat_at": now.isoformat(),
+                    "lease_expires_at": (now + timedelta(minutes=5)).isoformat(),
+                }
+            },
+            "worker_task_id": "worker-1",
+        }
+    )
+
+    reconciled = await service.reconcile_interrupted_executions()
+
+    assert reconciled == 0
+    assert repository.record.status == "running"
+    assert repository.record.completed_at is None
+    assert session.commit_count == 0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_interrupted_executions_marks_expired_lease_terminal() -> None:
+    service, repository, session = _service()
+    previous = datetime.now(UTC) - timedelta(minutes=10)
+    repository.record = _execution(
+        {
+            "id": "exec-lease",
+            "status": "running",
+            "runtime_state": {
+                "execution_lease": {
+                    "worker_id": "worker-1",
+                    "claimed_at": previous.isoformat(),
+                    "last_heartbeat_at": previous.isoformat(),
+                    "lease_expires_at": (previous + timedelta(minutes=2)).isoformat(),
+                }
+            },
+            "worker_task_id": "worker-1",
+        }
+    )
+
+    reconciled = await service.reconcile_interrupted_executions()
+
+    assert reconciled == 1
+    assert repository.record.status == "failed"
+    assert repository.record.error == "Execution interrupted by stale worker lease"
+    assert repository.record.last_error == "Execution interrupted by stale worker lease"
     assert repository.record.completed_at is not None
     assert session.commit_count == 1
 
@@ -635,6 +980,8 @@ async def test_finalize_execution_commit_requires_matching_claim_token_under_loc
                 "memory": 0,
                 "decisions": 0,
                 "tasks": 0,
+                "sandbox": 0,
+                "settings": 0,
             },
             "room_targets": {
                 "library": [],
@@ -642,6 +989,8 @@ async def test_finalize_execution_commit_requires_matching_claim_token_under_loc
                 "memory": [],
                 "decisions": [],
                 "tasks": [],
+                "sandbox": [],
+                "settings": [],
             },
             "committed_at": "2026-06-25T00:01:00+00:00",
         },
@@ -704,6 +1053,276 @@ async def test_finalize_execution_commit_rejects_malformed_terminal_commit_state
 
     assert finalized is None
     assert repository.record.result["commit_state"]["status"] == "committing"
+
+
+@pytest.mark.asyncio
+async def test_finalize_execution_commit_preserves_current_review_state() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "change_set_review_state": {"accepted_unit_ids": ["unit-current"]},
+                "commit_state": {
+                    "status": "committing",
+                    "commit_token": "token-1",
+                    "started_at": "2026-06-25T00:00:00+00:00",
+                },
+            },
+        }
+    )
+
+    finalized = await service.finalize_execution_commit(
+        "exec-claim",
+        ExecutionCommitFinalizeCommand(
+            commit_token="token-1",
+            result_json={
+                "task_report": {"status": "completed"},
+                "change_set_review_state": {"accepted_unit_ids": ["unit-stale"]},
+                "commit_state": {
+                    "status": "committed",
+                    "accepted_ids": ["out-1"],
+                    "rejected_ids": [],
+                    "counts": {
+                        "library": 0,
+                        "prism": 1,
+                        "memory": 0,
+                        "decisions": 0,
+                        "tasks": 0,
+                        "sandbox": 0,
+                        "settings": 0,
+                    },
+                    "room_targets": {
+                        "library": [],
+                        "prism": [{"output_id": "out-1", "item_id": "file-1"}],
+                        "memory": [],
+                        "decisions": [],
+                        "tasks": [],
+                        "sandbox": [],
+                        "settings": [],
+                    },
+                    "committed_at": "2026-06-25T00:01:00+00:00",
+                },
+            },
+        ),
+    )
+
+    assert finalized is not None
+    assert repository.record.result["commit_state"]["status"] == "committed"
+    assert repository.record.result["change_set_review_state"] == {
+        "accepted_unit_ids": ["unit-current"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_finalize_execution_commit_can_delete_temporary_change_set_keys() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "change_set": {"summary": "heavy temporary diff"},
+                "change_set_review_state": {"accepted_unit_ids": ["unit-1"]},
+                "unit_states": [{"unit_id": "unit-1", "state": "accepted"}],
+                "change_unit_materialization": {
+                    "completed_unit_ids": ["unit-1"],
+                    "room_targets": {"prism": [{"output_id": "out-1"}]},
+                },
+                "commit_state": {
+                    "status": "committing",
+                    "commit_token": "token-1",
+                    "started_at": "2026-06-25T00:00:00+00:00",
+                },
+            },
+        }
+    )
+
+    finalized = await service.finalize_execution_commit(
+        "exec-claim",
+        ExecutionCommitFinalizeCommand(
+            commit_token="token-1",
+            delete_result_keys=[
+                "change_set",
+                "change_set_review_state",
+                "unit_states",
+                "change_unit_materialization",
+            ],
+            result_json={
+                "task_report": {"status": "completed"},
+                "change_set_receipt": {
+                    "schema_version": "wenjin.change_set.receipt.v1",
+                    "retention": "compacted_after_commit",
+                },
+                "commit_state": {
+                    "status": "committed",
+                    "accepted_ids": ["out-1"],
+                    "rejected_ids": [],
+                    "counts": {
+                        "library": 0,
+                        "prism": 1,
+                        "memory": 0,
+                        "decisions": 0,
+                        "tasks": 0,
+                        "sandbox": 0,
+                        "settings": 0,
+                    },
+                    "room_targets": {
+                        "library": [],
+                        "prism": [{"output_id": "out-1", "item_id": "file-1"}],
+                        "memory": [],
+                        "decisions": [],
+                        "tasks": [],
+                        "sandbox": [],
+                        "settings": [],
+                    },
+                    "committed_at": "2026-06-25T00:01:00+00:00",
+                },
+            },
+        ),
+    )
+
+    assert finalized is not None
+    assert "change_set" not in finalized.result_json
+    assert "change_set_review_state" not in finalized.result_json
+    assert "unit_states" not in finalized.result_json
+    assert "change_unit_materialization" not in finalized.result_json
+    assert finalized.result_json["change_set_receipt"]["retention"] == "compacted_after_commit"
+
+
+@pytest.mark.asyncio
+async def test_update_execution_preserves_commit_receipt_from_late_result_write() -> None:
+    service, repository, session = _service()
+    commit_state = {
+        "status": "committed",
+        "accepted_ids": ["out-1"],
+        "rejected_ids": [],
+        "counts": {
+            "library": 0,
+            "prism": 1,
+            "memory": 0,
+            "decisions": 0,
+            "tasks": 0,
+            "sandbox": 0,
+            "settings": 0,
+        },
+        "room_targets": {
+            "library": [],
+            "prism": [{"output_id": "out-1", "item_id": "file-1"}],
+            "memory": [],
+            "decisions": [],
+            "tasks": [],
+            "sandbox": [],
+            "settings": [],
+        },
+        "committed_at": "2026-06-25T00:01:00+00:00",
+    }
+    receipt = {
+        "schema_version": "wenjin.change_set.receipt.v1",
+        "retention": "compacted_after_commit",
+    }
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "status": "completed",
+            "result": {
+                "task_report": {"status": "completed"},
+                "change_set_receipt": receipt,
+                "commit_state": commit_state,
+            },
+        }
+    )
+
+    updated = await service.update_execution(
+        "exec-claim",
+        ExecutionUpdateCommand(
+            status="completed",
+            result_json={
+                "task_report": {"status": "completed", "summary": "late worker result"},
+                "change_set": {"summary": "stale heavy temporary diff"},
+                "change_set_review_state": {"accepted_unit_ids": ["unit-stale"]},
+                "unit_states": [{"unit_id": "unit-stale", "state": "accepted"}],
+            },
+        ),
+    )
+
+    assert updated is not None
+    assert repository.record.result["task_report"]["summary"] == "late worker result"
+    assert repository.record.result["commit_state"] == commit_state
+    assert repository.record.result["change_set_receipt"] == receipt
+    assert "change_set" not in repository.record.result
+    assert "change_set_review_state" not in repository.record.result
+    assert "unit_states" not in repository.record.result
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_update_execution_allows_committed_to_reverted_commit_transition() -> None:
+    service, repository, session = _service()
+    commit_state = {
+        "status": "committed",
+        "accepted_ids": ["out-1"],
+        "rejected_ids": [],
+        "counts": {
+            "library": 0,
+            "prism": 1,
+            "memory": 0,
+            "decisions": 0,
+            "tasks": 0,
+            "sandbox": 0,
+            "settings": 0,
+        },
+        "room_targets": {
+            "library": [],
+            "prism": [{"output_id": "out-1", "item_id": "file-1"}],
+            "memory": [],
+            "decisions": [],
+            "tasks": [],
+            "sandbox": [],
+            "settings": [],
+        },
+        "committed_at": "2026-06-25T00:01:00+00:00",
+    }
+    reverted_state = {
+        **commit_state,
+        "status": "reverted",
+        "reverted_at": "2026-06-25T00:02:00+00:00",
+        "reverted_by": "user-1",
+        "revert_counts": {
+            "library": 0,
+            "prism": 1,
+            "memory": 0,
+            "decisions": 0,
+            "tasks": 0,
+            "sandbox": 0,
+            "settings": 0,
+        },
+    }
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "status": "completed",
+            "result": {
+                "task_report": {"status": "completed"},
+                "commit_state": commit_state,
+            },
+        }
+    )
+
+    updated = await service.update_execution(
+        "exec-claim",
+        ExecutionUpdateCommand(
+            result_json={
+                "task_report": {"status": "completed"},
+                "commit_state": reverted_state,
+            },
+        ),
+    )
+
+    assert updated is not None
+    assert repository.record.result["commit_state"] == reverted_state
+    assert session.commit_count == 1
 
 
 @pytest.mark.asyncio
@@ -871,6 +1490,41 @@ async def test_upsert_and_patch_node_project_lifecycle_snapshot() -> None:
     assert patched.status == "completed"
     assert patched.output_data == {"summary": "done"}
     assert repository.nodes[0].token_usage == {"total": 42}
+    assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_upsert_node_uses_atomic_repository_upsert_by_execution_and_node_id() -> None:
+    service, repository, session = _service()
+
+    first = await service.upsert_node(
+        "exec-1",
+        ExecutionNodeUpsertCommand(
+            node_id="node-1",
+            node_type="agent",
+            label="Draft",
+            status="running",
+            input_data={"topic": "agents"},
+        ),
+    )
+    second = await service.upsert_node(
+        "exec-1",
+        ExecutionNodeUpsertCommand(
+            node_id="node-1",
+            node_type="agent",
+            label="Draft complete",
+            status="completed",
+            output_data={"summary": "done"},
+        ),
+    )
+
+    assert first.id == second.id
+    assert len(repository.nodes) == 1
+    assert repository.node_upsert_count == 2
+    assert repository.nodes[0].status == "completed"
+    assert repository.nodes[0].label == "Draft complete"
+    assert repository.nodes[0].input_data == {"topic": "agents"}
+    assert repository.nodes[0].output_data == {"summary": "done"}
     assert session.commit_count == 2
 
 

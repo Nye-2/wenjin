@@ -191,6 +191,28 @@ quality_gates:
 - operation_screenshots_mapped_to_manual_steps
 - no_ai_generated_evidence_screenshots
 - prototype_screenshots_marked_when_not_real
+research_evidence:
+  review_packet: required
+  required_surfaces:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - output_ref_reuse
+  - figure_data_consistency
+  - source_provenance
+  - screenshot_provenance
+  - non_fabrication_evidence
+  surface_enforcement:
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    output_ref_reuse: required_runtime
+    figure_data_consistency: required_final
+    source_provenance: required_final
+    screenshot_provenance: required_final
+    non_fabrication_evidence: required_final
+  notes:
+  - The software copyright package must connect name/version/module/manual/source/screenshot claims to concrete uploaded or sandbox-produced evidence and keep AI-generated screenshots out of evidentiary status.
 graph_template:
   phases:
   - name: step_01_software_structure_planner

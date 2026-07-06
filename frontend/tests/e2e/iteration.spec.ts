@@ -36,7 +36,7 @@ function completedExecution(
   };
 }
 
-test("result cards can commit all staged outputs in one click", async ({
+test("result cards stage completed outputs without auto-committing", async ({
   page,
   context,
 }) => {
@@ -102,16 +102,16 @@ test("result cards can commit all staged outputs in one click", async ({
   await expect(page.getByText("论文分析报告").first()).toBeVisible();
   await expect(page.getByText("补充对比实验").first()).toBeVisible();
 
-  await expect(page.getByText("2 项结果已写入")).toBeVisible();
+  await expect(page.getByText("2 项结果待审核保存")).toBeVisible();
+  await expect(page.getByText("可保存结果，也可查看运行详情")).toBeVisible();
   await expect(
     page.getByRole("link", { name: "打开已保存的 论文分析报告" }),
-  ).toBeVisible();
-  await expect
-    .poll(() => commitPayload)
-    .toEqual({ accept_all: true });
+  ).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(commitPayload).toBeNull();
 });
 
-test("Prism review links open the workspace surface before committing room outputs", async ({
+test("Prism review links open the workspace surface without auto-committing room outputs", async ({
   page,
   context,
 }) => {
@@ -238,16 +238,17 @@ test("Prism review links open the workspace surface before committing room outpu
 
   await page.goto(workbenchUrl);
 
-  await expect(page.getByText("1 项结果已写入")).toBeVisible();
-  await expect
-    .poll(() => commitPayload)
-    .toEqual({ accept_all: true });
+  await expect(page.getByText("1 项结果待审核保存")).toBeVisible();
+  await expect(page.getByText("可保存结果，也可查看运行详情")).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(commitPayload).toBeNull();
 });
 
 test("saved result links open Prism without resetting the chat state", async ({
   page,
   context,
 }) => {
+  let commitPayload: Record<string, unknown> | null = null;
   await installWorkspaceRouteMocks(page, context, {
     commitResponse: {
       committed: { prism: 1 },
@@ -255,6 +256,9 @@ test("saved result links open Prism without resetting the chat state", async ({
         prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
         library: [],
       },
+    },
+    onCommit: (payload) => {
+      commitPayload = payload;
     },
     runStreamBody: buildEventStreamBody([
       {
@@ -267,6 +271,30 @@ test("saved result links open Prism without resetting the chat state", async ({
               capability_name: "论文分析",
               status: "completed",
               narrative: "已生成可提交的分析结果。",
+              commit_state: {
+                status: "committed",
+                accepted_ids: ["doc-1"],
+                rejected_ids: [],
+                counts: {
+                  library: 0,
+                  prism: 1,
+                  memory: 0,
+                  decisions: 0,
+                  tasks: 0,
+                  sandbox: 0,
+                  settings: 0,
+                },
+                room_targets: {
+                  prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+                  library: [],
+                  memory: [],
+                  decisions: [],
+                  tasks: [],
+                  sandbox: [],
+                  settings: [],
+                },
+                committed_at: "2026-05-19T00:00:11Z",
+              },
               outputs: [
                 {
                   id: "doc-1",
@@ -294,6 +322,8 @@ test("saved result links open Prism without resetting the chat state", async ({
   );
 
   await expect(page.getByText("1 项结果已写入")).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(commitPayload).toBeNull();
   await page.getByRole("link", { name: "打开已保存的 论文分析报告" }).click();
 
   await expect(page.getByTestId("prism-workspace-shell")).toBeVisible();

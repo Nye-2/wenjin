@@ -21,6 +21,19 @@ ResearchSurface = Literal[
     "experiment_reproducibility",
     "figure_data_consistency",
     "review_packet_completeness",
+    "argument_chain",
+    "protected_section_safety",
+    "prior_art_provenance",
+    "claim_support",
+    "enablement_support",
+    "drawing_consistency",
+    "feasibility_evidence",
+    "risk_evidence",
+    "milestone_realism",
+    "source_provenance",
+    "screenshot_provenance",
+    "non_fabrication_evidence",
+    "ai_use_disclosure",
 ]
 ResearchSurfaceEnforcement = Literal["required_runtime", "required_final", "diagnostic"]
 

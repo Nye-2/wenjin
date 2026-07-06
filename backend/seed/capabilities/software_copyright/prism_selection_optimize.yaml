@@ -110,6 +110,7 @@ graph_template:
     tasks:
     - name: selection_optimizer
       subagent_type: prism_selection_optimizer
+      allow_skillless: true
       inputs:
         file_path: '{{file_path}}'
         file_content: '{{file_content}}'

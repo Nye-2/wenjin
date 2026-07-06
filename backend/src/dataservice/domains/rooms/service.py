@@ -31,6 +31,10 @@ class RoomsDataDomainService:
         self.repository = RoomsRepository(session)
 
     async def set_decision(self, command: DecisionSetCommand) -> DecisionProjection:
+        existing = await self._existing_decision_for_idempotent_source(command)
+        if existing is not None:
+            return decision_to_projection(existing)
+
         old = await self.repository.get_active_decision(workspace_id=command.workspace_id, key=command.key)
         record = self.repository.create_decision(
             {
@@ -70,6 +74,10 @@ class RoomsDataDomainService:
         return True
 
     async def create_workspace_task(self, command: WorkspaceTaskCreateCommand) -> WorkspaceTaskProjection:
+        existing = await self._existing_task_for_idempotent_source(command)
+        if existing is not None:
+            return workspace_task_to_projection(existing)
+
         record = self.repository.create_workspace_task(
             {
                 "workspace_id": command.workspace_id,
@@ -167,3 +175,47 @@ class RoomsDataDomainService:
             await self.session.commit()
         else:
             await self.session.flush()
+
+    async def _existing_decision_for_idempotent_source(
+        self,
+        command: DecisionSetCommand,
+    ) -> Any | None:
+        if command.source_review_batch_id and command.source_review_item_id:
+            existing = await self.repository.get_decision_by_review_source(
+                workspace_id=command.workspace_id,
+                source_review_batch_id=command.source_review_batch_id,
+                source_review_item_id=command.source_review_item_id,
+            )
+            if existing is not None:
+                return existing
+        if _is_execution_unit_provenance(command.extracted_by):
+            return await self.repository.get_decision_by_extracted_by(
+                workspace_id=command.workspace_id,
+                key=command.key,
+                extracted_by=command.extracted_by,
+            )
+        return None
+
+    async def _existing_task_for_idempotent_source(
+        self,
+        command: WorkspaceTaskCreateCommand,
+    ) -> Any | None:
+        if command.source_review_batch_id and command.source_review_item_id:
+            existing = await self.repository.get_workspace_task_by_review_source(
+                workspace_id=command.workspace_id,
+                source_review_batch_id=command.source_review_batch_id,
+                source_review_item_id=command.source_review_item_id,
+            )
+            if existing is not None:
+                return existing
+        if _is_execution_unit_provenance(command.created_by):
+            return await self.repository.get_workspace_task_by_created_by(
+                workspace_id=command.workspace_id,
+                title=command.title,
+                created_by=command.created_by,
+            )
+        return None
+
+
+def _is_execution_unit_provenance(value: str) -> bool:
+    return value.startswith("execution:") and ":unit:" in value

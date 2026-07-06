@@ -22,6 +22,7 @@ from src.billing.reservation_metadata import (
     reservation_id_from_params,
     reservation_is_active,
 )
+from src.contracts.change_set import normalize_write_mode
 from src.dataservice_client.errors import DataServiceClientError
 
 _FEATURE_RESERVATION_TTL = timedelta(hours=6)
@@ -147,6 +148,22 @@ def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str,
     return {str(param_key): param_value for param_key, param_value in value.items() if isinstance(param_key, str)}
 
 
+def _workspace_write_mode(workspace: Any) -> str:
+    settings_json = getattr(workspace, "settings_json", None)
+    raw_mode = settings_json.get("write_mode") if isinstance(settings_json, Mapping) else None
+    return normalize_write_mode(raw_mode)
+
+
+def _invalid_workspace_write_mode_result(feature_id: str, error: Exception) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "code": "invalid_workspace_write_mode",
+        "feature_id": feature_id,
+        "detail": "当前工作区写入模式配置无效，无法启动功能任务。请联系管理员修复工作区设置。",
+        "context": {"error": str(error)},
+    }
+
+
 async def _mark_launch_execution_failed(
     execution_service: Any,
     execution_id: str,
@@ -189,7 +206,12 @@ async def launch_feature_tool(
 
     credit_reservation_id: str | None = None
     async with dataservice_client() as catalog:
-        workspace = await catalog.get_workspace(workspace_id)
+        try:
+            workspace = await catalog.get_workspace(workspace_id)
+        except ValueError as exc:
+            if "write_mode" in str(exc):
+                return _invalid_workspace_write_mode_result(feature_id, exc)
+            raise
         if workspace is None:
             return {
                 "status": "error",
@@ -197,6 +219,10 @@ async def launch_feature_tool(
                 "feature_id": feature_id,
                 "detail": "当前工作区不存在，无法启动功能任务。",
             }
+        try:
+            write_mode = _workspace_write_mode(workspace)
+        except ValueError as exc:
+            return _invalid_workspace_write_mode_result(feature_id, exc)
         workspace_type = workspace.workspace_type
         cap = await catalog.get_catalog_capability(
             capability_id=feature_id,
@@ -329,6 +355,8 @@ async def launch_feature_tool(
             params=merged_params,
             workspace_id=workspace_id,
         )
+        execution_params["write_mode"] = write_mode
+        execution_params.setdefault("orchestration", {})["write_mode"] = write_mode
         runtime_model_id = _runtime_model_id(config)
         if runtime_model_id:
             execution_params["brief"]["brief"].setdefault("model_id", runtime_model_id)
@@ -541,5 +569,6 @@ async def launch_feature_tool(
         "execution_id": str(execution.id),
         "feature_id": feature_id,
         "capability_name": getattr(cap, "display_name", None),
+        "write_mode": write_mode,
         "message": f"已启动「{getattr(cap, 'display_name', None) or feature_id}」",
     }

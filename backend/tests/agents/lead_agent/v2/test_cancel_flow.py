@@ -25,6 +25,7 @@ SIMPLE_GRAPH_TEMPLATE = {
                     "name": "make_outline",
                     "subagent_type": "react",
                     "display_name": "Make Outline",
+                    "allow_skillless": True,
                 }
             ],
         }

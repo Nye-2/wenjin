@@ -140,6 +140,9 @@ export function ChatPanel({
   }, [isSending, messages]);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
+  const intakeGuidance = typeConfig?.intakeGuidance;
+  const suggestionTexts =
+    intakeGuidance?.chips?.length ? intakeGuidance.chips : typeConfig?.suggestions ?? [];
   const selectedModelLabel =
     modelOptions.find((model) => model.name === selectedModel)?.display_name ??
     selectedModel;
@@ -403,6 +406,45 @@ export function ChatPanel({
             >
               {typeConfig.chatSubtitle}
             </div>
+            {intakeGuidance ? (
+              <div
+                style={{
+                  width: "min(100%, 340px)",
+                  marginTop: 18,
+                  padding: 14,
+                  border: "1px solid var(--wjn-line)",
+                  borderRadius: "var(--wjn-radius-lg)",
+                  background: "rgba(255,255,255,0.74)",
+                  textAlign: "left",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "var(--wjn-text)",
+                    marginBottom: 8,
+                    fontFamily: "var(--wjn-font-sans)",
+                  }}
+                >
+                  先准备这些信息
+                </div>
+                <ul
+                  style={{
+                    margin: 0,
+                    padding: "0 0 0 18px",
+                    color: "var(--wjn-text-secondary)",
+                    fontSize: 12.5,
+                    lineHeight: 1.7,
+                    fontFamily: "var(--wjn-font-sans)",
+                  }}
+                >
+                  {intakeGuidance.checklist.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : (
           messages.map((msg) => (
@@ -436,7 +478,7 @@ export function ChatPanel({
       {/* Suggestion pills — shown only before first message */}
       {messages.length === 0 &&
         typeConfig &&
-        typeConfig.suggestions.length > 0 && (
+        suggestionTexts.length > 0 && (
           <div
             style={{
               padding: "0 12px 8px",
@@ -445,7 +487,7 @@ export function ChatPanel({
               gap: 6,
             }}
           >
-            {typeConfig.suggestions.map((text) => (
+            {suggestionTexts.map((text) => (
               <button
                 key={text}
                 onClick={() =>

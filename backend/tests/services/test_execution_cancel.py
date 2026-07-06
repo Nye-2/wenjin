@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -202,3 +202,44 @@ async def test_cancel_flow_eventually_persists_cancelled_status():
     execution_svc.complete_execution.assert_called_once()
     kwargs = execution_svc.complete_execution.call_args.kwargs
     assert kwargs["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_start_execution_acknowledges_cancel_requested_before_worker_runs():
+    """A worker that starts after cancellation should not move the run back to running."""
+    record = _make_record("cancelling")
+    svc = _make_service(record)
+
+    result = await svc.start_execution(EXECUTION_ID)
+
+    assert result is record
+    assert record.status == "cancelled"
+    svc.update_execution.assert_awaited_once_with(
+        EXECUTION_ID,
+        status="cancelled",
+        expected_status="cancelling",
+        completed_at=ANY,
+        commit=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_complete_execution_does_not_overwrite_cancel_requested_with_success():
+    """A late successful worker result must not turn a cancelled run into completed."""
+    record = _make_record("cancelling")
+    svc = _make_service(record)
+
+    result = await svc.complete_execution(
+        EXECUTION_ID,
+        status="completed",
+        result={"task_report": {"status": "completed"}},
+    )
+
+    assert result is record
+    assert record.status == "cancelled"
+    call = svc.update_execution.await_args
+    assert call.args == (EXECUTION_ID,)
+    assert call.kwargs["status"] == "cancelled"
+    assert call.kwargs["expected_status"] == "cancelling"
+    assert call.kwargs["completed_at"] is not None
+    assert "result" not in call.kwargs

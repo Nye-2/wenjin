@@ -44,7 +44,15 @@ type MockOptions = {
   commitResponse?: unknown;
 };
 
-const COMMIT_ROOMS = ["prism", "library", "memory", "decisions", "tasks"] as const;
+const COMMIT_ROOMS = [
+  "prism",
+  "library",
+  "memory",
+  "decisions",
+  "tasks",
+  "sandbox",
+  "settings",
+] as const;
 
 function json(body: unknown) {
   return {

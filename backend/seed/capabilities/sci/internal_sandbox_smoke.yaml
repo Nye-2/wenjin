@@ -78,6 +78,7 @@ graph_template:
     tasks:
     - name: python_smoke
       subagent_type: sandbox_python
+      allow_skillless: true
       inputs:
         operation: smoke_check
         node_id: sandbox_validation__python_smoke

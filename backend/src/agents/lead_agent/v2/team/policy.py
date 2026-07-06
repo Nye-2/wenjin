@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.agents.harness.tool_names import expand_tool_names
+from src.agents.lead_agent.v2.capability_preflight import validate_capability_tool_names
 from src.contracts.team_presentation import CapabilityTeamPresentationV1, resolve_expert_profile
 
 from .contracts import AgentInvocation, AgentTemplate, CapabilityTeamPolicy
@@ -95,6 +96,22 @@ def build_capability_team_policy(
                 )
     if not policy.core_templates and not policy.optional_templates:
         raise TeamPolicyError("team_policy must declare at least one template")
+    for field_name, tools in (
+        ("team_policy.capability_tools", policy.capability_tools),
+        ("team_policy.workspace_tools", policy.workspace_tools),
+        ("team_policy.user_tools", policy.user_tools),
+    ):
+        validate_capability_tool_names(tools, field_name=field_name)
+    for template_id in recruitable_ids:
+        affinity = templates[template_id].tool_affinity or {}
+        validate_capability_tool_names(
+            affinity.get("preferred"),
+            field_name=f"agent_template.{template_id}.tool_affinity.preferred",
+        )
+        validate_capability_tool_names(
+            affinity.get("can_request"),
+            field_name=f"agent_template.{template_id}.tool_affinity.can_request",
+        )
     return policy
 
 

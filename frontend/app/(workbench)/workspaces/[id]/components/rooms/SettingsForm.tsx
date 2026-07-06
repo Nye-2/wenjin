@@ -3,6 +3,11 @@
 import { useState, useEffect } from "react";
 import { listModels, type Model } from "@/lib/api";
 import { authorizedFetch } from "@/lib/api/client";
+import type { WriteMode } from "@/lib/change-set-view";
+import {
+  normalizeWriteMode,
+  WriteModeSelector,
+} from "../review-changes/WriteModeSelector";
 
 interface SettingsFormProps {
   workspaceId: string;
@@ -12,12 +17,14 @@ interface WorkspaceSettings {
   name: string;
   auto_compact_threshold: number;
   default_model: string;
+  write_mode?: WriteMode | null;
 }
 
 export function SettingsForm({ workspaceId }: SettingsFormProps) {
   const [name, setName] = useState("");
   const [autoCompactThreshold, setAutoCompactThreshold] = useState(0.8);
   const [defaultModel, setDefaultModel] = useState("");
+  const [writeMode, setWriteMode] = useState<WriteMode>("auto_draft");
   const [models, setModels] = useState<Model[]>([]);
   const [modelsError, setModelsError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -50,6 +57,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
           if (data.auto_compact_threshold != null)
             setAutoCompactThreshold(data.auto_compact_threshold);
           if (data.default_model) setDefaultModel(data.default_model);
+          setWriteMode(normalizeWriteMode(data.write_mode));
           setLoading(false);
         }
       })
@@ -70,6 +78,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
         name,
         auto_compact_threshold: autoCompactThreshold,
         default_model: defaultModel,
+        write_mode: writeMode,
       };
       const res = await authorizedFetch(`/api/workspaces/${workspaceId}/settings`, {
         method: "PUT",
@@ -221,6 +230,25 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               模型目录加载失败，将保留当前设置。
             </div>
           )}
+        </div>
+
+        {/* Write mode */}
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--wjn-text-secondary)",
+              marginBottom: 6,
+            }}
+          >
+            写入模式
+          </label>
+          <WriteModeSelector value={writeMode} onChange={setWriteMode} disabled={saving} />
+          <div style={{ marginTop: 7, fontSize: 12, color: "var(--wjn-text-muted)", lineHeight: 1.45 }}>
+            设置会影响后续新启动的运行；已经启动的运行会保留启动时的模式快照。
+          </div>
         </div>
 
         {/* Save button */}

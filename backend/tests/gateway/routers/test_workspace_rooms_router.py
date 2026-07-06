@@ -324,3 +324,55 @@ class TestSettingsRoom:
         resp = client.put(f"/workspaces/{WS_ID}/settings", json={"thinking_enabled": False})
 
         assert resp.status_code == 404
+
+    def test_put_settings_accepts_write_mode(self) -> None:
+        _app, client, dataservice = _make_app()
+        dataservice.update_workspace_settings.return_value = _fake_row(
+            workspace_id=WS_ID,
+            write_mode="strict_review",
+            settings_json={"write_mode": "strict_review", "language": "zh"},
+        )
+
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": "strict_review"})
+
+        assert resp.status_code == 200
+        assert resp.json()["write_mode"] == "strict_review"
+        payload = dataservice.update_workspace_settings.await_args.args[1]
+        assert payload.write_mode == "strict_review"
+
+    def test_put_settings_trims_write_mode(self) -> None:
+        _app, client, dataservice = _make_app()
+        dataservice.update_workspace_settings.return_value = _fake_row(
+            workspace_id=WS_ID,
+            write_mode="ask_workspace_write",
+            settings_json={"write_mode": "ask_workspace_write"},
+        )
+
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": " ask_workspace_write "})
+
+        assert resp.status_code == 200
+        payload = dataservice.update_workspace_settings.await_args.args[1]
+        assert payload.write_mode == "ask_workspace_write"
+
+    def test_put_settings_write_mode_null_is_omitted(self) -> None:
+        _app, client, dataservice = _make_app()
+        dataservice.update_workspace_settings.return_value = _fake_row(
+            workspace_id=WS_ID,
+            write_mode="strict_review",
+            settings_json={"write_mode": "strict_review"},
+        )
+
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": None})
+
+        assert resp.status_code == 200
+        payload = dataservice.update_workspace_settings.await_args.args[1]
+        assert "write_mode" not in payload.model_fields_set
+        assert payload.write_mode is None
+
+    def test_put_settings_rejects_invalid_write_mode(self) -> None:
+        _app, client, dataservice = _make_app()
+
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": "manual_review"})
+
+        assert resp.status_code == 422
+        dataservice.update_workspace_settings.assert_not_awaited()

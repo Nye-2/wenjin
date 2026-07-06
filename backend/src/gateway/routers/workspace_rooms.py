@@ -13,9 +13,10 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.academic.services.workspace_service import WorkspaceService
+from src.contracts.change_set import WriteMode, normalize_write_mode
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.rooms import (
     DecisionSetPayload,
@@ -119,7 +120,15 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
     sandbox_provider: str | None = None
     auto_compact_threshold: float | None = None
     capability_overrides: dict[str, Any] | None = None
+    write_mode: WriteMode | None = None
     metadata_json: dict[str, Any] | None = None
+
+    @field_validator("write_mode", mode="before")
+    @classmethod
+    def _normalize_write_mode(cls, value: Any) -> WriteMode | None:
+        if value is None:
+            return None
+        return normalize_write_mode(value)
 
 
 # ---------------------------------------------------------------------------

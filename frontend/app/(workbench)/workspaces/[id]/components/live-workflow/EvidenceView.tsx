@@ -103,7 +103,7 @@ export function EvidenceView({
         </div>
         <div style={{ marginBottom: 12 }}>
           <GuidanceNote>
-            证据区只做预览和筛选：文档和资料会随完成运行自动写入，过程摘录和运行细节默认只读。
+            证据区只做预览和筛选：文档和资料需在审核后保存选中项，过程摘录和运行细节默认只读。
           </GuidanceNote>
         </div>
         {filtered.length > 0 ? (

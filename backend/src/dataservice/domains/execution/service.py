@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.billing.reservation_metadata import reservation_id_from_params
 from src.dataservice.domains.credit.service import DataServiceCreditService
 from src.dataservice.domains.execution.contracts import (
+    EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS,
     ComputeSessionEnsureCommand,
     ComputeSessionProjection,
     ComputeSessionUpdateCommand,
@@ -21,10 +23,13 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
+    ExecutionLeaseClaimCommand,
+    ExecutionLeaseHeartbeatCommand,
     ExecutionNodePatchCommand,
     ExecutionNodeProjection,
     ExecutionNodeUpsertCommand,
     ExecutionRecordProjection,
+    ExecutionResultPatchCommand,
     ExecutionRunHistoryProjection,
     ExecutionUpdateCommand,
     GenerationRecordCreateCommand,
@@ -41,8 +46,11 @@ from src.dataservice.domains.execution.projection import (
 from src.dataservice.domains.execution.repository import ExecutionRepository
 
 _COMMIT_CLAIM_LEASE = timedelta(minutes=30)
-_COMMIT_COUNT_ROOM_KEYS = ("library", "prism", "memory", "decisions", "tasks")
-_COMMIT_ROOM_TARGET_KEYS = ("library", "prism", "memory", "decisions", "tasks")
+_COMMIT_COUNT_ROOM_KEYS = ("library", "prism", "memory", "decisions", "tasks", "sandbox", "settings")
+_COMMIT_ROOM_TARGET_KEYS = ("library", "prism", "memory", "decisions", "tasks", "sandbox", "settings")
+_EXECUTION_IN_FLIGHT_STATUSES = ("pending", "running", "cancelling")
+_EXECUTION_LEASE_ACTIVE_STATUSES = {"pending", "running"}
+_EXECUTION_LEASE_KEY = "execution_lease"
 
 
 class DataServiceExecutionService:
@@ -230,15 +238,23 @@ class DataServiceExecutionService:
     async def reconcile_interrupted_executions(self) -> int:
         """Mark stale in-flight executions terminal after process restart."""
         records = await self.repository.list_executions_by_status(
-            ["pending", "running", "cancelling"]
+            list(_EXECUTION_IN_FLIGHT_STATUSES)
         )
         if not records:
             return 0
 
         now = datetime.now(UTC)
-        interrupted_summary = "Execution interrupted by process restart"
+        restart_summary = "Execution interrupted by process restart"
+        stale_lease_summary = "Execution interrupted by stale worker lease"
         credit_service = DataServiceCreditService(self.session, autocommit=False)
+        reconciled = 0
         for record in records:
+            runtime_state = _copy_runtime_state(record.runtime_state)
+            lease_state = _execution_lease_state(runtime_state)
+            if lease_state is not None and _execution_lease_is_active(lease_state, now):
+                continue
+
+            interrupted_summary = stale_lease_summary if lease_state is not None else restart_summary
             reservation_id = reservation_id_from_params(record.params)
             if reservation_id:
                 with suppress(ValueError):
@@ -259,11 +275,17 @@ class DataServiceExecutionService:
                 record.error = interrupted_summary
                 record.last_error = interrupted_summary
                 record.result_summary = interrupted_summary
+            runtime_state.pop(_EXECUTION_LEASE_KEY, None)
+            record.runtime_state = runtime_state or None
+            record.worker_task_id = None
             record.completed_at = record.completed_at or now
             record.updated_at = now
+            reconciled += 1
 
+        if reconciled == 0:
+            return 0
         await self._finish()
-        return len(records)
+        return reconciled
 
     async def create_generation_record(
         self,
@@ -485,14 +507,137 @@ class DataServiceExecutionService:
         execution_id: str,
         command: ExecutionUpdateCommand,
     ) -> ExecutionRecordProjection | None:
+        if command.expected_status is not None:
+            await self.repository.lock_execution(execution_id)
         record = await self.repository.get_execution(execution_id)
         if record is None:
+            return None
+        if (
+            command.expected_status is not None
+            and str(record.status or "") != command.expected_status
+        ):
             return None
         changed = self._apply_update(record, command)
         if changed:
             record.updated_at = datetime.now(UTC)
         await self._finish()
         return execution_to_projection(record)
+
+    async def patch_execution_result(
+        self,
+        execution_id: str,
+        command: ExecutionResultPatchCommand,
+    ) -> ExecutionRecordProjection | None:
+        await self.repository.lock_execution(execution_id)
+        record = await self.repository.get_execution(execution_id)
+        if record is None:
+            return None
+
+        current_result = dict(record.result or {})
+        changed = False
+        for key, value in dict(command.result_patch or {}).items():
+            if current_result.get(key) != value:
+                current_result[key] = value
+                changed = True
+        if changed:
+            record.result = current_result
+            record.updated_at = datetime.now(UTC)
+        await self._finish()
+        return execution_to_projection(record)
+
+    async def claim_execution_lease(
+        self,
+        execution_id: str,
+        command: ExecutionLeaseClaimCommand,
+    ) -> dict[str, Any]:
+        await self.repository.lock_execution(execution_id)
+        record = await self.repository.get_execution(execution_id)
+        if record is None:
+            return {"status": "not_found", "execution": None}
+        if str(record.status or "") not in _EXECUTION_LEASE_ACTIVE_STATUSES:
+            return {
+                "status": "not_claimable",
+                "execution": execution_to_projection(record),
+            }
+
+        now = command.claimed_at or datetime.now(UTC)
+        runtime_state = _copy_runtime_state(record.runtime_state)
+        lease_state = _execution_lease_state(runtime_state)
+        current_worker = str(lease_state.get("worker_id") or "") if lease_state else ""
+        if (
+            lease_state is not None
+            and current_worker != command.worker_id
+            and _execution_lease_is_active(lease_state, now)
+        ):
+            return {
+                "status": "in_progress",
+                "execution": execution_to_projection(record),
+            }
+
+        runtime_state[_EXECUTION_LEASE_KEY] = _execution_lease_payload(
+            worker_id=command.worker_id,
+            claimed_at=now,
+            heartbeat_at=now,
+            ttl_seconds=command.ttl_seconds,
+        )
+        record.runtime_state = runtime_state
+        record.worker_task_id = command.worker_id
+        record.updated_at = now
+        await self._finish()
+        return {
+            "status": "claimed",
+            "execution": execution_to_projection(record),
+        }
+
+    async def heartbeat_execution_lease(
+        self,
+        execution_id: str,
+        command: ExecutionLeaseHeartbeatCommand,
+    ) -> dict[str, Any]:
+        await self.repository.lock_execution(execution_id)
+        record = await self.repository.get_execution(execution_id)
+        if record is None:
+            return {"status": "not_found", "execution": None}
+        if str(record.status or "") not in _EXECUTION_IN_FLIGHT_STATUSES:
+            return {
+                "status": "not_claimable",
+                "execution": execution_to_projection(record),
+            }
+
+        now = command.heartbeat_at or datetime.now(UTC)
+        runtime_state = _copy_runtime_state(record.runtime_state)
+        lease_state = _execution_lease_state(runtime_state)
+        if lease_state is None:
+            return {
+                "status": "missing",
+                "execution": execution_to_projection(record),
+            }
+        if str(lease_state.get("worker_id") or "") != command.worker_id:
+            return {
+                "status": "owner_mismatch",
+                "execution": execution_to_projection(record),
+            }
+        if not _execution_lease_is_active(lease_state, now):
+            return {
+                "status": "stale",
+                "execution": execution_to_projection(record),
+            }
+
+        claimed_at = _parse_datetime(lease_state.get("claimed_at")) or now
+        runtime_state[_EXECUTION_LEASE_KEY] = _execution_lease_payload(
+            worker_id=command.worker_id,
+            claimed_at=claimed_at,
+            heartbeat_at=now,
+            ttl_seconds=command.ttl_seconds,
+        )
+        record.runtime_state = runtime_state
+        record.worker_task_id = command.worker_id
+        record.updated_at = now
+        await self._finish()
+        return {
+            "status": "heartbeat",
+            "execution": execution_to_projection(record),
+        }
 
     async def claim_execution_commit(
         self,
@@ -568,11 +713,19 @@ class DataServiceExecutionService:
         else:
             return None
 
-        next_result = dict(command.result_json)
-        next_commit_state = next_result.get("commit_state")
+        submitted_result = dict(command.result_json)
+        next_commit_state = submitted_result.get("commit_state")
         if _valid_terminal_commit_state(next_commit_state) is None:
             return None
 
+        next_result = dict(current_result)
+        for key in command.delete_result_keys:
+            next_result.pop(key, None)
+        for key, value in submitted_result.items():
+            if key == "commit_state" or key in next_result:
+                continue
+            next_result[key] = value
+        next_result["commit_state"] = next_commit_state
         record.result = next_result
         record.updated_at = datetime.now(UTC)
         await self._finish()
@@ -699,35 +852,27 @@ class DataServiceExecutionService:
         execution_id: str,
         command: ExecutionNodeUpsertCommand,
     ) -> ExecutionNodeProjection:
-        record = await self.repository.get_node_by_node_id(
-            execution_id=execution_id,
-            node_id=command.node_id,
-        )
         now = datetime.now(UTC)
-        if record is None:
-            record = self.repository.create_node(
-                {
-                    "execution_id": execution_id,
-                    "parent_node_id": command.parent_node_id,
-                    "node_id": command.node_id,
-                    "node_type": command.node_type,
-                    "label": command.label,
-                    "status": command.status,
-                    "input_data": command.input_data,
-                    "output_data": command.output_data,
-                    "thinking": command.thinking,
-                    "tool_calls": command.tool_calls,
-                    "token_usage": command.token_usage,
-                    "node_metadata": command.node_metadata,
-                    "started_at": command.started_at,
-                    "completed_at": command.completed_at,
-                    "created_at": now,
-                    "updated_at": now,
-                }
-            )
-        else:
-            self._apply_node_upsert(record, command)
-            record.updated_at = now
+        record = await self.repository.upsert_node(
+            {
+                "execution_id": execution_id,
+                "parent_node_id": command.parent_node_id,
+                "node_id": command.node_id,
+                "node_type": command.node_type,
+                "label": command.label,
+                "status": command.status,
+                "input_data": command.input_data,
+                "output_data": command.output_data,
+                "thinking": command.thinking,
+                "tool_calls": command.tool_calls,
+                "token_usage": command.token_usage,
+                "node_metadata": command.node_metadata,
+                "started_at": command.started_at,
+                "completed_at": command.completed_at,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
         await self._finish()
         return node_to_projection(record)
 
@@ -800,35 +945,15 @@ class DataServiceExecutionService:
             if command_key not in data:
                 continue
             value = data[command_key]
+            if command_key == "result_json":
+                value = _protect_commit_result_fields(
+                    current_result=getattr(record, record_key),
+                    incoming_result=value,
+                )
             if getattr(record, record_key) != value:
                 setattr(record, record_key, value)
                 changed = True
         return changed
-
-    @staticmethod
-    def _apply_node_upsert(record: Any, command: ExecutionNodeUpsertCommand) -> None:
-        record.node_type = command.node_type
-        if command.label is not None:
-            record.label = command.label
-        if command.parent_node_id is not None:
-            record.parent_node_id = command.parent_node_id
-        record.status = command.status
-        if command.input_data is not None:
-            record.input_data = command.input_data
-        if command.output_data is not None:
-            record.output_data = command.output_data
-        if command.thinking is not None:
-            record.thinking = command.thinking
-        if command.tool_calls is not None:
-            record.tool_calls = command.tool_calls
-        if command.token_usage is not None:
-            record.token_usage = command.token_usage
-        if command.node_metadata is not None:
-            record.node_metadata = command.node_metadata
-        if command.started_at is not None and record.started_at is None:
-            record.started_at = command.started_at
-        if command.completed_at is not None:
-            record.completed_at = command.completed_at
 
     @staticmethod
     def _apply_node_patch(record: Any, command: ExecutionNodePatchCommand) -> bool:
@@ -850,6 +975,99 @@ class DataServiceExecutionService:
 def _commit_claim_is_expired(commit_state: dict[str, Any], now: datetime) -> bool:
     expires_at = _parse_datetime(commit_state.get("lease_expires_at"))
     return expires_at is not None and expires_at <= now
+
+
+def _copy_runtime_state(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return deepcopy(value)
+    return {}
+
+
+def _execution_lease_state(runtime_state: dict[str, Any]) -> dict[str, Any] | None:
+    value = runtime_state.get(_EXECUTION_LEASE_KEY)
+    return value if isinstance(value, dict) else None
+
+
+def _execution_lease_payload(
+    *,
+    worker_id: str,
+    claimed_at: datetime,
+    heartbeat_at: datetime,
+    ttl_seconds: int,
+) -> dict[str, str]:
+    return {
+        "worker_id": worker_id,
+        "claimed_at": claimed_at.isoformat(),
+        "last_heartbeat_at": heartbeat_at.isoformat(),
+        "lease_expires_at": (heartbeat_at + timedelta(seconds=ttl_seconds)).isoformat(),
+    }
+
+
+def _execution_lease_is_active(lease_state: dict[str, Any], now: datetime) -> bool:
+    expires_at = _parse_datetime(lease_state.get("lease_expires_at"))
+    return expires_at is not None and expires_at > now
+
+
+def _protect_commit_result_fields(
+    *,
+    current_result: Any,
+    incoming_result: Any,
+) -> Any:
+    if not isinstance(current_result, dict):
+        return incoming_result
+    current_commit_state = current_result.get("commit_state")
+    if not isinstance(current_commit_state, dict):
+        return incoming_result
+    if not isinstance(incoming_result, dict):
+        return dict(current_result)
+
+    incoming_commit_state = incoming_result.get("commit_state")
+    next_result = dict(incoming_result)
+    if _valid_reverted_commit_transition(
+        current_commit_state=current_commit_state,
+        incoming_commit_state=incoming_commit_state,
+    ):
+        next_result["commit_state"] = deepcopy(incoming_commit_state)
+    else:
+        next_result["commit_state"] = deepcopy(current_commit_state)
+    if "change_set_receipt" in current_result:
+        next_result["change_set_receipt"] = deepcopy(current_result["change_set_receipt"])
+
+    if current_commit_state.get("status") in {"committed", "discarded"}:
+        for key in EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS:
+            if key in current_result:
+                next_result[key] = deepcopy(current_result[key])
+            else:
+                next_result.pop(key, None)
+    return next_result
+
+
+def _valid_reverted_commit_transition(
+    *,
+    current_commit_state: dict[str, Any],
+    incoming_commit_state: Any,
+) -> bool:
+    if current_commit_state.get("status") != "committed":
+        return False
+    if not isinstance(incoming_commit_state, dict):
+        return False
+    if incoming_commit_state.get("status") != "reverted":
+        return False
+    for key in ("accepted_ids", "rejected_ids", "counts", "room_targets", "committed_at"):
+        if incoming_commit_state.get(key) != current_commit_state.get(key):
+            return False
+    if not isinstance(incoming_commit_state.get("reverted_at"), str):
+        return False
+    if not isinstance(incoming_commit_state.get("reverted_by"), str):
+        return False
+    revert_counts = incoming_commit_state.get("revert_counts")
+    if not isinstance(revert_counts, dict):
+        return False
+    for key in _COMMIT_COUNT_ROOM_KEYS:
+        count = revert_counts.get(key)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            return False
+    return True
 
 
 def _parse_datetime(value: Any) -> datetime | None:

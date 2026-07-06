@@ -7,6 +7,7 @@ import pytest
 # Ensure subagent types are registered before importing compiler
 import src.subagents.v2.types  # noqa: F401
 from src.agents.lead_agent.v2.compiler import _default_runner_factory, compile_graph
+from src.agents.lead_agent.v2.runtime import ExecutionAborted
 from src.subagents.v2.base import SubagentContext, SubagentResult
 
 
@@ -16,6 +17,7 @@ class CompilerState(TypedDict, total=False):
     execution_id: str
     inputs_for_tasks: dict
     workspace_data: dict
+    capability_policy: dict
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,7 @@ def _make_state(
     inputs_for_tasks: dict | None = None,
     workspace_id: str = "ws-test",
     execution_id: str = "exec-test",
+    capability_policy: dict | None = None,
 ) -> CompilerState:
     return CompilerState(
         workspace_id=workspace_id,
@@ -82,6 +85,7 @@ def _make_state(
         inputs_for_tasks=inputs_for_tasks or {},
         workspace_data={},
         node_results={},
+        capability_policy=capability_policy or {},
     )
 
 
@@ -244,3 +248,120 @@ async def test_default_runner_passes_publish_event_to_subagent_context():
 
     assert result_state["node_results"]["capture"]["output"] == {"ok": True}
     assert captured_publish is publish_event
+
+
+@pytest.mark.asyncio
+async def test_default_runner_resolves_static_graph_tools_through_harness_policy():
+    captured_tools: list[str] = []
+
+    class CapturingSubagent:
+        async def run(self, ctx: SubagentContext) -> SubagentResult:
+            captured_tools.extend(ctx.tools)
+            return SubagentResult(output={"ok": True})
+
+    run_node = _default_runner_factory(
+        CapturingSubagent,
+        {
+            "name": "analysis",
+            "subagent_type": "react",
+            "_skill": {
+                "skill_json": {
+                    "sandbox_access": {"mode": "required", "profiles": ["analysis"]},
+                },
+            },
+        },
+    )
+    await run_node(
+        _make_state(
+            capability_policy={
+                "sandbox_policy": {
+                    "mode": "required",
+                    "allowed_operations": ["run_python"],
+                },
+            },
+        )
+    )
+
+    assert set(captured_tools) >= {
+        "sandbox.list_dir",
+        "sandbox.glob",
+        "sandbox.grep",
+        "sandbox.read_file",
+        "sandbox.read_output_ref",
+        "sandbox.run_python",
+    }
+    assert "sandbox.generate_figure" not in captured_tools
+
+
+@pytest.mark.asyncio
+async def test_default_runner_fails_when_required_static_graph_tool_is_denied():
+    class UnusedSubagent:
+        async def run(self, ctx: SubagentContext) -> SubagentResult:
+            return SubagentResult(output={"should_not_run": True})
+
+    run_node = _default_runner_factory(
+        UnusedSubagent,
+        {
+            "name": "writer",
+            "subagent_type": "react",
+            "required_tools": ["sandbox.write_file"],
+            "_skill": {"allowed_tools": ["sandbox.write_file"]},
+        },
+    )
+    result_state = await run_node(
+        _make_state(
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+            },
+        )
+    )
+
+    assert "required static graph tools denied by harness policy" in (
+        result_state["node_results"]["writer"]["error"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_default_runner_marks_subagent_timeout_as_node_error():
+    class HangingSubagent:
+        async def run(self, ctx: SubagentContext) -> SubagentResult:
+            import asyncio
+
+            await asyncio.sleep(1)
+            return SubagentResult(output={"too_late": True})
+
+    run_node = _default_runner_factory(
+        HangingSubagent,
+        {
+            "name": "slow",
+            "subagent_type": "react",
+            "timeout_seconds": 0.01,
+        },
+    )
+    result_state = await run_node(_make_state())
+
+    assert "timed out after" in result_state["node_results"]["slow"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_default_runner_raises_execution_aborted_during_subagent_run():
+    class HangingSubagent:
+        async def run(self, ctx: SubagentContext) -> SubagentResult:
+            import asyncio
+
+            await asyncio.sleep(1)
+            return SubagentResult(output={"too_late": True})
+
+    async def abort_check() -> bool:
+        return True
+
+    run_node = _default_runner_factory(
+        HangingSubagent,
+        {"name": "slow", "subagent_type": "react"},
+        abort_check=abort_check,
+        abort_exc=ExecutionAborted,
+    )
+
+    with pytest.raises(ExecutionAborted):
+        await run_node(_make_state())

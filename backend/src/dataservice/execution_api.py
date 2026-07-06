@@ -14,6 +14,8 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
+    ExecutionLeaseClaimCommand,
+    ExecutionLeaseHeartbeatCommand,
     ExecutionNodePatchCommand,
     ExecutionNodeProjection,
     ExecutionNodeUpsertCommand,
@@ -316,6 +318,20 @@ class ExecutionDataService:
         command: ExecutionUpdateCommand,
     ) -> ExecutionRecordProjection | None:
         return await self._domain.update_execution(execution_id, command)
+
+    async def claim_execution_lease(
+        self,
+        execution_id: str,
+        command: ExecutionLeaseClaimCommand,
+    ) -> dict[str, Any]:
+        return await self._domain.claim_execution_lease(execution_id, command)
+
+    async def heartbeat_execution_lease(
+        self,
+        execution_id: str,
+        command: ExecutionLeaseHeartbeatCommand,
+    ) -> dict[str, Any]:
+        return await self._domain.heartbeat_execution_lease(execution_id, command)
 
     async def update_record(
         self,

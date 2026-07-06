@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.contracts.change_set import DEFAULT_WRITE_MODE, WriteMode, normalize_write_mode
 
 WORKSPACE_TYPES = ("thesis", "sci", "proposal", "software_copyright", "math_modeling", "patent")
 THREAD_COCKPIT_DEFAULT_TYPES = set(WORKSPACE_TYPES)
@@ -35,6 +37,19 @@ def with_rollout_defaults(
     return base
 
 
+def with_write_mode_default(settings_json: dict[str, Any] | None) -> dict[str, Any]:
+    base = dict(settings_json or {})
+    base["write_mode"] = normalize_write_mode(base.get("write_mode"))
+    return base
+
+
+def with_workspace_settings_defaults(
+    workspace_type: object,
+    settings_json: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return with_write_mode_default(with_rollout_defaults(workspace_type, settings_json))
+
+
 class WorkspacePayload(BaseModel):
     """Canonical DataService workspace payload."""
 
@@ -48,6 +63,11 @@ class WorkspacePayload(BaseModel):
     active_thread_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _sync_settings_defaults(self) -> WorkspacePayload:
+        self.settings_json = with_workspace_settings_defaults(self.workspace_type, self.settings_json)
+        return self
 
     @property
     def type(self) -> str:
@@ -94,9 +114,19 @@ class WorkspaceSettingsPayload(BaseModel):
     auto_compact_threshold: float = 0.8
     capability_overrides: dict[str, Any] = Field(default_factory=dict)
     settings_json: dict[str, Any] = Field(default_factory=dict)
+    write_mode: WriteMode = DEFAULT_WRITE_MODE
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _sync_write_mode_from_settings_json(self) -> WorkspaceSettingsPayload:
+        settings_json = dict(self.settings_json or {})
+        mode = normalize_write_mode(settings_json.get("write_mode", self.write_mode))
+        settings_json["write_mode"] = mode
+        self.settings_json = settings_json
+        self.write_mode = mode
+        return self
 
 
 class WorkspaceSettingsUpdatePayload(BaseModel):
@@ -108,7 +138,15 @@ class WorkspaceSettingsUpdatePayload(BaseModel):
     auto_compact_threshold: float | None = None
     capability_overrides: dict[str, Any] | None = None
     settings_json: dict[str, Any] | None = None
+    write_mode: WriteMode | None = None
     metadata_json: dict[str, Any] | None = None
+
+    @field_validator("write_mode", mode="before")
+    @classmethod
+    def _normalize_write_mode(cls, value: Any) -> WriteMode | None:
+        if value is None:
+            return None
+        return normalize_write_mode(value)
 
 
 class WorkspaceStatsPayload(BaseModel):

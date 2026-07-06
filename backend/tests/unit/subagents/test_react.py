@@ -7,7 +7,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
@@ -23,8 +23,8 @@ from src.subagents.v2.types.react import (
     _is_transient_model_error,
     _parse_output,
     _patch_dangling_tool_messages,
-    _react_pre_model_hook,
     _react_agent_timeout_seconds,
+    _react_pre_model_hook,
     _render_user_message,
     _resolve_tools,
     _run_react_loop,
@@ -506,7 +506,7 @@ class TestDegradedOutput:
 
         assert _react_agent_timeout_seconds(ctx) == 35
 
-    def test_manuscript_writer_degraded_output_uses_library_citations(self):
+    def test_manuscript_writer_degraded_output_is_non_committable_failure(self):
         ctx = _make_ctx(
             inputs={
                 "task_focus": "写作 SCI manuscript",
@@ -524,12 +524,38 @@ class TestDegradedOutput:
 
         text = _build_degraded_react_text(ctx, RuntimeError("502 Bad Gateway"))
 
-        assert "\\documentclass" in text
-        assert "\\cite{fedllm2026}" in text
-        assert "\\cite{flora2024}" in text
-        assert "\\bibliography{refs}" in text
-        assert "Bad Gateway" not in text
-        assert "configured model provider" not in text
+        assert "transient_model_error" in text
+        assert "can_commit: false" in text
+        assert "default_checked: false" in text
+        assert "\\documentclass" not in text
+        assert "\\cite{" not in text
+        assert "\\bibliography" not in text
+        assert "502 Bad Gateway" in text
+
+    @pytest.mark.asyncio
+    async def test_transient_model_error_result_is_marked_non_committable(self):
+        ctx = _make_ctx(
+            inputs={"task_focus": "写作 SCI manuscript"},
+            skill=_make_skill(prompt="manuscript writer"),
+        )
+
+        with patch(
+            "src.subagents.v2.types.react._run_react_loop",
+            new=AsyncMock(side_effect=RuntimeError("502 Bad Gateway")),
+        ):
+            result = await ReactSubagent().run(ctx)
+
+        assert result.output["error_code"] == "transient_model_error"
+        assert result.output["can_commit"] is False
+        assert result.output["default_checked"] is False
+        assert result.output["risk_level"] == "high"
+        assert result.metadata == {
+            "transient_model_error": True,
+            "can_commit": False,
+            "default_checked": False,
+            "risk_level": "high",
+            "retryable": True,
+        }
 
 
 # ---------------------------------------------------------------------------

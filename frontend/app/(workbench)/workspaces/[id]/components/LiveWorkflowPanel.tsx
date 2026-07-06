@@ -6,28 +6,24 @@ import { useShallow } from "zustand/react/shallow";
 import type {
   WorkspaceCapability,
 } from "@/lib/api/types";
+import {
+  acceptExecutionChangeSetUnits,
+  rejectExecutionChangeSetUnits,
+  undoExecutionChangeSetUnits,
+} from "@/lib/api/change-sets";
 import { cancelExecution, listExecutions } from "@/lib/api/executions";
 import {
-  buildCommittedRoomLinks,
-  COMMIT_STATE_SYNC_ERROR,
-  commitExecutionOutputs,
-  commitStateFromCommitResponse,
-  commitStateRoomTargets,
-  type ExecutionCommitRequest,
-  type ExecutionCommitState,
-  isExecutionCommitted,
-  isExecutionDiscarded,
-  isExecutionReverted,
-  readCommitStateFromResult,
-  undoExecutionCommit,
-} from "@/lib/execution-commit";
-import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
+  changeSetViewFromResponse,
+  responseResultPatch,
+  type ExecutionChangeSetResponse,
+} from "@/lib/change-set-view";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
   findLatestIntakeSpec,
   isSuperWorkflowCapability,
   type IntakeSpecV1,
 } from "@/lib/intake-spec";
+import { filterVisibleWorkspaceResultItems } from "@/lib/workspace-result-kind";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
@@ -38,15 +34,24 @@ import { EvidenceView } from "./live-workflow/EvidenceView";
 import { InterventionBar } from "./live-workflow/InterventionBar";
 import { IntakeSpecPreview } from "./live-workflow/IntakeSpecPreview";
 import { OverviewView } from "./live-workflow/OverviewView";
+import type {
+  ChangeSetReviewAction,
+  ChangeSetReviewActionState,
+} from "./review-changes/ChangeSetReviewPanel";
+import { ReviewView } from "./live-workflow/ReviewView";
 import { RunView } from "./live-workflow/RunView";
 import { WorkbenchHeader } from "./live-workflow/WorkbenchHeader";
 import { styles } from "./live-workflow/styles";
 import type { EvidenceFilter } from "./live-workflow/types";
-import { useLiveWorkflowViewModel } from "./live-workflow/useLiveWorkflowViewModel";
 import {
-  generateUUID,
+  resolveAutoWorkbenchTab,
+  useLiveWorkflowViewModel,
+} from "./live-workflow/useLiveWorkflowViewModel";
+import { useExecutionWriteback } from "./live-workflow/useExecutionWriteback";
+import {
   isTerminalStatus,
 } from "./live-workflow/utils";
+import type { WorkbenchTab } from "@/stores/workbench-layout-store";
 
 interface LiveWorkflowPanelProps {
   workspaceId: string;
@@ -94,23 +99,13 @@ export function LiveWorkflowPanel({
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   const [evidenceFilter, setEvidenceFilter] = useState<EvidenceFilter>("all");
   const [evidenceQuery, setEvidenceQuery] = useState("");
-  const [commitState, setCommitState] = useState<{
-    executionId: string | null;
-    idempotencyKey: string;
-    committing: boolean;
-    reverting: boolean;
-    responseCommitState: ExecutionCommitState | null;
-    linkPreviews: WorkspaceResultPreview[] | null;
-    error: string | null;
-  }>(() => ({
-    executionId: null,
-    idempotencyKey: generateUUID(),
-    committing: false,
-    reverting: false,
-    responseCommitState: null,
-    linkPreviews: null,
-    error: null,
-  }));
+  const [changeSetActionState, setChangeSetActionState] =
+    useState<ChangeSetReviewActionState>(() => ({
+      executionId: null,
+      action: null,
+      unitIds: [],
+      error: null,
+    }));
   const [interventionOpen, setInterventionOpen] = useState(false);
   const [interventionText, setInterventionText] = useState("");
   const [interventionState, setInterventionState] = useState<{
@@ -133,6 +128,7 @@ export function LiveWorkflowPanel({
     reviewItems,
     evidenceItems,
     runningRecord,
+    changeSet,
     pendingReviewCount,
   } = useLiveWorkflowViewModel({
     records: executionRecords,
@@ -144,37 +140,36 @@ export function LiveWorkflowPanel({
   });
   const selectedRecordIdRef = useRef<string | null>(null);
   selectedRecordIdRef.current = selectedRecord?.id ?? null;
-  const durableCommitState = readCommitStateFromResult(selectedRecord?.result);
-  const localCommitState =
-    commitState.executionId === selectedRecord?.id
-      ? commitState.responseCommitState
-      : null;
-  const effectiveCommitState = durableCommitState ?? localCommitState;
-  const commitFinal = Boolean(effectiveCommitState);
-  const commitCommitted = isExecutionCommitted(effectiveCommitState);
-  const commitDiscarded = isExecutionDiscarded(effectiveCommitState);
-  const commitReverted = isExecutionReverted(effectiveCommitState);
-  const autoCommitAttemptedRef = useRef<Set<string>>(new Set());
-  const commitLinkPreviews =
-    commitState.executionId === selectedRecord?.id && commitState.linkPreviews
-      ? commitState.linkPreviews
-      : previews;
-  const commitLinks = useMemo(
-    () =>
-      buildCommittedRoomLinks({
-        workspaceId,
-        previews: commitLinkPreviews,
-        roomTargets: commitStateRoomTargets(effectiveCommitState),
-      }),
-    [commitLinkPreviews, effectiveCommitState, workspaceId],
+  const reviewablePreviews = useMemo(
+    () => filterVisibleWorkspaceResultItems(previews),
+    [previews],
   );
+  const writeback = useExecutionWriteback({
+    workspaceId,
+    selectedRecord,
+    previews,
+    reviewablePreviews,
+    changeSet,
+  });
   const latestMessageSpec = useMemo(
     () => findLatestIntakeSpec(messages, workspaceId),
     [messages, workspaceId],
   );
   const intakeSpec = latestMessageSpec;
-  const visibleWorkbenchTab =
-    activeWorkbenchTab === "review" ? "run" : activeWorkbenchTab;
+  const visibleWorkbenchTab = activeWorkbenchTab;
+  const lastAutoWorkbenchTabRef = useRef<WorkbenchTab>("overview");
+  const hasManualWorkbenchTabChoiceRef = useRef(false);
+
+  function applyAutoWorkbenchTab(tab: WorkbenchTab) {
+    lastAutoWorkbenchTabRef.current = tab;
+    hasManualWorkbenchTabChoiceRef.current = false;
+    setAutoWorkbenchTab(tab);
+  }
+
+  function handleWorkbenchTabChange(tab: WorkbenchTab) {
+    hasManualWorkbenchTabChoiceRef.current = true;
+    setActiveWorkbenchTab(tab);
+  }
 
   useEffect(() => {
     if (records.length > 0) {
@@ -199,9 +194,9 @@ export function LiveWorkflowPanel({
   useEffect(() => {
     if (activeRunId) {
       selectRun(activeRunId);
-      setActiveWorkbenchTab("run");
+      applyAutoWorkbenchTab("run");
     }
-  }, [activeRunId, selectRun, setActiveWorkbenchTab]);
+  }, [activeRunId, selectRun]);
 
   useEffect(() => {
     if (selectedRecord) {
@@ -219,37 +214,32 @@ export function LiveWorkflowPanel({
     if (activeWorkbenchTab === "spec" && intakeSpec) {
       return;
     }
-    if (!selectedRecord) {
-      setAutoWorkbenchTab("overview");
-      return;
-    }
-    if (!isTerminalStatus(selectedRecord.status)) {
-      setAutoWorkbenchTab("run");
+    const autoTab = resolveAutoWorkbenchTab({
+      selectedRecord,
+      previews: reviewablePreviews,
+      reviewItems,
+      evidenceItems,
+      pendingReviewCount,
+    });
+    if (activeWorkbenchTab === autoTab) {
+      lastAutoWorkbenchTabRef.current = autoTab;
       return;
     }
     if (
-      activeWorkbenchTab === "evidence" &&
-      evidenceItems.length > 0
+      activeWorkbenchTab !== lastAutoWorkbenchTabRef.current &&
+      (hasManualWorkbenchTabChoiceRef.current || activeWorkbenchTab !== "overview")
     ) {
       return;
     }
-    if (isTerminalStatus(selectedRecord.status)) {
-      setAutoWorkbenchTab("run");
-      return;
-    }
-    if (evidenceItems.length > 0) {
-      setAutoWorkbenchTab("evidence");
-      return;
-    }
-    setAutoWorkbenchTab("overview");
+    applyAutoWorkbenchTab(autoTab);
   }, [
     activeWorkbenchTab,
-    evidenceItems.length,
+    evidenceItems,
     intakeSpec,
-    previews.length,
-    reviewItems.length,
+    reviewablePreviews,
+    reviewItems,
+    pendingReviewCount,
     selectedRecord,
-    setAutoWorkbenchTab,
   ]);
 
   useEffect(() => {
@@ -265,13 +255,10 @@ export function LiveWorkflowPanel({
   }, [previews]);
 
   useEffect(() => {
-    setCommitState({
+    setChangeSetActionState({
       executionId: selectedRecord?.id ?? null,
-      idempotencyKey: generateUUID(),
-      committing: false,
-      reverting: false,
-      responseCommitState: null,
-      linkPreviews: null,
+      action: null,
+      unitIds: [],
       error: null,
     });
   }, [selectedRecord?.id]);
@@ -424,204 +411,94 @@ export function LiveWorkflowPanel({
     );
   }
 
-  async function handleCommit() {
-    if (!selectedRecord || commitState.committing || commitState.reverting || commitFinal) {
+  async function handleChangeSetAction(
+    action: ChangeSetReviewAction,
+    unitIds: string[],
+  ) {
+    if (!selectedRecord || changeSetActionState.action !== null) {
       return;
     }
-    if (selectedRecord.status !== "completed") {
+    const requestUnitIds = Array.from(
+      new Set(unitIds.map((unitId) => unitId.trim()).filter(Boolean)),
+    );
+    if (requestUnitIds.length === 0) {
       return;
     }
     const requestExecutionId = selectedRecord.id;
-    const requestIdempotencyKey = commitState.idempotencyKey;
-    const committablePreviews = previews.filter((preview) => preview.canCommit);
-    const outputIds = committablePreviews.map((preview) => preview.id);
-    if (outputIds.length === 0) {
-      return;
-    }
-    const body: ExecutionCommitRequest = { accept_all: true };
-
-    setCommitState((current) => ({
-      ...current,
+    setChangeSetActionState({
       executionId: requestExecutionId,
-      committing: true,
-      reverting: false,
+      action,
+      unitIds: requestUnitIds,
       error: null,
-      linkPreviews: null,
-    }));
+    });
     try {
-      const response = await commitExecutionOutputs({
-        executionId: requestExecutionId,
-        idempotencyKey: requestIdempotencyKey,
-        body,
-      });
-      const nextCommitState = commitStateFromCommitResponse(response);
-      if (!nextCommitState) {
-        setCommitState((current) =>
-          shouldApplyCommitResponseToLocalState(
-            current.executionId,
-            requestExecutionId,
-          )
-            ? {
-                ...current,
-                committing: false,
-                reverting: false,
-                responseCommitState: null,
-                linkPreviews: null,
-                error: COMMIT_STATE_SYNC_ERROR,
-              }
-            : current,
-        );
-        return;
-      }
-      const recordToPatch =
-        useExecutionStore.getState().executions.get(requestExecutionId);
-      if (recordToPatch) {
-        upsertExecution({
-          ...recordToPatch,
-          result: {
-            ...(recordToPatch.result ?? {}),
-            commit_state: nextCommitState,
-          },
-        });
-      }
-      setCommitState((current) =>
-        shouldApplyCommitResponseToLocalState(
-          current.executionId,
-          requestExecutionId,
-        )
-          ? {
-              ...current,
+      const response =
+        action === "accept"
+          ? await acceptExecutionChangeSetUnits({
               executionId: requestExecutionId,
-              committing: false,
-              reverting: false,
-              responseCommitState: nextCommitState,
-              linkPreviews: committablePreviews,
-            }
-          : current,
-      );
-    } catch (error) {
-      setCommitState((current) =>
-        shouldApplyCommitResponseToLocalState(
+              unitIds: requestUnitIds,
+            })
+          : action === "reject"
+            ? await rejectExecutionChangeSetUnits({
+                executionId: requestExecutionId,
+                unitIds: requestUnitIds,
+              })
+            : await undoExecutionChangeSetUnits({
+                executionId: requestExecutionId,
+                unitIds: requestUnitIds,
+              });
+      if (!changeSetViewFromResponse(response)) {
+        throw new Error("审阅状态同步失败，请刷新后重试");
+      }
+      patchChangeSetResponse(requestExecutionId, response);
+      setChangeSetActionState((current) =>
+        shouldApplyChangeSetActionResponse(
           current.executionId,
           requestExecutionId,
         )
           ? {
-              ...current,
-              committing: false,
-              reverting: false,
-              responseCommitState: null,
-              linkPreviews: null,
-              error: error instanceof Error ? error.message : "保存失败",
+              executionId: requestExecutionId,
+              action: null,
+              unitIds: [],
+              error: null,
+            }
+          : current,
+      );
+    } catch (error) {
+      setChangeSetActionState((current) =>
+        shouldApplyChangeSetActionResponse(
+          current.executionId,
+          requestExecutionId,
+        )
+          ? {
+              executionId: requestExecutionId,
+              action: null,
+              unitIds: requestUnitIds,
+              error: error instanceof Error ? error.message : "审阅变更失败",
             }
           : current,
       );
     }
   }
 
-  useEffect(() => {
-    if (
-      !selectedRecord ||
-      selectedRecord.status !== "completed" ||
-      effectiveCommitState ||
-      commitState.committing ||
-      commitState.reverting
-    ) {
+  function patchChangeSetResponse(
+    executionId: string,
+    response: ExecutionChangeSetResponse,
+  ) {
+    const recordToPatch = useExecutionStore.getState().executions.get(executionId);
+    if (!recordToPatch) {
       return;
     }
-    if (!previews.some((preview) => preview.canCommit)) {
-      return;
-    }
-    const attempted = autoCommitAttemptedRef.current;
-    if (attempted.has(selectedRecord.id)) {
-      return;
-    }
-    attempted.add(selectedRecord.id);
-    void handleCommit();
-  }, [
-    commitState.committing,
-    commitState.reverting,
-    effectiveCommitState,
-    previews,
-    selectedRecord,
-  ]);
-
-  async function handleUndoCommit() {
-    if (
-      !selectedRecord ||
-      commitState.committing ||
-      commitState.reverting ||
-      !effectiveCommitState ||
-      effectiveCommitState.status !== "committed"
-    ) {
-      return;
-    }
-    const requestExecutionId = selectedRecord.id;
-    setCommitState((current) => ({
-      ...current,
-      executionId: requestExecutionId,
-      reverting: true,
-      error: null,
-    }));
-    try {
-      const response = await undoExecutionCommit({ executionId: requestExecutionId });
-      const nextCommitState = commitStateFromCommitResponse(response);
-      if (!nextCommitState) {
-        setCommitState((current) =>
-          shouldApplyCommitResponseToLocalState(
-            current.executionId,
-            requestExecutionId,
-          )
-            ? {
-                ...current,
-                reverting: false,
-                responseCommitState: null,
-                error: COMMIT_STATE_SYNC_ERROR,
-              }
-            : current,
-        );
-        return;
-      }
-      const recordToPatch =
-        useExecutionStore.getState().executions.get(requestExecutionId);
-      if (recordToPatch) {
-        upsertExecution({
-          ...recordToPatch,
-          result: {
-            ...(recordToPatch.result ?? {}),
-            commit_state: nextCommitState,
-          },
-        });
-      }
-      setCommitState((current) =>
-        shouldApplyCommitResponseToLocalState(
-          current.executionId,
-          requestExecutionId,
-        )
-          ? {
-              ...current,
-              reverting: false,
-              responseCommitState: nextCommitState,
-              linkPreviews: previews,
-            }
-          : current,
-      );
-    } catch (error) {
-      setCommitState((current) =>
-        shouldApplyCommitResponseToLocalState(
-          current.executionId,
-          requestExecutionId,
-        )
-          ? {
-              ...current,
-              reverting: false,
-              error: error instanceof Error ? error.message : "撤回保存失败",
-            }
-          : current,
-      );
-    }
+    upsertExecution({
+      ...recordToPatch,
+      result: {
+        ...(recordToPatch.result ?? {}),
+        ...responseResultPatch(response),
+      },
+    });
   }
 
-  function shouldApplyCommitResponseToLocalState(
+  function shouldApplyChangeSetActionResponse(
     currentExecutionId: string | null,
     requestExecutionId: string,
   ): boolean {
@@ -677,14 +554,20 @@ export function LiveWorkflowPanel({
       <WorkbenchHeader
         activeTab={visibleWorkbenchTab}
         evidenceCount={evidenceItems.length}
+        reviewCount={pendingReviewCount}
         showProgressTab={Boolean(runningRecord) || activeWorkbenchTab === "run"}
+        showReviewTab={
+          Boolean(changeSet) ||
+          pendingReviewCount > 0 ||
+          activeWorkbenchTab === "review"
+        }
         showSpecTab={Boolean(intakeSpec) || activeWorkbenchTab === "spec"}
         hasRunHistory={records.length > 0}
         isFullscreen={isFullscreen}
         canInterrupt={Boolean(runningRecord)}
         interventionOpen={interventionOpen}
         interventionStatus={interventionState.status}
-        onTabChange={setActiveWorkbenchTab}
+        onTabChange={handleWorkbenchTabChange}
         onToggleFullscreen={() => setWorkbenchFullscreen(!isFullscreen)}
         onToggleIntervention={() => setInterventionOpen((current) => !current)}
       />
@@ -726,23 +609,34 @@ export function LiveWorkflowPanel({
           <RunView
             record={selectedRecord}
             selectedNodeId={selectedNodeId}
-            writeback={
-              selectedRecord && selectedRecord.status === "completed"
-                ? {
-                    committed: commitCommitted,
-                    discarded: commitDiscarded,
-                    reverted: commitReverted,
-                    committing: commitState.committing,
-                    reverting: commitState.reverting,
-                    error: commitState.error,
-                    links: commitLinks,
-                    onUndo: () => void handleUndoCommit(),
-                    onRetry: () => void handleCommit(),
-                  }
-                : undefined
-            }
+            writeback={writeback}
             onSelectNode={selectNode}
             onOpenEvidence={() => setActiveWorkbenchTab("evidence")}
+          />
+        ) : null}
+        {visibleWorkbenchTab === "review" ? (
+          <ReviewView
+            previews={reviewablePreviews}
+            reviewItems={reviewItems}
+            pendingReviewCount={pendingReviewCount}
+            changeSet={changeSet}
+            changeSetActionState={
+              changeSetActionState.executionId === selectedRecord?.id
+                ? changeSetActionState
+                : undefined
+            }
+            selectedPreviewId={selectedPreviewId}
+            writeback={writeback}
+            onAcceptChangeUnits={(unitIds) =>
+              void handleChangeSetAction("accept", unitIds)
+            }
+            onRejectChangeUnits={(unitIds) =>
+              void handleChangeSetAction("reject", unitIds)
+            }
+            onUndoChangeUnits={(unitIds) =>
+              void handleChangeSetAction("undo", unitIds)
+            }
+            onSelectPreview={setSelectedPreviewId}
           />
         ) : null}
         {visibleWorkbenchTab === "evidence" ? (

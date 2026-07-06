@@ -25,7 +25,13 @@ from src.agents.harness.diff_tracker import (
     build_harness_replan_signals_from_tool_calls,
 )
 from src.agents.harness.research_brief import build_research_brief
+from src.agents.harness.research_eval_surfaces import required_surfaces_from_capability_policy
 from src.agents.harness.research_state import ResearchStateV1, compact_research_state
+from src.agents.harness.research_task_eval import evaluate_research_task_evidence
+from src.agents.lead_agent.v2.capability_preflight import (
+    CapabilityPreflightError,
+    validate_research_evidence_policy,
+)
 from src.agents.lead_agent.v2.output_mapping import (
     OutputMappingResolver,
     review_packet_from_expert_reports,
@@ -98,6 +104,10 @@ BLACKBOARD_ACCUMULATING_FIELDS = (
     "pending_decisions",
     "rejected_claims",
 )
+FINAL_REPORT_RESEARCH_EVIDENCE_SURFACES = {
+    "claim_evidence_alignment",
+    "review_packet_completeness",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +193,16 @@ class TeamKernelRuntime:
                 templates=templates,
             )
             capability_policy = self.capability_policy_builder(capability)
+            required_skill_ids = self._required_team_skill_ids(
+                team_policy=team_policy,
+                templates=templates,
+            )
+            skill_catalog = await self._load_skill_catalog() if required_skill_ids else {}
+            self._validate_team_preflight(
+                capability_policy=capability_policy,
+                skill_catalog=skill_catalog,
+                required_skill_ids=required_skill_ids,
+            )
             context_requirements = self.context_requirements_from_brief(brief)
             workspace_data = (
                 await self.load_workspace_data(
@@ -222,6 +242,7 @@ class TeamKernelRuntime:
                 capability_policy=capability_policy,
                 workspace_data=workspace_data,
                 blackboard=blackboard,
+                skill_catalog=skill_catalog,
             )
             if invocations and all(invocation.status == "cancelled" for invocation in invocations):
                 return self._cancelled_report(execution_id, brief, started_at)
@@ -275,6 +296,32 @@ class TeamKernelRuntime:
                         execution_id=execution_id,
                     )
                 )
+            final_gate_errors = self._errors_from_final_research_evidence(
+                TaskReport(
+                    execution_id=execution_id,
+                    capability_id=brief.capability_id,
+                    status=status,
+                    duration_seconds=duration,
+                    narrative="Final research evidence evaluation.",
+                    outputs=outputs,
+                    review_items=review_items,
+                    review_packet=review_packet,
+                    errors=errors,
+                ),
+                invocations,
+                capability_policy=capability_policy,
+            )
+            if final_gate_errors:
+                errors.extend(final_gate_errors)
+                status = "failed_partial"
+                outputs = self._mark_outputs_unchecked(outputs)
+                review_packet = review_packet.model_copy(update={"completion_status": "partial"})
+                review_items.extend(
+                    self._review_items_from_final_gate_errors(
+                        final_gate_errors,
+                        execution_id=execution_id,
+                    )
+                )
             return TaskReport(
                 execution_id=execution_id,
                 capability_id=brief.capability_id,
@@ -293,7 +340,7 @@ class TeamKernelRuntime:
                 preview_item_id=self._result_preview_item_id(invocations),
                 errors=errors,
             )
-        except TeamPolicyError as exc:
+        except (TeamPolicyError, CapabilityPreflightError) as exc:
             return self._failed_report(execution_id, brief, started_at, str(exc))
         except Exception as exc:
             logger.exception("team kernel failed", extra={"execution_id": execution_id})
@@ -314,6 +361,42 @@ class TeamKernelRuntime:
             records = await client.list_catalog_skills(enabled_only=True)
         return {record.id: record for record in records}
 
+    def _validate_team_preflight(
+        self,
+        *,
+        capability_policy: dict[str, Any],
+        skill_catalog: dict[str, Any],
+        required_skill_ids: set[str],
+    ) -> None:
+        validate_research_evidence_policy(capability_policy)
+        for skill_id in sorted(required_skill_ids):
+            if skill_id not in skill_catalog:
+                raise CapabilityPreflightError(f"unknown capability skill: {skill_id}")
+
+    def _required_team_skill_ids(
+        self,
+        *,
+        team_policy: CapabilityTeamPolicy,
+        templates: dict[str, AgentTemplate],
+    ) -> set[str]:
+        required_skill_ids = {
+            *team_policy.capability_skills,
+            *team_policy.contract_overlay_skills,
+        }
+        for template_id in [*team_policy.core_templates, *team_policy.optional_templates]:
+            template = templates[template_id]
+            effective_skills = resolve_effective_skills(
+                template,
+                capability_skills=team_policy.capability_skills or template.default_skills,
+            )
+            if not effective_skills and template.runtime_defaults.get("allow_skillless") is not True:
+                raise CapabilityPreflightError(
+                    f"agent template {template_id} must resolve at least one skill "
+                    "or set runtime_defaults.allow_skillless=true"
+                )
+            required_skill_ids.update(effective_skills)
+        return required_skill_ids
+
     async def _run_iteration(
         self,
         *,
@@ -325,11 +408,15 @@ class TeamKernelRuntime:
         capability_policy: dict[str, Any],
         workspace_data: dict[str, Any] | None = None,
         blackboard: TeamBlackboard,
+        skill_catalog: dict[str, Any] | None = None,
     ) -> tuple[list[AgentInvocation], list[QualityGateResult]]:
         counts: Counter[str] = Counter()
         invocations: list[AgentInvocation] = []
         gates: list[QualityGateResult] = []
-        skill_cache = SkillCatalogCache()
+        skill_cache = SkillCatalogCache(
+            records=dict(skill_catalog or {}),
+            loaded=skill_catalog is not None,
+        )
         blackboard.harness_episode = start_harness_episode(
             execution_id=execution_id,
             core_templates=team_policy.core_templates,
@@ -1699,6 +1786,98 @@ class TeamKernelRuntime:
             )
         return errors
 
+    def _errors_from_final_research_evidence(
+        self,
+        report: TaskReport,
+        invocations: list[AgentInvocation],
+        *,
+        capability_policy: dict[str, Any] | None,
+    ) -> list[ResultError]:
+        surfaces = tuple(
+            surface
+            for surface in required_surfaces_from_capability_policy(capability_policy, default=())
+            if surface in FINAL_REPORT_RESEARCH_EVIDENCE_SURFACES
+        )
+        if not surfaces:
+            return []
+        evaluation = evaluate_research_task_evidence(
+            report,
+            node_events=self._node_events_from_invocations(invocations),
+            required_surfaces=surfaces,
+        )
+        if evaluation.status == "pass":
+            return []
+        return [
+            ResultError(
+                phase="final_research_evidence",
+                task=str(finding.get("surface") or "research_evidence"),
+                error=str(finding.get("message") or "Final research evidence gate failed."),
+            )
+            for finding in evaluation.findings
+        ]
+
+    @staticmethod
+    def _review_items_from_final_gate_errors(
+        errors: list[ResultError],
+        *,
+        execution_id: str,
+    ) -> list[dict[str, Any]]:
+        review_items: list[dict[str, Any]] = []
+        for index, error in enumerate(errors):
+            surface = str(error.task or "research_evidence").strip() or "research_evidence"
+            message = str(error.error or "Final research evidence gate failed.").strip()
+            item_id = f"final-gate-{_safe_review_item_id(surface)}-{index}"
+            review_items.append(
+                {
+                    "id": item_id,
+                    "kind": "warning",
+                    "title": "科研质量门未通过",
+                    "summary": message,
+                    "status": "blocked",
+                    "source": {
+                        "phase": "final_research_evidence",
+                        "execution_id": execution_id,
+                        "surface": surface,
+                    },
+                    "target": {
+                        "kind": "research_evidence_gate",
+                        "surface": surface,
+                    },
+                    "preview": {
+                        "format": "text",
+                        "excerpt": message[:500],
+                    },
+                    "risk": {
+                        "level": "high",
+                        "reasons": [message],
+                    },
+                    "quality_surfaces": [surface],
+                    "default_checked": False,
+                    "can_commit": False,
+                }
+            )
+        return review_items
+
+    @staticmethod
+    def _node_events_from_invocations(invocations: list[AgentInvocation]) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        for invocation in invocations:
+            node_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+            if not node_metadata:
+                continue
+            events.append(
+                {
+                    "node_type": "agent_invocation",
+                    "status": "completed" if invocation.status == "succeeded" else invocation.status,
+                    "node_metadata": {
+                        "template_id": invocation.template_id,
+                        "display_name": invocation.display_name,
+                        **node_metadata,
+                    },
+                }
+            )
+        return events
+
     def _build_narrative(
         self,
         capability: Any,
@@ -1953,6 +2132,22 @@ def _bounded_paper_value(value: Any) -> Any:
     if isinstance(value, list):
         return [str(item)[:120] for item in value[:8]]
     return value
+
+
+def _safe_review_item_id(value: Any) -> str:
+    text = str(value or "").strip()
+    chars: list[str] = []
+    last_was_dash = False
+    for char in text:
+        if char.isalnum() or char in {"_", ".", "-"}:
+            chars.append(char)
+            last_was_dash = False
+            continue
+        if not last_was_dash:
+            chars.append("-")
+            last_was_dash = True
+    result = "".join(chars).strip("-._")
+    return result[:80] or "research-evidence"
 
 
 def _has_meaningful_output(value: Any) -> bool:

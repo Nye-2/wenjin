@@ -26,6 +26,20 @@ import { EmptyState, GuidanceNote, NodeStatusDot } from "./shared";
 import { styles } from "./styles";
 import { qualityGateLabel, qualityGateTone, statusTone } from "./utils";
 
+export interface RunWritebackStatus {
+  committed: boolean;
+  discarded: boolean;
+  reverted: boolean;
+  committing: boolean;
+  reverting: boolean;
+  error: string | null;
+  links: CommittedRoomLink[];
+  canSave: boolean;
+  saveCount: number;
+  onSave: () => void;
+  onUndo: () => void;
+}
+
 export function RunView({
   record,
   selectedNodeId,
@@ -35,17 +49,7 @@ export function RunView({
 }: {
   record: ExecutionRecord | null;
   selectedNodeId: string | null;
-  writeback?: {
-    committed: boolean;
-    discarded: boolean;
-    reverted: boolean;
-    committing: boolean;
-    reverting: boolean;
-    error: string | null;
-    links: CommittedRoomLink[];
-    onUndo: () => void;
-    onRetry: () => void;
-  };
+  writeback?: RunWritebackStatus;
   onSelectNode: (nodeId: string | null) => void;
   onOpenEvidence: () => void;
 }) {
@@ -117,7 +121,7 @@ export function RunView({
             <div>
               <div style={styles.sectionTitle}>任务进展</div>
               <div style={styles.sectionSubtitle}>
-                专家会按阶段更新关键摘录，完成后的文档和资料会自动写入 Prism 或资料库。
+                专家会按阶段更新关键摘录，完成后的文档和资料会进入审核保存流程。
               </div>
             </div>
           </div>
@@ -169,10 +173,10 @@ export function RunView({
   );
 }
 
-function WritebackStatus({
+export function WritebackStatus({
   writeback,
 }: {
-  writeback: NonNullable<Parameters<typeof RunView>[0]["writeback"]>;
+  writeback: RunWritebackStatus;
 }) {
   const label = writeback.reverting
     ? "正在撤回本次保存..."
@@ -180,29 +184,41 @@ function WritebackStatus({
       ? "已撤回本次保存"
       : writeback.discarded
         ? "已暂不保存"
-      : writeback.committed
-        ? "已写入工作区"
-        : writeback.committing
-          ? "正在写入工作区..."
-          : writeback.error
-            ? "自动写入失败"
-            : "等待写入工作区";
+        : writeback.committed
+          ? "已写入工作区"
+          : writeback.committing
+            ? "正在写入工作区..."
+            : writeback.error
+              ? "保存状态异常"
+              : "待审核保存";
+  const saveButtonLabel = writeback.committing
+    ? "保存中..."
+    : writeback.error
+      ? `重试保存（${writeback.saveCount} 项）`
+      : `保存已确认结果（${writeback.saveCount} 项）`;
 
   return (
     <div style={styles.writebackBox}>
-      <div style={styles.writebackMain}>
+      <div
+        style={styles.writebackMain}
+        role="status"
+        aria-label="保存状态"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <CheckCircle2 size={14} />
         <span>{label}</span>
       </div>
       <div style={styles.writebackActions}>
-        {writeback.error && !writeback.committed ? (
+        {writeback.canSave && !writeback.committed && !writeback.discarded ? (
           <button
             type="button"
-            onClick={writeback.onRetry}
-            disabled={writeback.committing}
+            onClick={writeback.onSave}
+            disabled={writeback.committing || writeback.reverting}
             style={styles.inlineGhostButton}
+            aria-label={saveButtonLabel}
           >
-            重试写入
+            {saveButtonLabel}
           </button>
         ) : null}
         {writeback.committed && !writeback.reverted ? (
@@ -211,6 +227,7 @@ function WritebackStatus({
             onClick={writeback.onUndo}
             disabled={writeback.reverting}
             style={styles.inlineGhostButton}
+            aria-label="撤回本次保存"
           >
             <RotateCcw size={13} />
             撤回本次保存

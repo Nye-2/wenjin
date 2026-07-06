@@ -33,11 +33,14 @@ def test_frontend_next_env_is_stable_for_static_build_gate() -> None:
 def test_release_gate_includes_current_execution_architecture_checks() -> None:
     """The backend release gate should execute the converged execution UX guards."""
     required = {
+        "change_set_writeback_gate",
         "execution_commit_writeback_security",
         "execution_resume_runtime_config",
         "execution_ux_convergence",
+        "execution_worker_lease_gate",
         "native_harness_quality_gate",
         "model_catalog_pricing_gate",
+        "frontend_review_changes_gate",
         "frontend_execution_ux_unit_tests",
         "frontend_static_build",
         "frontend_lint",
@@ -54,9 +57,26 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
     assert "test_execution_commit_router.py" in " ".join(
         command_by_id["execution_commit_writeback_security"]
     )
+    change_set_command = " ".join(command_by_id["change_set_writeback_gate"])
+    assert "tests/contracts/test_change_set.py" in change_set_command
+    assert "tests/services/test_change_policy.py" in change_set_command
+    assert "tests/services/test_change_set_service.py" in change_set_command
+    assert "tests/services/test_change_set_review_service.py" in change_set_command
+    assert "tests/services/test_execution_commit_service.py" in change_set_command
+    worker_lease_command = " ".join(command_by_id["execution_worker_lease_gate"])
+    assert "tests/dataservice/test_execution_domain.py" in worker_lease_command
+    assert "test_dataservice_client_claim_and_heartbeat_execution_lease" in worker_lease_command
+    assert "tests/services/test_execution_service_node_state.py" in worker_lease_command
+    assert "tests/task/test_execution_task.py" in worker_lease_command
     assert "test_thread_turn_handler.py" in " ".join(
         command_by_id["execution_resume_runtime_config"]
     )
+    frontend_review_command = " ".join(command_by_id["frontend_review_changes_gate"])
+    assert "tests/unit/v2/CompletedView.test.tsx" in frontend_review_command
+    assert "tests/unit/v2/ResultCard.test.tsx" in frontend_review_command
+    assert "tests/unit/v2/ResultPreviewRenderer.test.tsx" in frontend_review_command
+    assert "tests/unit/lib/execution-commit.test.ts" in frontend_review_command
+    assert "tests/unit/v2/execution-run-view.test.ts" in frontend_review_command
     assert "tests/unit/lib/execution-run-view.test.ts" in " ".join(
         command_by_id["frontend_execution_ux_unit_tests"]
     )

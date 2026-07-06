@@ -504,3 +504,63 @@ def test_review_packet_from_expert_reports_maps_nested_claim_evidence_blockers()
     assert "missing-ev" in blocker.summary
     assert packet.completion_status == "partial"
     assert [item.kind for item in packet.items] == ["memory", "warning"]
+
+
+def test_review_packet_from_expert_reports_projects_nested_claim_evidence_refs():
+    report = sanitize_expert_report(
+        {
+            "schema_version": "wenjin.expert_report.v1",
+            "expert_id": "literature_synthesizer.v1",
+            "skill_id": "literature-synthesizer",
+            "task_focus": "Synthesize literature.",
+            "summary": "Grounded literature positioning is ready.",
+            "claim_inventory": {
+                "claims": [
+                    {
+                        "claim_id": "claim-positioning",
+                        "claim_type": "literature_position",
+                        "text": "Federated LLM adaptation work still lacks stable evaluation baselines.",
+                        "support_status": "supported",
+                        "evidence_refs": ["ev-positioning"],
+                    }
+                ]
+            },
+            "evidence_packet": {
+                "packet_id": "evidence-1",
+                "items": [
+                    {
+                        "evidence_id": "ev-positioning",
+                        "evidence_type": "library_source",
+                        "title": "Federated LLM survey",
+                        "source_key": "smith2026",
+                        "support_strength": "high",
+                        "relevance": "direct",
+                        "verification": {"status": "verified", "method": "library_index"},
+                    }
+                ],
+                "links": [
+                    {
+                        "claim_id": "claim-positioning",
+                        "evidence_id": "ev-positioning",
+                        "support_relation": "supports",
+                        "confidence": "high",
+                    }
+                ],
+            },
+        }
+    )
+
+    packet = review_packet_from_expert_reports(
+        execution_id="exec-1",
+        capability_id="sci_literature_positioning",
+        title="文献定位与创新点",
+        reports=[report],
+        completion_status="completed",
+    )
+
+    summary_item = packet.items[0]
+    assert summary_item.kind == "memory"
+    assert summary_item.claim_refs == ["claim-positioning"]
+    assert summary_item.evidence_refs == ["ev-positioning"]
+    assert "claim_evidence_alignment" in summary_item.quality_surfaces
+    assert summary_item.default_checked is True

@@ -124,6 +124,19 @@ def evaluate_research_task_evidence(
         "experiment_reproducibility": _evaluate_experiment,
         "figure_data_consistency": _evaluate_figure_data_consistency,
         "review_packet_completeness": _evaluate_review_packet_completeness,
+        "argument_chain": _evaluate_claim_evidence_alignment,
+        "protected_section_safety": _evaluate_writing_semantic_preservation,
+        "prior_art_provenance": _evaluate_citation_strength,
+        "claim_support": _evaluate_claim_evidence_alignment,
+        "enablement_support": _evaluate_claim_evidence_alignment,
+        "drawing_consistency": _evaluate_figure_data_consistency,
+        "feasibility_evidence": _evaluate_claim_evidence_alignment,
+        "risk_evidence": _evaluate_risk_evidence,
+        "milestone_realism": _evaluate_claim_evidence_alignment,
+        "source_provenance": _evaluate_claim_evidence_alignment,
+        "screenshot_provenance": _evaluate_figure_data_consistency,
+        "non_fabrication_evidence": _evaluate_claim_evidence_alignment,
+        "ai_use_disclosure": _evaluate_ai_use_disclosure,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -471,15 +484,25 @@ def _evaluate_review_packet_completeness(
         if item.title.strip() and item.summary.strip()
     ]
     committable = [item for item in previewable if item.can_commit]
+    deliverables = [item for item in committable if item.kind != "warning"]
+    substantive_deliverables = [
+        item for item in deliverables if _review_packet_item_has_substantive_anchor(item)
+    ]
     evidence = {
         "packet_id": packet.packet_id if packet else "",
         "item_count": len(items),
         "previewable_count": len(previewable),
         "committable_count": len(committable),
+        "deliverable_count": len(deliverables),
+        "substantive_deliverable_count": len(substantive_deliverables),
         "warning_count": sum(1 for item in items if item.kind == "warning"),
     }
-    if previewable:
+    if substantive_deliverables:
         return True, evidence, ""
+    if deliverables:
+        return False, evidence, "No anchored Review Packet deliverable was produced."
+    if previewable:
+        return False, evidence, "No committable Review Packet deliverable was produced."
     return False, evidence, "No previewable Review Packet item was produced."
 
 
@@ -502,19 +525,97 @@ def _evaluate_claim_evidence_alignment(
         if item.kind == "warning"
         and str((item.risk or {}).get("level") or "").lower() in {"high", "critical"}
     ]
+    unchecked_quality_surface = [
+        item.item_id
+        for item in claim_items
+        if item.kind != "warning"
+        and "claim_evidence_alignment" not in set(item.quality_surfaces or [])
+    ]
     evidence = {
         "claim_item_count": len(claim_items),
-        "aligned_claim_item_count": len(claim_items) - len(unsupported) - len(high_risk_warnings),
+        "aligned_claim_item_count": (
+            len(claim_items)
+            - len(unsupported)
+            - len(high_risk_warnings)
+            - len(unchecked_quality_surface)
+        ),
         "unsupported_item_ids": unsupported[:50],
         "high_risk_warning_item_ids": high_risk_warnings[:50],
+        "unchecked_quality_surface_item_ids": unchecked_quality_surface[:50],
     }
-    if claim_items and not unsupported and not high_risk_warnings:
+    if claim_items and not unsupported and not high_risk_warnings and not unchecked_quality_surface:
         return True, evidence, ""
     if not claim_items:
         return False, evidence, "No claim-bearing Review Packet item was produced."
     if high_risk_warnings:
         return False, evidence, "High-risk claim evidence warnings remain unresolved."
+    if unchecked_quality_surface:
+        return False, evidence, "Claim-bearing Review Packet items were not checked by the claim_evidence_alignment quality surface."
     return False, evidence, "Some claim-bearing Review Packet items have no evidence refs."
+
+
+def _evaluate_risk_evidence(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del node_events
+    packet = report.review_packet
+    items = packet.items if packet else []
+    risk_items = [
+        item
+        for item in items
+        if item.kind == "warning"
+        or str((item.risk or {}).get("level") or "").lower() in {"medium", "high", "critical"}
+        or "risk_evidence" in set(item.quality_surfaces or [])
+    ]
+    anchored = [item for item in risk_items if _review_packet_item_has_substantive_anchor(item)]
+    evidence = {
+        "risk_item_count": len(risk_items),
+        "anchored_risk_item_count": len(anchored),
+        "risk_item_ids": [item.item_id for item in risk_items[:50]],
+    }
+    if anchored:
+        return True, evidence, ""
+    return False, evidence, "No reviewable risk evidence item was produced."
+
+
+def _evaluate_ai_use_disclosure(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del node_events
+    packet = report.review_packet
+    items = packet.items if packet else []
+    disclosure_items = [
+        item
+        for item in items
+        if "ai_use_disclosure" in set(item.quality_surfaces or [])
+        or _review_packet_item_text_contains(item, ("人工智能", "大模型", "生成式"))
+    ]
+    evidence = {
+        "disclosure_item_count": len(disclosure_items),
+        "disclosure_item_ids": [item.item_id for item in disclosure_items[:50]],
+    }
+    if disclosure_items:
+        return True, evidence, ""
+    return False, evidence, "No AI-use disclosure or no-AI declaration was produced."
+
+
+def _review_packet_item_has_substantive_anchor(item: Any) -> bool:
+    if item.claim_refs or item.evidence_refs or item.artifact_refs or item.prism_change_refs:
+        return True
+    if item.preview:
+        return True
+    source = item.source if isinstance(item.source, dict) else {}
+    return any(
+        bool(str(source.get(key) or "").strip())
+        for key in ("output_id", "expert_id", "node_id", "artifact_id")
+    )
+
+
+def _review_packet_item_text_contains(item: Any, needles: tuple[str, ...]) -> bool:
+    haystack = " ".join([item.title, item.summary, str(item.preview or "")]).lower()
+    return any(needle.lower() in haystack for needle in needles)
 
 
 def _evaluate_figure_data_consistency(

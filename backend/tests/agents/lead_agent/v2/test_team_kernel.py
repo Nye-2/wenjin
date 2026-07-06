@@ -9,8 +9,9 @@ import pytest
 
 import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
-from src.agents.lead_agent.v2.sandbox_runtime import SandboxCommandExecutionError
+from src.agents.contracts.task_report import ReviewPacket, ReviewPacketItem, TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.agents.lead_agent.v2.sandbox_runtime import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.team.contracts import (
     AgentInvocation,
     AgentTemplate,
@@ -523,6 +524,180 @@ def _team_runtime_for_unit_tests(
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
+
+
+def test_team_kernel_final_research_evidence_errors_for_claim_blocker() -> None:
+    runtime = _team_runtime_for_unit_tests()
+    report = TaskReport(
+        execution_id="exec-final-gate",
+        capability_id="sci_literature_positioning",
+        status="completed",
+        duration_seconds=1,
+        narrative="completed",
+        review_packet=ReviewPacket(
+            packet_id="packet-1",
+            execution_id="exec-final-gate",
+            capability_id="sci_literature_positioning",
+            title="文献定位与创新点",
+            summary="blocked claim",
+            completion_status="complete",
+            items=[
+                ReviewPacketItem(
+                    item_id="claim-blocker-1",
+                    kind="warning",
+                    title="证据链阻断",
+                    summary="claim claim-1 references missing evidence: missing-ev",
+                    claim_refs=["claim-1"],
+                    evidence_refs=[],
+                    risk={"level": "high", "reasons": ["missing evidence"]},
+                    default_checked=False,
+                    can_commit=False,
+                )
+            ],
+        ),
+    )
+
+    errors = runtime._errors_from_final_research_evidence(
+        report,
+        [],
+        capability_policy={
+            "research_evidence": {
+                "required_surfaces": ["claim_evidence_alignment"],
+            }
+        },
+    )
+
+    assert len(errors) == 1
+    assert errors[0].phase == "final_research_evidence"
+    assert errors[0].task == "claim_evidence_alignment"
+    assert "High-risk claim evidence warnings remain unresolved" in errors[0].error
+
+
+def test_team_kernel_final_research_evidence_skips_unrequired_surfaces() -> None:
+    runtime = _team_runtime_for_unit_tests()
+    report = TaskReport(
+        execution_id="exec-final-gate",
+        capability_id="team_research",
+        status="completed",
+        duration_seconds=1,
+        narrative="completed",
+        review_packet=ReviewPacket(
+            packet_id="packet-1",
+            execution_id="exec-final-gate",
+            capability_id="team_research",
+            title="团队调研",
+            summary="warning only",
+            completion_status="complete",
+            items=[],
+        ),
+    )
+
+    assert runtime._errors_from_final_research_evidence(report, [], capability_policy={}) == []
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_run_downgrades_completed_report_when_final_claim_gate_fails(monkeypatch) -> None:
+    capability_policy = {
+        "research_evidence": {
+            "required_surfaces": ["claim_evidence_alignment"],
+        }
+    }
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=AsyncMock(),
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_workspace_context=lambda _policy, _requirements: False,
+        context_requirements_from_brief=lambda _brief: {},
+        capability_policy_builder=lambda _capability: capability_policy,
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.literature_synthesizer_v1.1",
+        execution_id="exec-final-gate",
+        iteration=1,
+        template_id="literature_synthesizer.v1",
+        display_name="文献综合员",
+        assigned_role="synthesizer",
+        recruitment_reason="core",
+        effective_skills=["literature-synthesizer"],
+        status="succeeded",
+        output_report={
+            "schema_version": "wenjin.expert_report.v1",
+            "expert_id": "literature_synthesizer.v1",
+            "skill_id": "literature-synthesizer",
+            "task_focus": "Synthesize literature.",
+            "summary": "Found a novelty claim.",
+            "claim_inventory": {
+                "claims": [
+                    {
+                        "claim_id": "claim-novelty",
+                        "claim_type": "novelty",
+                        "text": "This is an AAAI-ready novelty.",
+                        "support_status": "supported",
+                        "evidence_refs": ["missing-ev"],
+                    }
+                ]
+            },
+            "evidence_packet": {"packet_id": "evidence-1", "items": []},
+        },
+    )
+    runtime._load_templates = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "literature_synthesizer.v1": AgentTemplate(
+                id="literature_synthesizer.v1",
+                display_role="文献综合员",
+                category="research",
+                default_skills=["literature-synthesizer"],
+            )
+        }
+    )
+    runtime._load_skill_catalog = AsyncMock(  # type: ignore[method-assign]
+        return_value={"literature-synthesizer": SimpleNamespace(id="literature-synthesizer")}
+    )
+    runtime._run_iteration = AsyncMock(return_value=([invocation], []))  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.build_capability_team_policy",
+            lambda _capability, templates: CapabilityTeamPolicy(
+                core_templates=["literature_synthesizer.v1"],
+                capability_skills=["literature-synthesizer"],
+                quality_pipeline=[],
+                limits=TeamLimits(max_iterations=1, max_parallel_invocations=1, max_invocations_total=1),
+            ),
+    )
+
+    report = await runtime.run(
+        execution_id="exec-final-gate",
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            raw_message="找创新点",
+            workspace_id="ws-sci",
+            user_id="user-1",
+            brief={},
+        ),
+        capability=SimpleNamespace(
+            id="sci_literature_positioning",
+            workspace_type="sci",
+            display_name="文献定位与创新点",
+            graph_template={},
+        ),
+        started_at=datetime.now(UTC),
+    )
+
+    assert report.status == "failed_partial"
+    assert report.review_packet is not None
+    assert report.review_packet.completion_status == "partial"
+    assert any(error.phase == "final_research_evidence" for error in report.errors)
+    final_gate_review_items = [
+        item
+        for item in report.review_items
+        if item.get("source", {}).get("phase") == "final_research_evidence"
+    ]
+    assert final_gate_review_items
+    assert final_gate_review_items[0]["kind"] == "warning"
+    assert final_gate_review_items[0]["can_commit"] is False
+    assert final_gate_review_items[0]["default_checked"] is False
+    assert final_gate_review_items[0]["risk"]["level"] == "high"
 
 
 def test_team_kernel_output_mapping_prefers_latest_successful_invocation() -> None:
@@ -2353,6 +2528,68 @@ async def test_team_kernel_runtime_stops_when_template_policy_invalid(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_team_kernel_preflight_fails_when_capability_skill_is_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeTeamCatalogClient(),
+    )
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["capability_skills"].append("missing-skill")
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    with patch.object(
+        TeamKernelRuntime,
+        "_run_iteration",
+        side_effect=AssertionError("team iteration should not run after failed preflight"),
+    ):
+        report = await runtime.run_session(
+            execution_id="exec-team-missing-skill",
+            brief=_brief(),
+        )
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert "unknown capability skill: missing-skill" in report.errors[0].error
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_preflight_fails_when_required_tool_is_unknown(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeTeamCatalogClient(),
+    )
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["capability_tools"].append("sandbox.run_command")
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    with patch.object(
+        TeamKernelRuntime,
+        "_run_iteration",
+        side_effect=AssertionError("team iteration should not run after failed preflight"),
+    ):
+        report = await runtime.run_session(
+            execution_id="exec-team-bad-tool",
+            brief=_brief(),
+        )
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert "unknown capability tool: sandbox.run_command" in report.errors[0].error
+
+
+@pytest.mark.asyncio
 async def test_team_kernel_runtime_records_cancelled_invocations(monkeypatch) -> None:
     published: list[tuple[str, str, dict]] = []
     node_events: list[dict] = []
@@ -2426,7 +2663,7 @@ async def test_team_kernel_runtime_marks_failed_member_as_partial(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_team_kernel_runtime_records_skill_catalog_failure_as_member_failures(monkeypatch) -> None:
+async def test_team_kernel_preflight_stops_when_skill_catalog_unavailable(monkeypatch) -> None:
     node_events: list[dict] = []
 
     async def record_node_event(**kwargs):
@@ -2451,9 +2688,9 @@ async def test_team_kernel_runtime_records_skill_catalog_failure_as_member_failu
 
     assert report.status == "failed_partial"
     assert report.errors
-    assert all(error.task != "team_kernel" for error in report.errors)
-    assert any(event["status"] == "failed" for event in node_events)
-    assert any(event["error"] == "skill catalog unavailable" for event in node_events)
+    assert report.errors[0].task == "team_kernel"
+    assert "skill catalog unavailable" in report.errors[0].error
+    assert not any(event["node_type"] == "agent_invocation" for event in node_events)
 
 
 @pytest.mark.asyncio
@@ -2724,9 +2961,11 @@ async def test_team_kernel_replays_current_harness_evidence_to_recruited_members
     )
 
     cap = _team_capability()
-    cap.definition_json["team_policy"]["capability_skills"].extend(
-        ["sandbox-writer", "failing-review-critic", "generalist-capture"]
-    )
+    cap.definition_json["team_policy"]["capability_skills"] = [
+        "sandbox-writer",
+        "failing-review-critic",
+        "generalist-capture",
+    ]
     resolver = AsyncMock()
     resolver.resolve = AsyncMock(return_value=cap)
     runtime = LeadAgentRuntime(

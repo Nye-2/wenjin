@@ -177,6 +177,26 @@ quality_gates:
 - figure_caption_axis_unit_checked
 - no_ai_generated_data_figures
 - ai_use_disclosure_or_no_ai_declaration_present
+research_evidence:
+  review_packet: required
+  required_surfaces:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - experiment_reproducibility
+  - figure_data_consistency
+  - statistical_robustness
+  - ai_use_disclosure
+  surface_enforcement:
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    experiment_reproducibility: required_final
+    figure_data_consistency: required_final
+    statistical_robustness: required_final
+    ai_use_disclosure: required_final
+  notes:
+  - The math modeling pack must preserve reproducible scripts, parameter records, robustness notes, figure-data provenance, AI-use disclosure or no-AI declaration, and clear claim/evidence links for every result interpretation.
 graph_template:
   phases:
   - name: step_01_problem_parser

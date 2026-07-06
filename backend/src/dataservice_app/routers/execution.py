@@ -17,8 +17,11 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionCommitResetCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
+    ExecutionLeaseClaimCommand,
+    ExecutionLeaseHeartbeatCommand,
     ExecutionNodePatchCommand,
     ExecutionNodeUpsertCommand,
+    ExecutionResultPatchCommand,
     ExecutionUpdateCommand,
     GenerationRecordCreateCommand,
 )
@@ -278,6 +281,54 @@ async def update_execution(
     record = await service.update_execution(execution_id, command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.patch("/{execution_id}/result")
+async def patch_execution_result(
+    execution_id: str,
+    command: ExecutionResultPatchCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.patch_execution_result(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/{execution_id}/lease-claim")
+async def claim_execution_lease(
+    execution_id: str,
+    command: ExecutionLeaseClaimCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    claim = await service.claim_execution_lease(execution_id, command)
+    await uow.commit()
+    execution = claim.get("execution")
+    return envelope_ok(
+        {
+            "status": claim.get("status"),
+            "execution": execution.model_dump(mode="json") if execution is not None else None,
+        }
+    )
+
+
+@router.post("/{execution_id}/lease-heartbeat")
+async def heartbeat_execution_lease(
+    execution_id: str,
+    command: ExecutionLeaseHeartbeatCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    heartbeat = await service.heartbeat_execution_lease(execution_id, command)
+    await uow.commit()
+    execution = heartbeat.get("execution")
+    return envelope_ok(
+        {
+            "status": heartbeat.get("status"),
+            "execution": execution.model_dump(mode="json") if execution is not None else None,
+        }
+    )
 
 
 @router.post("/{execution_id}/commit-claim")

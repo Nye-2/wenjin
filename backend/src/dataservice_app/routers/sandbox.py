@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
@@ -25,6 +26,10 @@ router = APIRouter(
     tags=["sandbox"],
     dependencies=[Depends(require_internal_token)],
 )
+
+
+class SandboxArtifactMaterializeRequest(BaseModel):
+    review_item_id: str | None = None
 
 
 @router.post("/environments")
@@ -169,6 +174,21 @@ async def register_artifact(
     record = await service.register_artifact(command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.post("/artifacts/{artifact_id}/materialized")
+async def mark_artifact_materialized(
+    artifact_id: str,
+    command: SandboxArtifactMaterializeRequest,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SandboxDataDomainService(uow.required_session, autocommit=False)
+    record = await service.mark_artifact_materialized(
+        artifact_id,
+        review_item_id=command.review_item_id,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
 @router.get("/artifacts")

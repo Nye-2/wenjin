@@ -11,6 +11,12 @@ import {
   type ExecutionCommitState,
 } from "@/lib/execution-commit";
 import {
+  changeSetReceiptFromResult,
+  changeSetViewFromResult,
+  type RunViewChangeSetReceipt,
+  type RunViewChangeSet,
+} from "@/lib/change-set-view";
+import {
   recoverableOutputRefCount,
   safeRuntimeText,
 } from "@/lib/runtime-payload-safety";
@@ -221,6 +227,8 @@ export interface RunView {
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
   commitState: ExecutionCommitState | null;
+  changeSet: RunViewChangeSet | null;
+  changeSetReceipt: RunViewChangeSetReceipt | null;
   team?: RunViewTeam | null;
   reviewPacket?: RunViewReviewPacket | null;
   qualityHighlights: RunViewQualityHighlight[];
@@ -269,6 +277,16 @@ const TEAM_KERNEL_PROGRESS_ORDER = [
   "team_quality_gate",
   "team_finish",
 ] as const;
+const TEAM_KERNEL_PROGRESS_LABELS: Record<
+  (typeof TEAM_KERNEL_PROGRESS_ORDER)[number],
+  string
+> = {
+  team_prepare: "准备材料",
+  team_recruit: "组织研究小组",
+  team_dispatch: "查找证据并起草内容",
+  team_quality_gate: "检查质量",
+  team_finish: "等待确认",
+};
 
 export function isTerminalRunStatus(status: RunViewStatus | string): boolean {
   return ["completed", "failed_partial", "failed", "cancelled"].includes(status);
@@ -279,6 +297,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   const reviewPacket = reviewPacketFromTaskReport(taskReport);
   const reviewPacketItems = reviewPacket?.items ?? [];
   const reviewItems = readReviewItems(record);
+  const changeSet = changeSetViewFromResult(record.result);
   const outputResultPreviews = buildWorkspaceResultPreviewsFromOutputs(
     taskReport?.outputs,
   );
@@ -295,10 +314,12 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   const evidenceItems = buildEvidenceItems(record, resultPreviews);
   const visibleOutputResultPreviews =
     filterVisibleWorkspaceResultItems(outputResultPreviews);
-  const pendingReviewCount =
+  const fallbackPendingReviewCount =
     visibleOutputResultPreviews.length +
     reviewPacketResultPreviews.length +
     reviewItems.length;
+  const pendingReviewCount =
+    changeSet?.pendingCount ?? fallbackPendingReviewCount;
   const sandboxCount = countSandboxEvidenceItems(evidenceItems);
   const tokenUsage =
     tokenUsageFromUnknown(taskReport?.token_usage) ??
@@ -334,6 +355,8 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     ...qualityHighlightsFromRuntimeState(record.runtime_state),
     ...qualityHighlightsFromReviewPacket(reviewPacket),
   ].slice(0, 6);
+  const commitState = readCommitStateFromResult(record.result);
+  const changeSetReceipt = changeSetReceiptFromResult(record.result);
 
   return {
     id: record.id,
@@ -341,13 +364,18 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     capabilityId: record.feature_id ?? stringValue(taskReport?.capability_id),
     title: runTitleFromExecution(record, taskReport),
     status,
-    summary: safeRunSummary(
+    summary: runSummaryForState({
       status,
-      record.result_summary,
-      taskReport?.narrative,
-      record.message,
-      rawFailureMessage,
-    ),
+      pendingReviewCount,
+      commitState,
+      fallbackSummary: safeRunSummary(
+        status,
+        record.result_summary,
+        taskReport?.narrative,
+        record.message,
+        rawFailureMessage,
+      ),
+    }),
     startedAt: record.started_at ?? record.created_at,
     completedAt: record.completed_at ?? null,
     durationLabel: formatDuration(record.started_at ?? record.created_at, record.completed_at),
@@ -369,7 +397,9 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     hasSandboxArtifacts: sandboxReviewCount > 0 || sandboxCount > 0,
     failureCategory,
     failureMessage,
-    commitState: readCommitStateFromResult(record.result),
+    commitState,
+    changeSet,
+    changeSetReceipt,
     team,
     reviewPacket,
     qualityHighlights,
@@ -447,20 +477,18 @@ export function executionNodeDisplayName(
 
 export function executionPhaseDisplayName(phaseName?: string | null): string {
   const raw = stringValue(phaseName);
-  if (!raw || raw === "default") return "执行过程";
+  if (!raw || raw === "default") return "准备材料";
   if (containsCjk(raw) && !looksTechnicalName(raw)) return raw;
 
   const normalized = normalizeTechnicalName(raw);
   const phaseLabels: Array<[RegExp, string]> = [
-    [/research|retriev|search|scout|survey/, "资料检索"],
-    [/synth|literature|matrix|gap/, "文献综合"],
-    [/plan|outline|strategy/, "规划"],
-    [/writ|draft|compose/, "写作"],
-    [/review|critic|quality|gate|verify|check/, "质量检查"],
-    [/experiment|sandbox|code|compute|analysis/, "实验执行"],
-    [/commit|save|final|deliver/, "结果整理"],
+    [/prepare|context|material|upload|brief|intake/, "准备材料"],
+    [/research|retriev|search|scout|survey|literature|citation|source|evidence/, "查找证据"],
+    [/synth|matrix|gap|plan|outline|strategy|writ|draft|compose|experiment|sandbox|code|compute|analysis/, "起草内容"],
+    [/review|critic|quality|gate|verify|check|validat|audit/, "检查质量"],
+    [/commit|save|final|deliver|finish|confirm/, "等待确认"],
   ];
-  return phaseLabels.find(([pattern]) => pattern.test(normalized))?.[1] ?? "执行过程";
+  return phaseLabels.find(([pattern]) => pattern.test(normalized))?.[1] ?? "准备材料";
 }
 
 export function runViewFromRunRecord(record: RunRecord, workspaceId: string): RunView {
@@ -483,7 +511,12 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     capabilityId: record.capability_id ?? null,
     title: humanizeCapabilityName(record.capability_name || record.capability_id) ?? "Execution",
     status,
-    summary: safeRunSummary(status, record.summary),
+    summary: runSummaryForState({
+      status,
+      pendingReviewCount: prismReviewCount + sandboxReviewCount,
+      commitState: null,
+      fallbackSummary: safeRunSummary(status, record.summary),
+    }),
     startedAt: record.started_at,
     completedAt: record.completed_at ?? null,
     durationLabel: formatDuration(record.started_at, record.completed_at ?? null),
@@ -508,6 +541,8 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     failureCategory,
     failureMessage,
     commitState: null,
+    changeSet: null,
+    changeSetReceipt: null,
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -542,6 +577,7 @@ export function runViewFromResultCard(
         ? "node_failed"
         : "unknown"
       : null;
+  const commitState = readCommitStateFromResult(data);
 
   return {
     id: data.execution_id,
@@ -549,7 +585,12 @@ export function runViewFromResultCard(
     capabilityId: data.capability_name ?? null,
     title: humanizeCapabilityName(data.capability_name) ?? "Execution",
     status,
-    summary: safeRunSummary(status, data.narrative, rawFailureMessage),
+    summary: runSummaryForState({
+      status,
+      pendingReviewCount,
+      commitState,
+      fallbackSummary: safeRunSummary(status, data.narrative, rawFailureMessage),
+    }),
     completedAt: null,
     durationLabel:
       typeof data.duration_seconds === "number"
@@ -569,7 +610,9 @@ export function runViewFromResultCard(
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
-    commitState: readCommitStateFromResult(data),
+    commitState,
+    changeSet: null,
+    changeSetReceipt: null,
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -589,6 +632,11 @@ export function mergeRunViews(
   }
   if (!live) return historical!;
   if (!historical) return live;
+  const liveHasAuthoritativeReviewState =
+    Boolean(live.changeSet || live.changeSetReceipt || live.commitState) ||
+    live.resultPreviews.length > 0 ||
+    live.reviewItems.length > 0 ||
+    isTerminalRunStatus(live.status);
   return {
     ...historical,
     ...live,
@@ -604,10 +652,9 @@ export function mergeRunViews(
     evidenceItems: live.evidenceItems.length
       ? live.evidenceItems
       : historical.evidenceItems,
-    pendingReviewCount: Math.max(
-      live.pendingReviewCount,
-      historical.pendingReviewCount,
-    ),
+    pendingReviewCount: liveHasAuthoritativeReviewState
+      ? live.pendingReviewCount
+      : Math.max(live.pendingReviewCount, historical.pendingReviewCount),
     primarySurface: live.primarySurface ?? historical.primarySurface,
     prismReviewCount: Math.max(
       live.prismReviewCount ?? 0,
@@ -623,6 +670,8 @@ export function mergeRunViews(
     failureCategory: live.failureCategory ?? historical.failureCategory,
     failureMessage: safeFailureMessage(live.failureMessage, historical.failureMessage),
     commitState: live.commitState ?? historical.commitState,
+    changeSet: live.changeSet ?? historical.changeSet,
+    changeSetReceipt: live.changeSetReceipt ?? historical.changeSetReceipt,
     team: live.team ?? historical.team,
     reviewPacket: live.reviewPacket ?? historical.reviewPacket,
     qualityHighlights: live.qualityHighlights.length
@@ -1919,10 +1968,11 @@ function buildTeamKernelProgressItems(
 
   return teamNodes.map((node) => {
     const status = teamKernelProgressStatus(record, node.id);
+    const stageLabel = teamKernelProgressLabel(node.id);
     return {
       id: node.id,
-      title: executionNodeDisplayName(node, null),
-      phaseTitle: executionPhaseDisplayName(node.phase),
+      title: stageLabel,
+      phaseTitle: stageLabel,
       status,
       detail: teamKernelProgressDetail(record, node.id, status),
       technicalName: node.id,
@@ -1933,6 +1983,14 @@ function buildTeamKernelProgressItems(
       hasOutput: node.id === "team_finish" && Boolean(record.result),
     };
   });
+}
+
+function teamKernelProgressLabel(nodeId: string): string {
+  return (
+    TEAM_KERNEL_PROGRESS_LABELS[
+      nodeId as (typeof TEAM_KERNEL_PROGRESS_ORDER)[number]
+    ] ?? executionPhaseDisplayName(nodeId)
+  );
 }
 
 function teamKernelProgressStatus(
@@ -2023,7 +2081,7 @@ function teamKernelProgressDetail(
     }
   }
   if (nodeId === "team_finish" && status === "completed") {
-    return "结果已进入待确认区";
+    return "结果正在等待你确认";
   }
   return null;
 }
@@ -2238,10 +2296,46 @@ function statusSummary(status: RunViewStatus): string {
   if (status === "launching") return "正在启动研究团队...";
   if (status === "queued") return "已进入执行队列。";
   if (status === "running") return "问津正在处理任务。";
-  if (status === "completed") return "执行已完成。";
+  if (status === "completed") return "任务已完成。";
   if (status === "failed_partial") return "执行部分完成，需要查看失败步骤。";
   if (status === "failed") return "执行失败。";
   return "执行已取消。";
+}
+
+function runSummaryForState({
+  status,
+  pendingReviewCount,
+  commitState,
+  fallbackSummary,
+}: {
+  status: RunViewStatus;
+  pendingReviewCount: number;
+  commitState: ExecutionCommitState | null;
+  fallbackSummary: string;
+}): string {
+  if (status !== "completed") {
+    return fallbackSummary;
+  }
+  if (commitState?.status === "committed") {
+    const roomCount = committedRoomCount(commitState);
+    return roomCount > 0
+      ? `已保存到 ${roomCount} 个工作区房间。`
+      : "已保存确认过的结果。";
+  }
+  if (commitState?.status === "discarded") {
+    return "本次结果已确认暂不保存。";
+  }
+  if (commitState?.status === "reverted") {
+    return "本次保存已撤回。";
+  }
+  if (pendingReviewCount > 0) {
+    return `${pendingReviewCount} 项内容需要确认后再保存。`;
+  }
+  return fallbackSummary;
+}
+
+function committedRoomCount(commitState: ExecutionCommitState): number {
+  return Object.values(commitState.counts).filter((count) => count > 0).length;
 }
 
 function safeRunSummary(status: RunViewStatus, ...values: unknown[]): string {

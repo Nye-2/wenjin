@@ -29,6 +29,7 @@ from src.agents.contracts.task_report import (
     TaskReport,
 )
 from src.services.capability_loader import CapabilityLoader
+from src.services.skill_loader import SkillLoader
 from tests.database.conftest import _Base
 
 # ---------------------------------------------------------------------------
@@ -91,15 +92,26 @@ def _make_event_bus_mock():
 class _FakeCatalogDataServiceClient:
     def __init__(self) -> None:
         self.capabilities: dict[tuple[str, str], SimpleNamespace] = {}
+        self.skills: dict[str, SimpleNamespace] = {}
         self.has_catalog_capabilities = AsyncMock(side_effect=self._has_capabilities)
+        self.has_catalog_skills = AsyncMock(side_effect=self._has_skills)
 
     async def _has_capabilities(self) -> bool:
         return bool(self.capabilities)
+
+    async def _has_skills(self) -> bool:
+        return bool(self.skills)
 
     async def load_catalog_capability_seed_items(self, command):
         for item in command.items:
             record = SimpleNamespace(**item.data)
             self.capabilities[(record.workspace_type, record.id)] = record
+        return SimpleNamespace(loaded=len(command.items))
+
+    async def load_catalog_skill_seed_items(self, command):
+        for item in command.items:
+            record = SimpleNamespace(**item.data)
+            self.skills[record.id] = record
         return SimpleNamespace(loaded=len(command.items))
 
     async def get_catalog_capability(
@@ -129,6 +141,13 @@ class _FakeCatalogDataServiceClient:
             and (not enabled_only or record.enabled)
         ]
 
+    async def list_catalog_skills(self, *, enabled_only: bool = False):
+        return [
+            record
+            for record in self.skills.values()
+            if not enabled_only or record.enabled
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Test 1: Seeded capability → resolver → runtime completes
@@ -136,13 +155,16 @@ class _FakeCatalogDataServiceClient:
 
 
 @pytest.mark.asyncio
-async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
-    """Load seed → resolver finds it → runtime invokes graph → completes."""
+async def test_lead_agent_runtime_with_seeded_capability_reports_model_unavailable(db_session):
+    """Load seed → resolver finds it → runtime invokes graph without degraded drafts."""
     # 1. Load seeds through the DataService catalog contract.
     dataservice = _FakeCatalogDataServiceClient()
     loader = CapabilityLoader(dataservice=dataservice)
     n = await loader.load_seeds_if_empty()
     assert n >= 5, f"Expected at least 5 seeds, got {n}"
+    skill_loader = SkillLoader(dataservice=dataservice)
+    skill_count = await skill_loader.load_seeds_if_empty()
+    assert skill_count >= 5, f"Expected at least 5 skill seeds, got {skill_count}"
 
     # 2. Create resolver bound to the test session
     from src.services.capability_resolver import CapabilityResolver
@@ -161,6 +183,7 @@ async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
         resolver=resolver,
         publish_event=publish_mock,
         get_workspace_type=AsyncMock(return_value="thesis"),
+        dataservice=dataservice,
     )
 
     # 4. Invoke with a TaskBrief for a current thesis capability.
@@ -173,10 +196,13 @@ async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
     )
     report = await runtime.run_session(execution_id="e-1", brief=brief)
 
-    # 5. Verify report
-    assert report.status == "completed"
+    # 5. Verify report. The smoke environment has no model catalog, so the
+    # runtime must surface retryable node failures instead of fabricating drafts.
+    assert report.status == "failed_partial"
     assert report.execution_id == "e-1"
     assert report.duration_seconds >= 0
+    assert report.errors
+    assert all("No models configured" in error.error for error in report.errors)
 
     # Verify the two key events were published
     event_names = [c.args[1] for c in publish_mock.call_args_list]
@@ -336,7 +362,7 @@ async def test_commit_after_e2e_writes_rooms():
     with patch("src.services.execution_commit_service.publish_workspace_event", new=AsyncMock()) as publish_refresh:
         result = await commit_service.commit_outputs(
             "e-1",
-            accept_all=True,
+            accepted_ids=["out-1"],
             actor_user_id="u-1",
         )
 

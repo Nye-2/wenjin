@@ -66,9 +66,9 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       },
       {
         label: "Confirm",
-        title: "结果自动写回，再支持撤回",
+        title: "结果先暂存，审核后保存",
         body:
-          "执行产出会自动写入 Prism 文件、资料库、决策或任务；用户可以在运行面板里查看写入状态并撤回本次保存。",
+          "执行产出会先进入待审核区；用户在运行面板里检查候选结果，再保存选中的 Prism 文件、资料、决策或任务。",
       },
     ],
     contract: {

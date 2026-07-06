@@ -10,6 +10,16 @@ REPO_ROOT = BACKEND_ROOT.parent
 SRC_ROOT = BACKEND_ROOT / "src"
 
 from src.dataservice.app_boundary import FORBIDDEN_DOMAIN_IMPORT_PREFIXES
+from src.dataservice.domains.execution.contracts import (
+    EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS,
+    EXECUTION_RESULT_PATCH_KEYS,
+)
+from src.dataservice_client.contracts.execution import (
+    EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS as CLIENT_EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS,
+)
+from src.dataservice_client.contracts.execution import (
+    EXECUTION_RESULT_PATCH_KEYS as CLIENT_EXECUTION_RESULT_PATCH_KEYS,
+)
 
 MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.workspace",
@@ -208,6 +218,27 @@ def test_credit_reservation_metadata_visitor_flags_direct_key_reads() -> None:
     assert visitor.violations == [1, 2]
 
 
+def test_execution_result_patch_contract_keys_stay_in_sync() -> None:
+    """Domain and client contracts must not drift on allowed result patch keys."""
+
+    assert EXECUTION_RESULT_PATCH_KEYS == CLIENT_EXECUTION_RESULT_PATCH_KEYS
+    assert EXECUTION_RESULT_PATCH_KEYS == frozenset(
+        {"change_set_review_state", "change_unit_materialization"}
+    )
+
+
+def test_execution_commit_finalize_delete_keys_stay_in_sync() -> None:
+    """Commit finalization may delete only temporary review payload keys."""
+
+    assert (
+        EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS
+        == CLIENT_EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS
+    )
+    assert EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS == frozenset(
+        {"change_set", "change_set_review_state", "unit_states", "change_unit_materialization"}
+    )
+
+
 def test_credit_reservation_metadata_access_uses_canonical_helper() -> None:
     """Production code should not hand-roll execution billing metadata parsing."""
     allowed = {
@@ -235,6 +266,21 @@ def test_execution_node_detail_router_uses_execution_node_records() -> None:
 
     assert "record.node_states" not in source
     assert "find_node_by_node_id" in source
+
+
+def test_execution_node_upsert_has_database_unique_key() -> None:
+    """Execution node rows must be unique at the database boundary."""
+    model_source = (SRC_ROOT / "database" / "models" / "execution_node.py").read_text(
+        encoding="utf-8"
+    )
+    repository_source = (
+        SRC_ROOT / "dataservice" / "domains" / "execution" / "repository.py"
+    ).read_text(encoding="utf-8")
+
+    assert "UniqueConstraint(" in model_source
+    assert '"uq_execution_nodes_execution_node_id"' in model_source
+    assert ".on_conflict_do_update(" in repository_source
+    assert 'index_elements=["execution_id", "node_id"]' in repository_source
 
 
 def test_dataservice_client_execution_api_lives_in_dedicated_mixin() -> None:

@@ -20,6 +20,10 @@ import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
 import { ResultCard } from "./ResultCard";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
+import {
+  writeModeDescription,
+  writeModeLabel,
+} from "./review-changes/WriteModeSelector";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -374,6 +378,10 @@ function ToolResultBlock({
     typeof data.capability_name === "string" && data.capability_name.trim()
       ? data.capability_name.trim()
       : "研究任务";
+  const writeMode =
+    typeof data.write_mode === "string" && data.write_mode.trim()
+      ? data.write_mode.trim()
+      : null;
 
   if (status === "launched" && executionId) {
     return (
@@ -427,6 +435,25 @@ function ToolResultBlock({
         >
           问津已开始处理。右侧工作台会展示关键进展，完成后结果会回到这里。
         </div>
+        {writeMode ? (
+          <div
+            style={{
+              marginTop: 8,
+              padding: "7px 9px",
+              borderRadius: "var(--wjn-radius)",
+              border: "1px solid rgba(20,20,30,0.08)",
+              background: "rgba(255,255,255,0.64)",
+              color: "var(--wjn-text-secondary)",
+              fontSize: 12,
+              lineHeight: 1.45,
+            }}
+          >
+            写入模式：<strong style={{ color: "var(--wjn-text)" }}>
+              {writeModeLabel(writeMode)}
+            </strong>
+            <span>。{writeModeDescription(writeMode)}</span>
+          </div>
+        ) : null}
         {workspaceId ? (
           <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
             <WorkspaceActionLink
@@ -680,12 +707,18 @@ function toolInvocationLabel(tool: unknown): string {
 }
 
 function toolResultDisplayData(block: AgentToolResultBlock): Record<string, unknown> {
+  const output =
+    block.output && typeof block.output === "object" && !Array.isArray(block.output)
+      ? (block.output as Record<string, unknown>)
+      : {};
+  const blockRecord = block as unknown as Record<string, unknown>;
   return {
-    ...block.output,
-    status: block.status ?? block.output.status,
-    execution_id: block.execution_id ?? block.output.execution_id,
-    feature_id: block.feature_id ?? block.output.feature_id,
-    tool_call_id: block.tool_call_id ?? block.output.tool_call_id,
+    ...output,
+    status: block.status ?? output.status,
+    execution_id: block.execution_id ?? output.execution_id,
+    feature_id: block.feature_id ?? output.feature_id,
+    tool_call_id: block.tool_call_id ?? output.tool_call_id,
+    write_mode: blockRecord.write_mode ?? output.write_mode,
     tool: block.tool,
   };
 }

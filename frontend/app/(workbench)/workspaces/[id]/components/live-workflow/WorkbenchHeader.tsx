@@ -1,5 +1,6 @@
 import {
   Activity,
+  ClipboardCheck,
   Database,
   FileText,
   History,
@@ -21,7 +22,8 @@ const TABS: Array<{
   primary?: boolean;
 }> = [
   { key: "overview", label: "总览", icon: Activity, primary: true },
-  { key: "spec", label: "Spec", icon: FileText },
+  { key: "spec", label: "要求", icon: FileText },
+  { key: "review", label: "复核", icon: ClipboardCheck },
   { key: "evidence", label: "证据", icon: Database, primary: true },
   { key: "run", label: "进展", icon: History },
 ];
@@ -29,7 +31,9 @@ const TABS: Array<{
 export function WorkbenchHeader({
   activeTab,
   evidenceCount,
+  reviewCount,
   showProgressTab,
+  showReviewTab,
   showSpecTab,
   hasRunHistory,
   isFullscreen,
@@ -42,7 +46,9 @@ export function WorkbenchHeader({
 }: {
   activeTab: WorkbenchTab;
   evidenceCount: number;
+  reviewCount: number;
   showProgressTab: boolean;
+  showReviewTab: boolean;
   showSpecTab: boolean;
   hasRunHistory: boolean;
   isFullscreen: boolean;
@@ -56,6 +62,7 @@ export function WorkbenchHeader({
   const visibleTabs = TABS.filter(
     (tab) =>
       tab.primary ||
+      (tab.key === "review" && showReviewTab) ||
       (tab.key === "run" && showProgressTab) ||
       (tab.key === "spec" && showSpecTab) ||
       activeTab === tab.key,
@@ -63,13 +70,18 @@ export function WorkbenchHeader({
   return (
     <div style={styles.header}>
       <div style={{ minWidth: 0 }}>
-        <div style={styles.eyebrow}>Research Workbench</div>
+        <div style={styles.eyebrow}>AI 科研工作台</div>
         <div style={styles.headerTitle}>研究工作台</div>
       </div>
       <div style={styles.headerMiddle}>
         {visibleTabs.map((tab) => {
           const Icon = tab.icon;
-          const count = tab.key === "evidence" ? evidenceCount : 0;
+          const count =
+            tab.key === "evidence"
+              ? evidenceCount
+              : tab.key === "review"
+                ? reviewCount
+                : 0;
           return (
             <button
               key={tab.key}

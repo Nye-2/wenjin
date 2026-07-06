@@ -14,8 +14,14 @@ from src.gateway.auth_dependencies import (
     get_dataservice_client as auth_get_dataservice_client,
 )
 from src.gateway.routers.execution_commit import (
+    _get_change_set_review_service,
     _get_commit_service,
     router,
+)
+from src.services.change_set_review_service import (
+    ChangeSetReviewNotFoundError,
+    ChangeSetReviewPersistenceError,
+    ChangeSetReviewService,
 )
 from src.services.execution_commit_service import (
     ExecutionCommitConcurrencyError,
@@ -36,6 +42,7 @@ class _FakeUser:
 def _make_app(
     commit_service: ExecutionCommitService,
     *,
+    change_set_review_service: ChangeSetReviewService | None = None,
     authenticated: bool = True,
     raise_server_exceptions: bool = True,
 ) -> TestClient:
@@ -45,10 +52,14 @@ def _make_app(
     async def override_commit_service() -> ExecutionCommitService:
         return commit_service
 
+    async def override_change_set_review_service() -> ChangeSetReviewService:
+        return change_set_review_service or MagicMock(spec=ChangeSetReviewService)
+
     async def override_dataservice():
         yield MagicMock()
 
     app.dependency_overrides[_get_commit_service] = override_commit_service
+    app.dependency_overrides[_get_change_set_review_service] = override_change_set_review_service
     app.dependency_overrides[auth_get_dataservice_client] = override_dataservice
     if authenticated:
         app.dependency_overrides[get_current_user] = lambda: _FakeUser()
@@ -61,6 +72,15 @@ def _make_mock_service(**commit_kwargs) -> ExecutionCommitService:
     svc = MagicMock(spec=ExecutionCommitService)
     svc.commit_outputs = AsyncMock(**commit_kwargs)
     svc.undo_commit = AsyncMock(return_value={})
+    return svc
+
+
+def _make_mock_change_set_service(**kwargs) -> ChangeSetReviewService:
+    svc = MagicMock(spec=ChangeSetReviewService)
+    svc.get_change_set = AsyncMock(**kwargs)
+    svc.accept_units = AsyncMock(**kwargs)
+    svc.reject_units = AsyncMock(**kwargs)
+    svc.undo_units = AsyncMock(**kwargs)
     return svc
 
 
@@ -86,6 +106,7 @@ def test_post_commit_returns_counts():
         "exec-1",
         accept_all=True,
         accepted_ids=None,
+        accepted_unit_ids=None,
         idempotency_key=None,
         actor_user_id="user-1",
     )
@@ -160,7 +181,32 @@ def test_post_commit_passes_idempotency_key_header():
         "exec-2",
         accept_all=False,
         accepted_ids=["out-mem"],
+        accepted_unit_ids=None,
         idempotency_key="idem-key-xyz",
+        actor_user_id="user-1",
+    )
+
+
+def test_post_commit_passes_accepted_unit_ids():
+    """ChangeSet-backed commits select accepted ChangeUnit IDs."""
+    expected = {
+        "committed": {"library": 0, "prism": 1, "memory": 0, "decisions": 0, "tasks": 0}
+    }
+    svc = _make_mock_service(return_value=expected)
+    client = _make_app(svc)
+
+    resp = client.post(
+        "/api/executions/exec-2/commit",
+        json={"accepted_unit_ids": ["unit-doc-1"]},
+    )
+
+    assert resp.status_code == 200
+    svc.commit_outputs.assert_called_once_with(
+        "exec-2",
+        accept_all=False,
+        accepted_ids=None,
+        accepted_unit_ids=["unit-doc-1"],
+        idempotency_key=None,
         actor_user_id="user-1",
     )
 
@@ -179,6 +225,19 @@ def test_post_commit_accepted_ids_only():
     assert resp.status_code == 200
     data = resp.json()
     assert data["committed"]["decisions"] == 1
+
+
+def test_post_commit_rejects_too_many_accepted_ids():
+    svc = _make_mock_service(return_value={"committed": {}})
+    client = _make_app(svc)
+
+    resp = client.post(
+        "/api/executions/exec-3/commit",
+        json={"accepted_ids": [f"out-{index}" for index in range(201)]},
+    )
+
+    assert resp.status_code == 422
+    svc.commit_outputs.assert_not_called()
 
 
 def test_post_commit_requires_authenticated_user():
@@ -209,6 +268,113 @@ def test_post_commit_hides_execution_for_non_owner():
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Execution not found"
+
+
+def test_get_changeset_returns_projection():
+    expected = {
+        "change_set": {"execution_id": "exec-1", "units": []},
+        "review_state": {"accepted_unit_ids": []},
+        "unit_states": [],
+    }
+    commit_svc = _make_mock_service(return_value={"committed": {}})
+    change_svc = _make_mock_change_set_service(return_value=expected)
+    client = _make_app(commit_svc, change_set_review_service=change_svc)
+
+    resp = client.get("/api/executions/exec-1/changeset")
+
+    assert resp.status_code == 200
+    assert resp.json() == expected
+    change_svc.get_change_set.assert_called_once_with(
+        "exec-1",
+        actor_user_id="user-1",
+    )
+
+
+def test_post_changeset_accept_forwards_unit_ids():
+    expected = {
+        "change_set": {"execution_id": "exec-1", "units": []},
+        "review_state": {"accepted_unit_ids": ["unit-1"]},
+        "unit_states": [{"unit_id": "unit-1", "state": "accepted"}],
+    }
+    commit_svc = _make_mock_service(return_value={"committed": {}})
+    change_svc = _make_mock_change_set_service(return_value=expected)
+    client = _make_app(commit_svc, change_set_review_service=change_svc)
+
+    resp = client.post(
+        "/api/executions/exec-1/changeset/accept",
+        json={"unit_ids": ["unit-1"]},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == expected
+    change_svc.accept_units.assert_called_once_with(
+        "exec-1",
+        unit_ids=["unit-1"],
+        actor_user_id="user-1",
+    )
+
+
+def test_post_changeset_accept_rejects_too_many_unit_ids():
+    commit_svc = _make_mock_service(return_value={"committed": {}})
+    change_svc = _make_mock_change_set_service(return_value={})
+    client = _make_app(commit_svc, change_set_review_service=change_svc)
+
+    resp = client.post(
+        "/api/executions/exec-1/changeset/accept",
+        json={"unit_ids": [f"unit-{index}" for index in range(201)]},
+    )
+
+    assert resp.status_code == 422
+    change_svc.accept_units.assert_not_called()
+
+
+def test_post_changeset_reject_maps_validation_error_to_400():
+    commit_svc = _make_mock_service(return_value={"committed": {}})
+    change_svc = MagicMock(spec=ChangeSetReviewService)
+    change_svc.reject_units = AsyncMock(side_effect=ValueError("unit_ids must contain at least one unit id"))
+    client = _make_app(commit_svc, change_set_review_service=change_svc)
+
+    resp = client.post(
+        "/api/executions/exec-1/changeset/reject",
+        json={"unit_ids": []},
+    )
+
+    assert resp.status_code == 400
+    assert "unit_ids" in resp.json()["detail"]
+
+
+def test_get_changeset_404_on_missing_or_non_owner():
+    commit_svc = _make_mock_service(return_value={"committed": {}})
+    change_svc = _make_mock_change_set_service(
+        side_effect=ChangeSetReviewNotFoundError("execution exec-1 not found")
+    )
+    client = _make_app(commit_svc, change_set_review_service=change_svc)
+
+    resp = client.get("/api/executions/exec-1/changeset")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "ChangeSet not found"
+
+
+def test_post_changeset_undo_500_on_persistence_failure():
+    commit_svc = _make_mock_service(return_value={"committed": {}})
+    change_svc = MagicMock(spec=ChangeSetReviewService)
+    change_svc.undo_units = AsyncMock(
+        side_effect=ChangeSetReviewPersistenceError("not persisted")
+    )
+    client = _make_app(
+        commit_svc,
+        change_set_review_service=change_svc,
+        raise_server_exceptions=False,
+    )
+
+    resp = client.post(
+        "/api/executions/exec-1/changeset/undo",
+        json={"unit_ids": ["unit-1"]},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "ChangeSet review state persistence failed"
 
 
 def test_post_commit_undo_calls_service():

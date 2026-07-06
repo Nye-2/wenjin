@@ -75,6 +75,46 @@ def test_research_surface_registry_accepts_academic_harness_v1_surfaces() -> Non
     )
 
 
+def test_research_surface_registry_accepts_cross_workspace_domain_surfaces() -> None:
+    surfaces = required_surfaces_from_capability_policy(
+        {
+            "research_evidence": {
+                "required_surfaces": [
+                    "argument_chain",
+                    "protected_section_safety",
+                    "prior_art_provenance",
+                    "claim_support",
+                    "enablement_support",
+                    "drawing_consistency",
+                    "feasibility_evidence",
+                    "risk_evidence",
+                    "milestone_realism",
+                    "source_provenance",
+                    "screenshot_provenance",
+                    "non_fabrication_evidence",
+                    "ai_use_disclosure",
+                ]
+            }
+        }
+    )
+
+    assert surfaces == (
+        "argument_chain",
+        "protected_section_safety",
+        "prior_art_provenance",
+        "claim_support",
+        "enablement_support",
+        "drawing_consistency",
+        "feasibility_evidence",
+        "risk_evidence",
+        "milestone_realism",
+        "source_provenance",
+        "screenshot_provenance",
+        "non_fabrication_evidence",
+        "ai_use_disclosure",
+    )
+
+
 def test_surface_enforcement_levels_are_parsed_per_surface() -> None:
     requirements = required_surface_requirements_from_capability_policy(
         {

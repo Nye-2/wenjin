@@ -231,12 +231,15 @@ async def test_launch_feature_creates_execution_and_dispatches():
     assert result["status"] == "launched"
     assert result["execution_id"] == "exec-1"
     assert result["feature_id"] == "idea_to_thesis_manuscript"
+    assert result["write_mode"] == "auto_draft"
     fake_service.create_execution.assert_awaited_once()
     create_kwargs = fake_service.create_execution.await_args.kwargs
     assert create_kwargs["execution_type"] == "feature"
     assert create_kwargs["thread_id"] == "th-1"
     assert create_kwargs["display_name"] == "Idea To Thesis Manuscript"
     assert create_kwargs["commit"] is False
+    assert create_kwargs["params"]["write_mode"] == "auto_draft"
+    assert create_kwargs["params"]["orchestration"]["write_mode"] == "auto_draft"
     assert create_kwargs["params"]["brief"]["brief"]["model_id"] == "gpt-5.3-codex-spark"
     fake_celery_app.send_task.assert_called_once_with(
         "src.task.tasks.execute_execution",
@@ -248,6 +251,103 @@ async def test_launch_feature_creates_execution_and_dispatches():
         dispatch_mode="celery_worker",
         worker_task_id="worker-task-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_snapshots_workspace_write_mode(monkeypatch: pytest.MonkeyPatch):
+    """Execution params should retain the workspace write mode from launch time."""
+
+    async def _get_workspace_with_strict_review(self, workspace_id: str):
+        return SimpleNamespace(
+            id=workspace_id,
+            workspace_type="thesis",
+            settings_json={"write_mode": "strict_review"},
+        )
+
+    monkeypatch.setattr(_FakeDataServiceClient, "get_workspace", _get_workspace_with_strict_review)
+
+    fake_execution = _StubExecution(id="exec-strict")
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock(return_value=fake_execution)
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.return_value = SimpleNamespace(id="worker-task-strict")
+    fake_service.update_execution = AsyncMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "idea_to_thesis_manuscript",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "launched"
+    assert result["write_mode"] == "strict_review"
+    fake_service.create_execution.assert_awaited_once()
+    create_kwargs = fake_service.create_execution.await_args.kwargs
+    assert create_kwargs["params"]["write_mode"] == "strict_review"
+    assert create_kwargs["params"]["orchestration"]["write_mode"] == "strict_review"
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_returns_error_for_invalid_workspace_write_mode(monkeypatch: pytest.MonkeyPatch):
+    """Bad persisted write-mode settings should not crash or create executions."""
+
+    async def _get_workspace_with_invalid_write_mode(self, workspace_id: str):
+        return SimpleNamespace(
+            id=workspace_id,
+            workspace_type="thesis",
+            settings_json={"write_mode": "manual_review"},
+        )
+
+    monkeypatch.setattr(_FakeDataServiceClient, "get_workspace", _get_workspace_with_invalid_write_mode)
+
+    fake_service = MagicMock()
+    fake_service.find_execution_by_launch_idempotency_key = AsyncMock(return_value=None)
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock()
+    fake_service.update_execution = AsyncMock()
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_celery_app = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "idea_to_thesis_manuscript",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "error"
+    assert result["code"] == "invalid_workspace_write_mode"
+    assert result["feature_id"] == "idea_to_thesis_manuscript"
+    fake_service.create_execution.assert_not_awaited()
+    fake_service.update_execution.assert_not_awaited()
+    fake_celery_app.send_task.assert_not_called()
 
 
 @pytest.mark.asyncio

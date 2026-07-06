@@ -581,6 +581,7 @@ Anti-Patterns:
             "artifact_refs",
             "text",
             "quality_gates_checked",
+            "expert_report",
         ]
         for property_name in output_schema["required"]:
             assert property_name in output_schema["properties"]

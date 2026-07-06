@@ -12,13 +12,23 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
+  counts: {
+    library: 0,
+    prism: 1,
+    memory: 0,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
   room_targets: {
     prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
     library: [],
     memory: [],
     decisions: [],
     tasks: [],
+    sandbox: [],
+    settings: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -27,13 +37,23 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["doc-1"],
-  counts: { library: 0, prism: 0, memory: 0, decisions: 0, tasks: 0 },
+  counts: {
+    library: 0,
+    prism: 0,
+    memory: 0,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
   room_targets: {
     prism: [],
     library: [],
     memory: [],
     decisions: [],
     tasks: [],
+    sandbox: [],
+    settings: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -43,7 +63,15 @@ const REVERTED_STATE = {
   status: "reverted",
   reverted_at: "2026-06-20T00:01:00Z",
   reverted_by: "user-1",
-  revert_counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
+  revert_counts: {
+    library: 0,
+    prism: 1,
+    memory: 0,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
 } as const;
 
 const OUTLINE_TASK_REPORT = {
@@ -66,6 +94,67 @@ const OUTLINE_TASK_REPORT = {
     },
   ],
 };
+
+function makeOutlineChangeSet() {
+  return {
+    execution_id: "exec-1",
+    workspace_id: "ws-1",
+    write_mode: "ask_workspace_write",
+    summary: "Review concrete workspace writes.",
+    created_at: "2026-06-20T00:00:00Z",
+    units: [
+      {
+        id: "unit-doc-1",
+        target: {
+          room: "documents",
+          object_type: "document",
+          object_id: "doc-1",
+          path: "outline.md",
+        },
+        action: "write_document_draft",
+        risk: "medium",
+        risk_reasons: ["document draft changes require review"],
+        default_apply_state: "staged",
+        requires_confirmation: true,
+        diff: { title: "Thesis outline", summary: "Update outline" },
+        provenance: { output_id: "doc-1" },
+        rollback: {},
+      },
+    ],
+  };
+}
+
+function makeNoPreviewSettingsChangeSet() {
+  return {
+    execution_id: "exec-1",
+    workspace_id: "ws-1",
+    write_mode: "ask_workspace_write",
+    summary: "Review settings write.",
+    created_at: "2026-06-20T00:00:00Z",
+    units: [
+      {
+        id: "unit-settings-1",
+        target: {
+          room: "settings",
+          object_type: "workspace_settings",
+          object_id: "ws-1",
+        },
+        action: "update_workspace_settings",
+        risk: "medium",
+        risk_reasons: ["settings changes require review"],
+        default_apply_state: "staged",
+        requires_confirmation: true,
+        diff: { title: "写作模式", summary: "切换为严格审阅" },
+        provenance: {},
+        rollback: {},
+        materialization: {
+          operation: "update_workspace_settings",
+          payload: { write_mode: "strict_review" },
+        },
+      },
+    ],
+  };
+}
 
 describe("CompletedView", () => {
   beforeEach(() => {
@@ -154,6 +243,24 @@ describe("CompletedView", () => {
     expect(screen.getByText("Background")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "View full result" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("uses execution status rather than payload fallback to gate workspace save", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        executionStatus="failed_partial"
+        result={{
+          task_report: OUTLINE_TASK_REPORT,
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/本次运行未完整完成/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "保存已确认结果（1 项）" }),
     ).not.toBeInTheDocument();
   });
 
@@ -301,7 +408,7 @@ describe("CompletedView", () => {
     );
   });
 
-  it("commits staged previews from the execution panel and exposes saved room links", async () => {
+  it("does not auto-commit staged previews from the execution panel", async () => {
     render(
       <CompletedView
         workspaceId="ws-1"
@@ -331,23 +438,128 @@ describe("CompletedView", () => {
       />,
     );
 
+    await screen.findByText("Outline completed.");
+    await Promise.resolve();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(screen.getByText("待审核保存")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存已确认结果（1 项）" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "打开已保存的 Thesis outline" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not show the legacy save button before ChangeSet units are accepted", async () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: OUTLINE_TASK_REPORT,
+          change_set: makeOutlineChangeSet(),
+        }}
+      />,
+    );
+
+    await screen.findByText("Outline completed.");
+
+    expect(screen.getByText("待审核保存")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存已确认结果/ })).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("saves ChangeSet-backed outputs only after all mapped units are accepted", async () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: OUTLINE_TASK_REPORT,
+          change_set: makeOutlineChangeSet(),
+          change_set_review_state: {
+            schema_version: "wenjin.change_set.review_state.v1",
+            accepted_unit_ids: ["unit-doc-1"],
+            rejected_unit_ids: [],
+            undone_unit_ids: [],
+            updated_at: "2026-06-20T00:00:02Z",
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
         "/api/executions/exec-1/commit",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ accept_all: true }),
+          body: JSON.stringify({ accepted_unit_ids: ["unit-doc-1"] }),
         }),
       ),
     );
-
-    const savedLink = await screen.findByRole("link", { name: "打开已保存的 Thesis outline" });
-    const url = new URL(savedLink.getAttribute("href")!, "https://example.test");
-    expect(url.pathname).toBe("/workspaces/ws-1/prism");
-    expect(url.searchParams.get("file_id")).toBe("saved-doc-1");
   });
 
-  it("patches returned commit_state into the execution store after commit", async () => {
+  it("saves accepted materialized ChangeSet units without visible previews", async () => {
+    const noPreviewCommitState = {
+      ...COMMITTED_STATE,
+      accepted_ids: ["unit-settings-1"],
+      counts: {
+        ...COMMITTED_STATE.counts,
+        prism: 0,
+        settings: 1,
+      },
+      room_targets: {
+        ...COMMITTED_STATE.room_targets,
+        prism: [],
+        settings: [{ output_id: "unit-settings-1", item_id: "settings" }],
+      },
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ commit_state: noPreviewCommitState }),
+    });
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: {
+            execution_id: "exec-1",
+            capability_id: "settings",
+            status: "completed",
+            narrative: "设置变更已准备好。",
+            outputs: [],
+          },
+          change_set: makeNoPreviewSettingsChangeSet(),
+          change_set_review_state: {
+            schema_version: "wenjin.change_set.review_state.v1",
+            accepted_unit_ids: ["unit-settings-1"],
+            rejected_unit_ids: [],
+            undone_unit_ids: [],
+            updated_at: "2026-06-20T00:00:02Z",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("设置变更已准备好。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ accepted_unit_ids: ["unit-settings-1"] }),
+        }),
+      ),
+    );
+    expect(await screen.findByText("已写入工作区")).toBeInTheDocument();
+  });
+
+  it("manually saves staged previews and exposes saved room links", async () => {
     const record: ExecutionRecord = {
       id: "exec-1",
       user_id: "user-1",
@@ -375,14 +587,110 @@ describe("CompletedView", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ accepted_ids: ["doc-1"] }),
+        }),
+      ),
+    );
     await waitFor(() =>
       expect(
         useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
       ).toEqual(COMMITTED_STATE),
     );
+    const savedLink = await screen.findByRole("link", { name: "打开已保存的 Thesis outline" });
+    const url = new URL(savedLink.getAttribute("href")!, "https://example.test");
+    expect(url.pathname).toBe("/workspaces/ws-1/prism");
+    expect(url.searchParams.get("file_id")).toBe("saved-doc-1");
+  });
+
+  it("shows a save error inline when manual save fails", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: () => Promise.resolve({ detail: "Commit failed" }),
+    });
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{ task_report: OUTLINE_TASK_REPORT }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
+    expect(await screen.findByText("Commit failed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试保存（1 项）" })).toBeInTheDocument();
+  });
+
+  it("does not finalize manual save when backend commit_state is missing", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { prism: 1 },
+          room_targets: {
+            prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
+          },
+        }),
+    });
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{ task_report: OUTLINE_TASK_REPORT }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
     expect(
-      useExecutionStore.getState().executions.get("exec-1")?.result?.task_report,
-    ).toEqual(OUTLINE_TASK_REPORT);
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试保存（1 项）" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
+  });
+
+  it("does not finalize manual save when backend commit_state is malformed", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              prism: "bad",
+            },
+          },
+        }),
+    });
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{ task_report: OUTLINE_TASK_REPORT }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试保存（1 项）" })).toBeInTheDocument();
   });
 
   it("keeps partial execution previews read-only without manual save controls", async () => {
@@ -421,76 +729,6 @@ describe("CompletedView", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByText("本次运行未完整完成，候选结果只作为证据预览；需要继续处理时，请在左侧补充指令。")).toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("shows a save error inline when execution commit fails", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ detail: "Commit failed" }),
-    });
-
-    render(
-      <CompletedView
-        workspaceId="ws-1"
-        executionId="exec-1"
-        result={{
-          task_report: {
-            execution_id: "exec-1",
-            capability_id: "outline",
-            status: "completed",
-            narrative: "Outline completed.",
-            outputs: [
-              {
-                id: "doc-1",
-                kind: "document",
-                preview: "Thesis outline",
-                default_checked: true,
-                data: {
-                  name: "outline.md",
-                  mime_type: "text/markdown",
-                  doc_kind: "outline",
-                  content: "# Chapter 1\n- Background",
-                },
-              },
-            ],
-          },
-        }}
-      />,
-    );
-
-    expect(await screen.findByText("Commit failed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重试写入" })).toBeInTheDocument();
-  });
-
-  it("does not finalize when POST succeeds without durable backend commit_state", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          committed: { prism: 1 },
-          room_targets: {
-            prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
-            library: [],
-            memory: [],
-            decisions: [],
-            tasks: [],
-          },
-        }),
-    });
-
-    render(
-      <CompletedView
-        workspaceId="ws-1"
-        executionId="exec-1"
-        result={{ task_report: OUTLINE_TASK_REPORT }}
-      />,
-    );
-
-    expect(
-      await screen.findByText("保存状态同步失败，请刷新后重试"),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重试写入" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
   });
 
   it("hydrates committed status and room links from result.commit_state", () => {

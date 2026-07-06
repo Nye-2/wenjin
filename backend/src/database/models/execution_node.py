@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -74,5 +74,10 @@ class ExecutionNodeRecord(Base):
     )
 
     __table_args__ = (
-        Index("ix_execution_nodes_execution_node_id", "execution_id", "node_id"),
+        UniqueConstraint(
+            "execution_id",
+            "node_id",
+            name="uq_execution_nodes_execution_node_id",
+        ),
+        Index("ix_execution_nodes_execution_id", "execution_id"),
     )

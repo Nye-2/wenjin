@@ -26,9 +26,9 @@ const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
     order: 10,
   },
   document: {
-    label: "Prism 文件",
+    label: "文档文件",
     shortLabel: "文件",
-    groupLabel: "Prism 文件",
+    groupLabel: "文档文件",
     accent: "#2563eb",
     tint: "rgba(37, 99, 235, 0.08)",
     border: "rgba(37, 99, 235, 0.24)",

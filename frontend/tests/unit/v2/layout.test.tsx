@@ -175,6 +175,90 @@ describe("V2 Workspace page", () => {
     expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
     expect(screen.getByTestId("workflow-panel")).toBeInTheDocument();
   });
+
+  it("supports keyboard resizing for the desktop split separator", async () => {
+    useWorkbenchLayoutStore.getState().setSplitRatio(0.42);
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    const resizer = screen.getByTestId("workbench-resizer");
+    expect(resizer).toHaveAttribute("tabindex", "0");
+    expect(resizer).toHaveAttribute("aria-valuemin", "28");
+    expect(resizer).toHaveAttribute("aria-valuemax", "72");
+    expect(resizer).toHaveAttribute("aria-valuenow", "42");
+
+    fireEvent.keyDown(resizer, { key: "ArrowRight" });
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.44);
+    expect(resizer).toHaveAttribute("aria-valuenow", "44");
+
+    fireEvent.keyDown(resizer, { key: "ArrowLeft", shiftKey: true });
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.34);
+    expect(resizer).toHaveAttribute("aria-valuenow", "34");
+
+    fireEvent.keyDown(resizer, { key: "End" });
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.72);
+    expect(resizer).toHaveAttribute("aria-valuenow", "72");
+
+    fireEvent.keyDown(resizer, { key: "Home" });
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.28);
+    expect(resizer).toHaveAttribute("aria-valuenow", "28");
+
+    fireEvent.keyDown(resizer, { key: "Enter" });
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.42);
+    expect(resizer).toHaveAttribute("aria-valuenow", "42");
+  });
+
+  it("uses segmented Chat / Run / Review navigation on mobile", async () => {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(max-width: 767px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    expect(screen.getByRole("tablist", { name: "移动端工作区视图" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "对话" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("workflow-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workbench-resizer")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "进展" }));
+    expect(screen.getByRole("tab", { name: "进展" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workflow-panel")).toBeInTheDocument();
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run");
+
+    fireEvent.click(screen.getByRole("tab", { name: "复核" }));
+    expect(screen.getByRole("tab", { name: "复核" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review");
+  });
 });
 
 function makeRunningRecord(): ExecutionRecord {

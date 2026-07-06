@@ -57,6 +57,39 @@ const completedRecord = baseRecord({
   },
 });
 
+const changeSetOnlyRecord = baseRecord({
+  id: "changes-1",
+  status: "completed",
+  result: {
+    change_set: {
+      execution_id: "changes-1",
+      workspace_id: "ws-1",
+      write_mode: "strict_review",
+      summary: "Review one workspace write.",
+      created_at: "2026-06-13T00:00:00Z",
+      units: [
+        {
+          id: "unit-doc-1",
+          target: {
+            room: "documents",
+            object_type: "document",
+            object_id: "doc-1",
+            path: "draft.md",
+          },
+          action: "write_document_draft",
+          risk: "high",
+          risk_reasons: ["writes research draft"],
+          default_apply_state: "blocked",
+          requires_confirmation: true,
+          diff: { title: "Draft update" },
+          provenance: { output_id: "doc-1" },
+          rollback: {},
+        },
+      ],
+    },
+  },
+});
+
 const sandboxRecord = baseRecord({
   id: "sandbox-1",
   status: "completed",
@@ -118,6 +151,31 @@ describe("live workflow view model", () => {
     expect(model.evidenceItems[0]?.summary).toContain("输出：已生成");
     expect(model.evidenceItems[0]?.summary).not.toContain("stdout");
     expect(model.evidenceItems[0]?.summary).not.toContain("ok");
+  });
+
+  it("uses ChangeSet pending units for review focus without legacy previews", () => {
+    const model = buildLiveWorkflowViewModel({
+      records: [changeSetOnlyRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "changes-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+    });
+
+    expect(model.selectedRecord?.id).toBe("changes-1");
+    expect(model.previews).toHaveLength(0);
+    expect(model.changeSet?.units[0]?.id).toBe("unit-doc-1");
+    expect(model.pendingReviewCount).toBe(1);
+    expect(
+      resolveAutoWorkbenchTab({
+        selectedRecord: changeSetOnlyRecord,
+        previews: [],
+        reviewItems: [],
+        evidenceItems: [],
+        pendingReviewCount: model.pendingReviewCount,
+      }),
+    ).toBe("review");
   });
 
   it("projects harness reproducibility evidence without raw sandbox noise", () => {

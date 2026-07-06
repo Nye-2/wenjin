@@ -284,7 +284,7 @@ describe("execution run view projection", () => {
       }),
     );
 
-    expect(view.summary).toBe("直接任务报告已生成。");
+    expect(view.summary).toBe("2 项内容需要确认后再保存。");
     expect(view.resultPreviews.map((preview) => preview.id)).toEqual([
       "direct-doc-1",
       "review:direct-figure-1",
@@ -339,7 +339,7 @@ describe("execution run view projection", () => {
       }),
     );
 
-    expect(view.summary).toBe("执行已完成。");
+    expect(view.summary).toBe("任务已完成。");
     expect(view.resultPreviews).toEqual([]);
     expect(view.pendingReviewCount).toBe(0);
     expect(view.evidenceItems).toEqual([]);
@@ -707,7 +707,7 @@ describe("execution run view projection", () => {
     expect(progressItems[0]).toMatchObject({
       id: "step_02_literature_synthesizer",
       title: "文献综合专家",
-      phaseTitle: "文献综合",
+      phaseTitle: "起草内容",
       technicalName: "step_02_literature_synthesizer",
     });
     expect(progressItems[0].title).not.toContain("literature_synthesizer");

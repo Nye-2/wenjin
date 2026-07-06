@@ -15,13 +15,22 @@ from src.dataservice_client.contracts.execution import (
     ExecutionCommitResetPayload,
     ExecutionCreatePayload,
     ExecutionEventCreatePayload,
+    ExecutionLeaseClaimPayload,
+    ExecutionLeaseHeartbeatPayload,
     ExecutionNodePatchPayload,
     ExecutionNodeUpsertPayload,
+    ExecutionResultPatchPayload,
     ExecutionUpdatePayload,
 )
 from src.dataservice_client.provider import dataservice_client
 
 _UNSET = object()
+_CANCEL_REQUESTED_STATUSES = frozenset({"cancelling", "cancelled"})
+_TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
+def _execution_status(record: Any) -> str:
+    return str(getattr(record, "status", "") or "").strip()
 
 
 def _normalize_str_list(values: list[str] | None) -> list[str]:
@@ -339,11 +348,14 @@ class ExecutionService:
         last_error: str | None | object = _UNSET,
         dispatch_mode: str | None | object = _UNSET,
         worker_task_id: str | None | object = _UNSET,
+        expected_status: str | None | object = _UNSET,
         started_at: datetime | None | object = _UNSET,
         completed_at: datetime | None | object = _UNSET,
     ) -> Any | None:
         """Update business-state fields on an execution record."""
         fields: dict[str, Any] = {}
+        if expected_status is not _UNSET:
+            fields["expected_status"] = expected_status
         if status is not None:
             fields["status"] = status
         if thread_id is not None:
@@ -407,12 +419,59 @@ class ExecutionService:
                 ExecutionCommitClaimPayload(commit_token=commit_token),
             )
 
+    async def claim_execution_lease(
+        self,
+        *,
+        execution_id: str,
+        worker_id: str,
+        ttl_seconds: int = 120,
+    ) -> dict[str, Any]:
+        async with self._client() as client:
+            return await client.claim_execution_lease(
+                execution_id,
+                ExecutionLeaseClaimPayload(
+                    worker_id=worker_id,
+                    ttl_seconds=ttl_seconds,
+                ),
+            )
+
+    async def heartbeat_execution_lease(
+        self,
+        *,
+        execution_id: str,
+        worker_id: str,
+        ttl_seconds: int = 120,
+    ) -> dict[str, Any]:
+        async with self._client() as client:
+            return await client.heartbeat_execution_lease(
+                execution_id,
+                ExecutionLeaseHeartbeatPayload(
+                    worker_id=worker_id,
+                    ttl_seconds=ttl_seconds,
+                ),
+            )
+
+    async def patch_execution_result(
+        self,
+        execution_id: str,
+        *,
+        result_patch: dict[str, Any],
+        commit: bool = True,
+    ) -> Any | None:
+        _ = commit
+        async with self._client() as client:
+            return await client.patch_execution_result(
+                execution_id,
+                ExecutionResultPatchPayload(result_patch=dict(result_patch or {})),
+            )
+
     async def finalize_execution_commit(
         self,
         execution_id: str,
         *,
         commit_token: str,
         result: dict[str, Any],
+        delete_result_keys: list[str] | None = None,
         commit: bool = False,
     ) -> Any:
         _ = commit
@@ -422,6 +481,7 @@ class ExecutionService:
                 ExecutionCommitFinalizePayload(
                     commit_token=commit_token,
                     result_json=result,
+                    delete_result_keys=delete_result_keys or [],
                 ),
             )
 
@@ -513,12 +573,29 @@ class ExecutionService:
         *,
         commit: bool = True,
     ) -> Any | None:
-        return await self.update_execution(
+        record = await self.get_by_id(execution_id)
+        if record is None:
+            return None
+        current_status = _execution_status(record)
+        if current_status == "cancelling":
+            updated = await self.update_execution(
+                execution_id,
+                status="cancelled",
+                expected_status="cancelling",
+                completed_at=datetime.now(UTC),
+                commit=commit,
+            )
+            return updated if updated is not None else await self.get_by_id(execution_id)
+        if current_status in _TERMINAL_EXECUTION_STATUSES or current_status == "running":
+            return record
+        updated = await self.update_execution(
             execution_id,
             status="running",
+            expected_status=current_status,
             started_at=datetime.now(UTC),
             commit=commit,
         )
+        return updated if updated is not None else await self.get_by_id(execution_id)
 
     async def append_execution_event(
         self,
@@ -617,15 +694,34 @@ class ExecutionService:
         result_summary: str | None = None,
         commit: bool = True,
     ) -> Any | None:
-        return await self.update_execution(
+        record = await self.get_by_id(execution_id)
+        if record is None:
+            return None
+        current_status = _execution_status(record)
+        if current_status == "cancelled":
+            return record
+        if current_status == "cancelling" and status != "cancelled":
+            updated = await self.update_execution(
+                execution_id,
+                status="cancelled",
+                expected_status="cancelling",
+                completed_at=datetime.now(UTC),
+                commit=commit,
+            )
+            return updated if updated is not None else await self.get_by_id(execution_id)
+        if current_status in {"completed", "failed"} and current_status != status:
+            return record
+        updated = await self.update_execution(
             execution_id,
             status=status,
+            expected_status=current_status,
             result=result if result is not None else _UNSET,
             error=error if error is not None else _UNSET,
             result_summary=result_summary if result_summary is not None else _UNSET,
             completed_at=datetime.now(UTC),
             commit=commit,
         )
+        return updated if updated is not None else await self.get_by_id(execution_id)
 
     async def set_graph_structure(
         self,

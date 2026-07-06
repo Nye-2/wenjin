@@ -238,6 +238,7 @@ export function ExecutionCard({
               workspaceId={record.workspace_id}
               featureId={record.feature_id}
               executionId={record.id}
+              executionStatus={record.status}
               resultSummary={record.result_summary}
               result={record.result}
               reviewItems={record.review_items ?? []}

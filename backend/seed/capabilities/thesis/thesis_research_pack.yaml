@@ -176,6 +176,30 @@ quality_gates:
 - chapter_claims_have_evidence
 - abstract_matches_body
 - references_follow_target_style
+research_evidence:
+  review_packet: required
+  required_surfaces:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - literature
+  - citation_strength
+  - paper_relevance
+  - writing_semantic_preservation
+  - argument_chain
+  - protected_section_safety
+  surface_enforcement:
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    literature: required_runtime
+    citation_strength: required_runtime
+    paper_relevance: required_final
+    writing_semantic_preservation: required_final
+    argument_chain: required_final
+    protected_section_safety: required_final
+  notes:
+  - The thesis research pack must produce Library-backed sources, topic-fit evidence, claim-evidence mappings, protected-section-safe Prism changes, and a reviewable argument-chain handoff rather than a shallow reading list.
 graph_template:
   phases:
   - name: step_01_research_scout

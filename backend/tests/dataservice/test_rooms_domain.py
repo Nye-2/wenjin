@@ -53,6 +53,40 @@ class FakeRoomsRepository:
                 return record
         return None
 
+    async def get_decision_by_review_source(
+        self,
+        *,
+        workspace_id: str,
+        source_review_batch_id: str,
+        source_review_item_id: str,
+    ) -> SimpleNamespace | None:
+        for record in self.decisions.values():
+            if (
+                record.workspace_id == workspace_id
+                and record.source_review_batch_id == source_review_batch_id
+                and record.source_review_item_id == source_review_item_id
+                and record.deleted_at is None
+            ):
+                return record
+        return None
+
+    async def get_decision_by_extracted_by(
+        self,
+        *,
+        workspace_id: str,
+        key: str,
+        extracted_by: str,
+    ) -> SimpleNamespace | None:
+        for record in self.decisions.values():
+            if (
+                record.workspace_id == workspace_id
+                and record.key == key
+                and record.extracted_by == extracted_by
+                and record.deleted_at is None
+            ):
+                return record
+        return None
+
     def create_decision(self, values: dict[str, Any]) -> SimpleNamespace:
         decision_id = f"decision-{len(self.decisions) + 1}"
         record = _record(
@@ -95,6 +129,40 @@ class FakeRoomsRepository:
         )
         self.tasks[task_id] = record
         return record
+
+    async def get_workspace_task_by_review_source(
+        self,
+        *,
+        workspace_id: str,
+        source_review_batch_id: str,
+        source_review_item_id: str,
+    ) -> SimpleNamespace | None:
+        for record in self.tasks.values():
+            if (
+                record.workspace_id == workspace_id
+                and record.source_review_batch_id == source_review_batch_id
+                and record.source_review_item_id == source_review_item_id
+                and record.deleted_at is None
+            ):
+                return record
+        return None
+
+    async def get_workspace_task_by_created_by(
+        self,
+        *,
+        workspace_id: str,
+        title: str,
+        created_by: str,
+    ) -> SimpleNamespace | None:
+        for record in self.tasks.values():
+            if (
+                record.workspace_id == workspace_id
+                and record.title == title
+                and record.created_by == created_by
+                and record.deleted_at is None
+            ):
+                return record
+        return None
 
     async def list_workspace_tasks(
         self,
@@ -164,6 +232,56 @@ async def test_task_create_with_review_trace() -> None:
     )
 
     assert task.source_review_item_id == "item-1"
+
+
+@pytest.mark.asyncio
+async def test_decision_set_replays_execution_unit_provenance_key() -> None:
+    service, repository, session = _service()
+
+    first = await service.set_decision(
+        DecisionSetCommand(
+            workspace_id="ws-1",
+            key="method",
+            value="DID",
+            extracted_by="execution:exec-1:unit:unit-1",
+        )
+    )
+    replay = await service.set_decision(
+        DecisionSetCommand(
+            workspace_id="ws-1",
+            key="method",
+            value="DID",
+            extracted_by="execution:exec-1:unit:unit-1",
+        )
+    )
+
+    assert replay.id == first.id
+    assert len(repository.decisions) == 1
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_workspace_task_create_replays_execution_unit_provenance_key() -> None:
+    service, repository, session = _service()
+
+    first = await service.create_workspace_task(
+        WorkspaceTaskCreateCommand(
+            workspace_id="ws-1",
+            title="Verify dataset",
+            created_by="execution:exec-1:unit:unit-1",
+        )
+    )
+    replay = await service.create_workspace_task(
+        WorkspaceTaskCreateCommand(
+            workspace_id="ws-1",
+            title="Verify dataset",
+            created_by="execution:exec-1:unit:unit-1",
+        )
+    )
+
+    assert replay.id == first.id
+    assert len(repository.tasks) == 1
+    assert session.commit_count == 1
 
 
 @pytest.mark.asyncio

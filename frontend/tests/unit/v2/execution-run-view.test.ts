@@ -4,22 +4,42 @@ import type { ExecutionRecord } from "@/lib/api/types";
 import type { RunRecord } from "@/lib/api/v2/runs";
 import {
   buildRunProgressItems,
+  mergeRunViews,
   runViewFromExecution,
   runViewFromResultCard,
   runViewFromRunRecord,
 } from "@/lib/execution-run-view";
+import {
+  acceptedOutputIdsFromChangeSet,
+  acceptedUnitIdsFromChangeSet,
+  changeSetViewFromResult,
+  commitPreviewsForChangeSetReview,
+  responseResultPatch,
+  type ExecutionChangeSetResponse,
+} from "@/lib/change-set-view";
+import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 
 const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { library: 0, prism: 1, memory: 0, decisions: 0, tasks: 0 },
+  counts: {
+    library: 0,
+    prism: 1,
+    memory: 0,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
   room_targets: {
     prism: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
     library: [],
     memory: [],
     decisions: [],
     tasks: [],
+    sandbox: [],
+    settings: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -190,6 +210,52 @@ describe("execution run view expert projection", () => {
     expect(details).not.toContain("{");
   });
 
+  it("projects progress into student-facing task stages", () => {
+    const record = baseRecord({
+      graph_structure: {
+        mode: "team_kernel",
+        nodes: [
+          { id: "team_prepare", type: "system", label: "team_prepare" },
+          { id: "team_recruit", type: "system", label: "team_recruit" },
+          { id: "team_dispatch", type: "system", label: "team_dispatch" },
+          { id: "team_quality_gate", type: "system", label: "team_quality_gate" },
+          { id: "team_finish", type: "system", label: "team_finish" },
+        ],
+        edges: [],
+      },
+      node_states: {
+        "team.1.research_scout_v1.1": {
+          status: "completed",
+          node_type: "agent_invocation",
+          label: "文献猎手 Nora",
+          node_metadata: {
+            team: true,
+            template_id: "research_scout.v1",
+            display_name: "文献猎手 Nora",
+          },
+        },
+      },
+    });
+
+    const items = buildRunProgressItems(record);
+
+    expect(items.map((item) => item.title)).toEqual([
+      "准备材料",
+      "组织研究小组",
+      "查找证据并起草内容",
+      "检查质量",
+      "等待确认",
+    ]);
+    expect(items.map((item) => item.phaseTitle)).toEqual([
+      "准备材料",
+      "组织研究小组",
+      "查找证据并起草内容",
+      "检查质量",
+      "等待确认",
+    ]);
+    expect(items.map((item) => item.title).join(" ")).not.toContain("team_");
+  });
+
   it("sanitizes raw ExecutionRecord summaries and failure messages", () => {
     const record = baseRecord({
       status: "failed",
@@ -221,6 +287,577 @@ describe("execution run view expert projection", () => {
     expect(text).not.toContain("raw error should stay hidden");
     expect(text).not.toContain("/workspace/outputs/harness");
     expect(text).not.toContain("{");
+  });
+
+  it("projects ChangeSet decisions and pending review counts", () => {
+    const record = baseRecord({
+      status: "completed",
+      result: {
+        change_set: {
+          execution_id: "exec-1",
+          workspace_id: "ws-1",
+          write_mode: "ask_workspace_write",
+          summary: "Two concrete workspace changes.",
+          created_at: "2026-06-13T00:00:02Z",
+          units: [
+            {
+              id: "unit-doc-1",
+              target: {
+                room: "documents",
+                object_type: "document",
+                object_id: "doc-1",
+                path: "outline.md",
+              },
+              action: "write_document_draft",
+              risk: "medium",
+              risk_reasons: ["document content changes require review"],
+              default_apply_state: "staged",
+              requires_confirmation: true,
+              diff: { title: "Thesis outline", summary: "Update outline" },
+              provenance: { output_id: "doc-1" },
+              rollback: {},
+            },
+            {
+              id: "unit-claim-1",
+              target: {
+                room: "documents",
+                object_type: "claim",
+                object_id: "claim-1",
+              },
+              action: "insert_claim",
+              risk: "high",
+              risk_reasons: ["unsupported claim"],
+              default_apply_state: "blocked",
+              requires_confirmation: true,
+              diff: { title: "Unsupported claim" },
+              provenance: { output_id: "doc-2" },
+              rollback: {},
+            },
+          ],
+        },
+        change_set_review_state: {
+          schema_version: "wenjin.change_set.review_state.v1",
+          accepted_unit_ids: ["unit-doc-1"],
+          rejected_unit_ids: [],
+          undone_unit_ids: [],
+          updated_at: "2026-06-13T00:00:03Z",
+        },
+      },
+    });
+
+    const view = runViewFromExecution(record);
+
+    expect(view.changeSet?.counts.accepted).toBe(1);
+    expect(view.changeSet?.counts.blocked).toBe(1);
+    expect(view.pendingReviewCount).toBe(1);
+    expect(view.changeSet?.units[0]).toMatchObject({
+      id: "unit-doc-1",
+      state: "accepted",
+      group: "accepted",
+      title: "Thesis outline",
+      outputId: "doc-1",
+    });
+    expect(acceptedOutputIdsFromChangeSet(view.changeSet)).toEqual(["doc-1"]);
+  });
+
+  it("uses the latest live pending review count instead of stale historical maximum", () => {
+    const changeSet = {
+      execution_id: "exec-1",
+      workspace_id: "ws-1",
+      write_mode: "ask_workspace_write",
+      summary: "Review document write.",
+      created_at: "2026-06-13T00:00:02Z",
+      units: [
+        {
+          id: "unit-doc-1",
+          target: {
+            room: "documents",
+            object_type: "document",
+            object_id: "doc-1",
+            path: "outline.md",
+          },
+          action: "write_document_draft",
+          risk: "medium",
+          risk_reasons: [],
+          default_apply_state: "staged",
+          requires_confirmation: true,
+          diff: { title: "Thesis outline" },
+          provenance: { output_id: "doc-1" },
+          rollback: {},
+        },
+      ],
+    };
+    const historical = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          change_set: changeSet,
+          change_set_review_state: {
+            accepted_unit_ids: [],
+            rejected_unit_ids: [],
+            undone_unit_ids: [],
+          },
+        },
+      }),
+    );
+    const live = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          change_set: changeSet,
+          change_set_review_state: {
+            accepted_unit_ids: ["unit-doc-1"],
+            rejected_unit_ids: [],
+            undone_unit_ids: [],
+          },
+        },
+      }),
+    );
+
+    expect(historical.pendingReviewCount).toBe(1);
+    expect(live.pendingReviewCount).toBe(0);
+    expect(mergeRunViews(live, historical).pendingReviewCount).toBe(0);
+  });
+
+  it("does not bridge blocked ChangeSet units into historical output commits", () => {
+    const changeSet = changeSetViewFromResult({
+      change_set: {
+        execution_id: "exec-1",
+        workspace_id: "ws-1",
+        write_mode: "strict_review",
+        summary: "Blocked and accepted units.",
+        created_at: "2026-06-13T00:00:02Z",
+        units: [
+          {
+            id: "unit-doc-1",
+            target: { room: "documents", object_type: "document", object_id: "doc-1" },
+            action: "write_document_draft",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Draft" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+          {
+            id: "unit-claim-1",
+            target: { room: "documents", object_type: "claim", object_id: "claim-1" },
+            action: "insert_claim",
+            risk: "high",
+            risk_reasons: ["unsupported claim"],
+            default_apply_state: "blocked",
+            requires_confirmation: true,
+            diff: { title: "Claim" },
+            provenance: { output_id: "doc-2" },
+            rollback: {},
+          },
+        ],
+      },
+      change_set_review_state: {
+        accepted_unit_ids: ["unit-doc-1", "unit-claim-1"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+      },
+    });
+
+    expect(acceptedOutputIdsFromChangeSet(changeSet)).toEqual(["doc-1"]);
+  });
+
+  it("requires every ChangeSet unit for the same output to be accepted before commit bridging", () => {
+    const changeSet = changeSetViewFromResult({
+      change_set: {
+        execution_id: "exec-1",
+        workspace_id: "ws-1",
+        write_mode: "ask_workspace_write",
+        summary: "Composite document write.",
+        created_at: "2026-06-13T00:00:02Z",
+        units: [
+          {
+            id: "unit-outline",
+            target: { room: "documents", object_type: "document", object_id: "doc-1" },
+            action: "write_document_draft",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Outline" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+          {
+            id: "unit-claim",
+            target: { room: "documents", object_type: "claim", object_id: "claim-1" },
+            action: "insert_claim",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Claim" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+        ],
+      },
+      change_set_review_state: {
+        accepted_unit_ids: ["unit-outline"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+      },
+    });
+
+    expect(acceptedOutputIdsFromChangeSet(changeSet)).toEqual([]);
+  });
+
+  it("bridges an output only when all related ChangeSet units are accepted and unblocked", () => {
+    const changeSet = changeSetViewFromResult({
+      change_set: {
+        execution_id: "exec-1",
+        workspace_id: "ws-1",
+        write_mode: "ask_workspace_write",
+        summary: "Composite document write.",
+        created_at: "2026-06-13T00:00:02Z",
+        units: [
+          {
+            id: "unit-outline",
+            target: { room: "documents", object_type: "document", object_id: "doc-1" },
+            action: "write_document_draft",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Outline" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+          {
+            id: "unit-claim",
+            target: { room: "documents", object_type: "claim", object_id: "claim-1" },
+            action: "insert_claim",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Claim" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+        ],
+      },
+      change_set_review_state: {
+        accepted_unit_ids: ["unit-outline", "unit-claim"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+      },
+    });
+
+    expect(acceptedOutputIdsFromChangeSet(changeSet)).toEqual(["doc-1"]);
+  });
+
+  it("includes accepted materialized units without historical output ids", () => {
+    const changeSet = changeSetViewFromResult({
+      change_set: {
+        execution_id: "exec-1",
+        workspace_id: "ws-1",
+        write_mode: "ask_workspace_write",
+        summary: "Settings and sandbox writes.",
+        created_at: "2026-06-13T00:00:02Z",
+        units: [
+          {
+            id: "unit-settings-1",
+            target: {
+              room: "settings",
+              object_type: "workspace_settings",
+              object_id: "write_mode",
+            },
+            action: "update_workspace_settings",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "写入前询问" },
+            provenance: { source_review_item_id: "settings-1" },
+            rollback: {},
+            materialization: {
+              operation: "settings.update",
+              payload: { write_mode: "ask_workspace_write" },
+            },
+          },
+          {
+            id: "unit-sandbox-1",
+            target: {
+              room: "sandbox",
+              object_type: "sandbox_artifact",
+              object_id: "artifact-1",
+            },
+            action: "accept_sandbox_artifact",
+            risk: "low",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "实验报告" },
+            provenance: { source_review_item_id: "artifact-1" },
+            rollback: {},
+            materialization: {
+              operation: "sandbox.materialize_artifact",
+              payload: {
+                artifact_id: "artifact-1",
+                review_item_id: "artifact-review-1",
+              },
+            },
+          },
+          {
+            id: "unit-review-note-1",
+            target: {
+              room: "review",
+              object_type: "review_note",
+              object_id: "note-1",
+            },
+            action: "acknowledge_review_note",
+            risk: "low",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "仅复核备注" },
+            provenance: { source_review_item_id: "note-1" },
+            rollback: {},
+          },
+          {
+            id: "unit-blocked-1",
+            target: { room: "settings", object_type: "workspace_settings" },
+            action: "update_workspace_settings",
+            risk: "high",
+            risk_reasons: ["requires admin review"],
+            default_apply_state: "blocked",
+            requires_confirmation: true,
+            diff: { title: "高风险设置" },
+            provenance: { source_review_item_id: "settings-2" },
+            rollback: {},
+            materialization: {
+              operation: "settings.update",
+              payload: { write_mode: "strict_review" },
+            },
+          },
+        ],
+      },
+      change_set_review_state: {
+        accepted_unit_ids: [
+          "unit-settings-1",
+          "unit-sandbox-1",
+          "unit-review-note-1",
+          "unit-blocked-1",
+        ],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+      },
+    });
+
+    expect(acceptedOutputIdsFromChangeSet(changeSet)).toEqual([]);
+    expect(acceptedUnitIdsFromChangeSet(changeSet)).toEqual([
+      "unit-settings-1",
+      "unit-sandbox-1",
+    ]);
+  });
+
+  it("does not bridge an output when any related ChangeSet unit is blocked by default", () => {
+    const changeSet = changeSetViewFromResult({
+      change_set: {
+        execution_id: "exec-1",
+        workspace_id: "ws-1",
+        write_mode: "strict_review",
+        summary: "Blocked composite document write.",
+        created_at: "2026-06-13T00:00:02Z",
+        units: [
+          {
+            id: "unit-outline",
+            target: { room: "documents", object_type: "document", object_id: "doc-1" },
+            action: "write_document_draft",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Outline" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+          {
+            id: "unit-claim",
+            target: { room: "documents", object_type: "claim", object_id: "claim-1" },
+            action: "insert_claim",
+            risk: "high",
+            risk_reasons: ["unsupported claim"],
+            default_apply_state: "blocked",
+            requires_confirmation: true,
+            diff: { title: "Claim" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+        ],
+      },
+      change_set_review_state: {
+        accepted_unit_ids: ["unit-outline", "unit-claim"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+      },
+    });
+
+    expect(acceptedOutputIdsFromChangeSet(changeSet)).toEqual([]);
+  });
+
+  it("uses visible default-checked previews as historical output commit candidates", () => {
+    const previews = buildWorkspaceResultPreviewsFromOutputs([
+      {
+        id: "doc-1",
+        kind: "document",
+        preview: "Visible document",
+        default_checked: true,
+      },
+      {
+        id: "library-1",
+        kind: "library_item",
+        preview: "Visible library item",
+        default_checked: false,
+      },
+      {
+        id: "memory-1",
+        kind: "memory_fact",
+        preview: "Hidden memory update",
+        default_checked: true,
+      },
+    ]);
+
+    expect(
+      commitPreviewsForChangeSetReview({ changeSet: null, previews }).map(
+        (preview) => preview.id,
+      ),
+    ).toEqual(["doc-1"]);
+  });
+
+  it("uses accepted ChangeSet output ids as explicit commit candidates", () => {
+    const previews = buildWorkspaceResultPreviewsFromOutputs([
+      {
+        id: "doc-1",
+        kind: "document",
+        preview: "Visible document",
+        default_checked: false,
+      },
+      {
+        id: "memory-1",
+        kind: "memory_fact",
+        preview: "Hidden memory update",
+        default_checked: true,
+      },
+    ]);
+    const changeSet = changeSetViewFromResult({
+      change_set: {
+        execution_id: "exec-1",
+        workspace_id: "ws-1",
+        write_mode: "ask_workspace_write",
+        summary: "Accepted explicit memory write.",
+        created_at: "2026-06-13T00:00:02Z",
+        units: [
+          {
+            id: "unit-doc-1",
+            target: { room: "documents", object_type: "document", object_id: "doc-1" },
+            action: "write_document_draft",
+            risk: "medium",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Document" },
+            provenance: { output_id: "doc-1" },
+            rollback: {},
+          },
+          {
+            id: "unit-memory-1",
+            target: { room: "memory", object_type: "fact", object_id: "memory-1" },
+            action: "upsert_memory_fact",
+            risk: "low",
+            risk_reasons: [],
+            default_apply_state: "staged",
+            requires_confirmation: true,
+            diff: { title: "Memory" },
+            provenance: { output_id: "memory-1" },
+            rollback: {},
+          },
+        ],
+      },
+      change_set_review_state: {
+        accepted_unit_ids: ["unit-memory-1"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+      },
+    });
+
+    expect(
+      commitPreviewsForChangeSetReview({ changeSet, previews }).map(
+        (preview) => preview.id,
+      ),
+    ).toEqual(["memory-1"]);
+  });
+
+  it("patches response unit states so stale result unit_states cannot mask review updates", () => {
+    const changeSet: ExecutionChangeSetResponse["change_set"] = {
+      execution_id: "exec-1",
+      workspace_id: "ws-1",
+      write_mode: "ask_workspace_write",
+      summary: "Review document write.",
+      created_at: "2026-06-13T00:00:02Z",
+      units: [
+        {
+          id: "unit-doc-1",
+          target: { room: "documents", object_type: "document", object_id: "doc-1" },
+          action: "write_document_draft",
+          risk: "medium",
+          risk_reasons: [],
+          default_apply_state: "staged",
+          requires_confirmation: true,
+          diff: { title: "Document" },
+          provenance: { output_id: "doc-1" },
+          rollback: {},
+        },
+      ],
+    };
+    const initialResult = {
+      change_set: changeSet,
+      change_set_review_state: {
+        accepted_unit_ids: [],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+      },
+      unit_states: [
+        {
+          unit_id: "unit-doc-1",
+          default_apply_state: "staged",
+          state: "staged",
+        },
+      ],
+    };
+    const response: ExecutionChangeSetResponse = {
+      change_set: changeSet,
+      review_state: {
+        accepted_unit_ids: ["unit-doc-1"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+        updated_at: "2026-06-13T00:00:04Z",
+        schema_version: "wenjin.change_set.review_state.v1",
+      },
+      unit_states: [
+        {
+          unit_id: "unit-doc-1",
+          default_apply_state: "staged",
+          state: "accepted",
+        },
+      ],
+    };
+
+    const patchedView = changeSetViewFromResult({
+      ...initialResult,
+      ...responseResultPatch(response),
+    });
+
+    expect(patchedView?.units[0]?.state).toBe("accepted");
+    expect(patchedView?.pendingCount).toBe(0);
   });
 
   it("sanitizes raw RunRecord summaries and failure messages", () => {
@@ -294,6 +931,109 @@ describe("execution run view expert projection", () => {
     );
 
     expect(view.commitState).toEqual(COMMITTED_STATE);
+    expect(view.summary).toBe("已保存到 1 个工作区房间。");
+  });
+
+  it("summarizes completed runs that still need confirmation", () => {
+    const view = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          change_set: {
+            execution_id: "exec-1",
+            workspace_id: "ws-1",
+            write_mode: "ask_workspace_write",
+            summary: "Reviewable output changes.",
+            created_at: "2026-06-20T00:00:00Z",
+            units: [
+              {
+                id: "unit-doc-1",
+                target: {
+                  room: "documents",
+                  object_type: "document",
+                  object_id: "doc-1",
+                },
+                action: "write_document_draft",
+                risk: "medium",
+                risk_reasons: [],
+                default_apply_state: "staged",
+                requires_confirmation: true,
+                diff: { title: "Document" },
+                provenance: { output_id: "doc-1" },
+                rollback: {},
+              },
+            ],
+          },
+          change_set_review_state: {
+            accepted_unit_ids: [],
+            rejected_unit_ids: [],
+            undone_unit_ids: [],
+          },
+          task_report: {
+            narrative: "已生成。",
+            outputs: [],
+          },
+        },
+      }),
+    );
+
+    expect(view.pendingReviewCount).toBe(1);
+    expect(view.summary).toBe("1 项内容需要确认后再保存。");
+  });
+
+  it("projects compacted ChangeSet receipt after full review details are pruned", () => {
+    const view = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: COMMITTED_STATE,
+          change_set_receipt: {
+            schema_version: "wenjin.change_set.receipt.v1",
+            retention: "compacted_after_commit",
+            summary: "Reviewable output changes.",
+            unit_count: 1,
+            accepted_unit_ids: ["output-doc-1"],
+            rejected_unit_ids: [],
+            undone_unit_ids: [],
+            accepted_output_ids: ["doc-1"],
+            rejected_output_ids: [],
+            committed_at: "2026-06-20T00:00:00Z",
+            targets: {
+              prism: [
+                {
+                  output_id: "doc-1",
+                  item_id: "saved-doc-1",
+                  path: "outline.md",
+                  content_hash: "hash-after",
+                },
+              ],
+              library: [],
+              memory: [],
+              decisions: [],
+              tasks: [],
+            },
+          },
+          task_report: {
+            narrative: "已保存。",
+            outputs: [],
+          },
+        },
+      }),
+    );
+
+    expect(view.changeSet).toBeNull();
+    expect(view.changeSetReceipt).toMatchObject({
+      retention: "compacted_after_commit",
+      summary: "Reviewable output changes.",
+      unitCount: 1,
+      acceptedOutputIds: ["doc-1"],
+      committedAt: "2026-06-20T00:00:00Z",
+    });
+    expect(view.changeSetReceipt?.targets.prism[0]).toMatchObject({
+      output_id: "doc-1",
+      item_id: "saved-doc-1",
+      path: "outline.md",
+    });
   });
 
   it("projects durable commitState from ResultCardData", () => {

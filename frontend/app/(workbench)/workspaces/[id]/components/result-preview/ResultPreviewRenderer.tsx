@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -122,8 +123,10 @@ const markdownComponents = {
 export function ResultPreviewRenderer({
   preview,
 }: ResultPreviewRendererProps) {
+  const [imageFailed, setImageFailed] = useState(false);
   if (preview.previewMode === "image") {
     const path = preview.previewPath?.trim();
+    const imageUrl = safeImageUrl(preview.previewUrl);
     return (
       <div
         data-testid="result-preview-image"
@@ -149,32 +152,23 @@ export function ResultPreviewRenderer({
             overflow: "hidden",
           }}
         >
-          <div
-            aria-hidden="true"
-            style={{
-              width: 92,
-              height: 58,
-              display: "flex",
-              alignItems: "end",
-              justifyContent: "center",
-              gap: 8,
-              borderBottom: "1px solid rgba(20,20,30,0.2)",
-              borderLeft: "1px solid rgba(20,20,30,0.2)",
-              padding: "0 10px 6px",
-            }}
-          >
-            {[28, 44, 36, 52].map((height) => (
-              <span
-                key={height}
-                style={{
-                  width: 9,
-                  height,
-                  borderRadius: "3px 3px 0 0",
-                  background: "rgba(124, 58, 237, 0.52)",
-                }}
-              />
-            ))}
-          </div>
+          {imageUrl && !imageFailed ? (
+            <img
+              src={imageUrl}
+              alt={`${preview.title} 图像预览`}
+              loading="lazy"
+              decoding="async"
+              onError={() => setImageFailed(true)}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                background: "rgba(255,255,255,0.72)",
+              }}
+            />
+          ) : (
+            <FigurePlaceholder />
+          )}
         </div>
         <div
           style={{
@@ -202,6 +196,15 @@ export function ResultPreviewRenderer({
             >
               {path}
             </code>
+          ) : imageUrl ? (
+            <span
+              style={{
+                fontSize: 12.5,
+                color: "var(--wjn-text-muted)",
+              }}
+            >
+              已加载图像预览。
+            </span>
           ) : (
             <span
               style={{
@@ -221,24 +224,87 @@ export function ResultPreviewRenderer({
   if (!content) {
     return (
       <div
+        data-testid="result-preview-unavailable"
         style={{
-          fontSize: 13,
-          lineHeight: 1.6,
-          color: "var(--wjn-text-muted)",
+          display: "grid",
+          gap: 6,
+          padding: 14,
+          borderRadius: "var(--wjn-radius-lg)",
+          border: "1px solid var(--wjn-line)",
+          background: "var(--wjn-surface-subtle)",
         }}
       >
-        No preview available yet.
+        <div
+          style={{
+            fontSize: 13.5,
+            fontWeight: 650,
+            color: "var(--wjn-text)",
+          }}
+        >
+          暂时无法预览这项结果
+        </div>
+        <div
+          style={{
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: "var(--wjn-text-muted)",
+          }}
+        >
+          请先在复核区确认是否保存；保存后可在对应工作区房间继续查看。
+        </div>
       </div>
     );
   }
 
+  if (preview.previewMode === "document_diff") {
+    return (
+      <DocumentPreviewFrame
+        testId="result-preview-document-diff"
+        title="文档修改对比"
+        subtitle="请确认修改是否符合你的材料和证据要求。"
+      >
+        <pre
+          style={{
+            margin: 0,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontSize: 13,
+            lineHeight: 1.72,
+            color: "var(--wjn-text-secondary)",
+            fontFamily: "var(--wjn-font-sans)",
+          }}
+        >
+          {content}
+        </pre>
+      </DocumentPreviewFrame>
+    );
+  }
+
+  if (preview.kind === "document") {
+    return (
+      <DocumentPreviewFrame
+        testId="result-preview-document-excerpt"
+        title="文档摘录"
+      >
+        <PreviewTextBody preview={preview} content={content} />
+      </DocumentPreviewFrame>
+    );
+  }
+
+  return <PreviewTextBody preview={preview} content={content} />;
+}
+
+function PreviewTextBody({
+  preview,
+  content,
+}: {
+  preview: WorkspaceResultPreview;
+  content: string;
+}) {
   if (preview.previewMode === "markdown" || preview.previewMode === "outline") {
     return (
       <div data-testid="result-preview-markdown">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={markdownComponents}
-        >
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
           {content}
         </ReactMarkdown>
       </div>
@@ -279,4 +345,99 @@ export function ResultPreviewRenderer({
       {content}
     </div>
   );
+}
+
+function DocumentPreviewFrame({
+  testId,
+  title,
+  subtitle,
+  children,
+}: {
+  testId: string;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      data-testid={testId}
+      style={{
+        display: "grid",
+        gap: 10,
+        padding: 14,
+        borderRadius: "var(--wjn-radius-lg)",
+        border: "1px solid var(--wjn-line)",
+        background: "var(--wjn-surface-subtle)",
+      }}
+    >
+      <div style={{ display: "grid", gap: 3 }}>
+        <div
+          style={{
+            fontSize: 13.5,
+            fontWeight: 650,
+            color: "var(--wjn-text)",
+          }}
+        >
+          {title}
+        </div>
+        {subtitle ? (
+          <div
+            style={{
+              fontSize: 12.5,
+              lineHeight: 1.55,
+              color: "var(--wjn-text-muted)",
+            }}
+          >
+            {subtitle}
+          </div>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function FigurePlaceholder() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        width: 92,
+        height: 58,
+        display: "flex",
+        alignItems: "end",
+        justifyContent: "center",
+        gap: 8,
+        borderBottom: "1px solid rgba(20,20,30,0.2)",
+        borderLeft: "1px solid rgba(20,20,30,0.2)",
+        padding: "0 10px 6px",
+      }}
+    >
+      {[28, 44, 36, 52].map((height) => (
+        <span
+          key={height}
+          style={{
+            width: 9,
+            height,
+            borderRadius: "3px 3px 0 0",
+            background: "var(--wjn-accent)",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function safeImageUrl(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) {
+    return null;
+  }
+  if (trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("/api/") || trimmed.startsWith("/workspaces/")) {
+    return trimmed.startsWith("//") ? null : trimmed;
+  }
+  return null;
 }

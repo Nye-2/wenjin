@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+EXECUTION_RESULT_PATCH_KEYS = frozenset(
+    {"change_set_review_state", "change_unit_materialization"}
+)
+EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS = frozenset(
+    {"change_set", "change_set_review_state", "unit_states", "change_unit_materialization"}
+)
 
 
 class ExecutionCreateCommand(BaseModel):
@@ -26,6 +33,7 @@ class ExecutionCreateCommand(BaseModel):
 class ExecutionUpdateCommand(BaseModel):
     """Patch product execution state."""
 
+    expected_status: str | None = Field(default=None, max_length=32)
     status: str | None = Field(default=None, max_length=32)
     thread_id: str | None = Field(default=None, max_length=36)
     entry_skill_id: str | None = Field(default=None, max_length=100)
@@ -50,6 +58,38 @@ class ExecutionUpdateCommand(BaseModel):
     completed_at: datetime | None = None
 
 
+class ExecutionResultPatchCommand(BaseModel):
+    """Atomically merge keys into execution.result."""
+
+    result_patch: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("result_patch")
+    @classmethod
+    def validate_result_patch_keys(cls, value: dict[str, Any]) -> dict[str, Any]:
+        unsupported = sorted(set(value) - EXECUTION_RESULT_PATCH_KEYS)
+        if unsupported:
+            raise ValueError(
+                "Unsupported execution result patch key(s): " + ", ".join(unsupported)
+            )
+        return dict(value)
+
+
+class ExecutionLeaseClaimCommand(BaseModel):
+    """Atomically reserve one in-flight execution for a worker."""
+
+    worker_id: str = Field(min_length=1, max_length=36)
+    ttl_seconds: int = Field(default=120, ge=1, le=3600)
+    claimed_at: datetime | None = None
+
+
+class ExecutionLeaseHeartbeatCommand(BaseModel):
+    """Extend an owned in-flight execution lease."""
+
+    worker_id: str = Field(min_length=1, max_length=36)
+    ttl_seconds: int = Field(default=120, ge=1, le=3600)
+    heartbeat_at: datetime | None = None
+
+
 class ExecutionCommitClaimCommand(BaseModel):
     """Atomically reserve execution result commit materialization."""
 
@@ -62,6 +102,17 @@ class ExecutionCommitFinalizeCommand(BaseModel):
 
     commit_token: str = Field(min_length=1, max_length=64)
     result_json: dict[str, Any]
+    delete_result_keys: list[str] = Field(default_factory=list)
+
+    @field_validator("delete_result_keys")
+    @classmethod
+    def validate_delete_result_keys(cls, value: list[str]) -> list[str]:
+        unsupported = sorted(set(value) - EXECUTION_COMMIT_FINALIZE_DELETABLE_RESULT_KEYS)
+        if unsupported:
+            raise ValueError(
+                "Unsupported execution result delete key(s): " + ", ".join(unsupported)
+            )
+        return list(dict.fromkeys(value))
 
 
 class ExecutionCommitFailCommand(BaseModel):

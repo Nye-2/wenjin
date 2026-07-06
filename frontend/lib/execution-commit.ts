@@ -13,7 +13,9 @@ export type CommitRoomName =
   | "library"
   | "memory"
   | "decisions"
-  | "tasks";
+  | "tasks"
+  | "sandbox"
+  | "settings";
 
 const COMMIT_ROOM_NAMES = [
   "prism",
@@ -21,6 +23,8 @@ const COMMIT_ROOM_NAMES = [
   "memory",
   "decisions",
   "tasks",
+  "sandbox",
+  "settings",
 ] as const satisfies readonly CommitRoomName[];
 
 const COMMIT_ROOM_NAME_SET = new Set<string>(COMMIT_ROOM_NAMES);
@@ -50,6 +54,7 @@ export interface ExecutionCommitResponse {
 export interface ExecutionCommitRequest {
   accept_all?: boolean;
   accepted_ids?: string[];
+  accepted_unit_ids?: string[];
 }
 
 export interface CommittedRoomLink {
@@ -215,6 +220,18 @@ export function readCommitStateFromResult(
       ? { revert_counts: numberRecordValue(state.revert_counts)! }
       : {}),
   };
+}
+
+export function resolveExecutionCommitState({
+  localCommitState,
+  durableCommitState,
+  fallbackCommitState,
+}: {
+  localCommitState?: ExecutionCommitState | null;
+  durableCommitState?: ExecutionCommitState | null;
+  fallbackCommitState?: ExecutionCommitState | null;
+}): ExecutionCommitState | null {
+  return localCommitState ?? durableCommitState ?? fallbackCommitState ?? null;
 }
 
 export function isExecutionCommitted(

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -378,10 +378,45 @@ class ExecutionRepository:
         )
         return result.scalar_one_or_none()
 
-    def create_node(self, values: dict[str, Any]) -> ExecutionNodeRecord:
-        record = ExecutionNodeRecord(id=generate_uuid(), **values)
-        self.session.add(record)
-        return record
+    async def upsert_node(self, values: dict[str, Any]) -> ExecutionNodeRecord:
+        dialect_name = self.session.get_bind().dialect.name
+        insert_factory = sqlite.insert if dialect_name == "sqlite" else postgresql.insert
+        insert_values = {"id": generate_uuid(), **values}
+        stmt = insert_factory(ExecutionNodeRecord).values(**insert_values)
+        excluded = stmt.excluded
+        update_columns = {
+            "node_type": excluded.node_type,
+            "parent_node_id": func.coalesce(
+                excluded.parent_node_id,
+                ExecutionNodeRecord.parent_node_id,
+            ),
+            "label": func.coalesce(excluded.label, ExecutionNodeRecord.label),
+            "status": excluded.status,
+            "input_data": func.coalesce(excluded.input_data, ExecutionNodeRecord.input_data),
+            "output_data": func.coalesce(excluded.output_data, ExecutionNodeRecord.output_data),
+            "thinking": func.coalesce(excluded.thinking, ExecutionNodeRecord.thinking),
+            "tool_calls": func.coalesce(excluded.tool_calls, ExecutionNodeRecord.tool_calls),
+            "token_usage": func.coalesce(excluded.token_usage, ExecutionNodeRecord.token_usage),
+            "node_metadata": func.coalesce(
+                excluded.node_metadata,
+                ExecutionNodeRecord.node_metadata,
+            ),
+            "started_at": func.coalesce(
+                ExecutionNodeRecord.started_at,
+                excluded.started_at,
+            ),
+            "completed_at": func.coalesce(
+                excluded.completed_at,
+                ExecutionNodeRecord.completed_at,
+            ),
+            "updated_at": excluded.updated_at,
+        }
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["execution_id", "node_id"],
+            set_=update_columns,
+        ).returning(ExecutionNodeRecord)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def list_events(self, execution_id: str) -> list[ExecutionEventRecord]:
         result = await self.session.execute(

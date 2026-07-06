@@ -16,10 +16,13 @@ from src.dataservice_client.contracts.execution import (
     ExecutionCreatePayload,
     ExecutionEventCreatePayload,
     ExecutionEventPayload,
+    ExecutionLeaseClaimPayload,
+    ExecutionLeaseHeartbeatPayload,
     ExecutionNodePatchPayload,
     ExecutionNodePayload,
     ExecutionNodeUpsertPayload,
     ExecutionPayload,
+    ExecutionResultPatchPayload,
     ExecutionUpdatePayload,
     GenerationRecordCreatePayload,
     GenerationRecordPayload,
@@ -88,6 +91,51 @@ class ExecutionDataServiceClientMixin:
         )
         data = payload.get("data")
         return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def patch_execution_result(
+        self,
+        execution_id: str,
+        command: ExecutionResultPatchPayload,
+    ) -> ExecutionPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/executions/{execution_id}/result",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def claim_execution_lease(
+        self,
+        execution_id: str,
+        command: ExecutionLeaseClaimPayload,
+    ) -> dict[str, Any]:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/lease-claim",
+            json=command.model_dump(mode="json"),
+        )
+        data = dict(payload.get("data") or {})
+        execution = data.get("execution")
+        if execution is not None:
+            data["execution"] = ExecutionPayload.model_validate(execution)
+        return data
+
+    async def heartbeat_execution_lease(
+        self,
+        execution_id: str,
+        command: ExecutionLeaseHeartbeatPayload,
+    ) -> dict[str, Any]:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/lease-heartbeat",
+            json=command.model_dump(mode="json"),
+        )
+        data = dict(payload.get("data") or {})
+        execution = data.get("execution")
+        if execution is not None:
+            data["execution"] = ExecutionPayload.model_validate(execution)
+        return data
 
     async def claim_execution_commit(
         self,

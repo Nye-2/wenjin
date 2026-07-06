@@ -8,6 +8,8 @@ from src.services.execution_service import ExecutionService
 class _FakeExecutionClient:
     def __init__(self) -> None:
         self.updated_payload = None
+        self.lease_claims = []
+        self.lease_heartbeats = []
         self.record = SimpleNamespace(
             id="exec-team",
             graph_structure={
@@ -39,6 +41,14 @@ class _FakeExecutionClient:
     async def list_execution_nodes_by_execution_ids(self, execution_ids: list[str]):
         assert execution_ids == ["exec-team"]
         return self.node_records
+
+    async def claim_execution_lease(self, execution_id: str, payload):
+        self.lease_claims.append((execution_id, payload))
+        return {"status": "claimed", "execution": self.record}
+
+    async def heartbeat_execution_lease(self, execution_id: str, payload):
+        self.lease_heartbeats.append((execution_id, payload))
+        return {"status": "heartbeat", "execution": self.record}
 
 
 @pytest.mark.asyncio
@@ -76,6 +86,32 @@ async def test_update_node_state_persists_team_node_metadata() -> None:
             },
         }
     }
+
+
+@pytest.mark.asyncio
+async def test_execution_service_forwards_worker_lease_calls() -> None:
+    client = _FakeExecutionClient()
+    service = ExecutionService(dataservice=client)  # type: ignore[arg-type]
+
+    claim = await service.claim_execution_lease(
+        execution_id="exec-team",
+        worker_id="worker-1",
+        ttl_seconds=90,
+    )
+    heartbeat = await service.heartbeat_execution_lease(
+        execution_id="exec-team",
+        worker_id="worker-1",
+        ttl_seconds=120,
+    )
+
+    assert claim["status"] == "claimed"
+    assert heartbeat["status"] == "heartbeat"
+    assert client.lease_claims[0][0] == "exec-team"
+    assert client.lease_claims[0][1].worker_id == "worker-1"
+    assert client.lease_claims[0][1].ttl_seconds == 90
+    assert client.lease_heartbeats[0][0] == "exec-team"
+    assert client.lease_heartbeats[0][1].worker_id == "worker-1"
+    assert client.lease_heartbeats[0][1].ttl_seconds == 120
 
 
 @pytest.mark.asyncio

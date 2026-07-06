@@ -30,6 +30,7 @@ function mockFetch(overrides?: Record<string, unknown>) {
       name: "Test Workspace",
       auto_compact_threshold: 0.8,
       default_model: "gpt-5.3-codex-spark",
+      write_mode: "ask_workspace_write",
     },
   };
   const responses = { ...defaults, ...overrides };
@@ -196,9 +197,14 @@ describe("SettingsPage", () => {
       "gpt-5.3-codex-spark",
     );
     expect(screen.getByText("GPT-5.3 Codex Spark")).toBeInTheDocument();
+    expect(screen.getByTestId("write-mode-ask_workspace_write")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
 
     const nameInput = screen.getByTestId("settings-name");
     fireEvent.change(nameInput, { target: { value: "My Workspace" } });
+    fireEvent.click(screen.getByTestId("write-mode-strict_review"));
 
     const saveButton = screen.getByTestId("settings-save");
     fireEvent.click(saveButton);
@@ -207,6 +213,19 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("settings-saved")).toHaveTextContent(
       "设置已保存",
     );
+    const putCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([url, init]) =>
+        String(url).includes("/api/workspaces/ws-1/settings") &&
+        (init as RequestInit | undefined)?.method === "PUT",
+    );
+    expect(putCall?.[1]).toMatchObject({
+      body: JSON.stringify({
+        name: "My Workspace",
+        auto_compact_threshold: 0.8,
+        default_model: "gpt-5.3-codex-spark",
+        write_mode: "strict_review",
+      }),
+    });
   });
 
   it("calls onClose when close button clicked", async () => {

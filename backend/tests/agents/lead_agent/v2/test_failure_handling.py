@@ -73,7 +73,9 @@ SINGLE_PHASE_TEMPLATE = {
     "phases": [
         {
             "name": "outline_phase",
-            "tasks": [{"name": "make_outline", "subagent_type": "react"}],
+            "tasks": [
+                {"name": "make_outline", "subagent_type": "react", "allow_skillless": True}
+            ],
         }
     ]
 }

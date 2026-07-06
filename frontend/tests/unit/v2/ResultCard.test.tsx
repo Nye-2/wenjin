@@ -17,14 +17,8 @@ beforeEach(() => {
     json: () =>
       Promise.resolve({
         committed: {},
-        commit_state: COMMITTED_STATE,
-        room_targets: {
-          prism: [{ output_id: "o3", item_id: "doc-77" }],
-          library: [{ output_id: "o1", item_id: "lib-88" }],
-          memory: [{ output_id: "o4", item_id: "mem-99" }],
-          decisions: [],
-          tasks: [],
-        },
+        commit_state: VISIBLE_COMMITTED_STATE,
+        room_targets: VISIBLE_COMMITTED_STATE.room_targets,
       }),
   });
   localStorage.clear();
@@ -89,17 +83,64 @@ const SAMPLE_DATA = {
   ],
 };
 
+const NO_OUTPUT_DATA = {
+  execution_id: "exec-1",
+  capability_name: "设置更新",
+  status: "completed" as const,
+  duration_seconds: 4,
+  narrative: "设置变更已准备好。",
+  outputs: [],
+};
+
 const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["o3"],
   rejected_ids: ["o1"],
-  counts: { library: 1, prism: 1, memory: 1, decisions: 0, tasks: 0 },
+  counts: {
+    library: 1,
+    prism: 1,
+    memory: 1,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
   room_targets: {
     prism: [{ output_id: "o3", item_id: "doc-77" }],
     library: [{ output_id: "o1", item_id: "lib-88" }],
     memory: [{ output_id: "o4", item_id: "mem-99" }],
     decisions: [],
     tasks: [],
+    sandbox: [],
+    settings: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const VISIBLE_COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["o1", "o2"],
+  rejected_ids: ["o3", "o4"],
+  counts: {
+    library: 2,
+    prism: 0,
+    memory: 0,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
+  room_targets: {
+    prism: [],
+    library: [
+      { output_id: "o1", item_id: "lib-88" },
+      { output_id: "o2", item_id: "lib-89" },
+    ],
+    memory: [],
+    decisions: [],
+    tasks: [],
+    sandbox: [],
+    settings: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -108,13 +149,23 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["o1", "o2", "o3", "o4"],
-  counts: { library: 0, prism: 0, memory: 0, decisions: 0, tasks: 0 },
+  counts: {
+    library: 0,
+    prism: 0,
+    memory: 0,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
   room_targets: {
     prism: [],
     library: [],
     memory: [],
     decisions: [],
     tasks: [],
+    sandbox: [],
+    settings: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -124,7 +175,15 @@ const REVERTED_STATE = {
   status: "reverted",
   reverted_at: "2026-06-20T00:01:00Z",
   reverted_by: "user-1",
-  revert_counts: { library: 1, prism: 1, memory: 1, decisions: 0, tasks: 0 },
+  revert_counts: {
+    library: 1,
+    prism: 1,
+    memory: 1,
+    decisions: 0,
+    tasks: 0,
+    sandbox: 0,
+    settings: 0,
+  },
 } as const;
 
 function seedExecutionResult(result: Record<string, unknown>) {
@@ -148,6 +207,67 @@ function seedExecutionResult(result: Record<string, unknown>) {
   useExecutionStore.getState().upsertExecution(record);
 }
 
+function makeResultChangeSet(outputId: string) {
+  return {
+    execution_id: "exec-1",
+    workspace_id: "ws-1",
+    write_mode: "ask_workspace_write",
+    summary: "Review concrete workspace writes.",
+    created_at: "2026-06-20T00:00:00Z",
+    units: [
+      {
+        id: "unit-doc-1",
+        target: {
+          room: "documents",
+          object_type: "document",
+          object_id: outputId,
+          path: "review.md",
+        },
+        action: "write_document_draft",
+        risk: "medium",
+        risk_reasons: ["document draft changes require review"],
+        default_apply_state: "staged",
+        requires_confirmation: true,
+        diff: { title: "Reviewed draft", summary: "Update draft" },
+        provenance: { output_id: outputId },
+        rollback: {},
+      },
+    ],
+  };
+}
+
+function makeMaterializedSettingsChangeSet() {
+  return {
+    execution_id: "exec-1",
+    workspace_id: "ws-1",
+    write_mode: "ask_workspace_write",
+    summary: "Review workspace setting updates.",
+    created_at: "2026-06-20T00:00:00Z",
+    units: [
+      {
+        id: "unit-settings-1",
+        target: {
+          room: "settings",
+          object_type: "workspace_settings",
+          object_id: "write_mode",
+        },
+        action: "update_workspace_settings",
+        risk: "medium",
+        risk_reasons: ["workspace write policy changes require review"],
+        default_apply_state: "staged",
+        requires_confirmation: true,
+        diff: { title: "写入前询问", summary: "启用工作区写入确认" },
+        provenance: { source_review_item_id: "settings-review-1" },
+        rollback: {},
+        materialization: {
+          operation: "settings.update",
+          payload: { write_mode: "ask_workspace_write" },
+        },
+      },
+    ],
+  };
+}
+
 describe("ResultCard", () => {
   it("renders a compact result package instead of a long in-chat list", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
@@ -155,11 +275,11 @@ describe("ResultCard", () => {
     expect(screen.getByText(/找到 15 篇相关文献/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "查看运行" })).toBeInTheDocument();
     expect(screen.getByText("文献资料")).toBeInTheDocument();
-    expect(screen.getByText("Prism 文件")).toBeInTheDocument();
+    expect(screen.getByText("文档文件")).toBeInTheDocument();
     expect(screen.queryByText("研究主题：联邦学习大模型")).not.toBeInTheDocument();
     expect(screen.getByText("Deep Learning")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.getByText("正在自动写入工作区...")).toBeInTheDocument();
+    expect(screen.getByText("可保存结果，也可查看运行详情")).toBeInTheDocument();
     expect(screen.queryByText("保存到工作区")).not.toBeInTheDocument();
   });
 
@@ -250,32 +370,243 @@ describe("ResultCard", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("auto-commits from the chat receipt when no run surface owns the execution", async () => {
+  it("does not auto-commit from the chat receipt when no run surface owns the execution", async () => {
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    await Promise.resolve();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(screen.getByText("可保存结果，也可查看运行详情")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存已确认结果（2 项）" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "打开已保存的 综述初稿" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("manually saves default-selected chat receipt outputs", async () => {
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（2 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
         "/api/executions/exec-1/commit",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ accept_all: true }),
+          body: JSON.stringify({ accepted_ids: ["o1", "o2"] }),
         }),
       ),
     );
-    await screen.findByText("3 项结果已写入");
-    expect(screen.getByRole("link", { name: "打开已保存的 综述初稿" })).toHaveAttribute(
-      "href",
-      "/workspaces/ws-1/prism?file_id=doc-77",
+    expect(await screen.findByText("2 项结果已写入")).toBeInTheDocument();
+    const libraryLink = screen.getByRole("link", { name: "打开已保存的 Deep Learning" });
+    const libraryUrl = new URL(
+      libraryLink.getAttribute("href")!,
+      "https://example.test",
+    );
+    expect(libraryUrl.pathname).toBe("/workspaces/ws-1");
+    expect(libraryUrl.searchParams.get("room")).toBe("library");
+    expect(libraryUrl.searchParams.get("item_id")).toBe("lib-88");
+    expect(
+      screen.queryByRole("link", { name: "打开已保存的 综述初稿" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an inline error when manual chat receipt save has malformed commit_state", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              prism: "bad",
+            },
+          },
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（2 项）" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试保存（2 项）" })).toBeInTheDocument();
+  });
+
+  it("does not show the old save button before ChangeSet units are accepted", () => {
+    seedExecutionResult({ change_set: makeResultChangeSet("o3") });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    expect(screen.queryByRole("button", { name: /保存已确认结果/ })).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("saves default-unchecked outputs after their ChangeSet units are accepted", async () => {
+    seedExecutionResult({
+      change_set: makeResultChangeSet("o3"),
+      change_set_review_state: {
+        schema_version: "wenjin.change_set.review_state.v1",
+        accepted_unit_ids: ["unit-doc-1"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+        updated_at: "2026-06-20T00:00:02Z",
+      },
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: COMMITTED_STATE,
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ accepted_unit_ids: ["unit-doc-1"] }),
+        }),
+      ),
     );
   });
 
-  it("lets the run surface handle auto-commit when an execution record is already present", async () => {
+  it("saves accepted materialized ChangeSet units without historical output ids", async () => {
+    seedExecutionResult({
+      change_set: makeMaterializedSettingsChangeSet(),
+      change_set_review_state: {
+        schema_version: "wenjin.change_set.review_state.v1",
+        accepted_unit_ids: ["unit-settings-1"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+        updated_at: "2026-06-20T00:00:02Z",
+      },
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            status: "committed",
+            accepted_ids: ["unit-settings-1"],
+            rejected_ids: [],
+            counts: {
+              library: 0,
+              prism: 0,
+              memory: 0,
+              decisions: 0,
+              tasks: 0,
+              sandbox: 0,
+              settings: 1,
+            },
+            room_targets: {
+              prism: [],
+              library: [],
+              memory: [],
+              decisions: [],
+              tasks: [],
+              sandbox: [],
+              settings: [
+                { output_id: "unit-settings-1", item_id: "ws-1" },
+              ],
+            },
+            committed_at: "2026-06-20T00:00:00Z",
+          },
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ accepted_unit_ids: ["unit-settings-1"] }),
+        }),
+      ),
+    );
+  });
+
+  it("saves accepted materialized ChangeSet units when the result card has no visible previews", async () => {
+    seedExecutionResult({
+      change_set: makeMaterializedSettingsChangeSet(),
+      change_set_review_state: {
+        schema_version: "wenjin.change_set.review_state.v1",
+        accepted_unit_ids: ["unit-settings-1"],
+        rejected_unit_ids: [],
+        undone_unit_ids: [],
+        updated_at: "2026-06-20T00:00:02Z",
+      },
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            status: "committed",
+            accepted_ids: ["unit-settings-1"],
+            rejected_ids: [],
+            counts: {
+              library: 0,
+              prism: 0,
+              memory: 0,
+              decisions: 0,
+              tasks: 0,
+              sandbox: 0,
+              settings: 1,
+            },
+            room_targets: {
+              prism: [],
+              library: [],
+              memory: [],
+              decisions: [],
+              tasks: [],
+              sandbox: [],
+              settings: [
+                { output_id: "unit-settings-1", item_id: "ws-1" },
+              ],
+            },
+            committed_at: "2026-06-20T00:00:00Z",
+          },
+        }),
+    });
+
+    render(<ResultCard data={NO_OUTPUT_DATA} workspaceId="ws-1" />);
+
+    expect(screen.getByText("1 项结果待审核保存")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/commit",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ accepted_unit_ids: ["unit-settings-1"] }),
+        }),
+      ),
+    );
+    expect(await screen.findByText("1 项结果已写入")).toBeInTheDocument();
+  });
+
+  it("does not auto-commit when an execution record is already present", async () => {
     seedExecutionResult({});
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    expect(screen.getByText("正在自动写入工作区...")).toBeInTheDocument();
-    await waitFor(() => expect(mockFetch).not.toHaveBeenCalled());
+    expect(screen.getByText("可保存结果，也可查看运行详情")).toBeInTheDocument();
+    await Promise.resolve();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("requires manual review before saving partial execution outputs", () => {
@@ -540,7 +871,7 @@ describe("ResultCard", () => {
     expect(screen.getByText("结果有 1 项可查看")).toBeInTheDocument();
     expect(screen.getByText("Accept sandbox artifact: sandbox_report")).toBeInTheDocument();
     expect(screen.getByText("/workspace/reports/analysis.md")).toBeInTheDocument();
-    expect(screen.queryByText(/Prism 有/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/文档编辑器有/)).not.toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "预览待确认修改" }),
     ).not.toBeInTheDocument();

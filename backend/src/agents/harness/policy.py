@@ -108,12 +108,13 @@ def _capability_tools(policy: dict[str, Any]) -> tuple[str, ...]:
         policy.get("allowed_tools")
         or policy.get("capability_tools")
         or policy.get("tools")
+        or _tool_policy(policy).get("allowed_tools")
         or _runtime_policy(policy).get("allowed_tools")
     )
     explicit = _string_tuple(raw)
     if explicit:
         return explicit
-    return _tools_for_sandbox_operations(_sandbox_allowed_operations(policy))
+    return _tools_for_sandbox_policy(_sandbox_policy(policy))
 
 
 def _requested_tools(ctx: HarnessRunContext) -> tuple[str, ...]:
@@ -179,6 +180,11 @@ def _runtime_policy(policy: dict[str, Any]) -> dict[str, Any]:
     return runtime if isinstance(runtime, dict) else {}
 
 
+def _tool_policy(policy: dict[str, Any]) -> dict[str, Any]:
+    tool_policy = policy.get("tool_policy")
+    return tool_policy if isinstance(tool_policy, dict) else {}
+
+
 def _sandbox_policy(policy: dict[str, Any]) -> dict[str, Any]:
     sandbox = policy.get("sandbox_policy")
     return sandbox if isinstance(sandbox, dict) else {}
@@ -188,8 +194,12 @@ def _sandbox_allowed_operations(policy: dict[str, Any]) -> frozenset[str]:
     return frozenset(_string_set(_sandbox_policy(policy).get("allowed_operations")))
 
 
-def _tools_for_sandbox_operations(operations: frozenset[str]) -> tuple[str, ...]:
+def _tools_for_sandbox_policy(sandbox_policy: dict[str, Any]) -> tuple[str, ...]:
+    operations = frozenset(_string_set(sandbox_policy.get("allowed_operations")))
+    mode = str(sandbox_policy.get("mode") or "").strip().lower()
     tools: list[str] = []
+    if mode == "required":
+        tools.extend(sorted(READ_ONLY_TOOLS))
     if "run_python" in operations:
         tools.append("sandbox.run_python")
     if "render_figures" in operations:

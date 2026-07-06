@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
+from src.contracts.change_set import normalize_write_mode
 from src.database.models.workspace import Workspace
 from src.database.models.workspace_settings import WorkspaceSettings
 from src.dataservice.common.errors import DataServiceConflictError, DataServiceNotFoundError
@@ -20,7 +21,11 @@ from src.dataservice.domains.workspace.contracts import (
     WorkspaceStatsRecord,
     WorkspaceUpdateCommand,
 )
-from src.dataservice.domains.workspace.policies import normalize_workspace_type, with_rollout_defaults
+from src.dataservice.domains.workspace.policies import (
+    normalize_workspace_type,
+    with_workspace_settings_defaults,
+    with_write_mode_default,
+)
 from src.dataservice.domains.workspace.repository import WorkspaceRepository
 
 _WORKSPACE_SETTINGS_DEFAULTS: dict[str, Any] = {
@@ -28,7 +33,7 @@ _WORKSPACE_SETTINGS_DEFAULTS: dict[str, Any] = {
     "sandbox_provider": "local",
     "auto_compact_threshold": 0.8,
     "capability_overrides": {},
-    "settings_json": {},
+    "settings_json": {"write_mode": "auto_draft"},
     "metadata_json": {},
 }
 
@@ -42,7 +47,7 @@ class DataServiceWorkspaceService:
         self.repository = WorkspaceRepository(session)
 
     async def create_workspace(self, command: WorkspaceCreateCommand) -> Workspace:
-        settings_json = with_rollout_defaults(command.workspace_type, command.settings_json)
+        settings_json = with_workspace_settings_defaults(command.workspace_type, command.settings_json)
         workspace = self.repository.create_workspace(
             created_by_user_id=command.created_by_user_id,
             name=command.name,
@@ -139,7 +144,7 @@ class DataServiceWorkspaceService:
             workspace.description = command.description
 
         if command.settings_json is not None:
-            next_settings = with_rollout_defaults(command.workspace_type or workspace.type, command.settings_json)
+            next_settings = with_workspace_settings_defaults(command.workspace_type or workspace.type, command.settings_json)
             workspace.config = next_settings
             settings = workspace.__dict__.get("settings")
             if settings is not None and hasattr(settings, "settings_json"):
@@ -212,12 +217,17 @@ class DataServiceWorkspaceService:
             "sandbox_provider",
             "auto_compact_threshold",
             "capability_overrides",
-            "settings_json",
             "metadata_json",
         ):
             if field in command.model_fields_set:
                 value = getattr(command, field)
                 setattr(settings, field, dict(value) if isinstance(value, dict) else value)
+        if "settings_json" in command.model_fields_set:
+            settings.settings_json = with_write_mode_default(command.settings_json)
+        if "write_mode" in command.model_fields_set and command.write_mode is not None:
+            next_settings_json = with_write_mode_default(settings.settings_json)
+            next_settings_json["write_mode"] = normalize_write_mode(command.write_mode)
+            settings.settings_json = next_settings_json
         if self.autocommit:
             await self.session.commit()
             await self.session.refresh(settings)
@@ -239,6 +249,7 @@ class DataServiceWorkspaceService:
         settings = workspace.__dict__.get("settings")
         if settings is not None and isinstance(getattr(settings, "settings_json", None), dict):
             settings_json = dict(settings.settings_json)
+        settings_json = with_workspace_settings_defaults(workspace.type, settings_json)
         return WorkspaceRecord(
             id=str(workspace.id),
             created_by_user_id=str(workspace.user_id),
@@ -254,6 +265,7 @@ class DataServiceWorkspaceService:
 
     @staticmethod
     def to_settings_record(settings: WorkspaceSettings) -> WorkspaceSettingsRecord:
+        settings_json = with_write_mode_default(settings.settings_json)
         return WorkspaceSettingsRecord(
             workspace_id=str(settings.workspace_id),
             default_model=settings.default_model,
@@ -261,7 +273,8 @@ class DataServiceWorkspaceService:
             sandbox_provider=settings.sandbox_provider,
             auto_compact_threshold=float(settings.auto_compact_threshold),
             capability_overrides=dict(settings.capability_overrides or {}),
-            settings_json=dict(settings.settings_json or {}),
+            settings_json=settings_json,
+            write_mode=settings_json["write_mode"],
             metadata_json=dict(settings.metadata_json or {}),
             created_at=settings.created_at,
             updated_at=settings.updated_at,
@@ -271,6 +284,6 @@ class DataServiceWorkspaceService:
 def _default_workspace_settings_values() -> dict[str, Any]:
     values = dict(_WORKSPACE_SETTINGS_DEFAULTS)
     values["capability_overrides"] = {}
-    values["settings_json"] = {}
+    values["settings_json"] = dict(_WORKSPACE_SETTINGS_DEFAULTS["settings_json"])
     values["metadata_json"] = {}
     return values

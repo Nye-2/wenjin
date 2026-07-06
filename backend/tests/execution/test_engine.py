@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.agents.contracts.task_report import TaskReport
+from src.agents.contracts.task_report import DocumentData, DocumentOutput, TaskReport
 from src.execution.engine import ExecutionEngineV2
 
 # ---------------------------------------------------------------------------
@@ -131,6 +131,70 @@ async def test_engine_runs_lead_agent_and_marks_complete():
             "artifact_count": 0,
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_engine_complete_payload_includes_change_set_json():
+    """Completed executions expose the ChangeSet projection in the persisted result payload."""
+    record = _make_execution_record()
+    record.params["write_mode"] = "auto_draft"
+    report = _make_task_report()
+    report.outputs = [
+        DocumentOutput(
+            id="doc-1",
+            kind="document",
+            preview="Draft introduction",
+            data=DocumentData(name="intro.md", doc_kind="draft", content="# Intro"),
+        )
+    ]
+
+    execution_svc = _make_execution_service(record=record)
+    runtime = _make_runtime(report=report)
+
+    engine = ExecutionEngineV2(
+        runtime=runtime,
+        execution_service=execution_svc,
+    )
+
+    await engine.run("exec-001")
+
+    complete_result = execution_svc.complete_execution.await_args.kwargs["result"]
+    assert complete_result["change_set"]["execution_id"] == "exec-001"
+    assert complete_result["change_set"]["workspace_id"] == "ws-001"
+    assert complete_result["change_set"]["write_mode"] == "auto_draft"
+    assert complete_result["change_set"]["units"][0]["id"] == "output-doc-1"
+    assert complete_result["change_set"]["units"][0]["default_apply_state"] == "staged"
+
+
+@pytest.mark.asyncio
+async def test_engine_change_set_projection_failure_does_not_fail_completion():
+    """ChangeSet is a result projection; projection failures should not fail the run."""
+    record = _make_execution_record()
+    record.params["write_mode"] = "invalid-mode"
+    report = _make_task_report()
+    report.outputs = [
+        DocumentOutput(
+            id="doc-1",
+            kind="document",
+            preview="Draft introduction",
+            data=DocumentData(name="intro.md", doc_kind="draft", content="# Intro"),
+        )
+    ]
+
+    execution_svc = _make_execution_service(record=record)
+    runtime = _make_runtime(report=report)
+
+    engine = ExecutionEngineV2(
+        runtime=runtime,
+        execution_service=execution_svc,
+    )
+
+    await engine.run("exec-001")
+
+    complete_result = execution_svc.complete_execution.await_args.kwargs["result"]
+    assert "task_report" in complete_result
+    assert "change_set" not in complete_result
+    assert execution_svc.complete_execution.await_args.kwargs["status"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -549,6 +613,35 @@ async def test_engine_persists_cancelled_status_from_runtime_report():
         if call.args[1] == "execution.run_history"
     )
     assert run_history_call.kwargs["payload_json"]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_engine_does_not_run_runtime_after_pre_start_cancel_ack():
+    """If start_execution observes a prior cancellation, the engine must stop before runtime."""
+    record = _make_execution_record()
+    cancelled_record = SimpleNamespace(status="cancelled")
+
+    execution_svc = _make_execution_service(record=record)
+    execution_svc.start_execution = AsyncMock(return_value=cancelled_record)
+    runtime = _make_runtime()
+
+    engine = ExecutionEngineV2(
+        runtime=runtime,
+        execution_service=execution_svc,
+    )
+
+    await engine.run("exec-001")
+
+    execution_svc.start_execution.assert_called_once_with("exec-001")
+    runtime.run_session.assert_not_called()
+    execution_svc.complete_execution.assert_not_called()
+    execution_svc.append_execution_event.assert_awaited_once_with(
+        "exec-001",
+        "execution.status",
+        workspace_id="ws-001",
+        node_id=None,
+        payload_json={"status": "cancelled"},
+    )
 
 
 # ---------------------------------------------------------------------------

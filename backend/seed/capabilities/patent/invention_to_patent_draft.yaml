@@ -185,6 +185,30 @@ quality_gates:
 - embodiments_enable_claim_features
 - drawings_reference_numerals_consistent
 - novelty_risk_logged
+research_evidence:
+  review_packet: required
+  required_surfaces:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - citation_strength
+  - writing_semantic_preservation
+  - prior_art_provenance
+  - claim_support
+  - enablement_support
+  - drawing_consistency
+  surface_enforcement:
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    citation_strength: required_runtime
+    writing_semantic_preservation: required_final
+    prior_art_provenance: required_runtime
+    claim_support: required_final
+    enablement_support: required_final
+    drawing_consistency: required_final
+  notes:
+  - The patent draft must tie prior art, claim terms, novelty distinctions, embodiments, enablement support, and drawing references to user-provided disclosure or sourced evidence instead of unsupported legal-sounding prose.
 graph_template:
   phases:
   - name: step_01_patent_strategist

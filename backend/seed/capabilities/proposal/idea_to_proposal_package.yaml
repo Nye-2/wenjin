@@ -181,6 +181,28 @@ quality_gates:
 - review_criteria_explicitly_addressed
 - feasibility_risk_mitigation_included
 - milestones_and_deliverables_traceable
+research_evidence:
+  review_packet: required
+  required_surfaces:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - writing_semantic_preservation
+  - writing_academic_style
+  - feasibility_evidence
+  - risk_evidence
+  - milestone_realism
+  surface_enforcement:
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    writing_semantic_preservation: required_final
+    writing_academic_style: required_final
+    feasibility_evidence: required_final
+    risk_evidence: required_final
+    milestone_realism: required_final
+  notes:
+  - The proposal package must preserve objective-method-metric alignment, expose unsupported feasibility/risk claims, validate milestone realism, and produce reviewer-facing evidence before staging draft text.
 graph_template:
   phases:
   - name: step_01_grant_planner

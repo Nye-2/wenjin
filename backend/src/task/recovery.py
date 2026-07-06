@@ -13,7 +13,7 @@ async def reconcile_interrupted_tasks() -> int:
     """Reconcile interrupted execution state after process restarts.
 
     Execution runs are execution-first, so startup recovery must ensure no
-    stale `pending` / `running` / `cancelling` rows survive a restart forever.
+    stale missing-lease or expired-lease execution rows survive a restart forever.
     """
     if not celery_settings.enabled:
         logger.warning(

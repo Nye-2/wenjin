@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import type { ExecutionRecord, WorkspacePrismReviewItem } from "@/lib/api/types";
+import type { RunViewChangeSet } from "@/lib/change-set-view";
 import { runViewFromExecution } from "@/lib/execution-run-view";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import type { WorkbenchTab } from "@/stores/workbench-layout-store";
@@ -25,6 +26,7 @@ export interface LiveWorkflowViewModel {
   evidenceItems: EvidenceItem[];
   selectedPreview: WorkspaceResultPreview | null;
   runningRecord: ExecutionRecord | null;
+  changeSet: RunViewChangeSet | null;
   pendingReviewCount: number;
   sandboxCount: number;
 }
@@ -95,11 +97,13 @@ export function resolveAutoWorkbenchTab({
   previews,
   reviewItems,
   evidenceItems,
+  pendingReviewCount = 0,
 }: {
   selectedRecord: ExecutionRecord | null;
   previews: WorkspaceResultPreview[];
   reviewItems: WorkspacePrismReviewItem[];
   evidenceItems: EvidenceItem[];
+  pendingReviewCount?: number;
 }): WorkbenchTab {
   if (!selectedRecord) {
     return "overview";
@@ -107,7 +111,7 @@ export function resolveAutoWorkbenchTab({
   if (!isTerminalStatus(selectedRecord.status)) {
     return "run";
   }
-  if (previews.length > 0 || reviewItems.length > 0) {
+  if (pendingReviewCount > 0 || previews.length > 0 || reviewItems.length > 0) {
     return "review";
   }
   if (evidenceItems.length > 0) {
@@ -134,6 +138,7 @@ export function buildLiveWorkflowViewModel(
   const previews = runView?.resultPreviews ?? [];
   const reviewItems = runView?.reviewItems ?? [];
   const evidenceItems = runView?.evidenceItems ?? [];
+  const changeSet = runView?.changeSet ?? null;
   const selectedPreview =
     previews.find((preview) => preview.id === input.selectedPreviewId) ??
     previews[0] ??
@@ -152,6 +157,7 @@ export function buildLiveWorkflowViewModel(
     evidenceItems,
     selectedPreview,
     runningRecord,
+    changeSet,
     pendingReviewCount,
     sandboxCount,
   };

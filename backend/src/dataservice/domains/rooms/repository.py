@@ -31,6 +31,40 @@ class RoomsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_decision_by_review_source(
+        self,
+        *,
+        workspace_id: str,
+        source_review_batch_id: str,
+        source_review_item_id: str,
+    ) -> DecisionRecord | None:
+        result = await self.session.execute(
+            select(DecisionRecord).where(
+                DecisionRecord.workspace_id == workspace_id,
+                DecisionRecord.source_review_batch_id == source_review_batch_id,
+                DecisionRecord.source_review_item_id == source_review_item_id,
+                DecisionRecord.deleted_at.is_(None),
+            ).order_by(DecisionRecord.created_at.asc())
+        )
+        return result.scalars().first()
+
+    async def get_decision_by_extracted_by(
+        self,
+        *,
+        workspace_id: str,
+        key: str,
+        extracted_by: str,
+    ) -> DecisionRecord | None:
+        result = await self.session.execute(
+            select(DecisionRecord).where(
+                DecisionRecord.workspace_id == workspace_id,
+                DecisionRecord.key == key,
+                DecisionRecord.extracted_by == extracted_by,
+                DecisionRecord.deleted_at.is_(None),
+            ).order_by(DecisionRecord.created_at.asc())
+        )
+        return result.scalars().first()
+
     def create_decision(self, values: dict[str, Any]) -> DecisionRecord:
         record = DecisionRecord(id=generate_uuid(), **values)
         self.session.add(record)
@@ -65,6 +99,40 @@ class RoomsRepository:
         record = WorkspaceTaskRecord(id=generate_uuid(), **values)
         self.session.add(record)
         return record
+
+    async def get_workspace_task_by_review_source(
+        self,
+        *,
+        workspace_id: str,
+        source_review_batch_id: str,
+        source_review_item_id: str,
+    ) -> WorkspaceTaskRecord | None:
+        result = await self.session.execute(
+            select(WorkspaceTaskRecord).where(
+                WorkspaceTaskRecord.workspace_id == workspace_id,
+                WorkspaceTaskRecord.source_review_batch_id == source_review_batch_id,
+                WorkspaceTaskRecord.source_review_item_id == source_review_item_id,
+                WorkspaceTaskRecord.deleted_at.is_(None),
+            ).order_by(WorkspaceTaskRecord.created_at.asc())
+        )
+        return result.scalars().first()
+
+    async def get_workspace_task_by_created_by(
+        self,
+        *,
+        workspace_id: str,
+        title: str,
+        created_by: str,
+    ) -> WorkspaceTaskRecord | None:
+        result = await self.session.execute(
+            select(WorkspaceTaskRecord).where(
+                WorkspaceTaskRecord.workspace_id == workspace_id,
+                WorkspaceTaskRecord.title == title,
+                WorkspaceTaskRecord.created_by == created_by,
+                WorkspaceTaskRecord.deleted_at.is_(None),
+            ).order_by(WorkspaceTaskRecord.created_at.asc())
+        )
+        return result.scalars().first()
 
     async def get_workspace_task(
         self,

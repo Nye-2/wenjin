@@ -17,10 +17,15 @@ from src.agents.contracts.task_report import TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.billing.reservation_metadata import reservation_id_from_params
 from src.dataservice_client.provider import dataservice_client
+from src.services.change_set_service import build_change_set_from_task_report
 from src.services.thread_billing import normalize_token_usage
 from src.services.workspace_prism_service import WorkspacePrismService
 
 logger = logging.getLogger(__name__)
+
+
+def _execution_status(record: Any) -> str:
+    return str(getattr(record, "status", "") or "").strip()
 
 
 class ExecutionEngineV2:
@@ -68,7 +73,16 @@ class ExecutionEngineV2:
         if execution is None:
             raise ValueError(f"execution {execution_id} not found")
 
-        await self._mark_running(execution_id)
+        started_execution = await self._mark_running(execution_id)
+        started_status = _execution_status(started_execution)
+        if started_status in {"cancelling", "cancelled"}:
+            await self._append_execution_event(
+                execution_id,
+                "execution.status",
+                workspace_id=execution.workspace_id,
+                payload_json={"status": started_status},
+            )
+            return
         await self._append_execution_event(
             execution_id,
             "execution.status",
@@ -96,6 +110,8 @@ class ExecutionEngineV2:
                 await self._mark_complete(
                     execution_id,
                     report,
+                    workspace_id=str(execution.workspace_id or brief.workspace_id or "").strip(),
+                    write_mode=execution.params.get("write_mode"),
                     billing_metadata=billing_metadata,
                 )
             except Exception:
@@ -150,8 +166,8 @@ class ExecutionEngineV2:
             )
             raise
 
-    async def _mark_running(self, execution_id: str) -> None:
-        await self.execution_service.start_execution(execution_id)
+    async def _mark_running(self, execution_id: str) -> Any | None:
+        return await self.execution_service.start_execution(execution_id)
 
     async def _attach_manuscript_context(
         self,
@@ -394,10 +410,28 @@ class ExecutionEngineV2:
         execution_id: str,
         report: TaskReport,
         *,
+        workspace_id: str,
+        write_mode: Any = None,
         billing_metadata: dict[str, Any] | None = None,
     ) -> None:
         # complete_execution signature: (execution_id, *, status, result, error, result_summary, commit)
         result_payload: dict[str, Any] = {"task_report": report.model_dump(mode="json")}
+        if workspace_id:
+            try:
+                change_set = build_change_set_from_task_report(
+                    report,
+                    workspace_id=workspace_id,
+                    write_mode=write_mode,
+                )
+            except Exception:
+                logger.warning(
+                    "failed to build execution change set projection",
+                    extra={"execution_id": execution_id},
+                    exc_info=True,
+                )
+            else:
+                if change_set is not None:
+                    result_payload["change_set"] = change_set.model_dump(mode="json")
         normalized_usage = normalize_token_usage(report.token_usage)
         if normalized_usage is not None:
             result_payload["token_usage"] = normalized_usage.as_dict()
