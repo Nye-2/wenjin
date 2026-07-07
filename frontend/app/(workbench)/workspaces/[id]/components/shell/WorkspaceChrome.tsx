@@ -2,10 +2,11 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Archive, BookOpenText, PanelsTopLeft } from "lucide-react";
+import { Archive, BookOpenText, Eye, PanelsTopLeft } from "lucide-react";
 
 import { CountBadge } from "@/components/ui/count-badge";
 import { StatusChip } from "@/components/ui/status-chip";
+import { useWenjinThemeStore } from "@/stores/wenjin-theme-store";
 
 export type WorkspaceSurface = "workbench" | "prism";
 
@@ -26,14 +27,18 @@ export function WorkspaceChrome({
   activeRunCount: number;
   onOpenHub: () => void;
 }) {
+  const theme = useWenjinThemeStore((state) => state.theme);
+  const toggleTheme = useWenjinThemeStore((state) => state.toggleTheme);
+  const isGraphite = theme === "graphite";
+
   return (
     <header className="wjn-topbar flex shrink-0 items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4">
       <Link
         href="/workspaces"
         aria-label="Wenjin"
-        className="flex min-w-0 shrink-0 items-center gap-3 rounded-[var(--wjn-radius)] text-[var(--wjn-text)] no-underline outline-none transition-colors hover:text-[var(--wjn-blue)] focus-visible:ring-2 focus-visible:ring-[var(--wjn-accent-line)]"
+        className="flex min-w-0 shrink-0 items-center gap-3 rounded-[var(--wjn-radius)] text-[var(--wjn-text)] no-underline outline-none transition-colors hover:text-[var(--wjn-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--wjn-accent-line)]"
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border border-[rgba(255,255,255,0.56)] bg-[linear-gradient(145deg,var(--wjn-navy),var(--wjn-blue)_72%,#4d78b9)] text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(44,93,160,0.20)]">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border border-[var(--wjn-accent-line)] bg-[var(--wjn-navy)] text-[13px] font-semibold text-white shadow-[var(--wjn-shadow-sm)]">
           问
         </div>
         <div className="hidden min-w-0 sm:block">
@@ -63,7 +68,7 @@ export function WorkspaceChrome({
         <nav
           role="tablist"
           aria-label="工作空间表面"
-          className="flex shrink-0 items-center gap-1 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-white p-1 shadow-[var(--wjn-shadow-sm)]"
+          className="flex shrink-0 items-center gap-1 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-1 shadow-[var(--wjn-shadow-sm)]"
         >
           <SurfaceTab
             href={`/workspaces/${workspaceId}`}
@@ -81,6 +86,17 @@ export function WorkspaceChrome({
         </nav>
         <button
           type="button"
+          aria-label={isGraphite ? "切换到标准模式" : "切换到护眼模式"}
+          title={isGraphite ? "切换到标准模式" : "切换到护眼模式"}
+          aria-pressed={isGraphite}
+          onClick={toggleTheme}
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 text-xs font-semibold text-[var(--wjn-text-secondary)] shadow-[var(--wjn-shadow-sm)] transition-colors hover:border-[var(--wjn-accent-line)] hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-text)]"
+        >
+          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="hidden sm:inline">{isGraphite ? "标准" : "护眼"}</span>
+        </button>
+        <button
+          type="button"
           aria-label={
             pendingReviewCount > 0
               ? `资料库，${pendingReviewCount} 项待复核`
@@ -92,7 +108,7 @@ export function WorkspaceChrome({
               : "资料库"
           }
           onClick={onOpenHub}
-          className="relative inline-flex h-9 items-center gap-2 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-white px-3 text-xs font-semibold text-[var(--wjn-text-secondary)] shadow-[var(--wjn-shadow-sm)] transition-colors hover:border-[var(--wjn-accent-line)] hover:text-[var(--wjn-text)]"
+          className="relative inline-flex h-9 shrink-0 items-center gap-2 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 text-xs font-semibold text-[var(--wjn-text-secondary)] shadow-[var(--wjn-shadow-sm)] transition-colors hover:border-[var(--wjn-accent-line)] hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-text)]"
         >
           <Archive className="h-3.5 w-3.5" aria-hidden="true" />
           <span className="hidden sm:inline">资料库</span>
@@ -126,7 +142,7 @@ function SurfaceTab({
         "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--wjn-radius)] px-3 text-[12.5px] font-semibold transition-colors",
         active
           ? "bg-[var(--wjn-accent-soft)] text-[var(--wjn-accent-strong)]"
-          : "text-[var(--wjn-text-secondary)] hover:bg-[rgba(15,23,42,0.05)] hover:text-[var(--wjn-text)]",
+          : "text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-text)]",
       ].join(" ")}
     >
       {icon}

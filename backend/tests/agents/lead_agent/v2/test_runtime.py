@@ -91,6 +91,54 @@ def test_capability_policy_preserves_research_evidence_contract() -> None:
     }
 
 
+def test_capability_policy_preserves_methodology_contract() -> None:
+    capability = SimpleNamespace(
+        definition_json={
+            "methodology": {
+                "archetype": "literature_survey",
+                "stages": [
+                    {
+                        "id": "triage",
+                        "purpose": "screen sources before deep synthesis",
+                        "required_artifacts": ["triage_table"],
+                    }
+                ],
+                "claim_policy": {
+                    "mode": "two_pass",
+                    "extraction_artifact": "claim_inventory",
+                    "verification_artifact": "claim_evidence_map",
+                },
+                "retrieval_policy": {
+                    "escalation": ["workspace_library_exact", "workspace_library_bm25"],
+                },
+                "completion_gates": ["claim_evidence_alignment"],
+            }
+        }
+    )
+
+    policy = LeadAgentRuntime._capability_policy(capability)
+
+    assert policy["methodology"] == {
+        "archetype": "literature_survey",
+        "stages": [
+            {
+                "id": "triage",
+                "purpose": "screen sources before deep synthesis",
+                "required_artifacts": ["triage_table"],
+            }
+        ],
+        "claim_policy": {
+            "mode": "two_pass",
+            "extraction_artifact": "claim_inventory",
+            "verification_artifact": "claim_evidence_map",
+        },
+        "retrieval_policy": {
+            "escalation": ["workspace_library_exact", "workspace_library_bm25"],
+        },
+        "completion_gates": ["claim_evidence_alignment"],
+    }
+
+
 @pytest.mark.asyncio
 async def test_static_graph_preflight_fails_when_task_skill_is_missing() -> None:
     graph_template = {

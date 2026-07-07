@@ -211,6 +211,74 @@ research_evidence:
     writing_academic_style: required_final
   notes:
   - The manuscript workflow must stage Prism changes through review, preserve semantic meaning, improve academic style, and keep every claim aligned to Library-backed evidence.
+methodology:
+  archetype: paper_build
+  stages:
+  - id: project_context
+    purpose: Capture research question, contribution promise, target journal constraints, available materials, and known missing evidence.
+    required_artifacts:
+    - project_context
+    - missing_evidence_list
+    user_checkpoint: optional
+    quality_surfaces:
+    - review_packet_completeness
+  - id: architecture
+    purpose: Build the manuscript spine, section contracts, argument chain, and claim-evidence-citation plan before drafting.
+    required_artifacts:
+    - paper_spine
+    - section_contracts
+    - claim_inventory
+    quality_surfaces:
+    - claim_evidence_alignment
+  - id: evidence_probe
+    purpose: Check methods, results, figures, data/code readiness, and sandbox probe outputs without upgrading unverified probes into final empirical evidence.
+    required_artifacts:
+    - method_probe_plan
+    - evidence_gap_table
+    - reproducibility_notes
+    quality_surfaces:
+    - workflow_trace
+    - claim_evidence_alignment
+  - id: draft
+    purpose: Draft or update manuscript text from confirmed architecture, Library citations, evidence boundaries, and journal-aware section intent.
+    required_artifacts:
+    - manuscript_draft
+    - claim_evidence_map
+    quality_surfaces:
+    - writing_semantic_preservation
+    - writing_academic_style
+    - citation_strength
+  - id: audit_compress
+    purpose: Audit citation keys, unsupported claims, semantic preservation, academic style, and review packet readiness before staging Prism changes.
+    required_artifacts:
+    - citation_audit
+    - style_audit
+    - review_packet
+    user_checkpoint: required
+    quality_surfaces:
+    - review_packet_completeness
+    - claim_evidence_alignment
+    - citation_strength
+  claim_policy:
+    mode: two_pass
+    extraction_artifact: claim_inventory
+    verification_artifact: claim_evidence_map
+    unsupported_claim_behavior: mark_for_user_decision
+  retrieval_policy:
+    escalation:
+    - workspace_library_exact
+    - workspace_library_bm25
+    - workspace_library_semantic
+    - sandbox_artifact_lookup
+    - web_search_with_import
+    prefer_workspace_library: true
+    require_import_before_citation: true
+  completion_gates:
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - citation_strength
+  - writing_semantic_preservation
+  - writing_academic_style
 graph_template:
   phases:
   - name: step_01_manuscript_architect

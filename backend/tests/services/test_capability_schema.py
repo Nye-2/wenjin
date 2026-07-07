@@ -168,6 +168,71 @@ class TestCapabilityV2Yaml:
         with pytest.raises(ValidationError):
             CapabilityV2YamlModel(**payload)
 
+    def test_methodology_contract_round_trips_to_catalog_data(self):
+        payload = self._valid_payload()
+        payload["research_evidence"] = {
+            "required_surfaces": ["claim_evidence_alignment"],
+        }
+        payload["methodology"] = {
+            "archetype": "literature_survey",
+            "stages": [
+                {
+                    "id": "intent",
+                    "purpose": "clarify topic, scope, and target contribution",
+                    "required_artifacts": ["intent_brief"],
+                    "user_checkpoint": "optional",
+                    "quality_surfaces": ["review_packet_completeness"],
+                },
+                {
+                    "id": "synthesize",
+                    "purpose": "produce gap map and contribution candidates",
+                    "required_artifacts": ["gap_matrix", "claim_evidence_map"],
+                    "quality_surfaces": ["claim_evidence_alignment"],
+                },
+            ],
+            "claim_policy": {
+                "mode": "two_pass",
+                "extraction_artifact": "claim_inventory",
+                "verification_artifact": "claim_evidence_map",
+            },
+            "retrieval_policy": {
+                "escalation": [
+                    "workspace_library_exact",
+                    "workspace_library_bm25",
+                    "workspace_library_semantic",
+                    "web_search_with_import",
+                ],
+                "prefer_workspace_library": True,
+                "require_import_before_citation": True,
+            },
+            "completion_gates": ["claim_evidence_alignment"],
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+        data = model.to_catalog_data()
+
+        assert data["methodology"]["archetype"] == "literature_survey"
+        assert data["methodology"]["stages"][1]["required_artifacts"] == [
+            "gap_matrix",
+            "claim_evidence_map",
+        ]
+        assert data["methodology"]["claim_policy"]["mode"] == "two_pass"
+        assert data["methodology"]["completion_gates"] == ["claim_evidence_alignment"]
+
+    def test_methodology_two_pass_claim_policy_requires_audit_artifacts(self):
+        payload = self._valid_payload()
+        payload["methodology"] = {
+            "archetype": "citation_audit",
+            "claim_policy": {
+                "mode": "two_pass",
+                "extraction_artifact": "claim_inventory",
+            },
+            "retrieval_policy": {"escalation": ["workspace_library_exact"]},
+        }
+
+        with pytest.raises(ValidationError, match="two_pass"):
+            CapabilityV2YamlModel(**payload)
+
     def test_routing_contract_round_trips_to_catalog_data(self):
         payload = self._valid_payload()
         payload["routing"] = {

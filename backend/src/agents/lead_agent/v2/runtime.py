@@ -431,6 +431,7 @@ class LeadAgentRuntime:
             "review_policy": dict(definition.get("review_policy") or {}),
             "citation_policy": dict(definition.get("citation_policy") or {}),
             "research_evidence": dict(definition.get("research_evidence") or {}),
+            "methodology": dict(definition.get("methodology") or {}),
             "tool_policy": dict(definition.get("tool_policy") or {}),
             "runtime": dict(runtime),
             "allowed_tools": list(definition.get("allowed_tools") or []),

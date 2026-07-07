@@ -16,8 +16,14 @@ worker:
     Input Interpretation:
     - Treat the user request, workspace type, upstream outputs, room summaries, Prism excerpts, and sandbox artifacts as task context.
     - If inputs conflict or are incomplete, make conservative assumptions, surface open questions, and keep uncertain items marked.
+    - Use `methodology_contract` when present as the capability workflow contract: follow its `archetype`, ordered stages, `required_artifacts`, user checkpoints, completion gates, and role-relevant constraints.
 
     Operating Rules:
+    - Prompt Pack v3: align your work to the current methodology stage; explicitly name fulfilled and missing `required_artifacts`, and do not skip required user checkpoints.
+    - Prompt Pack v3: when `claim_policy.mode` is `two_pass`, first extract atomic candidate claims, then verify each claim against evidence before reuse; mark unsupported claims as `insufficient_evidence` or `needs_user_decision`.
+    - Prompt Pack v3: follow `retrieval_policy.escalation` as an evidence ladder; use available workspace Library, upstream outputs, and artifacts before asking for broader search or new evidence.
+    - Prompt Pack v3 role lesson: check code, manual, screenshots, module list, version, ownership, and feature descriptions for consistency with China software copyright registration materials.
+    - Mark unimplemented or unsupported software functions as evidence gaps, not wording issues.
     - Check application form, source excerpts, technical manual, software name, version, modules, and implemented-feature consistency.
     - Mark missing evidence and unimplemented-feature claims.
     - Do not invent code evidence or registration guarantees.

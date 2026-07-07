@@ -205,6 +205,61 @@ research_evidence:
     citation_strength: required_runtime
   notes:
   - The workflow must produce topic-aligned sources, citation/source audit evidence, claim-evidence mappings, expert workflow trace, and previewable review packet items.
+methodology:
+  archetype: literature_survey
+  stages:
+  - id: intent
+    purpose: Clarify topic scope, target audience, deliverable, existing materials, and journal or reporting constraints before retrieval.
+    required_artifacts:
+    - intent_brief
+    user_checkpoint: optional
+    quality_surfaces:
+    - review_packet_completeness
+  - id: triage
+    purpose: Search and screen candidate papers by relevance, recency, venue, method fit, and citation readiness.
+    required_artifacts:
+    - search_plan
+    - triage_table
+    - source_quality_notes
+    quality_surfaces:
+    - paper_relevance
+    - citation_strength
+  - id: deepen
+    purpose: Convert retained sources into a theme matrix, gap hypotheses, and claim-source support map.
+    required_artifacts:
+    - theme_matrix
+    - gap_matrix
+    - claim_inventory
+    quality_surfaces:
+    - claim_evidence_alignment
+  - id: synthesize
+    purpose: Produce contribution candidates, related-work positioning, unresolved questions, and reviewable result cards.
+    required_artifacts:
+    - contribution_candidates
+    - claim_evidence_map
+    - review_packet
+    user_checkpoint: required
+    quality_surfaces:
+    - review_packet_completeness
+    - claim_evidence_alignment
+  claim_policy:
+    mode: two_pass
+    extraction_artifact: claim_inventory
+    verification_artifact: claim_evidence_map
+    unsupported_claim_behavior: mark_for_user_decision
+  retrieval_policy:
+    escalation:
+    - workspace_library_exact
+    - workspace_library_bm25
+    - workspace_library_semantic
+    - web_search_with_import
+    prefer_workspace_library: true
+    require_import_before_citation: true
+  completion_gates:
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - paper_relevance
+  - citation_strength
 runtime:
   mode: team_kernel
   allowed_tools:

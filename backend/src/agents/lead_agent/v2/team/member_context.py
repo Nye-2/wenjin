@@ -139,6 +139,9 @@ def build_team_member_context(
     research_requirements = _research_evidence_requirements(capability_policy)
     if research_requirements:
         payload["research_evidence_requirements"] = research_requirements
+    methodology_contract = _methodology_contract(capability_policy)
+    if methodology_contract:
+        payload["methodology_contract"] = methodology_contract
     return payload
 
 
@@ -283,6 +286,100 @@ def _research_evidence_requirements(
         "runtime_enforced_surfaces": runtime_surfaces,
         "guidance": guidance[:10],
     }
+
+
+def _methodology_contract(
+    capability_policy: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    policy = capability_policy if isinstance(capability_policy, dict) else {}
+    methodology = policy.get("methodology")
+    if not isinstance(methodology, dict):
+        return None
+    archetype = _compact_text(methodology.get("archetype") or "")
+    stages = _methodology_stages(methodology.get("stages"))
+    claim_policy = _methodology_claim_policy(methodology.get("claim_policy"))
+    retrieval_policy = _methodology_retrieval_policy(methodology.get("retrieval_policy"))
+    completion_gates = _string_list(methodology.get("completion_gates"))[:_MAX_LIST_ITEMS]
+    if (
+        (not archetype or archetype == "none")
+        and not stages
+        and not claim_policy
+        and not retrieval_policy
+        and not completion_gates
+    ):
+        return None
+    result: dict[str, Any] = {
+        "schema": "wenjin.team.methodology_contract.v1",
+        "archetype": archetype or "none",
+    }
+    if stages:
+        result["stages"] = stages
+    if claim_policy:
+        result["claim_policy"] = claim_policy
+    if retrieval_policy:
+        result["retrieval_policy"] = retrieval_policy
+    if completion_gates:
+        result["completion_gates"] = completion_gates
+    return result
+
+
+def _methodology_stages(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list | tuple):
+        return []
+    stages: list[dict[str, Any]] = []
+    for item in value[:_MAX_LIST_ITEMS]:
+        if not isinstance(item, dict):
+            continue
+        stage_id = _compact_text(item.get("id") or "")
+        purpose = _compact_text(item.get("purpose") or "")
+        if not stage_id or not purpose:
+            continue
+        stage: dict[str, Any] = {
+            "id": stage_id,
+            "purpose": purpose,
+        }
+        required_artifacts = _string_list(item.get("required_artifacts"))[:_MAX_LIST_ITEMS]
+        if required_artifacts:
+            stage["required_artifacts"] = required_artifacts
+        user_checkpoint = _compact_text(item.get("user_checkpoint") or "")
+        if user_checkpoint and user_checkpoint != "none":
+            stage["user_checkpoint"] = user_checkpoint
+        quality_surfaces = _string_list(item.get("quality_surfaces"))[:_MAX_LIST_ITEMS]
+        if quality_surfaces:
+            stage["quality_surfaces"] = quality_surfaces
+        stages.append(stage)
+    return stages
+
+
+def _methodology_claim_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    mode = _compact_text(value.get("mode") or "")
+    if mode and mode != "none":
+        result["mode"] = mode
+    for key in (
+        "extraction_artifact",
+        "verification_artifact",
+        "unsupported_claim_behavior",
+    ):
+        text = _compact_text(value.get(key) or "")
+        if text:
+            result[key] = text
+    return result
+
+
+def _methodology_retrieval_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    escalation = _string_list(value.get("escalation"))[:_MAX_LIST_ITEMS]
+    if escalation:
+        result["escalation"] = escalation
+    for key in ("prefer_workspace_library", "require_import_before_citation"):
+        if isinstance(value.get(key), bool):
+            result[key] = value[key]
+    return result
 
 
 def _quality_repair_context(blackboard: TeamBlackboard) -> dict[str, Any] | None:

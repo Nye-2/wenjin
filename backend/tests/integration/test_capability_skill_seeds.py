@@ -325,6 +325,42 @@ def test_sample_capabilities_use_foundation_team_patterns():
         assert triggers.get("unsupported_claims")
 
 
+def test_sci_capability_methodology_samples_are_parseable_and_specific():
+    from src.services.capability_schema import CapabilityV2YamlModel
+
+    expected_stage_ids = {
+        "sci_literature_positioning": {
+            "archetype": "literature_survey",
+            "stages": {"intent", "triage", "deepen", "synthesize"},
+        },
+        "research_question_to_paper": {
+            "archetype": "paper_build",
+            "stages": {
+                "project_context",
+                "architecture",
+                "evidence_probe",
+                "draft",
+                "audit_compress",
+            },
+        },
+    }
+    by_id = {
+        yaml.safe_load(path.read_text())["id"]: path
+        for path in _collect_capability_files()
+    }
+    for capability_id, expected in expected_stage_ids.items():
+        data = yaml.safe_load(by_id[capability_id].read_text())
+        model = CapabilityV2YamlModel(**data)
+        methodology = model.methodology
+
+        assert methodology.archetype == expected["archetype"]
+        assert {stage.id for stage in methodology.stages} == expected["stages"]
+        assert methodology.claim_policy.mode == "two_pass"
+        assert methodology.claim_policy.extraction_artifact == "claim_inventory"
+        assert methodology.claim_policy.verification_artifact == "claim_evidence_map"
+        assert "claim_evidence_alignment" in methodology.completion_gates
+
+
 def test_existing_graph_output_capabilities_stay_on_graph_runtime():
     by_id = {
         yaml.safe_load(path.read_text())["id"]: path
@@ -760,6 +796,81 @@ def test_china_jurisdiction_defaults_for_software_and_patent_skills():
         assert "China/CNIPA patent application practice" in prompts_by_id[skill_id], (
             f"{skill_id}: patent skills must default to China/CNIPA practice"
         )
+
+
+def test_every_skill_prompt_consumes_methodology_contract():
+    for skill_path in (SEED_ROOT / "skills").glob("*.yaml"):
+        data = yaml.safe_load(skill_path.read_text())
+        prompt = data["worker"]["role_prompt"]
+        assert "Prompt Pack v2" not in prompt, (
+            f"{skill_path}: prompt should use current Prompt Pack v3 terminology"
+        )
+        assert "Prompt Pack v3" in prompt, (
+            f"{skill_path}: prompt must declare Prompt Pack v3 methodology behavior"
+        )
+        assert "`methodology_contract`" in prompt, (
+            f"{skill_path}: prompt must consume capability methodology_contract"
+        )
+        assert "`required_artifacts`" in prompt, (
+            f"{skill_path}: prompt must align outputs to methodology required_artifacts"
+        )
+        assert "`claim_policy.mode` is `two_pass`" in prompt, (
+            f"{skill_path}: prompt must follow two-pass claim audit when requested"
+        )
+        assert "`retrieval_policy.escalation`" in prompt, (
+            f"{skill_path}: prompt must respect retrieval/evidence escalation"
+        )
+
+
+def test_prompt_pack_v3_role_specific_lessons_are_seeded():
+    prompts_by_id = {
+        yaml.safe_load(path.read_text())["id"]: yaml.safe_load(path.read_text())["worker"]["role_prompt"]
+        for path in (SEED_ROOT / "skills").glob("*.yaml")
+    }
+    expected_phrases = {
+        "research-scout": [
+            "Intent -> Triage -> Deepen -> Synthesize",
+            "exact metadata search -> source screening -> semantic/RAG expansion -> web search with import",
+        ],
+        "literature-synthesizer": [
+            "theme matrix",
+            "gap map",
+            "contribution candidates",
+        ],
+        "manuscript-architect": [
+            "PaperSpine",
+            "motivation spine",
+        ],
+        "manuscript-writer": [
+            "Draft 0",
+            "topic-sentence",
+            "compression/style pass",
+        ],
+        "citation-auditor": [
+            "two-pass citation audit",
+            "claim inventory before checking citation keys",
+        ],
+        "claim-verifier": [
+            "claim inventory before verification",
+        ],
+        "review-critic": [
+            "reviewer-facing decision impact",
+        ],
+        "method-design": [
+            "method-data fit",
+            "minimal validation plan",
+        ],
+        "software-structure-planner": [
+            "module evidence map",
+        ],
+        "patent-strategist": [
+            "problem-solution-technical effect chain",
+        ],
+    }
+    for skill_id, phrases in expected_phrases.items():
+        prompt = prompts_by_id[skill_id]
+        for phrase in phrases:
+            assert phrase in prompt, f"{skill_id}: missing Prompt Pack v3 phrase {phrase!r}"
 
 
 def test_every_skill_required_fields_present():

@@ -16,8 +16,14 @@ worker:
     Input Interpretation:
     - Treat the user request, workspace type, upstream outputs, room summaries, Prism excerpts, and sandbox artifacts as task context.
     - If inputs conflict or are incomplete, make conservative assumptions, surface open questions, and keep uncertain items marked.
+    - Use `methodology_contract` when present as the capability workflow contract: follow its `archetype`, ordered stages, `required_artifacts`, user checkpoints, completion gates, and role-relevant constraints.
 
     Operating Rules:
+    - Prompt Pack v3: align your work to the current methodology stage; explicitly name fulfilled and missing `required_artifacts`, and do not skip required user checkpoints.
+    - Prompt Pack v3: when `claim_policy.mode` is `two_pass`, first extract atomic candidate claims, then verify each claim against evidence before reuse; mark unsupported claims as `insufficient_evidence` or `needs_user_decision`.
+    - Prompt Pack v3: follow `retrieval_policy.escalation` as an evidence ladder; use available workspace Library, upstream outputs, and artifacts before asking for broader search or new evidence.
+    - Prompt Pack v3 role lesson: convert guideline items into a compliance matrix with item, manuscript location, evidence, status, missing material, and fix.
+    - When study design is unclear, state the candidate guideline families and what input decides between them.
     - Check relevant guideline families when named or inferable.
     - Mark requirements as checked, violated, or unverified.
     - Do not claim compliance when inputs are missing.

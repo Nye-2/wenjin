@@ -107,6 +107,95 @@ def test_member_context_projects_capability_research_evidence_requirements() -> 
     }
 
 
+def test_member_context_projects_capability_methodology_contract() -> None:
+    payload = build_team_member_context(
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            workspace_id="ws-1",
+            raw_message="find research gaps",
+            brief={},
+        ),
+        capability_name="文献定位与创新点",
+        template_id="literature_synthesizer.v1",
+        display_role="文献综合专家",
+        blackboard=TeamBlackboard(mission_summary="文献定位与创新点"),
+        capability_policy={
+            "methodology": {
+                "archetype": "literature_survey",
+                "stages": [
+                    {
+                        "id": "triage",
+                        "purpose": "screen sources by relevance and credibility",
+                        "required_artifacts": ["triage_table"],
+                        "user_checkpoint": "optional",
+                        "quality_surfaces": ["paper_relevance"],
+                    },
+                    {
+                        "id": "synthesize",
+                        "purpose": "build a gap map with grounded contribution candidates",
+                        "required_artifacts": ["gap_matrix", "claim_evidence_map"],
+                        "quality_surfaces": ["claim_evidence_alignment"],
+                    },
+                ],
+                "claim_policy": {
+                    "mode": "two_pass",
+                    "extraction_artifact": "claim_inventory",
+                    "verification_artifact": "claim_evidence_map",
+                    "unsupported_claim_behavior": "mark_for_user_decision",
+                },
+                "retrieval_policy": {
+                    "escalation": [
+                        "workspace_library_exact",
+                        "workspace_library_bm25",
+                        "workspace_library_semantic",
+                        "web_search_with_import",
+                    ],
+                    "prefer_workspace_library": True,
+                    "require_import_before_citation": True,
+                },
+                "completion_gates": ["claim_evidence_alignment"],
+            }
+        },
+    )
+
+    assert payload["methodology_contract"] == {
+        "schema": "wenjin.team.methodology_contract.v1",
+        "archetype": "literature_survey",
+        "stages": [
+            {
+                "id": "triage",
+                "purpose": "screen sources by relevance and credibility",
+                "required_artifacts": ["triage_table"],
+                "user_checkpoint": "optional",
+                "quality_surfaces": ["paper_relevance"],
+            },
+            {
+                "id": "synthesize",
+                "purpose": "build a gap map with grounded contribution candidates",
+                "required_artifacts": ["gap_matrix", "claim_evidence_map"],
+                "quality_surfaces": ["claim_evidence_alignment"],
+            },
+        ],
+        "claim_policy": {
+            "mode": "two_pass",
+            "extraction_artifact": "claim_inventory",
+            "verification_artifact": "claim_evidence_map",
+            "unsupported_claim_behavior": "mark_for_user_decision",
+        },
+        "retrieval_policy": {
+            "escalation": [
+                "workspace_library_exact",
+                "workspace_library_bm25",
+                "workspace_library_semantic",
+                "web_search_with_import",
+            ],
+            "prefer_workspace_library": True,
+            "require_import_before_citation": True,
+        },
+        "completion_gates": ["claim_evidence_alignment"],
+    }
+
+
 def test_member_context_projects_quality_repair_context_from_failed_research_gate() -> None:
     recoverable_ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/runner/stdout.txt"
 

@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-06-30
+更新时间：2026-07-07
 状态：Current
 适用项目：`wenjin`
 
@@ -35,10 +35,11 @@
 3. Capability Skill 定义在 `backend/seed/skills/`，当前 schema 为 `capability_skill.v2`；skill 是 worker instruction pack，不是用户入口。
 4. Catalog skill DB row 必须包含完整 canonical `skill_json`；projection/preload 不从旧字段读时合成 skill pack，缺失时直接失败。
 5. 每个 capability 的 `mission` 定义产品目标、主 surface、document role 和允许交付物。
-6. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
+6. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`citation_policy`、`research_evidence`、`methodology`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
 7. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
-8. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由普通 Lead runtime / TeamKernel 通过共享 Prism staging helper 写入 DB-backed review item。
-9. Capability launch context 只能来自用户显式输入、query seed、route params、source artifact 和已提交的 room context；不得用 workspace 名称/描述、capability 名称、通用卡片提示词或“未命名任务”合成 goal。
+8. `methodology` 是 capability 级研究方法合同；TeamKernel 成员上下文会收到 bounded `methodology_contract`，用于理解阶段、必备产物、claim audit、retrieval escalation 和 completion research surfaces。
+9. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由普通 Lead runtime / TeamKernel 通过共享 Prism staging helper 写入 DB-backed review item。
+10. Capability launch context 只能来自用户显式输入、query seed、route params、source artifact 和已提交的 room context；不得用 workspace 名称/描述、capability 名称、通用卡片提示词或“未命名任务”合成 goal。
 
 ## 4. Workspace Persistent Surfaces
 
@@ -105,7 +106,7 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 
 `review_packet` 是候选结果语义预览层：它帮助用户理解专家产出、证据风险和待确认项，但不直接作为 commit 输入。保存到 Library / Prism files / hidden workspace memory / Decisions / Tasks 仍由 `TaskReport.outputs` 与 `ExecutionCommitService` 完成；稿件审阅变更仍由 Prism review item 的 apply/reject/revert 完成。
 
-Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_workspace_map.v1` summary 和 `research_brief.v1`。初始专家收到 brief/map；后续专家收到 enriched `ResearchStateV1`，其中包含 compact `claim_inventory`、`evidence_packet`、artifact index 和 unresolved blockers。右侧工作台通过 `frontend/lib/execution-run-view.ts` 把候选结果、节点输出、claim/citation 审计项、sandbox trace 和质量门风险投影到 Evidence Ledger；默认视图只展示“已支持 / 需确认 / 阻断”一类用户语义，不展示 raw schema、raw expert report 或内部 harness refs。
+Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_workspace_map.v1` summary 和 `research_brief.v1`。初始专家收到 brief/map；后续专家收到 enriched `ResearchStateV1`，其中包含 compact `claim_inventory`、`evidence_packet`、artifact index 和 unresolved blockers。Prompt Pack v3 worker prompt 会同时读取 `methodology_contract`，把输出对齐到 stage、`required_artifacts`、two-pass claim audit 和 retrieval escalation；检索、综述、写作、引用审计、审稿、专利和软著 worker 都保留角色特定方法提示，不只依赖通用安全约束。右侧工作台通过 `frontend/lib/execution-run-view.ts` 把候选结果、节点输出、claim/citation 审计项、sandbox trace 和质量门风险投影到 Evidence Ledger；默认视图只展示“已支持 / 需确认 / 阻断”一类用户语义，不展示 raw schema、raw expert report 或内部 harness refs。
 
 ## 5.1 Execution UX 当前收敛
 

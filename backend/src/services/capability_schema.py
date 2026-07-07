@@ -210,6 +210,115 @@ class CapabilityV2ResearchEvidenceModel(BaseModel):
         return validate_research_surface_enforcement(value)
 
 
+MethodologyArchetype = Literal[
+    "none",
+    "literature_survey",
+    "paper_build",
+    "citation_audit",
+    "revision",
+    "application_pack",
+    "research_plan",
+    "evidence_pack",
+]
+MethodologyUserCheckpoint = Literal["none", "optional", "required"]
+MethodologyClaimMode = Literal["none", "single_pass", "two_pass"]
+MethodologyUnsupportedClaimBehavior = Literal[
+    "allow_with_warning",
+    "mark_for_user_decision",
+    "block_completion",
+]
+MethodologyRetrievalStep = Literal[
+    "provided_documents_only",
+    "workspace_library_exact",
+    "workspace_library_bm25",
+    "workspace_library_semantic",
+    "semantic_rag",
+    "web_search_with_import",
+    "sandbox_artifact_lookup",
+]
+
+
+class CapabilityV2MethodologyStageModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    purpose: str
+    required_artifacts: list[str] = Field(default_factory=list)
+    user_checkpoint: MethodologyUserCheckpoint = "none"
+    quality_surfaces: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_stage_contract(self) -> CapabilityV2MethodologyStageModel:
+        if not str(self.id).strip():
+            raise ValueError("methodology.stages.id must be a non-empty string")
+        if not str(self.purpose).strip():
+            raise ValueError("methodology.stages.purpose must be a non-empty string")
+        _validate_non_blank_ids(
+            self.required_artifacts,
+            "methodology.stages.required_artifacts",
+        )
+        _validate_non_blank_ids(
+            self.quality_surfaces,
+            "methodology.stages.quality_surfaces",
+        )
+        validate_research_surfaces(
+            self.quality_surfaces,
+            field_name="methodology.stages.quality_surfaces",
+        )
+        return self
+
+
+class CapabilityV2MethodologyClaimPolicyModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: MethodologyClaimMode = "none"
+    extraction_artifact: str | None = None
+    verification_artifact: str | None = None
+    unsupported_claim_behavior: MethodologyUnsupportedClaimBehavior = "mark_for_user_decision"
+
+    @model_validator(mode="after")
+    def validate_claim_policy_contract(self) -> CapabilityV2MethodologyClaimPolicyModel:
+        extraction_artifact = str(self.extraction_artifact or "").strip()
+        verification_artifact = str(self.verification_artifact or "").strip()
+        if self.extraction_artifact is not None and not extraction_artifact:
+            raise ValueError("methodology.claim_policy.extraction_artifact must be non-empty")
+        if self.verification_artifact is not None and not verification_artifact:
+            raise ValueError("methodology.claim_policy.verification_artifact must be non-empty")
+        if self.mode == "two_pass" and (not extraction_artifact or not verification_artifact):
+            raise ValueError(
+                "methodology.claim_policy.mode=two_pass requires extraction_artifact "
+                "and verification_artifact"
+            )
+        return self
+
+
+class CapabilityV2MethodologyRetrievalPolicyModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    escalation: list[MethodologyRetrievalStep] = Field(default_factory=list)
+    prefer_workspace_library: bool = True
+    require_import_before_citation: bool = True
+
+
+class CapabilityV2MethodologyModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    archetype: MethodologyArchetype = "none"
+    stages: list[CapabilityV2MethodologyStageModel] = Field(default_factory=list)
+    claim_policy: CapabilityV2MethodologyClaimPolicyModel = Field(
+        default_factory=CapabilityV2MethodologyClaimPolicyModel,
+    )
+    retrieval_policy: CapabilityV2MethodologyRetrievalPolicyModel = Field(
+        default_factory=CapabilityV2MethodologyRetrievalPolicyModel,
+    )
+    completion_gates: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_methodology_contract(self) -> CapabilityV2MethodologyModel:
+        _validate_non_blank_ids(self.completion_gates, "methodology.completion_gates")
+        validate_research_surfaces(
+            self.completion_gates,
+            field_name="methodology.completion_gates",
+        )
+        return self
+
+
 class CapabilityV2RoutingOptionModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str
@@ -280,6 +389,9 @@ class CapabilityV2YamlModel(BaseModel):
     research_evidence: CapabilityV2ResearchEvidenceModel = Field(
         default_factory=CapabilityV2ResearchEvidenceModel,
     )
+    methodology: CapabilityV2MethodologyModel = Field(
+        default_factory=CapabilityV2MethodologyModel,
+    )
     routing: CapabilityV2RoutingModel = Field(default_factory=CapabilityV2RoutingModel)
     runtime: CapabilityV2RuntimeModel | None = None
     team_policy: CapabilityV2TeamPolicyModel | None = None
@@ -311,6 +423,15 @@ class CapabilityV2YamlModel(BaseModel):
             self.research_evidence.required_surfaces,
             field_name="research_evidence.required_surfaces",
         )
+        if self.methodology.claim_policy.mode == "two_pass":
+            evidence_surfaces = set(self.research_evidence.required_surfaces)
+            evidence_surfaces.update(self.methodology.completion_gates)
+            if "claim_evidence_alignment" not in evidence_surfaces:
+                raise ValueError(
+                    "methodology.claim_policy.mode=two_pass requires "
+                    "claim_evidence_alignment in research_evidence.required_surfaces "
+                    "or methodology.completion_gates"
+                )
         validate_visible_capability_routing_contract(
             capability_id=self.id,
             enabled=self.enabled,

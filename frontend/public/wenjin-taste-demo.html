@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wenjin Taste Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        --mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--font);
+        color: #1c2324;
+        background:
+          linear-gradient(180deg, oklch(97% 0.008 178), oklch(93% 0.012 184)),
+          oklch(96% 0.008 178);
+      }
+
+      main {
+        width: min(1680px, calc(100vw - 40px));
+        margin: 0 auto;
+        padding: 32px 0 44px;
+      }
+
+      .intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 24px;
+        align-items: end;
+        margin-bottom: 24px;
+      }
+
+      .intro h1 {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      .intro p {
+        margin: 8px 0 0;
+        max-width: 780px;
+        color: #526163;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .tagline {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 10px;
+        border: 1px solid rgb(28 35 36 / 0.12);
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.72);
+        color: #4d5a5c;
+        font-size: 12px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      .boards {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .board {
+        --bg: #f5f8f7;
+        --surface: #ffffff;
+        --surface-2: #edf4f1;
+        --rail: #e4ece9;
+        --text: #1b2423;
+        --muted: #647371;
+        --line: rgb(28 42 40 / 0.12);
+        --primary: #176f68;
+        --primary-soft: rgb(23 111 104 / 0.11);
+        --evidence: #11816f;
+        --review: #9a661b;
+        --success: #25714c;
+        --danger: #af3f47;
+        --shadow: 0 22px 46px rgb(19 37 35 / 0.12);
+        min-height: 760px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--bg);
+        box-shadow: var(--shadow);
+      }
+
+      .board.graphite {
+        --bg: #f3f1ec;
+        --surface: #fffdf8;
+        --surface-2: #ece6da;
+        --rail: #dfd7ca;
+        --text: #24211d;
+        --muted: #70685e;
+        --line: rgb(44 38 30 / 0.14);
+        --primary: #2f3431;
+        --primary-soft: rgb(47 52 49 / 0.1);
+        --evidence: #407260;
+        --review: #a56d20;
+        --success: #47734c;
+        --danger: #a54243;
+        --shadow: 0 22px 50px rgb(44 38 30 / 0.14);
+      }
+
+      .board.zinc {
+        --bg: #f6f7f8;
+        --surface: #ffffff;
+        --surface-2: #ebeef0;
+        --rail: #e0e4e7;
+        --text: #191d20;
+        --muted: #687077;
+        --line: rgb(25 29 32 / 0.13);
+        --primary: #2d6f4e;
+        --primary-soft: rgb(45 111 78 / 0.1);
+        --evidence: #0f766e;
+        --review: #a1601b;
+        --success: #24734f;
+        --danger: #a93b46;
+        --shadow: 0 22px 46px rgb(34 40 44 / 0.11);
+      }
+
+      .board-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: flex-start;
+        padding: 18px 18px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .board-title {
+        margin: 0;
+        color: var(--text);
+        font-size: 16px;
+        line-height: 1.2;
+      }
+
+      .board-note {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .board-code {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 34px;
+        height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--primary);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .mock {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 690px;
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 14px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        background: var(--primary);
+        color: white;
+        font-size: 14px;
+        font-weight: 850;
+      }
+
+      .brand strong {
+        display: block;
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.1;
+      }
+
+      .brand span {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+
+      .tabs {
+        display: flex;
+        justify-content: center;
+        gap: 4px;
+      }
+
+      .tab {
+        display: inline-flex;
+        align-items: center;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: 999px;
+        color: var(--muted);
+        font-size: 11.5px;
+        font-weight: 700;
+      }
+
+      .tab.active {
+        background: var(--primary-soft);
+        color: var(--primary);
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        height: 28px;
+        padding: 0 9px;
+        border: 1px solid color-mix(in srgb, var(--review) 28%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--review) 9%, white);
+        color: var(--review);
+        font-size: 11px;
+        font-weight: 760;
+        white-space: nowrap;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 0.8fr 1.25fr;
+        min-height: 636px;
+      }
+
+      .chat {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px;
+        border-right: 1px solid var(--line);
+        background: color-mix(in srgb, var(--surface) 78%, var(--bg));
+      }
+
+      .chat-title,
+      .panel-title {
+        margin: 0;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 820;
+      }
+
+      .message {
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .message.user {
+        background: var(--primary);
+        color: white;
+        border-color: transparent;
+      }
+
+      .prompt {
+        margin-top: auto;
+        padding: 10px 11px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+
+      .work {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        gap: 12px;
+        padding: 14px;
+        background: var(--bg);
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--surface);
+      }
+
+      .summary h3 {
+        margin: 0;
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.25;
+      }
+
+      .summary p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.55;
+      }
+
+      .primary-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 32px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: var(--primary);
+        color: white;
+        font-size: 11.5px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .ledger {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .metric {
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+      }
+
+      .metric span {
+        display: block;
+        color: var(--muted);
+        font-size: 10.5px;
+        font-weight: 650;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 5px;
+        color: var(--text);
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .columns {
+        display: grid;
+        grid-template-columns: 1fr 0.86fr;
+        gap: 10px;
+        min-height: 0;
+      }
+
+      .panel {
+        min-height: 0;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .tiny {
+        color: var(--muted);
+        font-size: 10.5px;
+        font-weight: 700;
+      }
+
+      .rows {
+        display: grid;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 9px;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .row:last-child {
+        border-bottom: 0;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--evidence);
+      }
+
+      .dot.review {
+        background: var(--review);
+      }
+
+      .dot.success {
+        background: var(--success);
+      }
+
+      .row strong {
+        display: block;
+        color: var(--text);
+        font-size: 12px;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .row span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 10.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .risk {
+        padding: 4px 7px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--muted);
+        font-size: 10.5px;
+        font-weight: 760;
+      }
+
+      .diff {
+        margin: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface-2);
+      }
+
+      .diff h4 {
+        margin: 0;
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .diff-line {
+        margin-top: 8px;
+        padding: 8px;
+        border-radius: 10px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        line-height: 1.55;
+        color: var(--text);
+        background: color-mix(in srgb, var(--surface) 76%, transparent);
+      }
+
+      .diff-line ins {
+        color: var(--success);
+        text-decoration: none;
+        font-weight: 780;
+      }
+
+      .diff-line mark {
+        color: var(--review);
+        background: transparent;
+        font-weight: 780;
+      }
+
+      .actions {
+        display: flex;
+        gap: 7px;
+        margin: 12px;
+      }
+
+      .ghost {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--text);
+        background: var(--surface);
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .ghost.primary {
+        border-color: transparent;
+        background: var(--primary);
+        color: white;
+      }
+
+      @media (max-width: 1280px) {
+        .boards {
+          grid-template-columns: 1fr;
+        }
+
+        .board {
+          min-height: auto;
+        }
+      }
+
+      @media (max-width: 760px) {
+        main {
+          width: min(100vw - 24px, 1680px);
+          padding-top: 20px;
+        }
+
+        .intro {
+          grid-template-columns: 1fr;
+        }
+
+        .workspace,
+        .columns {
+          grid-template-columns: 1fr;
+        }
+
+        .chat {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .ledger {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="intro">
+        <div>
+          <h1>Wenjin Taste Demo</h1>
+          <p>
+            三个方向都用同一组产品对象：研究团队、证据链、待复核写入、Prism 写作台。看的是产品气质和颜色系统，不是最终布局。
+          </p>
+        </div>
+        <div class="tagline">下一轮目标：摆脱土蓝白，建立科研工作台自己的视觉语法</div>
+      </section>
+
+      <section class="boards">
+        <article class="board">
+          <header class="board-header">
+            <div>
+              <h2 class="board-title">A. Mineral Teal</h2>
+              <p class="board-note">矿物青绿做主色，证据链和复核更自然。我的推荐方向。</p>
+            </div>
+            <span class="board-code">A</span>
+          </header>
+          <div class="mock">
+            <div class="topbar">
+              <div class="brand">
+                <div class="mark">问</div>
+                <div>
+                  <strong>问津 Wenjin</strong>
+                  <span>科研工作区</span>
+                </div>
+              </div>
+              <div class="tabs">
+                <span class="tab active">工作台</span>
+                <span class="tab">写作台</span>
+                <span class="tab">资料库</span>
+              </div>
+              <span class="status-pill">3 项待复核</span>
+            </div>
+            <div class="workspace">
+              <aside class="chat">
+                <h3 class="chat-title">对话意图</h3>
+                <div class="message user">帮我把文献综述第二节改得更像正式论文，并检查引用支撑。</div>
+                <div class="message">已拆成 4 个研究动作：证据抽取、论点核验、段落改写、引用复核。</div>
+                <div class="prompt">继续补充要求，或直接复核右侧结果。</div>
+              </aside>
+              <section class="work">
+                <div class="summary">
+                  <div>
+                    <h3>文献综述改写正在复核</h3>
+                    <p>研究团队已完成初稿修订，引用和高风险论断需要你逐项确认。</p>
+                  </div>
+                  <span class="primary-action">保存到工作区</span>
+                </div>
+                <div class="ledger">
+                  <div class="metric"><span>证据</span><strong>18</strong></div>
+                  <div class="metric"><span>待复核</span><strong>3</strong></div>
+                  <div class="metric"><span>写作台</span><strong>1</strong></div>
+                </div>
+                <div class="columns">
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3 class="panel-title">证据链</h3>
+                      <span class="tiny">按支撑强度排序</span>
+                    </div>
+                    <div class="rows">
+                      <div class="row"><span class="dot"></span><div><strong>Transformer 在文本生成中的引用</strong><span>ACL 2024 · 可用于方法背景</span></div><span class="risk">强</span></div>
+                      <div class="row"><span class="dot review"></span><div><strong>“显著提升”需要谨慎表述</strong><span>缺少同任务对照实验</span></div><span class="risk">复核</span></div>
+                      <div class="row"><span class="dot success"></span><div><strong>文献综述结构已对齐导师要求</strong><span>章节顺序与模板一致</span></div><span class="risk">已确认</span></div>
+                    </div>
+                  </div>
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3 class="panel-title">Prism 待复核写入</h3>
+                      <span class="tiny">diff 预览</span>
+                    </div>
+                    <div class="diff">
+                      <h4>section-2-literature.tex</h4>
+                      <div class="diff-line">
+                        <mark>- 该方法效果很好。</mark><br />
+                        <ins>+ 现有研究表明，该方向在特定语料条件下具有稳定改进空间。</ins>
+                      </div>
+                    </div>
+                    <div class="actions">
+                      <span class="ghost">展开理由</span>
+                      <span class="ghost primary">应用到写作台</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="board graphite">
+          <header class="board-header">
+            <div>
+              <h2 class="board-title">B. Graphite + Amber</h2>
+              <p class="board-note">石墨和琥珀更像审阅系统，高级但会稍微偏严肃。</p>
+            </div>
+            <span class="board-code">B</span>
+          </header>
+          <div class="mock">
+            <div class="topbar">
+              <div class="brand">
+                <div class="mark">问</div>
+                <div>
+                  <strong>问津 Wenjin</strong>
+                  <span>科研工作区</span>
+                </div>
+              </div>
+              <div class="tabs">
+                <span class="tab active">工作台</span>
+                <span class="tab">写作台</span>
+                <span class="tab">资料库</span>
+              </div>
+              <span class="status-pill">3 项待复核</span>
+            </div>
+            <div class="workspace">
+              <aside class="chat">
+                <h3 class="chat-title">对话意图</h3>
+                <div class="message user">帮我把文献综述第二节改得更像正式论文，并检查引用支撑。</div>
+                <div class="message">已拆成 4 个研究动作：证据抽取、论点核验、段落改写、引用复核。</div>
+                <div class="prompt">继续补充要求，或直接复核右侧结果。</div>
+              </aside>
+              <section class="work">
+                <div class="summary">
+                  <div>
+                    <h3>文献综述改写正在复核</h3>
+                    <p>研究团队已完成初稿修订，引用和高风险论断需要你逐项确认。</p>
+                  </div>
+                  <span class="primary-action">保存到工作区</span>
+                </div>
+                <div class="ledger">
+                  <div class="metric"><span>证据</span><strong>18</strong></div>
+                  <div class="metric"><span>待复核</span><strong>3</strong></div>
+                  <div class="metric"><span>写作台</span><strong>1</strong></div>
+                </div>
+                <div class="columns">
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3 class="panel-title">证据链</h3>
+                      <span class="tiny">按支撑强度排序</span>
+                    </div>
+                    <div class="rows">
+                      <div class="row"><span class="dot"></span><div><strong>Transformer 在文本生成中的引用</strong><span>ACL 2024 · 可用于方法背景</span></div><span class="risk">强</span></div>
+                      <div class="row"><span class="dot review"></span><div><strong>“显著提升”需要谨慎表述</strong><span>缺少同任务对照实验</span></div><span class="risk">复核</span></div>
+                      <div class="row"><span class="dot success"></span><div><strong>文献综述结构已对齐导师要求</strong><span>章节顺序与模板一致</span></div><span class="risk">已确认</span></div>
+                    </div>
+                  </div>
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3 class="panel-title">Prism 待复核写入</h3>
+                      <span class="tiny">diff 预览</span>
+                    </div>
+                    <div class="diff">
+                      <h4>section-2-literature.tex</h4>
+                      <div class="diff-line">
+                        <mark>- 该方法效果很好。</mark><br />
+                        <ins>+ 现有研究表明，该方向在特定语料条件下具有稳定改进空间。</ins>
+                      </div>
+                    </div>
+                    <div class="actions">
+                      <span class="ghost">展开理由</span>
+                      <span class="ghost primary">应用到写作台</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="board zinc">
+          <header class="board-header">
+            <div>
+              <h2 class="board-title">C. Cold Zinc + Signal Green</h2>
+              <p class="board-note">更像专业生产力工具，干练，但 Wenjin 独特性略弱。</p>
+            </div>
+            <span class="board-code">C</span>
+          </header>
+          <div class="mock">
+            <div class="topbar">
+              <div class="brand">
+                <div class="mark">问</div>
+                <div>
+                  <strong>问津 Wenjin</strong>
+                  <span>科研工作区</span>
+                </div>
+              </div>
+              <div class="tabs">
+                <span class="tab active">工作台</span>
+                <span class="tab">写作台</span>
+                <span class="tab">资料库</span>
+              </div>
+              <span class="status-pill">3 项待复核</span>
+            </div>
+            <div class="workspace">
+              <aside class="chat">
+                <h3 class="chat-title">对话意图</h3>
+                <div class="message user">帮我把文献综述第二节改得更像正式论文，并检查引用支撑。</div>
+                <div class="message">已拆成 4 个研究动作：证据抽取、论点核验、段落改写、引用复核。</div>
+                <div class="prompt">继续补充要求，或直接复核右侧结果。</div>
+              </aside>
+              <section class="work">
+                <div class="summary">
+                  <div>
+                    <h3>文献综述改写正在复核</h3>
+                    <p>研究团队已完成初稿修订，引用和高风险论断需要你逐项确认。</p>
+                  </div>
+                  <span class="primary-action">保存到工作区</span>
+                </div>
+                <div class="ledger">
+                  <div class="metric"><span>证据</span><strong>18</strong></div>
+                  <div class="metric"><span>待复核</span><strong>3</strong></div>
+                  <div class="metric"><span>写作台</span><strong>1</strong></div>
+                </div>
+                <div class="columns">
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3 class="panel-title">证据链</h3>
+                      <span class="tiny">按支撑强度排序</span>
+                    </div>
+                    <div class="rows">
+                      <div class="row"><span class="dot"></span><div><strong>Transformer 在文本生成中的引用</strong><span>ACL 2024 · 可用于方法背景</span></div><span class="risk">强</span></div>
+                      <div class="row"><span class="dot review"></span><div><strong>“显著提升”需要谨慎表述</strong><span>缺少同任务对照实验</span></div><span class="risk">复核</span></div>
+                      <div class="row"><span class="dot success"></span><div><strong>文献综述结构已对齐导师要求</strong><span>章节顺序与模板一致</span></div><span class="risk">已确认</span></div>
+                    </div>
+                  </div>
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3 class="panel-title">Prism 待复核写入</h3>
+                      <span class="tiny">diff 预览</span>
+                    </div>
+                    <div class="diff">
+                      <h4>section-2-literature.tex</h4>
+                      <div class="diff-line">
+                        <mark>- 该方法效果很好。</mark><br />
+                        <ins>+ 现有研究表明，该方向在特定语料条件下具有稳定改进空间。</ins>
+                      </div>
+                    </div>
+                    <div class="actions">
+                      <span class="ghost">展开理由</span>
+                      <span class="ghost primary">应用到写作台</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

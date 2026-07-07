@@ -126,20 +126,24 @@ def test_first_wave_team_kernel_capabilities_have_ordered_phases_or_team_policy(
         assert has_team or has_graph, path
 
 
-def test_sci_first_wave_skills_declare_prompt_pack_v2_contract() -> None:
+def test_sci_first_wave_skills_declare_prompt_pack_v3_contract() -> None:
     for path in SCI_FIRST_WAVE_SKILLS:
-        _assert_prompt_pack_v2_skill(path)
+        _assert_prompt_pack_v3_skill(path)
 
 
-def test_cross_workspace_critical_skills_declare_prompt_pack_v2_contract() -> None:
+def test_cross_workspace_critical_skills_declare_prompt_pack_v3_contract() -> None:
     for path in CROSS_WORKSPACE_CRITICAL_SKILLS:
-        _assert_prompt_pack_v2_skill(path)
+        _assert_prompt_pack_v3_skill(path)
 
 
-def _assert_prompt_pack_v2_skill(path: str) -> None:
+def _assert_prompt_pack_v3_skill(path: str) -> None:
     skill = _read_yaml(path)
     role_prompt = skill.get("worker", {}).get("role_prompt") or ""
-    assert "Prompt Pack v2" in role_prompt, path
+    assert "Prompt Pack v2" not in role_prompt, path
+    assert "Prompt Pack v3" in role_prompt, path
+    assert "`methodology_contract`" in role_prompt, path
+    assert "`required_artifacts`" in role_prompt, path
+    assert "`retrieval_policy.escalation`" in role_prompt, path
     assert "insufficient_evidence" in role_prompt, path
     assert "expert_report.claim_inventory" in role_prompt, path
     assert "expert_report.evidence_packet" in role_prompt, path

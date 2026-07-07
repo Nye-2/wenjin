@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { I18nProvider } from "@/components/i18n-provider";
+import { WenjinThemeProvider } from "@/components/wenjin-theme-provider";
+import { DEFAULT_WENJIN_THEME, WENJIN_THEME_INIT_SCRIPT } from "@/lib/wenjin-theme";
 
 export const metadata: Metadata = {
   title: "问津 Wenjin | 证据驱动的研究导航系统",
@@ -14,7 +16,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN" data-scroll-behavior="smooth">
+    <html
+      lang="zh-CN"
+      data-scroll-behavior="smooth"
+      data-wjn-theme={DEFAULT_WENJIN_THEME}
+      suppressHydrationWarning
+    >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: WENJIN_THEME_INIT_SCRIPT,
+          }}
+        />
+      </head>
       <body
         className="font-sans antialiased"
         style={
@@ -30,9 +44,11 @@ export default function RootLayout({
           } as React.CSSProperties
         }
       >
-        <I18nProvider>
-          {children}
-        </I18nProvider>
+        <WenjinThemeProvider>
+          <I18nProvider>
+            {children}
+          </I18nProvider>
+        </WenjinThemeProvider>
       </body>
     </html>
   );
