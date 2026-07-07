@@ -1236,6 +1236,79 @@ describe("execution run view projection", () => {
     });
   });
 
+  it("merges partial research-state evidence with node and review evidence counts", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        result: {
+          task_report: {
+            review_packet: {
+              packet_id: "packet-1",
+              title: "研究候选结果",
+              summary: "混合证据来源。",
+              completion_status: "partial",
+              items: [
+                {
+                  item_id: "artifact-1",
+                  kind: "artifact",
+                  title: "证据汇总",
+                  summary: "复核时又引用了一条新证据。",
+                  evidence_refs: ["ev-2", "ev-4"],
+                  artifact_refs: ["artifact:/workspace/outputs/evidence.md"],
+                },
+              ],
+            },
+            research_state: {
+              schema_version: "wenjin.research_state.v1",
+              execution_id: "exec-1",
+              goal: "补全证据核验统计",
+              evidence_packet: [
+                { evidence_id: "ev-1", verification_status: "verified" },
+                { evidence_id: "ev-2", verification_status: "pending" },
+              ],
+            },
+          },
+        },
+        node_states: {
+          scout: {
+            status: "completed",
+            output: {
+              claim_evidence_map: [
+                {
+                  claim_id: "claim-1",
+                  claim_text: "节点找到了已核验和待核验证据",
+                  status: "verified",
+                  evidence_refs: ["ev-1", "ev-2"],
+                },
+                {
+                  claim_id: "claim-2",
+                  claim_text: "节点还发现了一条有风险的新证据",
+                  status: "warning",
+                  evidence_refs: ["ev-3"],
+                  required_fix: "需要补充原始来源",
+                },
+              ],
+              unsupported_claims: [
+                {
+                  claim_id: "claim-3",
+                  claim_text: "复核产物又暴露一条风险证据",
+                  evidence_refs: ["ev-4"],
+                  required_fix: "需要人工确认",
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.evidenceSummary).toEqual({
+      found: 4,
+      verified: 2,
+      used: 2,
+      risky: 2,
+    });
+  });
+
   it("returns a null mission when there is no selected execution state to project", () => {
     const view = runViewFromRunRecord(
       {

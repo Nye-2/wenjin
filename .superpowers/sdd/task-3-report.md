@@ -127,3 +127,52 @@ Tests  28 passed (28)
 Generating route types...
 ✓ Types generated successfully
 ```
+
+### Evidence Count Review Follow-up
+
+#### Finding addressed
+
+- Updated `evidenceVerificationCounts()` to merge `research_state.evidence_packet`, structured `RunViewEvidenceItem` refs, and review-packet `evidence_refs` together, while deduplicating shared refs and only treating explicit verified-like structured statuses as additional verified evidence.
+
+#### RED
+
+Command:
+
+```bash
+cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts
+```
+
+Observed failure summary:
+
+```text
+tests/unit/lib/execution-run-view.test.ts (29 tests | 1 failed)
+- merges partial research-state evidence with node and review evidence counts
+
+Expected evidenceSummary:
+{ found: 4, verified: 2, used: 2, risky: 2 }
+
+Received evidenceSummary:
+{ found: 2, verified: 1, used: 2, risky: 2 }
+```
+
+#### GREEN
+
+Commands:
+
+```bash
+cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts
+cd frontend && npm run typecheck
+```
+
+Observed pass summary:
+
+```text
+Test Files  1 passed (1)
+Tests  29 passed (29)
+
+> wenjin-frontend@2.0.0 typecheck
+> next typegen && tsc --noEmit
+
+Generating route types...
+✓ Types generated successfully
+```

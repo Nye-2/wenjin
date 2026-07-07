@@ -1016,10 +1016,14 @@ function evidenceVerificationCounts({
     }
   }
 
-  if (foundEvidenceIds.size === 0) {
-    for (const item of evidenceItems) {
-      for (const ref of item.evidenceRefs ?? []) {
-        foundEvidenceIds.add(ref);
+  for (const item of evidenceItems) {
+    const refs = item.evidenceRefs ?? [];
+    for (const ref of refs) {
+      foundEvidenceIds.add(ref);
+    }
+    if (isVerifiedEvidenceStatus(item.claimStatus)) {
+      for (const ref of refs) {
+        verifiedEvidenceIds.add(ref);
       }
     }
   }
@@ -1029,6 +1033,7 @@ function evidenceVerificationCounts({
   for (const value of reviewPacketItems) {
     const item = objectValue(value);
     for (const ref of stringArrayValue(item?.evidence_refs)) {
+      foundEvidenceIds.add(ref);
       usedEvidenceIds.add(ref);
     }
   }
@@ -1040,6 +1045,12 @@ function evidenceVerificationCounts({
     used: usedEvidenceIds.size,
     risky,
   };
+}
+
+function isVerifiedEvidenceStatus(status: string | null | undefined): boolean {
+  if (!status) return false;
+  const normalized = status.trim().toLowerCase();
+  return ["verified", "supported", "pass", "passed", "valid", "grounded"].includes(normalized);
 }
 
 function reviewItemsFromTaskReport(
