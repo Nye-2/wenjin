@@ -1434,7 +1434,7 @@ describe("LiveWorkflowPanel", () => {
     expect(screen.getByText("准备材料")).toBeInTheDocument();
   });
 
-  it("keeps blocked and high-risk review items out of bulk accept", async () => {
+  it("keeps high-risk items out of bulk selection while allowing selected safer items", async () => {
     useExecutionStore.getState().upsertExecution(makeChangeSetCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
     useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
@@ -1452,6 +1452,18 @@ describe("LiveWorkflowPanel", () => {
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     expect(checkboxes).toHaveLength(2);
     expect(checkboxes.filter((element) => element.checked)).toHaveLength(0);
+
+    fireEvent.click(screen.getByLabelText("选择变更 Thesis outline"));
+
+    expect(screen.getByLabelText("选择变更 Thesis outline")).toBeChecked();
+    expect(screen.getByRole("button", { name: "确认选中变更" })).toBeEnabled();
+
+    fireEvent.click(
+      screen.getByLabelText(
+        "选择变更 Federated Fine-tuning of Large Language Models",
+      ),
+    );
+
     expect(screen.getByRole("button", { name: "确认选中变更" })).toBeDisabled();
   });
 

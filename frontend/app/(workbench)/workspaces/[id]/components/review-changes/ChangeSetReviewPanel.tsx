@@ -177,6 +177,13 @@ export function ChangeSetReviewPanel({
   const actionIds = selectedUnits
     .filter(isChangeUnitReviewActionable)
     .map((unit) => unit.id);
+  const acceptActionIds = selectedUnits
+    .filter(isBulkSelectableChangeUnit)
+    .map((unit) => unit.id);
+  const hasNonBulkAcceptableSelection = selectedUnits.some(
+    (unit) =>
+      isChangeUnitReviewActionable(unit) && !isBulkSelectableChangeUnit(unit),
+  );
   const undoActionIds = selectedUnits
     .filter(isUndoableReviewDecision)
     .map((unit) => unit.id);
@@ -228,8 +235,10 @@ export function ChangeSetReviewPanel({
         <div style={panelStyles.actionBar}>
           <button
             type="button"
-            onClick={() => runAction("accept", actionIds)}
-            disabled={actionIds.length === 0 || hasBulkAcceptBlockers || busy}
+            onClick={() => runAction("accept", acceptActionIds)}
+            disabled={
+              acceptActionIds.length === 0 || hasNonBulkAcceptableSelection || busy
+            }
             style={styles.secondaryButton}
             aria-label="确认选中变更"
           >

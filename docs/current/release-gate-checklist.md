@@ -73,7 +73,9 @@ Agent runtime / harness optimization：
 ```bash
 cd backend && .venv/bin/python -m pytest \
   tests/tools/test_launch_feature_tool.py \
-  tests/agents/chat_agent/test_capability_auto_launch.py \
+  tests/agents/chat_agent/test_capability_route_cards.py \
+  tests/integration/test_chat_to_feature_launch.py \
+  tests/application/handlers/test_thread_turn_runtime_config.py \
   tests/agents/lead_agent/v2/test_team_kernel.py \
   tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py \
   tests/agents/harness \

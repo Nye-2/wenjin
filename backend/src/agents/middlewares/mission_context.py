@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from collections.abc import Mapping
 from typing import Any
 
@@ -28,6 +29,10 @@ def _string(value: Any, *, max_chars: int | None = None) -> str:
     if max_chars is not None and len(text) > max_chars:
         return text[: max_chars - 1].rstrip() + "…"
     return text
+
+
+def _prompt_string(value: Any, *, max_chars: int | None = None) -> str:
+    return html.escape(_string(value, max_chars=max_chars), quote=True)
 
 
 def _compact_lines(lines: list[str]) -> str:
@@ -102,7 +107,7 @@ def _string_list(value: Any, *, limit: int, max_chars: int) -> list[str]:
     if isinstance(value, str):
         candidates = [value]
     elif isinstance(value, list):
-        candidates = [str(item or "").strip() for item in value]
+        candidates = [item.strip() for item in value if isinstance(item, str)]
     else:
         return []
     result: list[str] = []
@@ -236,7 +241,6 @@ def _execution_block(
     execution: Any,
     capability_names: Mapping[str, str],
 ) -> list[str]:
-    execution_id = _string(getattr(execution, "id", None), max_chars=80)
     capability_name = _capability_name(execution, capability_names)
     goal = _derived_goal(execution, capability_name)
     stage = _current_stage(execution)
@@ -247,22 +251,26 @@ def _execution_block(
     evidence_count = _evidence_count(execution)
     updated_at = _updated_timestamp(execution)
 
-    lines = [f'  <{tag} execution_id="{execution_id}">']
-    lines.append(f"  - capability: {capability_name}")
-    lines.append(f"  - goal: {goal}")
-    lines.append(f"  - status: {_status_label(execution)}")
+    lines = [f"  <{tag}>"]
+    lines.append(f"  - capability: {_prompt_string(capability_name)}")
+    lines.append(f"  - goal: {_prompt_string(goal)}")
+    lines.append(f"  - status: {_prompt_string(_status_label(execution))}")
     if stage:
-        lines.append(f"  - current_stage: {stage}")
+        lines.append(f"  - current_stage: {_prompt_string(stage)}")
     if summary:
-        lines.append(f"  - summary: {summary}")
+        lines.append(f"  - summary: {_prompt_string(summary)}")
     if questions:
-        lines.append(f"  - open_questions: {'；'.join(questions)}")
+        lines.append(
+            f"  - open_questions: {'；'.join(_prompt_string(item) for item in questions)}"
+        )
     if next_actions:
-        lines.append(f"  - next_actions: {'；'.join(next_actions)}")
+        lines.append(
+            f"  - next_actions: {'；'.join(_prompt_string(item) for item in next_actions)}"
+        )
     lines.append(f"  - pending_review_count: {pending_review_count}")
     lines.append(f"  - evidence_count: {evidence_count}")
     if updated_at:
-        lines.append(f"  - updated_at: {updated_at}")
+        lines.append(f"  - updated_at: {_prompt_string(updated_at)}")
     lines.append(f"  </{tag}>")
     return lines
 
