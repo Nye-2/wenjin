@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from src.application.handlers.thread_turn_handler import (
+    _build_langchain_messages,
     _maybe_attach_intake_spec_fallback,
     _resolve_workspace_id,
     build_thread_initial_state,
@@ -162,7 +163,7 @@ def test_super_workflow_entry_seed_does_not_seed_auto_launch_without_spec_approv
     assert "launch_feature_id" not in config["configurable"]
 
 
-def test_super_workflow_spec_approval_can_seed_auto_launch() -> None:
+def test_super_workflow_spec_approval_does_not_seed_auto_launch_feature_id() -> None:
     request = ThreadTurnRequest(
         message="同意并开始执行这份 Spec。",
         metadata={
@@ -189,7 +190,46 @@ def test_super_workflow_spec_approval_can_seed_auto_launch() -> None:
         user_message_id="msg-123",
     )
 
-    assert config["configurable"]["launch_feature_id"] == "software_copyright_application_pack"
+    assert "launch_feature_id" not in config["configurable"]
+    assert config["configurable"]["launch_feature_params"] == {
+        "software_name": "智慧排课系统",
+    }
+
+
+def test_persisted_orchestration_metadata_stays_out_of_model_visible_text() -> None:
+    messages = _build_langchain_messages(
+        [
+            {
+                "role": "user",
+                "content": "继续完善这一轮分析",
+                "metadata": {
+                    "orchestration": {
+                        "feature_id": "paper_analysis",
+                        "execution_id": "exec-123",
+                        "params": {"paper_title": "联邦学习+大模型"},
+                    }
+                },
+            },
+            {
+                "role": "assistant",
+                "content": "我会基于当前任务继续。",
+                "metadata": {
+                    "orchestration": {
+                        "feature_id": "paper_analysis",
+                        "execution_id": "exec-123",
+                        "status": "completed",
+                    }
+                },
+            },
+        ]
+    )
+
+    rendered = "\n".join(str(message.content) for message in messages)
+    assert "继续完善这一轮分析" in rendered
+    assert "我会基于当前任务继续。" in rendered
+    assert "feature=" not in rendered
+    assert "execution_id=" not in rendered
+    assert "[orchestration:" not in rendered
 
 
 def test_build_thread_initial_state_includes_thread_and_user_ids() -> None:

@@ -113,6 +113,24 @@ describe("workspace-thread-entry", () => {
     expect(featurePrompt).toBe("请基于当前框架继续深化方法设计。");
   });
 
+  it("keeps raw execution ids out of resume prompts", () => {
+    const featurePrompt = buildWorkspaceThreadEntryPrompt({
+      seed: {
+        featureId: "paper_analysis",
+        skillId: "paper-analyst",
+        params: {
+          entry: "resume",
+          execution_id: "exec-123",
+        },
+      },
+      feature: { name: "论文分析", description: "..." },
+    });
+
+    expect(featurePrompt).toBe("请继续「论文分析」的执行。");
+    expect(featurePrompt).not.toContain("exec-123");
+    expect(featurePrompt).not.toContain("execution_id");
+  });
+
   // Lock down the URL → params contract that the chat page's entrySeed
   // flow uses to deliver context to lead_agent (via the seed prompt + skill).
   it("captures source_artifact_id, paper_title, paper_abstract into params", () => {

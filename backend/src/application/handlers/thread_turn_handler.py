@@ -136,38 +136,6 @@ def _extract_launch_feature_params_from_metadata(
     return normalized
 
 
-def _extract_launch_feature_id_from_metadata(
-    metadata: Mapping[str, Any] | None,
-) -> str | None:
-    if not isinstance(metadata, Mapping):
-        return None
-    intake_spec_launch = metadata.get("intake_spec_launch")
-    has_intake_spec_approval = isinstance(intake_spec_launch, Mapping) and bool(
-        str(intake_spec_launch.get("spec_id") or "").strip()
-    )
-    for bucket_name, key_name in (
-        ("orchestration", "feature_id"),
-        ("entry_seed", "feature_id"),
-        ("workbench_launch", "capability_id"),
-    ):
-        bucket = metadata.get(bucket_name)
-        if not isinstance(bucket, Mapping):
-            continue
-        if bucket_name == "workbench_launch":
-            mode = str(bucket.get("mode") or "").strip().lower()
-            if mode == "intake":
-                continue
-        feature_id = str(bucket.get(key_name) or "").strip()
-        if feature_id:
-            if (
-                feature_id in _INTAKE_GATED_FEATURE_IDS
-                and not has_intake_spec_approval
-            ):
-                continue
-            return feature_id
-    return None
-
-
 def _extract_intake_feature_id_from_metadata(
     metadata: Mapping[str, Any] | None,
 ) -> str | None:
@@ -586,54 +554,6 @@ def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
         return content
 
     additions: list[str] = []
-    metadata = message.get("metadata")
-    if isinstance(metadata, Mapping):
-        orchestration = metadata.get("orchestration")
-        if isinstance(orchestration, Mapping):
-            feature_id = orchestration.get("feature_id")
-            execution_id = orchestration.get("execution_id")
-
-            if role == "assistant":
-                status = orchestration.get("status")
-                task_id = orchestration.get("task_id")
-                fields = [
-                    f"feature={feature_id}" if feature_id else None,
-                    f"status={status}" if status else None,
-                    f"task_id={task_id}" if task_id else None,
-                    f"execution_id={execution_id}" if execution_id else None,
-                ]
-                summary = ", ".join(field for field in fields if field)
-                if summary:
-                    additions.append(f"[orchestration: {summary}]")
-            else:
-                block_action = metadata.get("block_action")
-                should_surface_orchestration = bool(execution_id) or isinstance(
-                    block_action, Mapping
-                )
-                if should_surface_orchestration:
-                    fields = [
-                        f"feature={feature_id}" if feature_id else None,
-                        f"execution_id={execution_id}" if execution_id else None,
-                    ]
-                    summary = ", ".join(field for field in fields if field)
-                    if summary:
-                        additions.append(f"[orchestration: {summary}]")
-
-        if role == "user":
-            block_action = metadata.get("block_action")
-            if isinstance(block_action, Mapping):
-                action = block_action.get("action")
-                intent = block_action.get("intent")
-                source_block_kind = block_action.get("source_block_kind")
-                fields = [
-                    f"action={action}" if action else None,
-                    f"intent={intent}" if intent else None,
-                    f"source={source_block_kind}" if source_block_kind else None,
-                ]
-                summary = ", ".join(field for field in fields if field)
-                if summary:
-                    additions.append(f"[thread_action: {summary}]")
-
     if role == "assistant":
         blocks = message.get("blocks")
         if isinstance(blocks, list):
@@ -729,9 +649,6 @@ def build_thread_runtime_config(
     launch_feature_params = _extract_launch_feature_params_from_metadata(request.metadata)
     if launch_feature_params:
         configurable["launch_feature_params"] = launch_feature_params
-    launch_feature_id = _extract_launch_feature_id_from_metadata(request.metadata)
-    if launch_feature_id:
-        configurable["launch_feature_id"] = launch_feature_id
     if execution_id is not None:
         configurable["execution_id"] = execution_id
     return {"configurable": configurable}

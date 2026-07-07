@@ -116,13 +116,6 @@ export function buildWorkspaceThreadEntryPrompt(options: {
     typeof seed.params?.entry === "string" &&
     seed.params.entry.trim().toLowerCase() === "resume"
   ) {
-    const executionId =
-      typeof seed.params?.execution_id === "string"
-        ? seed.params.execution_id.trim()
-        : "";
-    if (executionId) {
-      return `请继续「${featureLabel}」的执行 (execution_id: ${executionId})。`;
-    }
     return `请继续「${featureLabel}」的执行。`;
   }
 

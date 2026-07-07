@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
 import { useChatStoreV2 } from "@/stores/chat-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
 const { mockListModels } = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ vi.mock("@/lib/api", () => ({
 
 beforeEach(() => {
   useChatStoreV2.getState().reset();
+  useRunUiStore.getState().reset();
   useWorkbenchLayoutStore.getState().reset();
   mockUseSearchParams.mockReturnValue(new URLSearchParams());
   mockListModels.mockReset();
@@ -904,6 +906,44 @@ describe("ChatPanel v2", () => {
         },
       ),
     );
+  });
+
+  it("forwards the focused mission run id on ordinary manual sends without changing prompt text", async () => {
+    const loadHistory = vi.fn().mockResolvedValue("thread-1");
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      loadHistory,
+      sendMessage,
+      messages: [],
+      isSending: false,
+    });
+    useRunUiStore.getState().focusRun("exec-focused-1");
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledWith("ws-1"));
+
+    const input = screen.getByPlaceholderText("输入消息... Shift+Enter 换行");
+    fireEvent.change(input, { target: { value: "继续完善结论部分" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: false });
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "继续完善结论部分",
+        [],
+        {
+          metadata: {
+            orchestration: {
+              execution_id: "exec-focused-1",
+              source: "mission_console",
+            },
+          },
+        },
+      ),
+    );
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain("exec-focused-1");
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain("execution_id");
   });
 
   it("does not submit while an IME composition is active", async () => {

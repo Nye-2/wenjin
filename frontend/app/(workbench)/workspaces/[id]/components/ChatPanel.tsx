@@ -18,6 +18,8 @@ import {
   type Message,
   type SendMessageOptions,
 } from "@/stores/chat-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { MessageBlock } from "./MessageBlock";
 import { FileAttachButton } from "./FileAttachButton";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
@@ -73,6 +75,42 @@ function buildBlockIntentForwardingOptions(
   };
 }
 
+function withMissionRunContext(
+  options: SendMessageOptions | undefined,
+  executionId: string | null | undefined,
+): SendMessageOptions | undefined {
+  const normalizedExecutionId =
+    typeof executionId === "string" ? executionId.trim() : "";
+  if (!normalizedExecutionId) {
+    return options;
+  }
+
+  const nextOptions: SendMessageOptions = { ...(options ?? {}) };
+  const metadata =
+    nextOptions.metadata && typeof nextOptions.metadata === "object"
+      ? { ...(nextOptions.metadata as Record<string, unknown>) }
+      : {};
+  const currentOrchestration =
+    metadata.orchestration && typeof metadata.orchestration === "object"
+      ? { ...(metadata.orchestration as Record<string, unknown>) }
+      : {};
+
+  if (
+    typeof currentOrchestration.execution_id === "string" &&
+    currentOrchestration.execution_id.trim()
+  ) {
+    return nextOptions;
+  }
+
+  metadata.orchestration = {
+    ...currentOrchestration,
+    execution_id: normalizedExecutionId,
+    source: currentOrchestration.source ?? "mission_console",
+  };
+  nextOptions.metadata = metadata;
+  return nextOptions;
+}
+
 export function ChatPanel({
   workspaceId,
   workspaceName,
@@ -86,6 +124,8 @@ export function ChatPanel({
   const isSending = useChatStoreV2((s) => s.isSending);
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
   const setActiveWorkspace = useChatStoreV2((s) => s.setActiveWorkspace);
+  const focusedRunId = useRunUiStore((s) => s.focusedRunId);
+  const selectedRunId = useWorkbenchLayoutStore((s) => s.selectedRunId);
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -325,17 +365,21 @@ export function ChatPanel({
       autoLaunchedSeedRef.current = entrySeedSignature;
     }
 
+    const missionRunId = focusedRunId || selectedRunId;
     void sendMessage(
       workspaceId,
       trimmed,
       currentAttachments,
-      withSelectedModel(
-        shouldForwardResumeSeed && entrySeed
-          ? {
-              skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
-              metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
-            }
-          : undefined,
+      withMissionRunContext(
+        withSelectedModel(
+          shouldForwardResumeSeed && entrySeed
+            ? {
+                skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
+                metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
+              }
+            : undefined,
+        ),
+        missionRunId,
       ),
     );
   }

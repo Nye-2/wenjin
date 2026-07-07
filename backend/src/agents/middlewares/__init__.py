@@ -1,7 +1,6 @@
 """Middlewares package initialization."""
 
 from .base import Middleware
-from .capability_auto_launch import CapabilityAutoLaunchMiddleware
 from .capability_skill_preload import CapabilitySkillPreloadMiddleware
 from .citation_context import CitationContextMiddleware
 from .clarification import ClarificationMiddleware
@@ -31,7 +30,6 @@ from .workspace_context import WorkspaceContextMiddleware
 
 __all__ = [
     "CapabilitySkillPreloadMiddleware",
-    "CapabilityAutoLaunchMiddleware",
     "CitationContextMiddleware",
     "ClarificationMiddleware",
     "DanglingToolCallMiddleware",

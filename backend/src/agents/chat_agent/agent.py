@@ -18,7 +18,6 @@ from src.agents.chat_agent.blocks import AgentMessage, TextBlock
 from src.agents.chat_agent.dynamic_tools import DynamicToolNode
 from src.agents.chat_agent.prompts import system as _system_prompts
 from src.agents.middlewares import (
-    CapabilityAutoLaunchMiddleware,
     CitationContextMiddleware,
     ClarificationMiddleware,
     DanglingToolCallMiddleware,
@@ -692,7 +691,6 @@ def build_middlewares(
     # Must follow WorkspaceContextMiddleware so workspace_type is in state.
     middlewares.append(CapabilitySkillPreloadMiddleware())
     middlewares.append(MissionContextMiddleware())
-    middlewares.append(CapabilityAutoLaunchMiddleware())
 
     if index_service:
         middlewares.append(
@@ -851,7 +849,6 @@ def build_pipeline(
     # Must follow WorkspaceContextMiddleware so workspace_type is in state.
     pipeline.append(CapabilitySkillPreloadMiddleware())
     pipeline.append(MissionContextMiddleware())
-    pipeline.append(CapabilityAutoLaunchMiddleware())
     if index_service:
         pipeline.append(
             LiteratureContextMiddleware(index_service)

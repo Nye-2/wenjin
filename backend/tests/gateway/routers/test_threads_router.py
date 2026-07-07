@@ -593,8 +593,9 @@ class TestChatRuntimeConfig:
         assistant_content = messages[-1].content
         assert isinstance(assistant_content, str)
         assert "已启动任务" in assistant_content
-        assert "feature=writing" in assistant_content
         assert "task_id=task-1" in assistant_content
+        assert "feature=writing" not in assistant_content
+        assert "[orchestration:" not in assistant_content
 
     def test_build_langchain_messages_preserves_plain_user_content(self):
         thread = FakeThread(
@@ -624,7 +625,7 @@ class TestChatRuntimeConfig:
         assert messages[0].content == "请帮我开始「框架与摘要」。"
         assert messages[-1].content == "这个方法为什么有效？"
 
-    def test_build_langchain_messages_surfaces_continue_thread_action_context(self):
+    def test_build_langchain_messages_keeps_continue_thread_metadata_out_of_text(self):
         thread = FakeThread(
             id="thread-3",
             user_id="user-1",
@@ -664,12 +665,12 @@ class TestChatRuntimeConfig:
 
         user_content = messages[-1].content
         assert isinstance(user_content, str)
-        assert "retry_run" in user_content
-        assert "feature=writing" in user_content
-        assert "execution_id=exec-9" in user_content
-        assert "action=continue_thread" in user_content
-        assert "intent=retry_run" in user_content
-        assert "source=result_card" in user_content
+        assert user_content == "retry_run"
+        assert "feature=writing" not in user_content
+        assert "execution_id=exec-9" not in user_content
+        assert "action=continue_thread" not in user_content
+        assert "intent=retry_run" not in user_content
+        assert "source=result_card" not in user_content
 
     def test_build_langchain_messages_restores_assistant_reasoning_content(self):
         thread = FakeThread(
