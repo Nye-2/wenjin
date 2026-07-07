@@ -1115,6 +1115,67 @@ describe("execution run view projection", () => {
     expect(view.mission?.nextActions).toEqual(["A1", "A2", "A3"]);
   });
 
+  it("uses methodology stages instead of arbitrary graph topology for non-TeamKernel executions", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        graph_structure: {
+          nodes: [
+            { id: "retrieve_sources", type: "react" },
+            { id: "draft_outline", type: "react" },
+          ],
+          edges: [],
+        },
+        runtime_state: {
+          methodology_contract: {
+            stages: [
+              {
+                id: "collect_evidence",
+                purpose: "查找证据",
+              },
+              {
+                id: "synthesize_argument",
+                purpose: "起草论证",
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.stages).toEqual([
+      {
+        id: "collect_evidence",
+        label: "查找证据",
+        status: "running",
+      },
+      {
+        id: "synthesize_argument",
+        label: "起草论证",
+        status: "pending",
+      },
+    ]);
+  });
+
+  it("reads research state from direct result payloads shaped as status plus research_state", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        result: {
+          status: "completed",
+          research_state: {
+            schema_version: "wenjin.research_state.v1",
+            goal: "确认研究目标",
+            open_questions: ["Q1", "Q2", "Q3", "Q4"],
+            next_actions: ["A1", "A2", "A3", "A4"],
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.goal).toBe("确认研究目标");
+    expect(view.mission?.openQuestions).toEqual(["Q1", "Q2", "Q3"]);
+    expect(view.mission?.nextActions).toEqual(["A1", "A2", "A3"]);
+  });
+
   it("separates used evidence from merely found evidence in mission counts", () => {
     const view = runViewFromExecution(
       makeExecution({

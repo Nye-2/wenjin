@@ -291,6 +291,7 @@ const DIRECT_TASK_REPORT_FIELDS = [
   "outputs",
   "review_items",
   "review_packet",
+  "research_state",
   "narrative",
   "result_summary",
   "errors",
@@ -779,8 +780,9 @@ function missionStateFromExecution(
     researchStateFromRuntimeState(record.runtime_state) ??
     researchStateFromTaskReport(runFacts.taskReport);
   const stages =
-    missionStagesFromProgressItems(runFacts.progressItems) ??
-    missionStagesFromMethodology(record.runtime_state);
+    (record.graph_structure?.mode === "team_kernel"
+      ? missionStagesFromProgressItems(runFacts.progressItems)
+      : null) ?? missionStagesFromMethodology(record.runtime_state);
   const currentStage =
     stages.find((stage) => stage.status === "running") ??
     stages.find((stage) => stage.status === "review") ??

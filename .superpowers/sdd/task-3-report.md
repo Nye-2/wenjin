@@ -78,3 +78,52 @@ Generating route types...
 - `RunView.mission` is derived only from existing execution/task-report/runtime data.
 - No backend files, capability YAML, Zustand stores, or component-layer raw parsing were added.
 - Historical/result-card projections return `mission: null`; live execution projections carry the mission state.
+
+---
+
+## Task 3 Review Fixes
+
+### Findings addressed
+
+- Restricted progress-derived mission stages to TeamKernel executions; non-TeamKernel mission stages now come from runtime methodology hints only.
+- Made direct result payloads shaped like `{ status, research_state }` discoverable as task-report projections so mission goal, open questions, and next actions can be read.
+
+### Additional TDD Evidence
+
+#### RED
+
+Command:
+
+```bash
+cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts
+```
+
+Observed failure summary:
+
+```text
+tests/unit/lib/execution-run-view.test.ts (28 tests | 2 failed)
+- uses methodology stages instead of arbitrary graph topology for non-TeamKernel executions
+- reads research state from direct result payloads shaped as status plus research_state
+```
+
+#### GREEN
+
+Commands:
+
+```bash
+cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts
+cd frontend && npm run typecheck
+```
+
+Observed pass summary:
+
+```text
+Test Files  1 passed (1)
+Tests  28 passed (28)
+
+> wenjin-frontend@2.0.0 typecheck
+> next typegen && tsc --noEmit
+
+Generating route types...
+✓ Types generated successfully
+```
