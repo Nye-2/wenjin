@@ -36,6 +36,7 @@ def upgrade() -> None:
         """
     )
     op.drop_index("ix_execution_nodes_execution_node_id", table_name="execution_nodes")
+    op.execute("DROP INDEX IF EXISTS ix_execution_nodes_execution_id")
     op.create_unique_constraint(
         "uq_execution_nodes_execution_node_id",
         "execution_nodes",
