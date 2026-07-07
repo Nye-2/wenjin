@@ -293,7 +293,6 @@ export function LiveWorkflowPanel({
       workspaceId,
       [
         "请基于当前任务继续处理。",
-        `上一轮执行 ID：${interventionState.executionId}`,
         "补充说明：",
         instruction,
         "请复用上一轮已经完成且仍可靠的证据和结果，避免无必要重复。",

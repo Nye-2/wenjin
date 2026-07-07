@@ -1504,8 +1504,10 @@ describe("LiveWorkflowPanel", () => {
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
     const [, prompt, , options] = sendMessage.mock.calls[0];
     expect(prompt).toContain("请基于当前任务继续处理。");
-    expect(prompt).toContain("上一轮执行 ID：exec-1");
     expect(prompt).toContain("补充说明：");
+    expect(prompt).toContain("请优先补齐证据映射。");
+    expect(prompt).not.toContain("执行 ID");
+    expect(prompt).not.toContain("exec-1");
     expect(prompt).not.toContain("启动新 run");
     expect(options.metadata).toMatchObject({
       intervention: true,
