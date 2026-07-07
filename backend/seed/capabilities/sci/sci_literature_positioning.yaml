@@ -208,35 +208,42 @@ research_evidence:
 methodology:
   archetype: literature_survey
   stages:
-  - id: intent
+  - id: scope
     purpose: Clarify topic scope, target audience, deliverable, existing materials, and journal or reporting constraints before retrieval.
     required_artifacts:
-    - intent_brief
+    - research_brief
     user_checkpoint: optional
     quality_surfaces:
     - review_packet_completeness
-  - id: triage
-    purpose: Search and screen candidate papers by relevance, recency, venue, method fit, and citation readiness.
+  - id: literature_facets
+    purpose: Search and screen candidate papers by relevance, recency, venue, and method fit, then organize the retained literature into 3 to 5 facets before any gap synthesis.
     required_artifacts:
     - search_plan
-    - triage_table
+    - facet_literature_matrix
     - source_quality_notes
     quality_surfaces:
+    - workflow_trace
     - paper_relevance
     - citation_strength
-  - id: deepen
-    purpose: Convert retained sources into a theme matrix, gap hypotheses, and claim-source support map.
+  - id: gap_reasoning
+    purpose: Convert the facet matrix into explicit gap hypotheses, contribution options, and claim-source support boundaries.
     required_artifacts:
-    - theme_matrix
-    - gap_matrix
+    - gap_contribution_map
     - claim_inventory
     quality_surfaces:
     - claim_evidence_alignment
-  - id: synthesize
-    purpose: Produce contribution candidates, related-work positioning, unresolved questions, and reviewable result cards.
+  - id: positioning_synthesis
+    purpose: Produce contribution candidates, related-work positioning, unresolved questions, and a claim-evidence map suitable for literature-gap work only.
     required_artifacts:
     - contribution_candidates
     - claim_evidence_map
+    - review_packet
+    quality_surfaces:
+    - claim_evidence_alignment
+    - citation_strength
+  - id: review
+    purpose: Audit the literature positioning package for review-packet completeness and citation quality without turning the capability into full manuscript generation.
+    required_artifacts:
     - review_packet
     user_checkpoint: required
     quality_surfaces:
@@ -258,6 +265,7 @@ methodology:
   completion_gates:
   - review_packet_completeness
   - claim_evidence_alignment
+  - workflow_trace
   - paper_relevance
   - citation_strength
 runtime:

@@ -196,6 +196,129 @@ def test_member_context_projects_capability_methodology_contract() -> None:
     }
 
 
+def test_member_context_projects_multi_stage_research_loop_with_facet_artifacts() -> None:
+    payload = build_team_member_context(
+        brief=TaskBrief(
+            capability_id="research_question_to_paper",
+            workspace_id="ws-1",
+            raw_message="turn this topic into a manuscript draft",
+            brief={},
+        ),
+        capability_name="问题到 SCI 初稿",
+        template_id="document_architect.v1",
+        display_role="论文架构师",
+        blackboard=TeamBlackboard(mission_summary="问题到 SCI 初稿"),
+        capability_policy={
+            "methodology": {
+                "archetype": "paper_build",
+                "stages": [
+                    {
+                        "id": "scope",
+                        "purpose": "frame the research question and contribution promise",
+                        "required_artifacts": ["research_brief"],
+                        "quality_surfaces": ["review_packet_completeness"],
+                    },
+                    {
+                        "id": "literature_facets",
+                        "purpose": "cover 3 to 5 facets before synthesis",
+                        "required_artifacts": ["facet_literature_matrix", "claim_inventory"],
+                        "quality_surfaces": ["workflow_trace", "citation_strength"],
+                    },
+                    {
+                        "id": "write_review",
+                        "purpose": "assemble the manuscript draft and review packet",
+                        "required_artifacts": [
+                            "claim_evidence_map",
+                            "review_packet",
+                            "manuscript_draft",
+                        ],
+                        "user_checkpoint": "required",
+                        "quality_surfaces": [
+                            "claim_evidence_alignment",
+                            "review_packet_completeness",
+                        ],
+                    },
+                ],
+                "claim_policy": {
+                    "mode": "two_pass",
+                    "extraction_artifact": "claim_inventory",
+                    "verification_artifact": "claim_evidence_map",
+                    "unsupported_claim_behavior": "mark_for_user_decision",
+                },
+                "retrieval_policy": {
+                    "escalation": [
+                        "workspace_library_exact",
+                        "workspace_library_bm25",
+                        "workspace_library_semantic",
+                        "web_search_with_import",
+                    ],
+                    "prefer_workspace_library": True,
+                    "require_import_before_citation": True,
+                },
+                "completion_gates": [
+                    "workflow_trace",
+                    "review_packet_completeness",
+                    "claim_evidence_alignment",
+                ],
+            }
+        },
+    )
+
+    assert payload["methodology_contract"] == {
+        "schema": "wenjin.team.methodology_contract.v1",
+        "archetype": "paper_build",
+        "stages": [
+            {
+                "id": "scope",
+                "purpose": "frame the research question and contribution promise",
+                "required_artifacts": ["research_brief"],
+                "quality_surfaces": ["review_packet_completeness"],
+            },
+            {
+                "id": "literature_facets",
+                "purpose": "cover 3 to 5 facets before synthesis",
+                "required_artifacts": ["facet_literature_matrix", "claim_inventory"],
+                "quality_surfaces": ["workflow_trace", "citation_strength"],
+            },
+            {
+                "id": "write_review",
+                "purpose": "assemble the manuscript draft and review packet",
+                "required_artifacts": [
+                    "claim_evidence_map",
+                    "review_packet",
+                    "manuscript_draft",
+                ],
+                "user_checkpoint": "required",
+                "quality_surfaces": [
+                    "claim_evidence_alignment",
+                    "review_packet_completeness",
+                ],
+            },
+        ],
+        "claim_policy": {
+            "mode": "two_pass",
+            "extraction_artifact": "claim_inventory",
+            "verification_artifact": "claim_evidence_map",
+            "unsupported_claim_behavior": "mark_for_user_decision",
+        },
+        "retrieval_policy": {
+            "escalation": [
+                "workspace_library_exact",
+                "workspace_library_bm25",
+                "workspace_library_semantic",
+                "web_search_with_import",
+            ],
+            "prefer_workspace_library": True,
+            "require_import_before_citation": True,
+        },
+        "completion_gates": [
+            "workflow_trace",
+            "review_packet_completeness",
+            "claim_evidence_alignment",
+        ],
+    }
+
+
 def test_member_context_projects_quality_repair_context_from_failed_research_gate() -> None:
     recoverable_ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/runner/stdout.txt"
 

@@ -331,16 +331,57 @@ def test_sci_capability_methodology_samples_are_parseable_and_specific():
     expected_stage_ids = {
         "sci_literature_positioning": {
             "archetype": "literature_survey",
-            "stages": {"intent", "triage", "deepen", "synthesize"},
+            "stages": {
+                "scope",
+                "literature_facets",
+                "gap_reasoning",
+                "positioning_synthesis",
+                "review",
+            },
+            "required_artifacts": {
+                "facet_literature_matrix",
+                "gap_contribution_map",
+                "claim_evidence_map",
+            },
         },
         "research_question_to_paper": {
             "archetype": "paper_build",
             "stages": {
-                "project_context",
-                "architecture",
-                "evidence_probe",
-                "draft",
-                "audit_compress",
+                "scope",
+                "literature_facets",
+                "reason",
+                "methodology",
+                "execute_or_draft",
+                "analyze",
+                "synthesize",
+                "write_review",
+            },
+            "required_artifacts": {
+                "research_brief",
+                "facet_literature_matrix",
+                "gap_contribution_map",
+                "methodology_plan",
+                "claim_inventory",
+                "claim_evidence_map",
+                "review_packet",
+            },
+        },
+        "thesis_research_pack": {
+            "archetype": "research_plan",
+            "stages": {
+                "scope",
+                "literature_facets",
+                "framework_reasoning",
+                "outline_methodology",
+                "synthesize",
+                "review",
+            },
+            "required_artifacts": {
+                "research_brief",
+                "chapter_evidence_map",
+                "literature_matrix",
+                "claim_evidence_map",
+                "next_actions",
             },
         },
     }
@@ -355,10 +396,23 @@ def test_sci_capability_methodology_samples_are_parseable_and_specific():
 
         assert methodology.archetype == expected["archetype"]
         assert {stage.id for stage in methodology.stages} == expected["stages"]
-        assert methodology.claim_policy.mode == "two_pass"
-        assert methodology.claim_policy.extraction_artifact == "claim_inventory"
-        assert methodology.claim_policy.verification_artifact == "claim_evidence_map"
-        assert "claim_evidence_alignment" in methodology.completion_gates
+        required_artifacts = {
+            artifact
+            for stage in methodology.stages
+            for artifact in stage.required_artifacts
+        }
+        assert expected["required_artifacts"] <= required_artifacts
+        if capability_id in {
+            "sci_literature_positioning",
+            "research_question_to_paper",
+            "thesis_research_pack",
+        }:
+            assert "literature_facets" in {stage.id for stage in methodology.stages}
+        if capability_id == "research_question_to_paper":
+            assert methodology.claim_policy.mode == "two_pass"
+            assert methodology.claim_policy.extraction_artifact == "claim_inventory"
+            assert methodology.claim_policy.verification_artifact == "claim_evidence_map"
+            assert "claim_evidence_alignment" in methodology.completion_gates
 
 
 def test_existing_graph_output_capabilities_stay_on_graph_runtime():

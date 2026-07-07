@@ -200,6 +200,80 @@ research_evidence:
     protected_section_safety: required_final
   notes:
   - The thesis research pack must produce Library-backed sources, topic-fit evidence, claim-evidence mappings, protected-section-safe Prism changes, and a reviewable argument-chain handoff rather than a shallow reading list.
+methodology:
+  archetype: research_plan
+  stages:
+  - id: scope
+    purpose: Capture the thesis topic, degree constraints, available materials, and target research outcome as a bounded research brief.
+    required_artifacts:
+    - research_brief
+    user_checkpoint: optional
+    quality_surfaces:
+    - review_packet_completeness
+  - id: literature_facets
+    purpose: Organize the retrieved literature into 3 to 5 facets so the student can compare schools of thought, evidence types, and source quality before synthesis.
+    required_artifacts:
+    - literature_matrix
+    - claim_inventory
+    quality_surfaces:
+    - workflow_trace
+    - literature
+    - citation_strength
+  - id: framework_reasoning
+    purpose: Connect the literature facets to the thesis framework, chapter argument needs, and identified research gaps.
+    required_artifacts:
+    - chapter_evidence_map
+    - claim_inventory
+    quality_surfaces:
+    - claim_evidence_alignment
+    - argument_chain
+  - id: outline_methodology
+    purpose: Turn the scoped problem and framework into a chapter outline, method direction, and evidence plan suitable for a thesis student.
+    required_artifacts:
+    - chapter_outline
+    - methodology_plan
+    - next_actions
+    quality_surfaces:
+    - workflow_trace
+    - argument_chain
+  - id: synthesize
+    purpose: Synthesize the literature, framework, and methodology direction into reviewable chapter guidance with explicit evidence support.
+    required_artifacts:
+    - chapter_evidence_map
+    - claim_evidence_map
+    - next_actions
+    quality_surfaces:
+    - claim_evidence_alignment
+    - paper_relevance
+  - id: review
+    purpose: Audit the thesis research pack for review-packet completeness, citation quality, and protected-section-safe handoff.
+    required_artifacts:
+    - review_packet
+    - next_actions
+    user_checkpoint: required
+    quality_surfaces:
+    - review_packet_completeness
+    - claim_evidence_alignment
+  claim_policy:
+    mode: two_pass
+    extraction_artifact: claim_inventory
+    verification_artifact: claim_evidence_map
+    unsupported_claim_behavior: mark_for_user_decision
+  retrieval_policy:
+    escalation:
+    - workspace_library_exact
+    - workspace_library_bm25
+    - workspace_library_semantic
+    - web_search_with_import
+    prefer_workspace_library: true
+    require_import_before_citation: true
+  completion_gates:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - citation_strength
+  - paper_relevance
+  - argument_chain
 graph_template:
   phases:
   - name: step_01_research_scout

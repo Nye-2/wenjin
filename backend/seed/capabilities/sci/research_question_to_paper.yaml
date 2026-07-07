@@ -214,43 +214,70 @@ research_evidence:
 methodology:
   archetype: paper_build
   stages:
-  - id: project_context
-    purpose: Capture research question, contribution promise, target journal constraints, available materials, and known missing evidence.
+  - id: scope
+    purpose: Capture the research question, contribution promise, target journal constraints, available materials, and missing evidence as a bounded research brief.
     required_artifacts:
-    - project_context
+    - research_brief
     - missing_evidence_list
     user_checkpoint: optional
     quality_surfaces:
     - review_packet_completeness
-  - id: architecture
-    purpose: Build the manuscript spine, section contracts, argument chain, and claim-evidence-citation plan before drafting.
+  - id: literature_facets
+    purpose: For broad topics, decompose the literature review into 3 to 5 facets before synthesis so the manuscript is grounded in a coverage matrix instead of a single narrative pass.
     required_artifacts:
+    - facet_literature_matrix
+    - claim_inventory
+    quality_surfaces:
+    - workflow_trace
+    - citation_strength
+  - id: reason
+    purpose: Convert the scoped problem and facet evidence into a gap-contribution map that explains why the paper is needed and what it can honestly claim.
+    required_artifacts:
+    - gap_contribution_map
+    - claim_inventory
+    quality_surfaces:
+    - claim_evidence_alignment
+  - id: methodology
+    purpose: Build the study or drafting plan, section contracts, and evidence boundaries before executing analysis or composing manuscript text.
+    required_artifacts:
+    - methodology_plan
     - paper_spine
     - section_contracts
     - claim_inventory
     quality_surfaces:
+    - workflow_trace
     - claim_evidence_alignment
-  - id: evidence_probe
-    purpose: Check methods, results, figures, data/code readiness, and sandbox probe outputs without upgrading unverified probes into final empirical evidence.
+  - id: execute_or_draft
+    purpose: Run available probes or draft bounded manuscript sections from the approved plan without upgrading unverified probes into final evidence.
     required_artifacts:
     - method_probe_plan
-    - evidence_gap_table
+    - manuscript_draft
     - reproducibility_notes
     quality_surfaces:
     - workflow_trace
+    - citation_strength
+  - id: analyze
+    purpose: Analyze methods, results, figures, and claim support so every reusable assertion is tied to explicit evidence or marked as weak.
+    required_artifacts:
+    - evidence_gap_table
+    - claim_evidence_map
+    - reproducibility_notes
+    quality_surfaces:
     - claim_evidence_alignment
-  - id: draft
-    purpose: Draft or update manuscript text from confirmed architecture, Library citations, evidence boundaries, and journal-aware section intent.
+    - workflow_trace
+  - id: synthesize
+    purpose: Synthesize the literature, method, and analysis into a coherent argument chain with resolved contribution positioning and review-ready claim coverage.
+    required_artifacts:
+    - gap_contribution_map
+    - claim_evidence_map
+    - manuscript_draft
+    quality_surfaces:
+    - claim_evidence_alignment
+    - citation_strength
+  - id: write_review
+    purpose: Produce the review packet and final manuscript draft outputs, then audit unsupported claims, semantic preservation, academic style, and citation readiness before staging Prism changes.
     required_artifacts:
     - manuscript_draft
-    - claim_evidence_map
-    quality_surfaces:
-    - writing_semantic_preservation
-    - writing_academic_style
-    - citation_strength
-  - id: audit_compress
-    purpose: Audit citation keys, unsupported claims, semantic preservation, academic style, and review packet readiness before staging Prism changes.
-    required_artifacts:
     - citation_audit
     - style_audit
     - review_packet
@@ -276,6 +303,7 @@ methodology:
   completion_gates:
   - review_packet_completeness
   - claim_evidence_alignment
+  - workflow_trace
   - citation_strength
   - writing_semantic_preservation
   - writing_academic_style

@@ -50,6 +50,55 @@ REPRESENTATIVE_WORKSPACE_HARNESS = {
     },
 }
 
+METHODOLOGY_REPRESENTATIVES = {
+    "seed/capabilities/sci/research_question_to_paper.yaml": {
+        "stages": {
+            "scope",
+            "literature_facets",
+            "reason",
+            "methodology",
+            "execute_or_draft",
+            "analyze",
+            "synthesize",
+            "write_review",
+        },
+        "gates": {
+            "workflow_trace",
+            "review_packet_completeness",
+            "claim_evidence_alignment",
+        },
+    },
+    "seed/capabilities/sci/sci_literature_positioning.yaml": {
+        "stages": {
+            "scope",
+            "literature_facets",
+            "gap_reasoning",
+            "positioning_synthesis",
+            "review",
+        },
+        "gates": {
+            "workflow_trace",
+            "review_packet_completeness",
+            "claim_evidence_alignment",
+        },
+    },
+    "seed/capabilities/thesis/thesis_research_pack.yaml": {
+        "stages": {
+            "scope",
+            "literature_facets",
+            "framework_reasoning",
+            "outline_methodology",
+            "synthesize",
+            "review",
+        },
+        "gates": {
+            "workflow_trace",
+            "review_packet_completeness",
+            "claim_evidence_alignment",
+        },
+    },
+}
+
 SCI_FIRST_WAVE_SKILLS = [
     "seed/skills/query-planner.yaml",
     "seed/skills/research-scout.yaml",
@@ -113,6 +162,19 @@ def test_representative_workspace_capabilities_declare_research_evidence_surface
         assert isinstance(enforcement, dict), path
         missing_enforcement = required_surfaces - set(enforcement)
         assert not missing_enforcement, f"{path} missing enforcement for {sorted(missing_enforcement)}"
+
+
+def test_representative_research_capabilities_expose_research_loop_methodology() -> None:
+    for path, expected in METHODOLOGY_REPRESENTATIVES.items():
+        capability = _read_yaml(path)
+        methodology = capability.get("methodology") or {}
+        stages = methodology.get("stages") or []
+        stage_ids = {stage.get("id") for stage in stages}
+        assert stage_ids == expected["stages"], path
+        assert "literature_facets" in stage_ids, path
+
+        completion_gates = set(methodology.get("completion_gates") or [])
+        assert expected["gates"].issubset(completion_gates), path
 
 
 def test_first_wave_team_kernel_capabilities_have_ordered_phases_or_team_policy() -> None:
