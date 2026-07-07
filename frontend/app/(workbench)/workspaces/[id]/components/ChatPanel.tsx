@@ -18,6 +18,7 @@ import {
   type Message,
   type SendMessageOptions,
 } from "@/stores/chat-store";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { MessageBlock } from "./MessageBlock";
@@ -109,6 +110,19 @@ function withMissionRunContext(
   };
   nextOptions.metadata = metadata;
   return nextOptions;
+}
+
+function workspaceScopedMissionRunId(
+  executionId: string | null | undefined,
+  workspaceId: string,
+): string | null {
+  const normalizedExecutionId =
+    typeof executionId === "string" ? executionId.trim() : "";
+  if (!normalizedExecutionId) {
+    return null;
+  }
+  const record = useExecutionStore.getState().executions.get(normalizedExecutionId);
+  return record?.workspace_id === workspaceId ? normalizedExecutionId : null;
 }
 
 export function ChatPanel({
@@ -365,7 +379,10 @@ export function ChatPanel({
       autoLaunchedSeedRef.current = entrySeedSignature;
     }
 
-    const missionRunId = focusedRunId || selectedRunId;
+    const missionRunId = workspaceScopedMissionRunId(
+      focusedRunId || selectedRunId,
+      workspaceId,
+    );
     void sendMessage(
       workspaceId,
       trimmed,

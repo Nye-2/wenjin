@@ -66,6 +66,10 @@ _LAUNCH_RECEIPT_RE = re.compile(
     r"(?:已(?:经)?(?:为你)?启动|已发起|开始执行|正在执行|launched|started)",
     re.IGNORECASE,
 )
+_SOFT_LAUNCH_PROMISE_RE = re.compile(
+    r"(?:为你启动|马上开始|立即开始|现在开始|开始(?:梳理|整理|分析|推进|处理))",
+    re.IGNORECASE,
+)
 _INTAKE_GATED_FEATURE_IDS = {
     "software_copyright_application_pack",
     "math_modeling_paper_pack",
@@ -1292,6 +1296,7 @@ def _looks_like_unbacked_launch_receipt(content: str) -> bool:
         return False
     return bool(
         _EXECUTION_ID_RECEIPT_RE.search(normalized)
+        or _SOFT_LAUNCH_PROMISE_RE.search(normalized)
         or (
             _LAUNCH_RECEIPT_RE.search(normalized)
             and ("launch_feature" in normalized or "执行" in normalized or "任务" in normalized)

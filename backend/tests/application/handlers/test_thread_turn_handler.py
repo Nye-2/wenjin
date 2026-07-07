@@ -863,6 +863,28 @@ class TestThreadTurnHandlerCancellation:
         assert "能力未启动" in reply.blocks[0]["label"]
         assert "f89cd34a" not in reply.content
 
+    def test_reply_from_agent_result_blocks_soft_launch_promise_without_tool_result(self):
+        reply = _reply_from_agent_result(
+            {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "我先按这个题目为你启动梳理。"
+                            "我会重点输出研究空白、创新点和验证路径。"
+                            "我马上开始。"
+                        )
+                    )
+                ],
+                "response_blocks": [],
+                "response_metadata": {},
+            },
+            thread_id="thread-1",
+        )
+
+        assert reply.metadata["guard"] == "unbacked_launch_receipt"
+        assert "没有成功启动" in reply.content
+        assert reply.blocks[0]["tone"] == "warn"
+
     def test_reply_from_agent_result_keeps_tool_blocks_before_thinking_and_text(self):
         tool_result = {
             "status": "launched",

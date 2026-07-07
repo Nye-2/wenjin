@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
 import { useChatStoreV2 } from "@/stores/chat-store";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
@@ -22,6 +23,7 @@ vi.mock("@/lib/api", () => ({
 
 beforeEach(() => {
   useChatStoreV2.getState().reset();
+  useExecutionStore.getState().clear();
   useRunUiStore.getState().reset();
   useWorkbenchLayoutStore.getState().reset();
   mockUseSearchParams.mockReturnValue(new URLSearchParams());
@@ -917,6 +919,22 @@ describe("ChatPanel v2", () => {
       messages: [],
       isSending: false,
     });
+    useExecutionStore.getState().upsertExecution({
+      id: "exec-focused-1",
+      user_id: "user-1",
+      workspace_id: "ws-1",
+      execution_type: "capability",
+      feature_id: "paper_analysis",
+      status: "running",
+      params: {},
+      node_states: {},
+      artifact_ids: [],
+      next_actions: [],
+      child_execution_ids: [],
+      progress: 20,
+      created_at: "2026-07-07T00:00:00Z",
+      updated_at: "2026-07-07T00:00:01Z",
+    });
     useRunUiStore.getState().focusRun("exec-focused-1");
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
@@ -944,6 +962,51 @@ describe("ChatPanel v2", () => {
     );
     expect(sendMessage.mock.calls[0]?.[1]).not.toContain("exec-focused-1");
     expect(sendMessage.mock.calls[0]?.[1]).not.toContain("execution_id");
+  });
+
+  it("does not forward a focused mission run from another workspace", async () => {
+    const loadHistory = vi.fn().mockResolvedValue("thread-1");
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      loadHistory,
+      sendMessage,
+      messages: [],
+      isSending: false,
+    });
+    useExecutionStore.getState().upsertExecution({
+      id: "exec-foreign-1",
+      user_id: "user-1",
+      workspace_id: "ws-old",
+      execution_type: "capability",
+      feature_id: "paper_analysis",
+      status: "completed",
+      params: {},
+      node_states: {},
+      artifact_ids: [],
+      next_actions: [],
+      child_execution_ids: [],
+      progress: 100,
+      created_at: "2026-07-07T00:00:00Z",
+      updated_at: "2026-07-07T00:00:01Z",
+    });
+    useRunUiStore.getState().focusRun("exec-foreign-1");
+
+    render(<ChatPanel workspaceId="ws-new" data-testid="chat-panel" />);
+
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledWith("ws-new"));
+
+    const input = screen.getByPlaceholderText("输入消息... Shift+Enter 换行");
+    fireEvent.change(input, { target: { value: "做研究空白与创新点梳理" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: false });
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-new",
+        "做研究空白与创新点梳理",
+        [],
+        undefined,
+      ),
+    );
   });
 
   it("does not submit while an IME composition is active", async () => {
