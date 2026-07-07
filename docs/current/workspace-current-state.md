@@ -10,14 +10,14 @@
 
 1. canonical workspace route：`/workspaces/{workspace_id}`
 2. canonical workspace Prism route：`/workspaces/{workspace_id}/prism`
-3. capability 入口：通过 chat 面板对话触发，Chat Agent 根据 mission catalog 识别意图后调用 `launch_feature`
+3. 任务入口：通过 chat 面板对话触发，Chat Agent 根据 mission catalog 识别意图、决定是否追问或直接调用 `launch_feature`
 4. 旧 `/chat` 语义已收敛到当前 workspace chat / execution 体系，不再作为独立 feature 流程事实源
 5. 旧 workspace-owned `/latex/{project_id}` 页面入口已移除；主稿只通过 workspace Prism surface 进入
-6. capability 卡片点击只代表“选择能力”；如果没有具体主题、问题、材料、query、keywords、dataset 或 source artifact，系统只返回需要补充上下文的 advisory，不创建执行、不扣积分、不启动外部检索
+6. workspace query seed 或 follow-up route 只提供 capability hint；如果没有具体主题、问题、材料、query、keywords、dataset 或 source artifact，系统只返回需要补充上下文的 advisory，不创建执行、不扣积分、不启动外部检索
 
 ## 2. 双 Agent 拓扑
 
-1. **Chat Agent**（左面板）：处理对话、意图识别、调度 capability
+1. **Chat Agent**（左面板）：处理对话、意图识别、补充澄清，并决定何时启动 mission
 2. **Lead Agent v2**（右面板）：执行 capability graph，运行 subagent，产出结构化结果
 3. 1:1 映射：lead-busy 时阻塞新的 dispatch
 4. Chat turn 本身通过 `/api/threads/{thread_id}/runs/stream` 运行；当 Chat Agent 调用 `launch_feature` 时，stream 会显式输出 `tool_invocation` 与 `tool_result`
@@ -27,6 +27,8 @@
 8. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
 9. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
 10. 前端 chat store 按 workspace 隔离 message state；`messages` 只代表 active workspace projection，不得用一个 workspace 的历史阻止另一个 workspace seed / history load。
+
+右侧默认是 Mission Console：它跟随当前 mission 或 review 状态投影进展、证据、候选结果和提交动作，而不是提供第二套能力导航。
 
 ## 3. Capability 数据驱动
 
@@ -91,13 +93,13 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 
 ## 5. Result Card 闭环流程
 
-1. Chat Agent 调用 `launch_feature` → chat stream 输出 `tool_invocation` / `tool_result`
+1. Chat Agent 在上下文足够时调用 `launch_feature` → chat stream 输出 `tool_invocation` / `tool_result`
 2. `tool_result.status == "advisory"` → ChatPanel 渲染补充上下文提示，闭环停在 chat，不进入 execution / billing / external search
 3. `tool_result.status == "launched"` → ChatPanel 渲染启动回执，`run-ui-store` 标记 active run
 4. capability 执行完成 → `TaskReport` 含 `outputs[]`；Academic Harness 任务还可包含 `review_packet`
 5. SSE `execution.completed` 事件 → 前端 execution-store
 6. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
-7. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item；右侧 LiveWorkflowPanel 可把 `review_packet` 渲染为只读候选预览和风险提示
+7. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item；右侧 Mission Console/LiveWorkflowPanel 把 `review_packet` 渲染为只读候选预览和风险提示
 8. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
 9. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到 Library / Prism files / hidden workspace memory / Decisions / Tasks
 10. commit state 以 execution projection 为准；ResultCard、CompletedView、LiveWorkflowPanel 和 Runs drawer 优先读取 execution-backed accepted/rejected output state，本地 `committed` 只表示当前请求中的 optimistic pending
@@ -122,6 +124,7 @@ Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_worksp
 10. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
 11. 浏览器 smoke 已验证：TeamKernel execution read path hydrate 后，LiveWorkflowPanel 能从 `execution_nodes` 恢复全部团队实名成员，并从 `runtime_state.quality_gates` 恢复质量检查数量；默认展示不暴露 raw tool JSON。
 12. 浏览器 smoke 已验证：历史 TeamKernel run 在刷新后展示为五步任务进展，顶部计数与步骤列表一致；旧 `team_template_*` 不再显示为“工作步骤/待处理”，质量门从历史事件列表聚合为当前 gate 状态。
+13. follow-up 例如“继续深化方法部分”仍通过 Chat Agent 进入；当前 mission context 来自 active/focused execution projection 与显式 follow-up metadata，而不是右侧按钮重新选路。
 
 ## 6. Prism 主稿协作面
 
@@ -163,7 +166,7 @@ Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_worksp
 
 1. **Workspace shell**：提供 Workbench / Prism 两个主 surface switch
 2. **Workbench 左面板**（Chat）：对话与结果卡片入口
-3. **Workbench 右面板**（Research Workbench）：Current run、专家团队、证据预览、候选结果、运行历史和诊断详情
+3. **Workbench 右面板**（Mission Console / Research Workbench）：Current run、专家团队、证据预览、候选结果、运行历史和诊断详情
 4. **Prism surface**：文件树、Markdown/LaTeX/plain/image 编辑预览、autosave、LaTeX adapter compile/PDF、Changes review、workspace context rail
 5. Workspace Hub：Library / Decisions / Tasks / Runs / Settings 等；Runs 是执行历史与审计面，不是第二套运行状态源
 6. Settings page：workspace 设置与偏好；Memory 后台隐藏维护，Sandbox 不在 Settings 或顶栏 room 中暴露为用户操作台

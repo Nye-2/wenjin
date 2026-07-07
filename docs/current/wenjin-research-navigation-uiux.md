@@ -6,6 +6,8 @@ Wenjin keeps the name, but the product interface baseline is now **System-Grade 
 
 Workspace now uses a single trusted chrome for workspace identity, Workbench/Prism switching, running/review status, and the Workspace Hub entry. The previous permanent room topbar is removed. Rooms are reached through Workspace Hub, while technical execution details remain available behind run diagnostics instead of default panels.
 
+Task navigation is chat-first: the Chat Agent owns intake, clarification, and launch decisions. The right-side Mission Console does not offer a parallel capability launcher; it projects mission progress, evidence, review, and follow-up state after chat has established enough context.
+
 The earlier Glass / visionOS direction is superseded for new work. Existing `--v2-*` tokens may remain as compatibility aliases during migration, but new components should use `--wjn-*`.
 
 ## Positioning
@@ -16,7 +18,7 @@ Wenjin is a research and writing workbench for Chinese academic, mathematical mo
 
 - Evidence over decoration: sources, artifacts, trace, and review state are more important than glow effects.
 - Trusted chrome, quiet content: top-level shell carries identity, navigation, permission, state, command entry, and commit trust; content surfaces stay readable and low-noise.
-- Chat for intent, Workbench for work: chat collects goals and interventions; right-side surfaces carry runs, evidence, complex previews, and review.
+- Chat for intent, Mission Console for work: chat collects goals, clarifications, and follow-up instructions; the right side projects runs, evidence, previews, and review once a mission is active.
 - Review before commit: generated material enters a review queue before it writes into rooms or Prism.
 - Team agents as responsibility surfaces: real-name subagents should show role, status, capability readiness, output ownership, and quality gates. Template ids, raw tools, and raw skills belong in diagnostics, not default user-facing text. Do not present agents as mascot characters.
 - Quiet density: support long sessions with compact controls, hairline dividers, restrained color, and stable layouts.
@@ -56,13 +58,14 @@ Wenjin is a research and writing workbench for Chinese academic, mathematical mo
 ## Workspace Surfaces
 
 - Workbench: the main navigation console for runs, evidence, and review.
+- Mission Console: the default right-side Workbench surface for current mission status, team activity, evidence, candidate results, and review.
 - Prism: the manuscript/material control surface with editor, PDF compare mode, selection optimization, and diff review.
 - Rooms: persistent workspace data reached through Workspace Hub. Rooms should feel like ledgers and stores, not a permanent peer navigation strip or chat extensions.
 
 ## Page Templates
 
 - Public / entry surfaces: institutional white, trusted topbar, restrained deep-blue brand presence, path cards for workflow choices.
-- Workbench: compact split system with chat-for-intent on the left and execution/evidence/review on the right.
+- Workbench: compact split system with chat-for-intent on the left and Mission Console on the right; idle state stays quiet until chat or review state gives the console something to project.
 - Prism: editor/PDF/inspector split with review attribution, source links, compile state, and staged changes.
 - Admin / DataService: dense console layout with metric rows, tables, module cards, dialogs, and clear danger actions.
 

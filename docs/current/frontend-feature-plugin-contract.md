@@ -2,16 +2,16 @@
 
 更新时间: 2026-06-24
 
-本文档定义 workspace capability 入口的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
+本文档定义 workspace capability catalog、chat 路由与 execution projection 的前后端契约。能力定义是后端/admin 可编辑合同，不是默认右侧按钮入口。
 
 当前产品行为总览见: `docs/current/workspace-current-state.md`
 
 ## 1. Backend Contract
 
-### 1.1 拉取 capability 入口目录
+### 1.1 拉取 capability catalog
 
 - Endpoint: `GET /api/workspaces/{workspace_id}/features`
-- 说明：这是当前工作台 capability entry catalog 的 UI transport 接口，不是 capability schema 的 SSOT
+- 说明：这是 chat/workspace 用到的 capability catalog transport，不是 capability schema 的 SSOT，也不是默认 Mission Console 启动器
 - 返回字段（核心）:
   - `id`
   - `name`
@@ -23,7 +23,7 @@
   - `color`
   - `followUpPrompt`
 
-### 1.2 解析 capability 入口 follow-up / rerun action
+### 1.2 解析 capability follow-up / rerun action
 
 - Endpoint: `POST /api/workspaces/{workspace_id}/features/{feature_id}/resolve-action`
 - Request:
@@ -84,11 +84,10 @@
 
 ## 3. Workspace Workbench Entry Contract
 
-当前 capability 入口导航采用 workspace workbench 单入口，不再依赖独立 feature slug 页面或独立 `/chat` 页面。
+当前工作台采用单一路径：用户进入 `/workspaces/{workspace_id}`，通过 Chat Agent 自然发起、澄清并启动任务；Mission Console 只投影执行与审阅状态，不承担平行 launcher 职责。
 
 - Canonical entry: `/workspaces/{workspace_id}`
-- 必带 query: `feature=<feature_id>`（历史字段名保留为 transport key；字段值必须是 canonical capability id）
-- 可选 query: `skill=<skill_id>` 作为 route hint，以及 capability seed params（如 `topic`、`query`、`source_artifact_id`）。`skill` 不进入 Chat Agent raw skill prompt，也不能代替 capability route-card。
+- 可选 query seed: `feature=<feature_id>`、`skill=<skill_id>` 与 mission params（如 `topic`、`query`、`source_artifact_id`）。这些只是在 workspace 打开时给 chat 的 route hint，不代表右侧按钮导航，也不能绕过 Chat Agent。
 - 前端职责:
   - 解析 query seed
   - 生成首条可编辑 prompt
@@ -108,7 +107,7 @@
 
 ### 3.1 Capability Launch Context Gate
 
-Workbench capability 卡片、feature query seed、frontend-generated prompt 和 Chat Agent route-card 只负责把用户意图路由到对应 capability。它们不能代替具体任务上下文。
+Workspace query seed、frontend-generated prompt 和 Chat Agent route-card 只负责把用户意图路由到对应 capability。它们不能代替具体任务上下文。
 
 后端必须按以下规则处理：
 
@@ -207,11 +206,11 @@ Commit state 是 execution-backed。ResultCard、CompletedView、LiveWorkflowPan
 
 ## 4. 交互约束
 
-1. capability entry 目录按后端下发动态渲染，不做 workspace 类型硬编码按钮列表。
+1. capability catalog 由后端下发，用于 chat 路由与入口 seed；默认 workspace UX 不渲染一组 capability 启动按钮。
 2. capability 执行后统一汇聚到 `ExecutionRecord`，并由 Research Workbench 展示 execution projection。
 3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 LiveWorkflowPanel / execution projection UI，并通过 `RunView` 呈现。
 4. workspace SSE 以 `execution.* / task.updated / subagent.updated / compute.updated` 驱动 execution/compute store 增量更新。
-5. capability 入口卡片、artifact follow-up、activity retry 必须统一落到 `/workspaces/{workspace_id}?feature=...` query seed，并保留 `source_artifact_id/context_artifact_ids` 等 seed；不得重新引入中间 feature slug 页面。
+5. artifact follow-up、activity retry 和外部入口跳转统一落到 `/workspaces/{workspace_id}` 的 query seed，并保留 `feature`、`source_artifact_id`、`context_artifact_ids` 等参数；不得重新引入中间 feature slug 页面或默认按钮 launcher。
 6. Prism writing result action 必须统一落到 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`，不得落到 standalone `/latex/{project_id}` 页面。
 7. Runs drawer 必须合并 live execution store 与 `/api/workspaces/{workspace_id}/runs`，不得成为第二套执行状态系统。
 8. LiveWorkflowPanel 必须 pin 当前 active/focused run；从 running 到 completed 的状态切换必须来自 execution store / Runs projection，不来自本地计时假设。

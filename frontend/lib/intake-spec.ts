@@ -23,11 +23,6 @@ export type IntakeSpecV1 = {
 
 type RecordValue = Record<string, unknown>;
 
-const SUPER_WORKFLOW_CAPABILITIES = new Set<string>([
-  "software_copyright_application_pack",
-  "math_modeling_paper_pack",
-]);
-
 function isRecord(value: unknown): value is RecordValue {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -40,10 +35,6 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
-}
-
-export function isSuperWorkflowCapability(capabilityId: string): boolean {
-  return SUPER_WORKFLOW_CAPABILITIES.has(capabilityId);
 }
 
 export function isIntakeSpecRecord(value: unknown): value is IntakeSpecV1 {
