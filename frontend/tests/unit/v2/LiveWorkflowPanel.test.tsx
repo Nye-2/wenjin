@@ -290,6 +290,26 @@ function makeAcceptedChangeSetResponse(unitIds: string[]) {
   };
 }
 
+function makeRejectedChangeSetResponse(unitIds: string[]) {
+  const reviewState = {
+    schema_version: "wenjin.change_set.review_state.v1",
+    accepted_unit_ids: [],
+    rejected_unit_ids: unitIds,
+    undone_unit_ids: [],
+    updated_at: "2026-06-20T00:00:02Z",
+  };
+  const rejected = new Set(unitIds);
+  return {
+    change_set: makeReviewChangeSet(),
+    review_state: reviewState,
+    unit_states: makeReviewChangeSet().units.map((unit) => ({
+      unit_id: unit.id,
+      default_apply_state: unit.default_apply_state,
+      state: rejected.has(unit.id) ? "rejected" : unit.default_apply_state,
+    })),
+  };
+}
+
 function makeSecondCompletedRecord(): ExecutionRecord {
   const record = makeCompletedRecord();
   return {
@@ -526,11 +546,12 @@ function makeEvidenceMissionRecord(): ExecutionRecord {
             { evidence_id: "ev-1", verification_status: "verified" },
             { evidence_id: "ev-2", verification_status: "found" },
           ],
-          claims: [
+          claim_evidence_map: [
             {
-              id: "claim-1",
-              claim: "模型性能提升来自检索到的两篇论文。",
+              claim_id: "claim-1",
+              claim_text: "模型性能提升来自检索到的两篇论文。",
               status: "verified",
+              citation_keys: ["smith2025"],
               evidence_refs: ["ev-1"],
             },
           ],
@@ -763,6 +784,12 @@ describe("LiveWorkflowPanel", () => {
 
   it("accepts concrete ChangeSet units before saving mapped outputs", async () => {
     mockFetch.mockImplementation((url, init) => {
+      if (String(url).endsWith("/api/executions/exec-1/changeset/reject")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeRejectedChangeSetResponse(["unit-lib-1"])),
+        });
+      }
       if (String(url).endsWith("/api/executions/exec-1/changeset/accept")) {
         return Promise.resolve({
           ok: true,
@@ -806,7 +833,27 @@ describe("LiveWorkflowPanel", () => {
     expect(screen.queryByText("documents / document")).not.toBeInTheDocument();
     expect(screen.queryByText("output_id")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("全选低/中风险"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "查看变更详情 Federated Fine-tuning of Large Language Models",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "拒绝 Federated Fine-tuning of Large Language Models" }),
+    );
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/changeset/reject",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ unit_ids: ["unit-lib-1"] }),
+        }),
+      ),
+    );
+
+    expect(screen.getByRole("button", { name: "全选低/中风险待复核变更" })).toBeEnabled();
+    fireEvent.click(screen.getByLabelText("选择变更 Thesis outline"));
     expect(screen.getByLabelText("选择变更 Thesis outline")).toBeChecked();
     fireEvent.click(screen.getByText("确认选中"));
 
@@ -867,7 +914,7 @@ describe("LiveWorkflowPanel", () => {
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    const checkbox = await screen.findByLabelText("Thesis outline 已阻断或不可批量选择");
+    const checkbox = await screen.findByLabelText("Thesis outline 已作为草稿应用，仅供查看");
     expect(checkbox).toBeDisabled();
     expect(screen.getByRole("button", { name: "确认 Thesis outline" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "拒绝 Thesis outline" })).toBeDisabled();
@@ -1090,6 +1137,22 @@ describe("LiveWorkflowPanel", () => {
     expect(screen.getByText(/已核验\s*1 项/)).toBeInTheDocument();
     expect(screen.getByText(/已采用\s*0 项/)).toBeInTheDocument();
     expect(screen.getByText("用于当前结论的证据采用情况。")).toBeInTheDocument();
+  });
+
+  it("keeps internal refs out of the default evidence experience until a row is explicitly opened", async () => {
+    useExecutionStore.getState().upsertExecution(makeEvidenceMissionRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-evidence");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "论断" }));
+
+    expect(screen.getByRole("button", { name: /模型性能提升来自检索到的两篇论文/ })).toBeInTheDocument();
+    expect(screen.queryByText("引用键")).not.toBeInTheDocument();
+    expect(screen.queryByText("证据引用")).not.toBeInTheDocument();
+    expect(screen.queryByText("smith2025")).not.toBeInTheDocument();
+    expect(screen.queryByText("ev-1")).not.toBeInTheDocument();
   });
 
   it("preserves manual evidence focus when a run completes with review", async () => {
@@ -1378,13 +1441,32 @@ describe("LiveWorkflowPanel", () => {
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "全选低/中风险待复核变更" }));
+    const bulkButton = await screen.findByRole("button", {
+      name: "全选低/中风险待复核变更",
+    });
+    expect(bulkButton).toBeDisabled();
 
-    expect(screen.getByLabelText("选择变更 Thesis outline")).toBeChecked();
+    fireEvent.click(bulkButton);
+
+    expect(screen.getByLabelText("选择变更 Thesis outline")).not.toBeChecked();
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     expect(checkboxes).toHaveLength(2);
-    expect(checkboxes.filter((element) => element.checked)).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "确认选中变更" })).toBeEnabled();
+    expect(checkboxes.filter((element) => element.checked)).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "确认选中变更" })).toBeDisabled();
+  });
+
+  it("uses a read-only checkbox label for draft-applied review items", async () => {
+    useExecutionStore
+      .getState()
+      .upsertExecution(makeDraftAppliedChangeSetCompletedRecord());
+
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(
+      await screen.findByLabelText("Thesis outline 已作为草稿应用，仅供查看"),
+    ).toBeDisabled();
   });
 
   it("sends intervention through chat orchestration with natural prompt metadata", async () => {

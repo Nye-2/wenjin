@@ -58,10 +58,7 @@ export function EvidenceView({
       item.summary.toLowerCase().includes("sandbox") ||
       item.summary.includes("实验"),
   ).length;
-  const selected =
-    filtered.find((item) => item.id === selectedId) ??
-    filtered[0] ??
-    null;
+  const selected = filtered.find((item) => item.id === selectedId) ?? null;
   const filterOptions: Array<[EvidenceFilter, string]> = [
     ["all", "全部"],
     ["outputs", "结果"],

@@ -106,6 +106,13 @@ export function ChangeSetReviewPanel({
     () => changeSet.units.filter(isBulkSelectableChangeUnit),
     [changeSet.units],
   );
+  const hasBulkAcceptBlockers =
+    changeSet.counts.blocked > 0 ||
+    changeSet.units.some(
+      (unit) =>
+        isChangeUnitPendingReview(unit) &&
+        (unit.risk === "high" || unit.risk === "critical"),
+    );
   const activeUnit =
     changeSet.units.find((unit) => unit.id === activeId) ??
     pendingUnits[0] ??
@@ -200,7 +207,7 @@ export function ChangeSetReviewPanel({
           <button
             type="button"
             onClick={selectPendingUnits}
-            disabled={bulkSelectableUnits.length === 0 || busy}
+            disabled={bulkSelectableUnits.length === 0 || hasBulkAcceptBlockers || busy}
             style={styles.ghostButton}
             aria-label="全选低/中风险待复核变更"
           >
@@ -222,7 +229,7 @@ export function ChangeSetReviewPanel({
           <button
             type="button"
             onClick={() => runAction("accept", actionIds)}
-            disabled={actionIds.length === 0 || busy}
+            disabled={actionIds.length === 0 || hasBulkAcceptBlockers || busy}
             style={styles.secondaryButton}
             aria-label="确认选中变更"
           >
@@ -380,7 +387,7 @@ function ChangeUnitRow({
         onChange={onSelect}
         aria-label={
           selectionDisabled
-            ? `${unit.title} 已阻断或不可批量选择`
+            ? disabledCheckboxLabel(unit)
             : `选择变更 ${unit.title}`
         }
         style={panelStyles.checkbox}
@@ -424,6 +431,16 @@ function ChangeUnitRow({
       ) : null}
     </div>
   );
+}
+
+function disabledCheckboxLabel(unit: RunViewChangeUnit): string {
+  if (unit.group === "blocked" || unit.state === "blocked") {
+    return `${unit.title} 已阻断，需单独处理`;
+  }
+  if (unit.group === "draft_applied" || unit.state === "draft_applied") {
+    return `${unit.title} 已作为草稿应用，仅供查看`;
+  }
+  return `${unit.title} 当前不可选择`;
 }
 
 function ChangeUnitDetail({
