@@ -136,10 +136,10 @@ async def async_main() -> int:
                 from src.services.agent_template_loader import AgentTemplateLoader
 
                 template_loader = AgentTemplateLoader()
-                loaded_templates = await template_loader.load_seeds_if_empty()
+                loaded_templates = await template_loader.sync_seed_updates()
                 if loaded_templates:
                     print(
-                        f"[bootstrap-admin] Seeded {loaded_templates} agent template record(s)"
+                        f"[bootstrap-admin] Synced {loaded_templates} agent template seed record(s)"
                     )
             except Exception as template_exc:
                 print(f"[bootstrap-admin] WARN: agent template seed failed: {template_exc}")

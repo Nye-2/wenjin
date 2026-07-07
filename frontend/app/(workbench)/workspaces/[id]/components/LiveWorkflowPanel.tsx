@@ -53,6 +53,7 @@ interface LiveWorkflowPanelProps {
   workspaceId: string;
   typeConfig?: WorkspaceTypeConfig;
   className?: string;
+  onClose?: () => void;
   "data-testid"?: string;
 }
 
@@ -60,6 +61,7 @@ export function LiveWorkflowPanel({
   workspaceId,
   typeConfig,
   className,
+  onClose,
   "data-testid": testId,
 }: LiveWorkflowPanelProps) {
   const executionRecords = useExecutionStore(
@@ -526,6 +528,7 @@ export function LiveWorkflowPanel({
         onTabChange={handleWorkbenchTabChange}
         onToggleFullscreen={() => setWorkbenchFullscreen(!isFullscreen)}
         onToggleIntervention={() => setInterventionOpen((current) => !current)}
+        onClose={onClose}
       />
 
       {interventionOpen ? (

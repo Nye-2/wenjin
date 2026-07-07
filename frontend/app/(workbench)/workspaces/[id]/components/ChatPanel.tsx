@@ -2,7 +2,13 @@
 
 import { useRef, useEffect, useMemo, useState, memo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { SendHorizontal } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  SendHorizontal,
+} from "lucide-react";
 import {
   listModels,
   type Model,
@@ -38,6 +44,28 @@ interface ChatPanelProps {
   features?: WorkspaceCapability[];
   className?: string;
   "data-testid"?: string;
+}
+
+const REASONING_OPTIONS: Array<{
+  value: Exclude<ReasoningEffort, "minimal">;
+  label: string;
+}> = [
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "xhigh", label: "超高" },
+];
+
+function cleanModelLabel(label: string): string {
+  return label
+    .replace(/\s*\(Default\)\s*/gi, "")
+    .replace(/^GPT\s+/i, "GPT-")
+    .trim();
+}
+
+function compactModelLabel(label: string): string {
+  const cleaned = cleanModelLabel(label);
+  return cleaned.replace(/^GPT-?/i, "").replace(/-Codex-Spark$/i, " Codex");
 }
 
 function buildBlockIntentForwardingOptions(
@@ -161,8 +189,11 @@ export function ChatPanel({
     historyHydration.workspaceId === workspaceId && historyHydration.hydrated;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
   const autoLaunchedSeedRef = useRef<string | null>(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelSubmenuOpen, setModelSubmenuOpen] = useState(false);
   const entrySeed = useMemo(
     () => parseWorkspaceThreadEntrySeed(searchParams),
     [searchParams],
@@ -208,11 +239,16 @@ export function ChatPanel({
   const selectedModelLabel =
     modelOptions.find((model) => model.name === selectedModel)?.display_name ??
     selectedModel;
+  const selectedModelDisplayLabel = cleanModelLabel(selectedModelLabel);
+  const selectedModelCompactLabel = compactModelLabel(selectedModelLabel);
   const selectedModelOption = modelOptions.find(
     (model) => model.name === selectedModel,
   );
   const selectedModelSupportsReasoning =
     selectedModelOption?.supports_reasoning_effort === true;
+  const selectedReasoningLabel =
+    REASONING_OPTIONS.find((option) => option.value === reasoningEffort)?.label ??
+    "中";
   const withSelectedModel = useCallback(
     (options?: SendMessageOptions): SendMessageOptions | undefined => {
       const model = selectedModel.trim();
@@ -267,6 +303,36 @@ export function ChatPanel({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!modelMenuOpen) {
+      return;
+    }
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        modelMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setModelMenuOpen(false);
+      setModelSubmenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      setModelMenuOpen(false);
+      setModelSubmenuOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [modelMenuOpen]);
 
   // Auto-scroll to bottom on new messages or thinking state change
   useEffect(() => {
@@ -700,149 +766,237 @@ export function ChatPanel({
               lineHeight: "1.4",
             }}
           />
-          <label
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              minWidth: 112,
-              maxWidth: 168,
-              height: 38,
-              borderRadius: "var(--wjn-radius)",
-              border: "1px solid var(--wjn-line)",
-              background: "#fff",
-              color: "var(--wjn-text-secondary)",
-              position: "relative",
-              overflow: "hidden",
-            }}
-            title={
-              modelLoadState === "error"
-                ? "模型目录加载失败"
-                : selectedModelLabel
-                  ? `当前模型：${selectedModelLabel}`
-                  : modelLoadState === "loading"
-                    ? "模型加载中"
-                    : "暂无可用模型"
-            }
+          <div
+            ref={modelMenuRef}
+            style={{ position: "relative", flexShrink: 0 }}
           >
-            <span
-              style={{
-                position: "absolute",
-                width: 1,
-                height: 1,
-                padding: 0,
-                margin: -1,
-                overflow: "hidden",
-                clip: "rect(0, 0, 0, 0)",
-                whiteSpace: "nowrap",
-                border: 0,
-              }}
-            >
-              选择对话模型
-            </span>
-            <select
-              aria-label="选择对话模型"
+            <button
+              type="button"
+              aria-label="选择模型和推理强度"
+              aria-haspopup="menu"
+              aria-expanded={modelMenuOpen}
               data-testid="chat-model-selector"
-              value={selectedModel}
-              onChange={(event) => setSelectedModel(event.target.value)}
               disabled={isSending || modelOptions.length === 0}
+              onClick={() => {
+                setModelMenuOpen((open) => !open);
+                setModelSubmenuOpen(false);
+              }}
+              title={
+                modelLoadState === "error"
+                  ? "模型目录加载失败"
+                  : selectedModelDisplayLabel
+                    ? `当前模型：${selectedModelDisplayLabel}`
+                    : modelLoadState === "loading"
+                      ? "模型加载中"
+                      : "暂无可用模型"
+              }
               style={{
-                width: "100%",
-                height: "100%",
-                border: "none",
-                background: "transparent",
+                height: 38,
+                minWidth: selectedModelSupportsReasoning ? 116 : 86,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 7,
+                borderRadius: "var(--wjn-radius)",
+                border: "1px solid var(--wjn-line)",
+                background: "#fff",
                 color: "var(--wjn-text-secondary)",
-                fontSize: 12,
+                fontSize: 12.5,
                 fontWeight: 650,
-                padding: "0 28px 0 10px",
-                outline: "none",
+                padding: "0 9px",
                 cursor:
                   isSending || modelOptions.length === 0
                     ? "not-allowed"
                     : "pointer",
                 opacity: isSending ? 0.58 : 1,
                 fontFamily: "var(--wjn-font-sans)",
+                whiteSpace: "nowrap",
               }}
             >
-              {modelOptions.length === 0 ? (
-                <option value="">
-                  {modelLoadState === "error"
-                    ? "模型加载失败"
-                    : modelLoadState === "loading"
-                      ? "模型加载中"
-                      : "暂无可用模型"}
-                </option>
-              ) : (
-                modelOptions.map((model) => (
-                  <option key={model.name} value={model.name}>
-                    {model.display_name}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          {selectedModelSupportsReasoning ? (
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                minWidth: 92,
-                maxWidth: 116,
-                height: 38,
-                borderRadius: "var(--wjn-radius)",
-                border: "1px solid var(--wjn-line)",
-                background: "#fff",
-                color: "var(--wjn-text-secondary)",
-                position: "relative",
-                overflow: "hidden",
-              }}
-              title="思考强度"
-            >
-              <span
+              <Circle size={12} strokeWidth={2} aria-hidden="true" />
+              <span>{selectedModelCompactLabel || "模型"}</span>
+              {selectedModelSupportsReasoning ? (
+                <span style={{ color: "var(--wjn-text-muted)" }}>
+                  {selectedReasoningLabel}
+                </span>
+              ) : null}
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+            {modelMenuOpen ? (
+              <div
+                role="menu"
+                data-testid="chat-model-menu"
                 style={{
                   position: "absolute",
-                  width: 1,
-                  height: 1,
-                  padding: 0,
-                  margin: -1,
-                  overflow: "hidden",
-                  clip: "rect(0, 0, 0, 0)",
-                  whiteSpace: "nowrap",
-                  border: 0,
-                }}
-              >
-                选择思考强度
-              </span>
-              <select
-                aria-label="选择思考强度"
-                data-testid="chat-reasoning-selector"
-                value={reasoningEffort}
-                onChange={(event) =>
-                  setReasoningEffort(event.target.value as ReasoningEffort)
-                }
-                disabled={isSending}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--wjn-text-secondary)",
-                  fontSize: 12,
-                  fontWeight: 650,
-                  padding: "0 24px 0 10px",
-                  outline: "none",
-                  cursor: isSending ? "not-allowed" : "pointer",
-                  opacity: isSending ? 0.58 : 1,
+                  right: 0,
+                  bottom: 44,
+                  width: 210,
+                  padding: 6,
+                  borderRadius: "var(--wjn-radius-lg)",
+                  border: "1px solid var(--wjn-line)",
+                  background: "var(--wjn-surface)",
+                  boxShadow: "var(--wjn-shadow-lg)",
+                  zIndex: 30,
+                  color: "var(--wjn-text)",
                   fontFamily: "var(--wjn-font-sans)",
                 }}
               >
-                <option value="minimal">极简</option>
-                <option value="low">低</option>
-                <option value="medium">中</option>
-                <option value="high">高</option>
-                <option value="xhigh">超高</option>
-              </select>
-            </label>
-          ) : null}
+                {selectedModelSupportsReasoning ? (
+                  <>
+                    <div
+                      style={{
+                        padding: "4px 8px 3px",
+                        fontSize: 12,
+                        color: "var(--wjn-text-muted)",
+                        fontWeight: 650,
+                      }}
+                    >
+                      推理
+                    </div>
+                    {REASONING_OPTIONS.map((option) => {
+                      const active = reasoningEffort === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
+                          data-testid={`chat-reasoning-option-${option.value}`}
+                          onClick={() => setReasoningEffort(option.value)}
+                          style={{
+                            width: "100%",
+                            minHeight: 28,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 10,
+                            border: "none",
+                            borderRadius: "var(--wjn-radius)",
+                            background: active
+                              ? "var(--wjn-surface-subtle)"
+                              : "transparent",
+                            color: "var(--wjn-text)",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            padding: "0 8px",
+                            cursor: "pointer",
+                            fontFamily: "var(--wjn-font-sans)",
+                          }}
+                        >
+                          <span>{option.label}</span>
+                          {active ? <Check size={14} aria-hidden="true" /> : null}
+                        </button>
+                      );
+                    })}
+                  </>
+                ) : null}
+                <div
+                  style={{
+                    height: 1,
+                    margin: selectedModelSupportsReasoning ? "6px -6px" : "0 -6px 6px",
+                    background: "var(--wjn-line)",
+                  }}
+                />
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="chat-model-submenu-trigger"
+                  aria-haspopup="menu"
+                  aria-expanded={modelSubmenuOpen}
+                  onClick={() => setModelSubmenuOpen((open) => !open)}
+                  style={{
+                    width: "100%",
+                    minHeight: 30,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    border: "none",
+                    borderRadius: "var(--wjn-radius)",
+                    background: modelSubmenuOpen
+                      ? "var(--wjn-surface-subtle)"
+                      : "transparent",
+                    color: "var(--wjn-text)",
+                    fontSize: 13,
+                    fontWeight: 650,
+                    padding: "0 8px",
+                    cursor: "pointer",
+                    fontFamily: "var(--wjn-font-sans)",
+                  }}
+                >
+                  <span>{selectedModelDisplayLabel || "模型"}</span>
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
+                {modelSubmenuOpen ? (
+                  <div
+                    role="menu"
+                    aria-label="模型"
+                    style={{
+                      position: "absolute",
+                      left: "calc(100% + 4px)",
+                      bottom: 0,
+                      width: 212,
+                      padding: 6,
+                      borderRadius: "var(--wjn-radius-lg)",
+                      border: "1px solid var(--wjn-line)",
+                      background: "var(--wjn-surface)",
+                      boxShadow: "var(--wjn-shadow-lg)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: "4px 8px 3px",
+                        fontSize: 12,
+                        color: "var(--wjn-text-muted)",
+                        fontWeight: 650,
+                      }}
+                    >
+                      模型
+                    </div>
+                    {modelOptions.map((model) => {
+                      const active = model.name === selectedModel;
+                      return (
+                        <button
+                          key={model.name}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
+                          data-testid={`chat-model-option-${model.name}`}
+                          onClick={() => {
+                            setSelectedModel(model.name);
+                            setModelMenuOpen(false);
+                            setModelSubmenuOpen(false);
+                          }}
+                          style={{
+                            width: "100%",
+                            minHeight: 30,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 10,
+                            border: "none",
+                            borderRadius: "var(--wjn-radius)",
+                            background: active
+                              ? "var(--wjn-surface-subtle)"
+                              : "transparent",
+                            color: "var(--wjn-text)",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            padding: "0 8px",
+                            cursor: "pointer",
+                            fontFamily: "var(--wjn-font-sans)",
+                          }}
+                        >
+                          <span>{cleanModelLabel(model.display_name)}</span>
+                          {active ? <Check size={14} aria-hidden="true" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
           <button
             onClick={handleSubmit}
             disabled={isSending || !inputValue.trim()}

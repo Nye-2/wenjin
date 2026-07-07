@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import textwrap
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -298,6 +299,58 @@ async def test_skips_agent_template_seed_when_catalog_has_data(tmp_path) -> None
 
     assert count == 0
     dataservice.load_agent_template_seed_items.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_seed_updates_upserts_missing_and_changed_seed_owned_rows(tmp_path) -> None:
+    seed_dir = tmp_path / "agent_templates"
+    seed_dir.mkdir()
+    existing_seed = seed_dir / "existing_seed.yaml"
+    new_seed = seed_dir / "new_seed.yaml"
+    admin_custom = seed_dir / "admin_custom.yaml"
+    existing_seed.write_text(
+        _agent_template_yaml().replace("research_scout.v1", "existing_seed.v1"),
+        encoding="utf-8",
+    )
+    new_seed.write_text(
+        _agent_template_yaml().replace("research_scout.v1", "new_seed.v1"),
+        encoding="utf-8",
+    )
+    admin_custom.write_text(
+        _agent_template_yaml().replace("research_scout.v1", "admin_custom.v1"),
+        encoding="utf-8",
+    )
+
+    from src.services.agent_template_loader import AgentTemplateLoader
+
+    dataservice = AsyncMock()
+    dataservice.list_agent_templates.return_value = [
+        SimpleNamespace(
+            id="existing_seed.v1",
+            checksum="old-checksum",
+            source_path=str(existing_seed),
+        ),
+        SimpleNamespace(
+            id="admin_custom.v1",
+            checksum="old-admin-checksum",
+            source_path=None,
+        ),
+    ]
+    dataservice.load_agent_template_seed_items.return_value = SimpleNamespace(loaded=2)
+    loader = AgentTemplateLoader(
+        seed_dir=seed_dir,
+        dataservice=dataservice,
+    )
+
+    count = await loader.sync_seed_updates()
+
+    assert count == 2
+    command = dataservice.load_agent_template_seed_items.await_args.args[0]
+    assert command.overwrite is False
+    assert [item.data["id"] for item in command.items] == [
+        "existing_seed.v1",
+        "new_seed.v1",
+    ]
 
 
 @pytest.mark.asyncio

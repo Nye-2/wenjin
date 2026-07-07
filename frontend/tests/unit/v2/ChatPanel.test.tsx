@@ -114,7 +114,7 @@ describe("ChatPanel v2", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("loads chat models into the composer selector from the model catalog", async () => {
+  it("loads chat models into the compact composer menu from the model catalog", async () => {
     mockListModels.mockResolvedValueOnce({
       models: [
         {
@@ -144,10 +144,16 @@ describe("ChatPanel v2", () => {
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
 
     await waitFor(() => expect(mockListModels).toHaveBeenCalledWith("chat"));
-    await waitFor(() =>
-      expect(screen.getByTestId("chat-model-selector")).toHaveValue("gpt-5.5"),
+    const selector = await screen.findByTestId("chat-model-selector");
+    expect(selector).toHaveTextContent("5.5");
+
+    fireEvent.click(selector);
+    expect(screen.queryByText("速度")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("chat-model-submenu-trigger"));
+
+    expect(screen.getByTestId("chat-model-option-gpt-5.3-codex-spark")).toHaveTextContent(
+      "GPT-5.3 Spark",
     );
-    expect(screen.getByRole("option", { name: "GPT 5.3 Spark" })).toBeInTheDocument();
   });
 
   it("sends the selected composer model with a manual message", async () => {
@@ -188,8 +194,10 @@ describe("ChatPanel v2", () => {
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
 
     const selector = await screen.findByTestId("chat-model-selector");
-    await waitFor(() => expect(selector).toHaveValue("gpt-5.5"));
-    fireEvent.change(selector, { target: { value: "gpt-5.3-codex-spark" } });
+    await waitFor(() => expect(selector).toHaveTextContent("5.5"));
+    fireEvent.click(selector);
+    fireEvent.click(screen.getByTestId("chat-model-submenu-trigger"));
+    fireEvent.click(screen.getByTestId("chat-model-option-gpt-5.3-codex-spark"));
 
     const input = screen.getByPlaceholderText("输入消息... Shift+Enter 换行");
     fireEvent.change(input, { target: { value: "开始写 Spec" } });
@@ -232,9 +240,10 @@ describe("ChatPanel v2", () => {
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
 
-    const effortSelector = await screen.findByTestId("chat-reasoning-selector");
-    expect(effortSelector).toHaveValue("medium");
-    fireEvent.change(effortSelector, { target: { value: "xhigh" } });
+    const selector = await screen.findByTestId("chat-model-selector");
+    expect(selector).toHaveTextContent("中");
+    fireEvent.click(selector);
+    fireEvent.click(screen.getByTestId("chat-reasoning-option-xhigh"));
 
     const input = screen.getByPlaceholderText("输入消息... Shift+Enter 换行");
     fireEvent.change(input, { target: { value: "深度分析这个题目" } });

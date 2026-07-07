@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useSearchParams } from "next/navigation";
+import { PanelRightOpen } from "lucide-react";
 import { ChatPanel } from "./components/ChatPanel";
 import { LiveWorkflowPanel } from "./components/LiveWorkflowPanel";
 import { AutoCompactToast } from "./components/AutoCompactToast";
@@ -25,6 +26,7 @@ import {
 import { useWorkspaceChromeCounts } from "./components/shell/useWorkspaceChromeCounts";
 import { getWorkspace, getWorkspaceFeatures } from "@/lib/api/workspace";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import type { WorkspaceCapability } from "@/lib/api/types";
@@ -88,6 +90,37 @@ export default function V2Page({
   const selectedRunId = useWorkbenchLayoutStore((state) => state.selectedRunId);
   const focusedRunId = useRunUiStore((state) => state.focusedRunId);
   const activeRunId = useRunUiStore((state) => state.activeRunId);
+  const scopedMissionRunKey = useExecutionStore((state) => {
+    const activeRecord = activeRunId
+      ? state.executions.get(activeRunId)
+      : null;
+    const focusedRecord = focusedRunId
+      ? state.executions.get(focusedRunId)
+      : null;
+    const selectedRecord = selectedRunId
+      ? state.executions.get(selectedRunId)
+      : null;
+    const scopedActiveRunId =
+      activeRunId &&
+      (!activeRecord ||
+        !activeRecord.workspace_id ||
+        activeRecord.workspace_id === id)
+        ? activeRunId
+        : "";
+    const scopedFocusedRunId =
+      focusedRunId &&
+      focusedRecord &&
+      (!focusedRecord.workspace_id || focusedRecord.workspace_id === id)
+        ? focusedRunId
+        : "";
+    const scopedSelectedRunId =
+      selectedRunId && selectedRecord?.workspace_id === id ? selectedRunId : "";
+    return [
+      scopedActiveRunId,
+      scopedFocusedRunId,
+      scopedSelectedRunId,
+    ].join("|");
+  });
   const isWorkbenchFullscreen = useWorkbenchLayoutStore(
     (state) => state.isWorkbenchFullscreen,
   );
@@ -103,7 +136,27 @@ export default function V2Page({
     useWorkspaceChromeCounts(id);
   const splitRootRef = useRef<HTMLDivElement>(null);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>("chat");
+  const [manualMissionPanelOpen, setManualMissionPanelOpen] = useState(false);
+  const [suppressedMissionDemandKey, setSuppressedMissionDemandKey] =
+    useState<string | null>(null);
   const desktopSplitRatio = splitRatio;
+  const hasScopedMissionRun = scopedMissionRunKey !== "||";
+  const missionDemandKey =
+    activeRunCount > 0 ||
+    pendingReviewCount > 0 ||
+    hasScopedMissionRun
+      ? [
+          scopedMissionRunKey,
+          activeRunCount,
+          pendingReviewCount,
+        ].join("|")
+      : null;
+  const missionPanelOpen =
+    isWorkbenchFullscreen ||
+    manualMissionPanelOpen ||
+    (missionDemandKey !== null && suppressedMissionDemandKey !== missionDemandKey);
+  const desktopMissionPanelOpen =
+    !isNarrowViewport && !isWorkbenchFullscreen && missionPanelOpen;
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");
@@ -112,6 +165,18 @@ export default function V2Page({
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => {
+    setManualMissionPanelOpen(false);
+    setSuppressedMissionDemandKey(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (missionDemandKey !== null) {
+      return;
+    }
+    setSuppressedMissionDemandKey(null);
+  }, [missionDemandKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -218,6 +283,16 @@ export default function V2Page({
     [setActiveWorkbenchTab],
   );
 
+  const openMissionPanel = useCallback(() => {
+    setManualMissionPanelOpen(true);
+    setSuppressedMissionDemandKey(null);
+  }, []);
+
+  const closeMissionPanel = useCallback(() => {
+    setManualMissionPanelOpen(false);
+    setSuppressedMissionDemandKey(missionDemandKey);
+  }, [missionDemandKey]);
+
   // Map topbar room selection to panels
   const settingsOpen = activeRoom != null && SETTINGS_ROOMS.has(activeRoom);
   const settingsTab: SettingsTab =
@@ -280,12 +355,16 @@ export default function V2Page({
             <div
               data-testid="chat-region"
               style={{
-                width: `${desktopSplitRatio * 100}%`,
+                width: desktopMissionPanelOpen
+                  ? `${desktopSplitRatio * 100}%`
+                  : "100%",
                 minWidth: 320,
-                maxWidth: "72%",
+                maxWidth: desktopMissionPanelOpen ? "72%" : "none",
                 height: "100%",
                 minHeight: 0,
-                borderRight: "1px solid var(--wjn-line)",
+                borderRight: desktopMissionPanelOpen
+                  ? "1px solid var(--wjn-line)"
+                  : "none",
               }}
             >
               <ChatPanel
@@ -297,39 +376,115 @@ export default function V2Page({
                 data-testid="chat-panel"
               />
             </div>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整对话与工作台宽度"
-              aria-valuemin={MIN_SPLIT_PERCENT}
-              aria-valuemax={MAX_SPLIT_PERCENT}
-              aria-valuenow={Math.round(desktopSplitRatio * 100)}
-              tabIndex={0}
-              data-testid="workbench-resizer"
-              onPointerDown={handleResizePointerDown}
-              onKeyDown={handleResizeKeyDown}
-              onDoubleClick={resetSplitRatio}
-              title="拖拽调整宽度，方向键微调，双击或回车恢复默认"
-              style={{
-                width: 8,
-                flex: "0 0 8px",
-                cursor: "col-resize",
-                background: "var(--wjn-bg-rail)",
-                borderLeft: "1px solid var(--wjn-line)",
-                borderRight: "1px solid var(--wjn-line)",
-                zIndex: 2,
-              }}
-            />
+            {desktopMissionPanelOpen ? (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整对话与工作台宽度"
+                aria-valuemin={MIN_SPLIT_PERCENT}
+                aria-valuemax={MAX_SPLIT_PERCENT}
+                aria-valuenow={Math.round(desktopSplitRatio * 100)}
+                tabIndex={0}
+                data-testid="workbench-resizer"
+                onPointerDown={handleResizePointerDown}
+                onKeyDown={handleResizeKeyDown}
+                onDoubleClick={resetSplitRatio}
+                title="拖拽调整宽度，方向键微调，双击或回车恢复默认"
+                style={{
+                  width: 8,
+                  flex: "0 0 8px",
+                  cursor: "col-resize",
+                  background: "var(--wjn-bg-rail)",
+                  borderLeft: "1px solid var(--wjn-line)",
+                  borderRight: "1px solid var(--wjn-line)",
+                  zIndex: 2,
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                aria-label="展开研究任务"
+                title="展开研究任务"
+                data-testid="workbench-panel-toggle"
+                onClick={openMissionPanel}
+                style={{
+                  position: "absolute",
+                  right: 12,
+                  top: 10,
+                  zIndex: 4,
+                  height: 34,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  borderRadius: "var(--wjn-radius)",
+                  border: "1px solid var(--wjn-line)",
+                  background: "var(--wjn-surface-raised)",
+                  color: "var(--wjn-text-secondary)",
+                  boxShadow: "var(--wjn-shadow-sm)",
+                  padding: "0 10px",
+                  fontSize: 12.5,
+                  fontWeight: 650,
+                  cursor: "pointer",
+                  fontFamily: "var(--wjn-font-sans)",
+                }}
+              >
+                <PanelRightOpen size={14} aria-hidden="true" />
+                <span>研究任务</span>
+                {activeRunCount > 0 || pendingReviewCount > 0 ? (
+                  <span
+                    style={{
+                      minWidth: 18,
+                      height: 18,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: "var(--wjn-radius-pill)",
+                      background: "var(--wjn-accent-soft)",
+                      color: "var(--wjn-accent-strong)",
+                      fontSize: 11,
+                    }}
+                  >
+                    {Math.min(activeRunCount + pendingReviewCount, 99)}
+                  </span>
+                ) : null}
+              </button>
+            )}
           </>
         ) : null}
         {!isNarrowViewport || isWorkbenchFullscreen || mobileSurface !== "chat" ? (
           <div
             data-testid="workbench-region"
+            data-panel-open={
+              isNarrowViewport || isWorkbenchFullscreen || desktopMissionPanelOpen
+                ? "true"
+                : "false"
+            }
+            aria-hidden={
+              !isNarrowViewport && !isWorkbenchFullscreen && !desktopMissionPanelOpen
+                ? true
+                : undefined
+            }
             style={{
-              flex: 1,
+              flex: desktopMissionPanelOpen || isWorkbenchFullscreen ? 1 : "0 0 0px",
               minWidth: 0,
+              width:
+                !isNarrowViewport && !isWorkbenchFullscreen && !desktopMissionPanelOpen
+                  ? 0
+                  : undefined,
               height: isNarrowViewport && !isWorkbenchFullscreen ? undefined : "100%",
               minHeight: 0,
+              overflow:
+                !isNarrowViewport && !isWorkbenchFullscreen && !desktopMissionPanelOpen
+                  ? "hidden"
+                  : undefined,
+              visibility:
+                !isNarrowViewport && !isWorkbenchFullscreen && !desktopMissionPanelOpen
+                  ? "hidden"
+                  : undefined,
+              pointerEvents:
+                !isNarrowViewport && !isWorkbenchFullscreen && !desktopMissionPanelOpen
+                  ? "none"
+                  : undefined,
             }}
           >
             <LiveWorkflowPanel
@@ -337,6 +492,11 @@ export default function V2Page({
               typeConfig={typeConfig ?? undefined}
               className="h-full"
               data-testid="workflow-panel"
+              onClose={
+                !isNarrowViewport && !isWorkbenchFullscreen
+                  ? closeMissionPanel
+                  : undefined
+              }
             />
           </div>
         ) : null}

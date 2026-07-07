@@ -7,6 +7,7 @@ import {
   Maximize2,
   Minimize2,
   PauseCircle,
+  PanelRightClose,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -44,6 +45,7 @@ export function WorkbenchHeader({
   onTabChange,
   onToggleFullscreen,
   onToggleIntervention,
+  onClose,
 }: {
   activeTab: WorkbenchTab;
   title: string;
@@ -61,6 +63,7 @@ export function WorkbenchHeader({
   onTabChange: (tab: WorkbenchTab) => void;
   onToggleFullscreen: () => void;
   onToggleIntervention: () => void;
+  onClose?: () => void;
 }) {
   const visibleTabs = TABS.filter((tab) => {
     if (tab.primary) {
@@ -144,6 +147,17 @@ export function WorkbenchHeader({
           >
             <PauseCircle size={14} />
             <span>{interventionOpen ? "收起介入" : "中断并补充"}</span>
+          </button>
+        ) : null}
+        {onClose ? (
+          <button
+            type="button"
+            title="收起研究任务"
+            aria-label="收起研究任务"
+            onClick={onClose}
+            style={styles.iconButton}
+          >
+            <PanelRightClose size={16} />
           </button>
         ) : null}
         <button

@@ -49,7 +49,7 @@ describe("V2 Workspace page", () => {
     expect(screen.queryByTestId("rooms-topbar")).not.toBeInTheDocument();
   });
 
-  it("keeps the desktop separator visible while defaulting idle workbench space to chat", async () => {
+  it("keeps the idle desktop mission panel collapsed by default", async () => {
     await act(async () => {
       render(
         <Suspense fallback={<div>Loading</div>}>
@@ -58,13 +58,17 @@ describe("V2 Workspace page", () => {
       );
     });
 
-    const resizer = screen.getByTestId("workbench-resizer");
     const chatRegion = screen.getByTestId("chat-region");
-    expect(resizer).toBeInTheDocument();
-    expect(chatRegion).toHaveStyle({ width: "62%" });
+    const workbenchRegion = screen.getByTestId("workbench-region");
+    expect(screen.queryByTestId("workbench-resizer")).not.toBeInTheDocument();
+    expect(chatRegion).toHaveStyle({ width: "100%" });
+    expect(workbenchRegion).toHaveAttribute("data-panel-open", "false");
+    expect(
+      screen.getByRole("button", { name: "展开研究任务" }),
+    ).toBeInTheDocument();
   });
 
-  it("keeps the quiet desktop split when history exists but no mission is active", async () => {
+  it("keeps completed history from reopening the mission panel by itself", async () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().setSplitRatio(0.56);
 
@@ -81,13 +85,53 @@ describe("V2 Workspace page", () => {
     });
 
     expect(useWorkbenchLayoutStore.getState().selectedRunId).toBeNull();
-    expect(
-      Number.parseFloat(screen.getByTestId("chat-region").style.width),
-    ).toBeCloseTo(56);
+    expect(screen.getByTestId("chat-region")).toHaveStyle({ width: "100%" });
+    expect(screen.queryByTestId("workbench-resizer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workbench-region")).toHaveAttribute(
+      "data-panel-open",
+      "false",
+    );
+  });
+
+  it("ignores stale selected run ids when deciding whether to open the mission panel", async () => {
+    useWorkbenchLayoutStore.getState().selectRun("stale-run-from-another-workspace");
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    expect(screen.getByTestId("chat-region")).toHaveStyle({ width: "100%" });
+    expect(screen.queryByTestId("workbench-resizer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workbench-region")).toHaveAttribute(
+      "data-panel-open",
+      "false",
+    );
+  });
+
+  it("opens the mission panel on demand and keeps desktop resizing available", async () => {
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "展开研究任务" }));
+
+    expect(screen.getByTestId("workbench-region")).toHaveAttribute(
+      "data-panel-open",
+      "true",
+    );
     expect(screen.getByTestId("workbench-resizer")).toHaveAttribute(
       "aria-valuenow",
-      "56",
+      "62",
     );
+    expect(screen.getByRole("button", { name: "收起研究任务" })).toBeInTheDocument();
   });
 
   it("renders the surface switch for workspace-owned Prism navigation", async () => {
@@ -154,6 +198,10 @@ describe("V2 Workspace page", () => {
 
     expect(screen.getAllByText("运行中")).toHaveLength(1);
     expect(screen.getAllByText("中断并补充")).toHaveLength(1);
+    expect(screen.getByTestId("workbench-region")).toHaveAttribute(
+      "data-panel-open",
+      "true",
+    );
   });
 
   it("opens the requested room from the URL seed", async () => {
@@ -219,6 +267,7 @@ describe("V2 Workspace page", () => {
 
   it("supports keyboard resizing for the desktop split separator", async () => {
     useWorkbenchLayoutStore.getState().setSplitRatio(0.42);
+    useExecutionStore.getState().upsertExecution(makeRunningRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-running");
 
     await act(async () => {
