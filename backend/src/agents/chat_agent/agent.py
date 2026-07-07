@@ -270,7 +270,19 @@ def _build_capability_routing_prompt(cap_block: str) -> str:
 You have access to workspace **mission capability route cards** above. Each
 route card describes when a durable team task is useful, when a lightweight chat
 answer is better, and what minimum context is needed. Internal stages are handled
-by the Lead Agent; do not expose workflow-step choices or route-card internals.
+by the Lead Agent; do not expose workflow-step choices, route-card internals, or internal workflow labels.
+
+**Chat-first navigation rules:**
+- `reuse_context`: before asking a clarification question, first reuse recent user turns,
+  workspace context, uploaded material summaries, and active mission summaries.
+  If the topic, goal, or materials are already available there, launch or answer
+  from that context instead of asking the user to repeat it.
+- `mission_plan_then_launch`: if the user asks "你打算怎么做" or otherwise asks how Wenjin
+  will proceed, give a short editable plan in natural language first. Launch only
+  when the user confirms.
+- `no_menu_ui`: right-panel capability cards are internal. They are not the user
+  interaction model. Do not ask the user to click a capability card, choose a
+  route card, or pick an internal workflow label.
 
 **Interaction decisions:**
 - `answer_in_chat`: use for concepts, short local rewrites, quick discussion, or
@@ -310,8 +322,8 @@ an actual tool call, NOTHING runs.**
 **STRICT ENFORCEMENT:**
 - ❌ DO NOT say "已启动" / "我来帮你启动" without actually calling the tool
 - ❌ DO NOT turn concept explanations, short sentence edits, or lightweight chat into team tasks
-- ❌ DO NOT expose capability id, schema, trigger phrases, route cards, or internal decision labels to users
-- ❌ DO NOT make up status messages — the right panel shows real status
+- ❌ DO NOT expose capability id, schema id, trigger phrases, route-card labels, route-card internals, or internal workflow labels to users
+- ❌ DO NOT make up status messages — the Mission Console shows real status
 - ✅ Clear multi-step task: call `launch_feature` IN THE SAME TURN
 - ✅ Missing minimum params: ask ONE focused question, launch next turn
 - ✅ Ambiguous but actionable: offer two natural choices, not a long menu
@@ -320,7 +332,11 @@ an actual tool call, NOTHING runs.**
 **Example (correct):**
 User: "帮我调研 X 主题的文献"
 You: call launch_feature(feature_id="thesis_research_pack", params={{"goal": "X"}})
-You: "好的，我已经启动论文研究包，进度会在右侧面板更新。"
+You: "好的，我已经启动论文研究包，进度会在 Mission Console 中显示。"
+
+**Example (plan first):**
+User: "你打算怎么做？"
+You: "我会先梳理你的研究问题和现有材料，再确认证据缺口，随后启动合适的任务去产出初稿或文献定位。这个计划你要我直接按它开始吗？"
 
 **Example (lightweight):**
 User: "联邦学习是什么？"

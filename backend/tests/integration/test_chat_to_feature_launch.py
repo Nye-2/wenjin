@@ -13,6 +13,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import tool
+from pydantic import BaseModel, PrivateAttr
+
+from src.agents.middlewares.base import Middleware
 
 
 class _FakeLaunchDataServiceClient:
@@ -96,6 +103,148 @@ def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
         "src.services.credit_service.dataservice_client",
         lambda: _FakeLaunchDataServiceClient(),
     )
+
+
+class _LaunchFeatureArgs(BaseModel):
+    feature_id: str
+    params: dict
+
+
+class _InjectSciCapabilityStateMiddleware(Middleware):
+    async def before_model(self, state, config):
+        return {
+            "workspace_type": "sci",
+            "available_capabilities": [
+                {
+                    "id": "research_question_to_paper",
+                    "display_name": "问题到 SCI 初稿",
+                    "description": "scientific paper draft",
+                    "intent_description": "",
+                    "trigger_phrases": ["写 SCI", "SCI 初稿"],
+                    "routing": {
+                        "when_to_use": ["用户需要从研究问题推进 SCI 初稿"],
+                        "not_for": ["概念解释"],
+                        "positive_examples": ["直接开始 SCI 初稿"],
+                        "negative_examples": ["联邦学习是什么？"],
+                        "minimum_context": {"topic": "required"},
+                    },
+                },
+                {
+                    "id": "sci_literature_positioning",
+                    "display_name": "文献定位与创新点",
+                    "description": "position literature and contribution",
+                    "intent_description": "",
+                    "trigger_phrases": ["研究空白", "创新点"],
+                    "routing": {
+                        "when_to_use": ["用户需要先看方向价值与研究空白"],
+                        "not_for": ["概念解释"],
+                        "positive_examples": ["这个方向帮我看看"],
+                        "negative_examples": ["联邦学习是什么？"],
+                        "minimum_context": {"topic": "required"},
+                    },
+                },
+            ],
+        }
+
+    async def after_model(self, state, config):
+        return {}
+
+
+class _RoutingModel(BaseChatModel):
+    _captured_messages: object | None = PrivateAttr(default=None)
+
+    @property
+    def _llm_type(self) -> str:
+        return "routing-model"
+
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+    def _reply(self, messages):
+        if self._captured_messages is None:
+            self._captured_messages = messages
+
+        system_prompt = messages[0].content if messages else ""
+        if any(isinstance(message, ToolMessage) for message in messages):
+            return AIMessage(content="好的，已经开始准备 SCI 初稿，进度会在 Mission Console 中显示。")
+
+        human_messages = [
+            message.content
+            for message in messages
+            if isinstance(message, HumanMessage) and isinstance(message.content, str)
+        ]
+        last_user = human_messages[-1] if human_messages else ""
+        prior_users = human_messages[:-1]
+        topic = next((msg for msg in reversed(prior_users) if "联邦学习结合大模型微调" in msg), "")
+
+        if last_user == "直接开始 SCI 初稿":
+            if "recent user turns" in system_prompt and topic:
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call-launch-1",
+                            "name": "launch_feature",
+                            "args": {
+                                "feature_id": "research_question_to_paper",
+                                "params": {"topic": "联邦学习结合大模型微调"},
+                            },
+                        }
+                    ],
+                )
+            return AIMessage(content="可以。你想围绕哪个具体研究问题或已有材料来写？")
+
+        if last_user == "联邦学习是什么":
+            return AIMessage(content="联邦学习是一种让多方在不共享原始数据的情况下共同训练模型的方法。")
+
+        if last_user == "联邦学习结合大模型这个方向帮我看看":
+            return AIMessage(
+                content="这可以有两个做法：先帮你梳理研究空白和创新点，或者直接进入 SCI 初稿。你想先做哪一个？"
+            )
+
+        if last_user == "帮我写 SCI":
+            return AIMessage(content="可以。你想围绕哪个具体研究问题或已有材料来写？")
+
+        return AIMessage(content="收到。")
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        return ChatResult(generations=[ChatGeneration(message=self._reply(messages))])
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        return ChatResult(generations=[ChatGeneration(message=self._reply(messages))])
+
+
+async def _run_chat_turn(messages: list[HumanMessage]) -> tuple[dict, list[dict]]:
+    from src.agents.chat_agent.agent import make_chat_agent
+
+    launch_calls: list[dict] = []
+
+    @tool("launch_feature", args_schema=_LaunchFeatureArgs)
+    async def _fake_launch_feature(feature_id: str, params: dict) -> dict:
+        """Record launch_feature calls for chat-first routing tests."""
+        launch_calls.append({"feature_id": feature_id, "params": params})
+        return {
+            "status": "launched",
+            "execution_id": "exec-test-1",
+            "feature_id": feature_id,
+            "message": "已启动",
+        }
+
+    model = _RoutingModel()
+    with patch("src.models.factory.create_chat_model", return_value=model), patch(
+        "src.agents.chat_agent.agent.get_available_tools",
+        return_value=[_fake_launch_feature],
+    ):
+        agent = make_chat_agent(
+            {"configurable": {"model_name": "gpt-4o"}},
+            middlewares=[_InjectSciCapabilityStateMiddleware()],
+        )
+        result = await agent.ainvoke(
+            {"messages": messages},
+            config={"configurable": {"model_name": "gpt-4o", "thread_id": "thread-1"}},
+        )
+
+    return result, launch_calls
 
 # ---------------------------------------------------------------------------
 # Static contract (existence) checks — fast smoke
@@ -406,3 +555,53 @@ async def test_launch_feature_returns_unknown_for_invalid_capability_id():
     assert result["code"] == "unknown_feature"
     assert "research_question_to_paper" in result["detail"]
     assert "sci_literature_positioning" in result["detail"]
+
+
+@pytest.mark.asyncio
+async def test_chat_first_routing_reuses_prior_topic_for_sci_draft_launch():
+    result, launch_calls = await _run_chat_turn(
+        [
+            HumanMessage(content="我在做联邦学习结合大模型微调这个方向"),
+            HumanMessage(content="直接开始 SCI 初稿"),
+        ]
+    )
+
+    assert launch_calls == [
+        {
+            "feature_id": "research_question_to_paper",
+            "params": {"topic": "联邦学习结合大模型微调"},
+        }
+    ]
+    assert result["messages"][-1].content == "好的，已经开始准备 SCI 初稿，进度会在 Mission Console 中显示。"
+
+
+@pytest.mark.asyncio
+async def test_chat_first_routing_keeps_concept_question_in_chat():
+    result, launch_calls = await _run_chat_turn([HumanMessage(content="联邦学习是什么")])
+
+    assert launch_calls == []
+    assert "共同训练模型" in result["messages"][-1].content
+
+
+@pytest.mark.asyncio
+async def test_chat_first_routing_offers_natural_language_choices_without_internal_ids():
+    result, launch_calls = await _run_chat_turn(
+        [HumanMessage(content="联邦学习结合大模型这个方向帮我看看")]
+    )
+
+    assert launch_calls == []
+    content = result["messages"][-1].content
+    assert "研究空白和创新点" in content
+    assert "直接进入 SCI 初稿" in content
+    assert "research_question_to_paper" not in content
+    assert "sci_literature_positioning" not in content
+
+
+@pytest.mark.asyncio
+async def test_chat_first_routing_asks_one_focused_question_when_topic_missing():
+    result, launch_calls = await _run_chat_turn([HumanMessage(content="帮我写 SCI")])
+
+    assert launch_calls == []
+    content = result["messages"][-1].content
+    assert content == "可以。你想围绕哪个具体研究问题或已有材料来写？"
+    assert content.count("？") == 1

@@ -1,6 +1,9 @@
 """Chat Agent capability route-card rendering tests."""
 
-from src.agents.chat_agent.agent import _render_workspace_capability_route_cards
+from src.agents.chat_agent.agent import (
+    _build_capability_routing_prompt,
+    _render_workspace_capability_route_cards,
+)
 
 
 def _capability(
@@ -89,3 +92,35 @@ def test_visible_capability_without_routing_is_not_keyword_fallback() -> None:
     assert rendered == ""
     assert "trigger_phrases" not in rendered
     assert "文献定位与创新点" not in rendered
+
+
+def test_capability_routing_prompt_tells_model_to_reuse_recent_context() -> None:
+    prompt = _build_capability_routing_prompt("<available_capabilities />")
+
+    assert "recent user turns" in prompt
+    assert "workspace context" in prompt
+    assert "uploaded material summaries" in prompt
+    assert "active mission summaries" in prompt
+
+
+def test_capability_routing_prompt_allows_short_plan_before_launch() -> None:
+    prompt = _build_capability_routing_prompt("<available_capabilities />")
+
+    assert "你打算怎么做" in prompt
+    assert "short editable plan" in prompt
+    assert "when the user confirms" in prompt
+
+
+def test_capability_routing_prompt_forbids_exposing_route_card_internals() -> None:
+    prompt = _build_capability_routing_prompt("<available_capabilities />")
+
+    assert "DO NOT expose capability id" in prompt
+    assert "route-card internals" in prompt
+    assert "internal workflow labels" in prompt
+
+
+def test_capability_routing_prompt_says_right_panel_cards_are_not_the_ui_model() -> None:
+    prompt = _build_capability_routing_prompt("<available_capabilities />")
+
+    assert "right-panel capability cards are internal" in prompt
+    assert "Do not ask the user to click a capability card" in prompt
