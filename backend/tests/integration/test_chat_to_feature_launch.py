@@ -102,6 +102,7 @@ class _FakeMissionDataServiceClient(_FakeLaunchDataServiceClient):
     ) -> None:
         self._executions = executions
         self._selected_execution = selected_execution
+        self.list_calls: list[dict[str, object]] = []
 
     async def list_executions(
         self,
@@ -112,7 +113,23 @@ class _FakeMissionDataServiceClient(_FakeLaunchDataServiceClient):
         status: list[str] | None = None,
         limit: int = 50,
     ):
-        return list(self._executions)[:limit]
+        self.list_calls.append(
+            {
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "thread_id": thread_id,
+                "status": list(status or []),
+                "limit": limit,
+            }
+        )
+        records = list(self._executions)
+        if status:
+            allowed = {str(item).strip() for item in status}
+            records = [
+                item for item in records
+                if str(getattr(item, "status", "") or "").strip() in allowed
+            ]
+        return records[:limit]
 
     async def get_execution(self, execution_id: str):
         selected_id = str(getattr(self._selected_execution, "id", "") or "")
@@ -559,6 +576,9 @@ async def test_mission_context_middleware_renders_bounded_active_and_selected_ex
 
     active_execution = SimpleNamespace(
         id="exec-active-1",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        user_id="user-1",
         capability_id="research_question_to_paper",
         display_name="问题到 SCI 初稿",
         status="running",
@@ -576,6 +596,9 @@ async def test_mission_context_middleware_renders_bounded_active_and_selected_ex
     )
     selected_execution = SimpleNamespace(
         id="exec-selected-1",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        user_id="user-1",
         capability_id="sci_literature_positioning",
         display_name="文献定位与创新点",
         status="completed",
@@ -652,6 +675,131 @@ async def test_mission_context_middleware_renders_bounded_active_and_selected_ex
     assert prompt.index("<mission_context>") < prompt.index("<available_capabilities>")
     assert "问题到 SCI 初稿" in prompt
     assert "文献定位与创新点" in prompt
+
+
+@pytest.mark.asyncio
+async def test_mission_context_prefers_filtered_active_execution_over_newer_completed_runs():
+    from src.agents.middlewares.mission_context import MissionContextMiddleware
+    from src.agents.thread_state import create_thread_state
+
+    older_active = SimpleNamespace(
+        id="exec-active-older",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        user_id="user-1",
+        capability_id="research_question_to_paper",
+        display_name="问题到 SCI 初稿",
+        status="running",
+        task_brief_json={"goal": "继续方法部分"},
+        result_summary="方法部分仍在推进。",
+        graph_json={"nodes": [{"id": "methods", "phase": "方法部分"}]},
+        node_states_json={"methods": {"status": "running"}},
+        next_actions=[],
+        result_json={},
+        updated_at="2026-07-06T10:00:00+08:00",
+    )
+    newer_completed = [
+        SimpleNamespace(
+            id=f"exec-completed-{index}",
+            workspace_id="ws-1",
+            thread_id="thread-1",
+            user_id="user-1",
+            capability_id="sci_literature_positioning",
+            display_name="文献定位与创新点",
+            status="completed",
+            task_brief_json={"goal": "已完成的历史任务"},
+            result_summary=f"历史完成任务 {index}",
+            graph_json={},
+            node_states_json={},
+            next_actions=[],
+            result_json={},
+            updated_at=f"2026-07-07T1{index}:00:00+08:00",
+        )
+        for index in range(8)
+    ]
+    client = _FakeMissionDataServiceClient(executions=[*newer_completed, older_active])
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        lambda: client,
+    ):
+        middleware = MissionContextMiddleware()
+        state = create_thread_state(
+            {
+                "messages": [],
+                "workspace_type": "sci",
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        )
+        update = await middleware.before_model(
+            state,
+            {
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert "exec-active-older" in update["mission_prompt_context"]
+    assert any(call["status"] == ["running", "pending", "awaiting_user_input"] for call in client.list_calls)
+
+
+@pytest.mark.asyncio
+async def test_selected_execution_context_is_omitted_when_scope_does_not_match():
+    from src.agents.middlewares.mission_context import MissionContextMiddleware
+    from src.agents.thread_state import create_thread_state
+
+    selected_execution = SimpleNamespace(
+        id="exec-foreign-1",
+        workspace_id="ws-foreign",
+        thread_id="thread-foreign",
+        user_id="user-foreign",
+        capability_id="research_question_to_paper",
+        display_name="问题到 SCI 初稿",
+        status="completed",
+        task_brief_json={"goal": "不应泄露"},
+        result_summary="这是别的工作区执行。",
+        graph_json={},
+        node_states_json={},
+        next_actions=[],
+        result_json={},
+        updated_at="2026-07-07T09:00:00+08:00",
+    )
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        lambda: _FakeMissionDataServiceClient(
+            executions=[],
+            selected_execution=selected_execution,
+        ),
+    ):
+        middleware = MissionContextMiddleware()
+        state = create_thread_state(
+            {
+                "messages": [],
+                "workspace_type": "sci",
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        )
+        update = await middleware.before_model(
+            state,
+            {
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                    "execution_id": "exec-foreign-1",
+                }
+            },
+        )
+
+    assert update == {}
 
 
 @pytest.mark.asyncio

@@ -9,8 +9,10 @@ from langchain_core.runnables import RunnableConfig
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
+
 _MISSION_CONTEXT_CHAR_LIMIT = 2000
 _ACTIVE_EXECUTION_STATUSES = frozenset({"running", "pending", "awaiting_user_input"})
+_ACTIVE_EXECUTION_STATUS_ORDER = ("running", "pending", "awaiting_user_input")
 _STATUS_LABELS = {
     "running": "进行中",
     "pending": "排队中",
@@ -208,6 +210,26 @@ def _updated_timestamp(execution: Any) -> str:
     return ""
 
 
+def _execution_in_scope(
+    execution: Any,
+    *,
+    workspace_id: str,
+    thread_id: str,
+    user_id: str,
+) -> bool:
+    execution_workspace_id = _string(getattr(execution, "workspace_id", None), max_chars=80)
+    execution_thread_id = _string(getattr(execution, "thread_id", None), max_chars=80)
+    execution_user_id = _string(getattr(execution, "user_id", None), max_chars=80)
+
+    if workspace_id and execution_workspace_id != workspace_id:
+        return False
+    if user_id and execution_user_id != user_id:
+        return False
+    if thread_id and execution_thread_id != thread_id:
+        return False
+    return True
+
+
 def _execution_block(
     *,
     tag: str,
@@ -274,30 +296,31 @@ class MissionContextMiddleware(Middleware):
             async with dataservice_client() as client:
                 selected_execution = None
                 if execution_id:
-                    selected_execution = await client.get_execution(execution_id)
+                    candidate = await client.get_execution(execution_id)
+                    if candidate is not None and _execution_in_scope(
+                        candidate,
+                        workspace_id=workspace_id,
+                        thread_id=thread_id,
+                        user_id=user_id,
+                    ):
+                        selected_execution = candidate
 
-                executions = await client.list_executions(
+                active_executions = await client.list_executions(
                     workspace_id=workspace_id or None,
                     thread_id=thread_id or None,
                     user_id=user_id or None,
+                    status=list(_ACTIVE_EXECUTION_STATUS_ORDER),
                     limit=8,
                 )
         except Exception:
             return {}
 
-        ordered = sorted(
-            executions,
+        ordered_active = sorted(
+            active_executions,
             key=lambda item: _updated_timestamp(item),
             reverse=True,
         )
-        active_execution = next(
-            (
-                item
-                for item in ordered
-                if _string(getattr(item, "status", None)).lower() in _ACTIVE_EXECUTION_STATUSES
-            ),
-            None,
-        )
+        active_execution = next(iter(ordered_active), None)
         if active_execution is None and selected_execution is not None:
             if _string(getattr(selected_execution, "status", None)).lower() in _ACTIVE_EXECUTION_STATUSES:
                 active_execution = selected_execution
