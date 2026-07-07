@@ -156,6 +156,9 @@ export function LiveWorkflowPanel({
   const visibleWorkbenchTab = activeWorkbenchTab;
   const lastAutoWorkbenchTabRef = useRef<WorkbenchTab>("overview");
   const hasManualWorkbenchTabChoiceRef = useRef(false);
+  const hasProgressContext = Boolean(
+    activeRunId || focusedRunId || selectedRunId || runningRecord,
+  );
 
   function applyAutoWorkbenchTab(tab: WorkbenchTab) {
     lastAutoWorkbenchTabRef.current = tab;
@@ -196,16 +199,13 @@ export function LiveWorkflowPanel({
   }, [activeRunId, selectRun]);
 
   useEffect(() => {
-    if (selectedRecord) {
-      if (selectedRunId !== selectedRecord.id) {
-        selectRun(selectedRecord.id);
-      }
+    if (!selectedRecord || !(activeRunId || focusedRunId || selectedRunId)) {
       return;
     }
-    if (records[0]) {
-      selectRun(records[0].id);
+    if (selectedRunId !== selectedRecord.id) {
+      selectRun(selectedRecord.id);
     }
-  }, [records, selectedRecord, selectedRunId, selectRun]);
+  }, [activeRunId, focusedRunId, selectedRecord, selectedRunId, selectRun]);
 
   useEffect(() => {
     if (activeWorkbenchTab === "spec" && intakeSpec) {
@@ -218,6 +218,10 @@ export function LiveWorkflowPanel({
       evidenceItems,
       pendingReviewCount,
     });
+    if (activeWorkbenchTab === "run" && !hasProgressContext && records.length > 0) {
+      applyAutoWorkbenchTab(autoTab);
+      return;
+    }
     if (activeWorkbenchTab === autoTab) {
       lastAutoWorkbenchTabRef.current = autoTab;
       return;
@@ -237,6 +241,8 @@ export function LiveWorkflowPanel({
     reviewItems,
     pendingReviewCount,
     selectedRecord,
+    hasProgressContext,
+    records.length,
   ]);
 
   useEffect(() => {
@@ -505,7 +511,7 @@ export function LiveWorkflowPanel({
         eyebrow={typeConfig?.title ?? null}
         evidenceCount={evidenceItems.length}
         reviewCount={pendingReviewCount}
-        showProgressTab={Boolean(selectedRecord) || activeWorkbenchTab === "run"}
+        showProgressTab={hasProgressContext}
         showReviewTab={
           pendingReviewCount > 0 ||
           activeWorkbenchTab === "review"

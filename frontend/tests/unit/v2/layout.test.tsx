@@ -64,6 +64,29 @@ describe("V2 Workspace page", () => {
     expect(chatRegion).toHaveStyle({ width: "62%" });
   });
 
+  it("keeps the quiet desktop split when history exists but no mission is active", async () => {
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBeNull();
+    expect(screen.getByTestId("chat-region")).toHaveStyle({ width: "62%" });
+    expect(screen.getByTestId("workbench-resizer")).toHaveAttribute(
+      "aria-valuenow",
+      "62",
+    );
+  });
+
   it("renders the surface switch for workspace-owned Prism navigation", async () => {
     await act(async () => {
       render(
@@ -296,5 +319,49 @@ function makeRunningRecord(): ExecutionRecord {
     started_at: "2026-05-18T00:00:00Z",
     completed_at: null,
     result: null,
+  };
+}
+
+function makeCompletedRecord(): ExecutionRecord {
+  return {
+    id: "exec-history",
+    user_id: "user-1",
+    workspace_id: "ws-1",
+    execution_type: "capability",
+    feature_id: "outline",
+    status: "completed",
+    params: {},
+    node_states: {},
+    artifact_ids: [],
+    next_actions: [],
+    child_execution_ids: [],
+    progress: 100,
+    created_at: "2026-05-18T00:00:00Z",
+    updated_at: "2026-05-18T00:00:05Z",
+    started_at: "2026-05-18T00:00:00Z",
+    completed_at: "2026-05-18T00:00:05Z",
+    result: {
+      task_report: {
+        execution_id: "exec-history",
+        capability_id: "outline",
+        status: "completed",
+        duration_seconds: 5,
+        narrative: "Outline completed.",
+        outputs: [
+          {
+            id: "doc-1",
+            kind: "document",
+            preview: "Thesis outline",
+            default_checked: true,
+            data: {
+              name: "outline.md",
+              mime_type: "text/markdown",
+              doc_kind: "outline",
+              content: "# Chapter 1",
+            },
+          },
+        ],
+      },
+    },
   };
 }

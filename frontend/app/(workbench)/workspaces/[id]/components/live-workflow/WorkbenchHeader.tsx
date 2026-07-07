@@ -62,15 +62,24 @@ export function WorkbenchHeader({
   onToggleFullscreen: () => void;
   onToggleIntervention: () => void;
 }) {
-  const visibleTabs = TABS.filter(
-    (tab) =>
-      tab.primary ||
-      (tab.key === "evidence" && (evidenceCount > 0 || activeTab === "evidence")) ||
-      (tab.key === "review" && showReviewTab) ||
-      (tab.key === "run" && showProgressTab) ||
-      (tab.key === "spec" && showSpecTab) ||
-      activeTab === tab.key,
-  );
+  const visibleTabs = TABS.filter((tab) => {
+    if (tab.primary) {
+      return true;
+    }
+    if (tab.key === "run") {
+      return showProgressTab;
+    }
+    if (tab.key === "review") {
+      return showReviewTab;
+    }
+    if (tab.key === "spec") {
+      return showSpecTab;
+    }
+    if (tab.key === "evidence") {
+      return evidenceCount > 0 || activeTab === "evidence";
+    }
+    return activeTab === tab.key;
+  });
   return (
     <div style={styles.header}>
       <div style={{ minWidth: 0 }}>

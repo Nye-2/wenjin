@@ -579,6 +579,20 @@ describe("LiveWorkflowPanel", () => {
     expect(screen.getByRole("button", { name: "退出全屏" })).toBeInTheDocument();
   });
 
+  it("keeps history as a secondary action when no mission is active or explicitly selected", async () => {
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    await waitFor(() =>
+      expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review"),
+    );
+    expect(screen.queryByRole("button", { name: "进展" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看运行历史" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "复核与保存" })).toBeVisible();
+  });
+
   it("keeps an explicitly active review tab instead of remapping it to run", async () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");

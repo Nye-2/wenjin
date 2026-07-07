@@ -26,6 +26,7 @@ import { useWorkspaceChromeCounts } from "./components/shell/useWorkspaceChromeC
 import { getWorkspace, getWorkspaceFeatures } from "@/lib/api/workspace";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import type { WorkspaceCapability } from "@/lib/api/types";
 
 const SETTINGS_ROOMS = new Set<string>([
@@ -86,6 +87,8 @@ export default function V2Page({
   const [features, setFeatures] = useState<WorkspaceCapability[]>([]);
   const splitRatio = useWorkbenchLayoutStore((state) => state.splitRatio);
   const selectedRunId = useWorkbenchLayoutStore((state) => state.selectedRunId);
+  const focusedRunId = useRunUiStore((state) => state.focusedRunId);
+  const activeRunId = useRunUiStore((state) => state.activeRunId);
   const isWorkbenchFullscreen = useWorkbenchLayoutStore(
     (state) => state.isWorkbenchFullscreen,
   );
@@ -101,8 +104,9 @@ export default function V2Page({
     useWorkspaceChromeCounts(id);
   const splitRootRef = useRef<HTMLDivElement>(null);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>("chat");
+  const hasMissionFocus = Boolean(activeRunId || focusedRunId || selectedRunId);
   const desktopSplitRatio =
-    !isNarrowViewport && !isWorkbenchFullscreen && !selectedRunId
+    !isNarrowViewport && !isWorkbenchFullscreen && !hasMissionFocus
       ? Math.max(splitRatio, IDLE_SPLIT_RATIO)
       : splitRatio;
 
