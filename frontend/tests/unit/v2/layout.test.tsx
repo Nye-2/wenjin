@@ -66,6 +66,7 @@ describe("V2 Workspace page", () => {
 
   it("keeps the quiet desktop split when history exists but no mission is active", async () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().setSplitRatio(0.56);
 
     await act(async () => {
       render(
@@ -80,10 +81,12 @@ describe("V2 Workspace page", () => {
     });
 
     expect(useWorkbenchLayoutStore.getState().selectedRunId).toBeNull();
-    expect(screen.getByTestId("chat-region")).toHaveStyle({ width: "62%" });
+    expect(
+      Number.parseFloat(screen.getByTestId("chat-region").style.width),
+    ).toBeCloseTo(56);
     expect(screen.getByTestId("workbench-resizer")).toHaveAttribute(
       "aria-valuenow",
-      "62",
+      "56",
     );
   });
 
@@ -249,8 +252,8 @@ describe("V2 Workspace page", () => {
     expect(resizer).toHaveAttribute("aria-valuenow", "28");
 
     fireEvent.keyDown(resizer, { key: "Enter" });
-    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.56);
-    expect(resizer).toHaveAttribute("aria-valuenow", "56");
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.62);
+    expect(resizer).toHaveAttribute("aria-valuenow", "62");
   });
 
   it("uses segmented Chat / Run / Review navigation on mobile", async () => {

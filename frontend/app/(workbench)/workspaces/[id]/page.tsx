@@ -37,7 +37,6 @@ const MIN_SPLIT_PERCENT = 28;
 const MAX_SPLIT_PERCENT = 72;
 const SPLIT_KEYBOARD_STEP = 0.02;
 const SPLIT_KEYBOARD_LARGE_STEP = 0.1;
-const IDLE_SPLIT_RATIO = 0.62;
 
 type SettingsTab = "decisions" | "settings";
 type RoomKey = WorkspaceHubRoomKey;
@@ -104,11 +103,7 @@ export default function V2Page({
     useWorkspaceChromeCounts(id);
   const splitRootRef = useRef<HTMLDivElement>(null);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>("chat");
-  const hasMissionFocus = Boolean(activeRunId || focusedRunId || selectedRunId);
-  const desktopSplitRatio =
-    !isNarrowViewport && !isWorkbenchFullscreen && !hasMissionFocus
-      ? Math.max(splitRatio, IDLE_SPLIT_RATIO)
-      : splitRatio;
+  const desktopSplitRatio = splitRatio;
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");

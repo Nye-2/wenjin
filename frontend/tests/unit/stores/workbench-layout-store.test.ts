@@ -16,7 +16,7 @@ describe("workbench-layout-store", () => {
     expect(useWorkbenchLayoutStore.getState().splitRatio).toBe(0.28);
 
     useWorkbenchLayoutStore.getState().resetSplitRatio();
-    expect(useWorkbenchLayoutStore.getState().splitRatio).toBe(0.42);
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBe(0.62);
   });
 
   it("tracks fullscreen and lets automatic tab updates follow context", () => {
