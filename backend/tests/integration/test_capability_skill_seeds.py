@@ -364,6 +364,7 @@ def test_sci_capability_methodology_samples_are_parseable_and_specific():
                 "claim_inventory",
                 "claim_evidence_map",
                 "review_packet",
+                "manuscript_draft",
             },
         },
         "thesis_research_pack": {

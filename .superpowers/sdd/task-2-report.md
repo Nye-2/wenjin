@@ -48,3 +48,18 @@ Observed results:
 - Kept changes limited to backend capability contracts and backend tests.
 - Did not touch Chat Agent prompts, frontend files, or Task 1 coverage.
 - Confirmed `member_context.py` needed no production change; added only targeted projection coverage for multi-stage facet artifacts.
+
+## Follow-up Fix
+
+- Tightened `backend/tests/integration/test_capability_skill_seeds.py::test_sci_capability_methodology_samples_are_parseable_and_specific` so `research_question_to_paper` now explicitly requires `manuscript_draft` alongside the other paper-build artifacts.
+- This protects the Task 2 manuscript contract: if the seed ever drops `manuscript_draft`, the required-artifacts subset assertion will fail.
+
+### Verification
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/integration/test_capability_skill_seeds.py::test_sci_capability_methodology_samples_are_parseable_and_specific -v
+```
+
+Output:
+
+- `PASSED [100%]`
