@@ -194,11 +194,11 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
                               type="button"
                               onClick={() => runAction(action)}
                               className={cn(
-                                "flex w-full items-start gap-3 rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] px-4 py-3 text-left transition-colors hover:bg-[var(--bg-muted)]",
+                                "flex w-full items-start gap-3 rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] px-4 py-3 text-left transition-colors hover:bg-[var(--wjn-surface-muted)]",
                                 index === 0 && "border-[var(--wjn-navy)]/35"
                               )}
                             >
-                              <span className="mt-0.5 rounded-lg bg-[var(--bg-muted)] p-2 text-[var(--wjn-text)]">
+                              <span className="mt-0.5 rounded-lg bg-[var(--wjn-surface-muted)] p-2 text-[var(--wjn-text)]">
                                 <Icon className="h-4 w-4" />
                               </span>
                               <span className="min-w-0 flex-1">
@@ -207,7 +207,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
                                     {action.title}
                                   </span>
                                   {action.shortcut ? (
-                                    <span className="rounded-md bg-[var(--bg-muted)] px-2 py-0.5 text-[11px] text-[var(--wjn-text-muted)]">
+                                    <span className="rounded-md bg-[var(--wjn-surface-muted)] px-2 py-0.5 text-[11px] text-[var(--wjn-text-muted)]">
                                       {action.shortcut}
                                     </span>
                                   ) : null}
@@ -247,7 +247,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
                 className="flex items-center justify-between rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] px-3 py-2"
               >
                 <span className="text-sm text-[var(--wjn-text)]">{item.label}</span>
-                <span className="rounded-md bg-[var(--bg-muted)] px-2 py-0.5 text-xs text-[var(--wjn-text-muted)]">
+                <span className="rounded-md bg-[var(--wjn-surface-muted)] px-2 py-0.5 text-xs text-[var(--wjn-text-muted)]">
                   {item.keys}
                 </span>
               </div>

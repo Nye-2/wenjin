@@ -25,7 +25,7 @@ const STATUS_COLORS: Record<RunViewStatus, string> = {
   launching: "var(--wjn-blue)",
   queued: "var(--wjn-text-muted)",
   completed: "var(--wjn-success)",
-  failed_partial: "var(--semantic-warning)",
+  failed_partial: "var(--wjn-review)",
   failed: "var(--wjn-error)",
   cancelled: "var(--wjn-text-muted)",
   running: "var(--wjn-blue)",
@@ -155,11 +155,9 @@ export function RunsDrawer({
         top: 0,
         bottom: 0,
         width: "min(420px, 100%)",
-        background: "rgba(255, 255, 255, 0.92)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
+        background: "var(--wjn-surface)",
         borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
-        boxShadow: "0 8px 32px rgba(20, 20, 30, 0.08)",
+        boxShadow: "var(--wjn-shadow-md)",
         display: "flex",
         flexDirection: "column",
         zIndex: 10,
@@ -353,7 +351,7 @@ export function RunsDrawer({
                     fontWeight: 600,
                   }}
                 >
-                  Prism 有 {item.prismReviewCount ?? 1} 项待确认修改
+                  写作台有 {item.prismReviewCount ?? 1} 项待复核修改
                 </div>
               ) : null}
               <div

@@ -8,7 +8,7 @@ describe("block action routing", () => {
       workspaceId: "ws-1",
       actionRecord: {
         action: "preview_prism_changes",
-        label: "预览待确认修改",
+        label: "预览待复核修改",
         url: "/latex/legacy-project",
       },
     });
@@ -35,7 +35,7 @@ describe("block action routing", () => {
       workspaceId: "ws-1",
       actionRecord: {
         action: "preview_prism_changes",
-        label: "预览待确认修改",
+        label: "预览待复核修改",
         review_item_id: "review-1",
         logical_key: "section:introduction",
       },

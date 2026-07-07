@@ -30,7 +30,7 @@ describe("LatexEditorProjectBar", () => {
 
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "编译" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "打开 AI 改稿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "关闭 AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "打开 改稿助手" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "关闭 改稿助手" })).not.toBeInTheDocument();
   });
 });

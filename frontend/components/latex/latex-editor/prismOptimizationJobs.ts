@@ -67,8 +67,8 @@ export function prismJobStatusLabel(status: PrismOptimizationJobStatus): string 
   if (status === "failed") return "优化失败";
   if (status === "cancelled") return "已取消";
   if (status === "advisory") return "需要稍后重试";
-  if (status === "running") return "Agent 正在优化";
-  return "正在启动 Agent";
+  if (status === "running") return "研究团队正在优化";
+  return "正在启动研究团队";
 }
 
 export function prismExecutionNodeLabel(status?: string): string {

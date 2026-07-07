@@ -545,8 +545,7 @@ export function LiveWorkflowPanel({
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        background:
-          "linear-gradient(180deg, rgba(255,255,255,0.54), rgba(246,248,251,0.98))",
+        background: "var(--wjn-bg-base)",
         fontFamily: "var(--wjn-font-sans)",
         color: "var(--wjn-text)",
       }}

@@ -106,7 +106,7 @@ const selectorStyles: Record<string, CSSProperties> = {
     padding: "10px 11px",
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
-    background: "rgba(255,255,255,0.72)",
+    background: "var(--wjn-surface)",
     color: "var(--wjn-text-secondary)",
     textAlign: "left",
     cursor: "pointer",

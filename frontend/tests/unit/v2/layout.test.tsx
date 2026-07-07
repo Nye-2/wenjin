@@ -58,11 +58,11 @@ describe("V2 Workspace page", () => {
       );
     });
 
-    expect(screen.getByRole("tab", { name: "Workbench" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "工作台" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "Prism" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "写作台" })).toHaveAttribute(
       "href",
       "/workspaces/ws-1/prism",
     );

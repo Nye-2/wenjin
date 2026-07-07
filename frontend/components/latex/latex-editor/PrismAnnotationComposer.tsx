@@ -47,7 +47,7 @@ export function PrismAnnotationComposer({
       <textarea
         value={draftComment}
         onChange={(event) => onDraftChange(event.target.value)}
-        placeholder="例如：这篇文章 AI 味太浓了，请整体改得更像研究者写作。"
+        placeholder="例如：这段太像模板文风了，请整体改得更像研究者写作。"
         className="mt-3 min-h-[104px] w-full resize-none rounded-lg border border-[var(--wjn-line)] bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-[var(--wjn-accent-line)]"
       />
       {hasSelectionContext ? (

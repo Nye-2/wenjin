@@ -63,7 +63,7 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <Label htmlFor="email">
-              {t("auth.login.email")} <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.email")} <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <Input
               id="email"
@@ -78,7 +78,7 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <Label htmlFor="password">
-              {t("auth.login.password")} <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.password")} <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <div className="relative">
               <Input

@@ -28,17 +28,17 @@ function getSegmentStyle(status: string): {
   switch (status) {
     case "completed":
       return {
-        background: "linear-gradient(135deg, #4ADE80, #16A34A)",
+        background: "var(--wjn-success)",
         animation: "none",
       };
     case "running":
       return {
-        background: "linear-gradient(135deg, var(--wjn-blue), var(--wjn-blue-strong))",
+        background: "var(--wjn-blue)",
         animation: "wjn-pulse-soft 1.6s ease-in-out infinite",
       };
     case "failed":
       return {
-        background: "linear-gradient(135deg, #F87171, #DC2626)",
+        background: "var(--wjn-error)",
         animation: "none",
       };
     default:

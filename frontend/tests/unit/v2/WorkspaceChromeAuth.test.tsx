@@ -42,7 +42,7 @@ describe("WorkspaceChrome auth routing", () => {
 
     expect(document.cookie).not.toContain("auth-storage=");
 
-    const prismTab = screen.getByRole("tab", { name: "Prism" });
+    const prismTab = screen.getByRole("tab", { name: "写作台" });
     prismTab.addEventListener("click", (event) => event.preventDefault());
 
     fireEvent.click(prismTab);

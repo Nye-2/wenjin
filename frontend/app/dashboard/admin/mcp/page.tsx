@@ -223,7 +223,7 @@ export default function AdminMcpPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-[var(--bg-muted)] px-2 py-1 text-[11px] text-[var(--wjn-text-secondary)]">
+                    <span className="rounded-md bg-[var(--wjn-surface-muted)] px-2 py-1 text-[11px] text-[var(--wjn-text-secondary)]">
                       {server.type ?? "stdio"}
                     </span>
                     <span

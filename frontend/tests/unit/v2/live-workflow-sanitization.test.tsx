@@ -371,9 +371,9 @@ describe("live workflow sanitization", () => {
       title: "图表结果",
       subtitle: null,
       previewPath: "/workspace/outputs/figures/fed_curve/figure.png",
-      previewText: "待确认结果",
+      previewText: "待复核结果",
     });
-    expect(evidenceItems[0]?.summary).toContain("待确认结果");
+    expect(evidenceItems[0]?.summary).toContain("待复核结果");
 
     const text = [
       previews[0]?.title,

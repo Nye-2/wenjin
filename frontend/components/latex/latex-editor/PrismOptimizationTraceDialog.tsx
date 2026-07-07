@@ -80,7 +80,7 @@ export function PrismOptimizationTraceDialog({
           <DialogHeader>
             <DialogTitle>Prism 优化过程</DialogTitle>
             <DialogDescription>
-              右侧研究团队会处理改稿任务，结果会进入 Prism 待确认写入。
+              右侧研究团队会处理改稿任务，结果会进入 Prism 待复核写入。
             </DialogDescription>
           </DialogHeader>
           {activeJob ? (
@@ -193,7 +193,7 @@ export function PrismOptimizationTraceDialog({
                   <p className="mt-3 text-xs text-[var(--wjn-text-muted)]">
                     {activeJob.executionId
                       ? "已启动，正在拉取执行过程。"
-                      : "正在等待 Agent 启动确认。"}
+                      : "正在等待研究团队启动。"}
                   </p>
                 )}
               </div>
@@ -209,7 +209,7 @@ export function PrismOptimizationTraceDialog({
                   onClick={onViewPendingChanges}
                   disabled={fileChangesCount === 0}
                 >
-                  查看待确认写入
+                  查看待复核写入
                 </Button>
               </div>
             </div>

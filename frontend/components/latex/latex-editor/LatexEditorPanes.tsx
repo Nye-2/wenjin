@@ -382,7 +382,7 @@ export function LatexEditorPanes({
             <div className="min-w-0">
               <p className="text-sm font-semibold text-[var(--wjn-text)]">审阅</p>
               <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
-                批注、待确认修改、保护段落
+                批注、待复核修改、保护段落
               </p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">

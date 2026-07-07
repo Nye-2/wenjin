@@ -266,7 +266,7 @@ describe("Prism editor shell", () => {
     expect(mockCompileProject).toHaveBeenCalledWith("xelatex");
     expect(screen.getByTestId("surface-mode")).toHaveTextContent("compare");
     expect(screen.getByTestId("stage-label")).toHaveTextContent("PDF 预览台");
-    expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "改稿助手" })).not.toBeInTheDocument();
   });
 
   it("does not open AI assist automatically when compile result fails", async () => {
@@ -281,7 +281,7 @@ describe("Prism editor shell", () => {
 
     render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
 
-    expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "改稿助手" })).not.toBeInTheDocument();
   });
 
   it("opens compile diagnostics without opening the AI assist panel", async () => {
@@ -289,15 +289,15 @@ describe("Prism editor shell", () => {
 
     fireEvent.click(screen.getByTestId("open-compile-log"));
 
-    expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "改稿助手" })).not.toBeInTheDocument();
   });
 
   it("uses floating AI assist instead of a fixed side rail by default", async () => {
     render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
 
-    expect(screen.getByRole("button", { name: "AI 改稿" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "关闭 AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "改稿助手" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "改稿助手" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "关闭 改稿助手" })).not.toBeInTheDocument();
   });
 
   it("keeps pending review changes behind the floating entry unless a review link is focused", async () => {
@@ -305,8 +305,8 @@ describe("Prism editor shell", () => {
 
     render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
 
-    expect(screen.getByRole("button", { name: "AI 改稿，待应用修改" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "改稿助手，待应用修改" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "改稿助手" })).not.toBeInTheDocument();
   });
 
   it("opens the assist panel when the route focuses a review item", async () => {
@@ -314,7 +314,7 @@ describe("Prism editor shell", () => {
 
     render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
 
-    expect(screen.getByRole("dialog", { name: "AI 改稿" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "改稿助手" })).toBeInTheDocument();
   });
 
   it("opens the assist panel from selection shortcuts without launching work immediately", async () => {
@@ -328,7 +328,7 @@ describe("Prism editor shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "改这段" }));
 
-    expect(screen.getByRole("dialog", { name: "AI 改稿" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "改稿助手" })).toBeInTheDocument();
     expect(mockWorkflowActions.addFeedbackAndQuickRewrite).not.toHaveBeenCalled();
     expect(mockWorkflowActions.addFeedbackAndRewrite).not.toHaveBeenCalled();
     expect(mockWorkflowActions.launchDocumentOptimization).not.toHaveBeenCalled();
@@ -338,7 +338,7 @@ describe("Prism editor shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "修改全文" }));
 
-    expect(screen.getByRole("dialog", { name: "AI 改稿" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "改稿助手" })).toBeInTheDocument();
     expect(mockWorkflowActions.addFeedbackAndQuickRewrite).not.toHaveBeenCalled();
     expect(mockWorkflowActions.addFeedbackAndRewrite).not.toHaveBeenCalled();
     expect(mockWorkflowActions.launchDocumentOptimization).not.toHaveBeenCalled();
@@ -353,8 +353,8 @@ describe("Prism editor shell", () => {
 
     render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
 
-    expect(screen.getByRole("dialog", { name: "AI 改稿" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "改稿助手" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "改稿助手" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "改这段" }));
     fireEvent.click(screen.getByRole("button", { name: "修改全文" }));
@@ -371,7 +371,7 @@ describe("Prism editor shell", () => {
 
     render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
 
-    expect(screen.getByRole("dialog", { name: "AI 改稿" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "改稿助手" })).toBeInTheDocument();
     expect(screen.getByText("直接说你想怎么改，问津会通读当前主稿并生成可确认的修改建议。")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "改这段" })).not.toBeInTheDocument();
 

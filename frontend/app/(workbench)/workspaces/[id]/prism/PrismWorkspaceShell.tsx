@@ -308,7 +308,7 @@ export function PrismWorkspaceShell({
           </div>
         </div>
         {errorText ? (
-          <div className="border-b border-[rgba(185,28,28,0.18)] bg-[rgba(254,242,242,0.86)] px-4 py-2 text-xs text-[var(--wjn-danger)]">
+          <div className="border-b border-[rgba(185,28,28,0.18)] bg-[rgba(254,242,242,0.86)] px-4 py-2 text-xs text-[var(--wjn-error)]">
             {errorText}
           </div>
         ) : null}

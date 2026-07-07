@@ -99,20 +99,20 @@ describe("PrismAssistPanel", () => {
   it("renders nothing while closed", () => {
     renderPanel({ open: false });
 
-    expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "改稿助手" })).not.toBeInTheDocument();
   });
 
   it("renders composer and primary assist actions", () => {
     const props = renderPanel({ annotations: [] });
 
-    fireEvent.change(screen.getByPlaceholderText("例如：这篇文章 AI 味太浓了，请整体改得更像研究者写作。"), {
+    fireEvent.change(screen.getByPlaceholderText("例如：这段太像模板文风了，请整体改得更像研究者写作。"), {
       target: { value: "增强贡献表达" },
     });
     fireEvent.click(screen.getByRole("button", { name: "添加批注" }));
     fireEvent.click(screen.getByRole("button", { name: "改这段" }));
     fireEvent.click(screen.getByRole("button", { name: "修改全文" }));
 
-    expect(screen.getByRole("dialog", { name: "AI 改稿" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "改稿助手" })).toBeInTheDocument();
     expect(props.onDraftChange).toHaveBeenCalledWith("增强贡献表达");
     expect(props.onSaveComment).toHaveBeenCalled();
     expect(props.onQuickRewrite).toHaveBeenCalled();
@@ -130,16 +130,16 @@ describe("PrismAssistPanel", () => {
       canProtectActiveFile: true,
     });
 
-    const dialog = screen.getByRole("dialog", { name: "AI 改稿" });
+    const dialog = screen.getByRole("dialog", { name: "改稿助手" });
 
     expect(dialog).toHaveAttribute("data-position", "bottom-right");
-    expect(screen.getByPlaceholderText("例如：这篇文章 AI 味太浓了，请整体改得更像研究者写作。")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("例如：这段太像模板文风了，请整体改得更像研究者写作。")).toBeInTheDocument();
     expect(screen.getByText("直接说你想怎么改，问津会通读当前主稿并生成可确认的修改建议。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "修改全文" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "改这段" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重置 AI 面板位置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重置改稿助手面板位置" })).toBeInTheDocument();
     expect(screen.queryByText("文件安全")).not.toBeInTheDocument();
-    expect(screen.queryByText("待确认写入")).not.toBeInTheDocument();
+    expect(screen.queryByText("待复核写入")).not.toBeInTheDocument();
     expect(screen.queryByText("当前文件批注")).not.toBeInTheDocument();
   });
 
@@ -153,7 +153,7 @@ describe("PrismAssistPanel", () => {
       annotations: [],
     });
 
-    fireEvent.change(screen.getByPlaceholderText("例如：这篇文章 AI 味太浓了，请整体改得更像研究者写作。"), {
+    fireEvent.change(screen.getByPlaceholderText("例如：这段太像模板文风了，请整体改得更像研究者写作。"), {
       target: { value: "这篇文章 AI 味太浓了" },
     });
     fireEvent.click(screen.getByRole("button", { name: "修改全文" }));
@@ -263,7 +263,7 @@ describe("PrismAssistPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /^应用$/ }));
     fireEvent.click(screen.getByRole("button", { name: "撤回" }));
 
-    expect(screen.getByText("待确认写入")).toBeInTheDocument();
+    expect(screen.getByText("待复核写入")).toBeInTheDocument();
     expect(screen.getByText("已写入变更")).toBeInTheDocument();
     expect(screen.getByText("当前文件已保护")).toBeInTheDocument();
     expect(props.onProtectActiveFile).toHaveBeenCalled();

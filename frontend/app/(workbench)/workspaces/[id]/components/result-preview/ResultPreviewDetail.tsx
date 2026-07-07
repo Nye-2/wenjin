@@ -21,12 +21,12 @@ export function ResultPreviewDetail({
           padding: "16px",
           borderRadius: "var(--wjn-radius-lg)",
           border: "1px solid rgba(20, 20, 30, 0.08)",
-          background: "rgba(255, 255, 255, 0.72)",
+          background: "var(--wjn-surface-subtle)",
           color: "var(--wjn-text-muted)",
           fontSize: 13,
         }}
       >
-        Select a result to preview it here.
+        选择一项结果，在这里查看预览。
       </div>
     );
   }
@@ -37,8 +37,8 @@ export function ResultPreviewDetail({
         padding: "16px",
         borderRadius: "var(--wjn-radius-lg)",
         border: "1px solid rgba(20, 20, 30, 0.08)",
-        background: "rgba(255, 255, 255, 0.84)",
-        boxShadow: "0 12px 28px rgba(20, 20, 30, 0.05)",
+        background: "var(--wjn-surface)",
+        boxShadow: "var(--wjn-shadow-sm)",
       }}
     >
       {preview.badge ? (

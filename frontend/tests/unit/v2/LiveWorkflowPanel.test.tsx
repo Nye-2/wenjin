@@ -535,8 +535,8 @@ describe("LiveWorkflowPanel", () => {
     expect(mockFetch).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "全部保存" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "产物" })).not.toBeInTheDocument();
-    expect(screen.getByText("待审核保存")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存已确认结果（2 项）" })).toBeInTheDocument();
+    expect(screen.getByText("待复核保存")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区（2 项）" })).toBeInTheDocument();
   });
 
   it("shows a visible review tab with the pending review count", async () => {
@@ -548,8 +548,8 @@ describe("LiveWorkflowPanel", () => {
     const reviewTab = await screen.findByRole("button", { name: "复核" });
     expect(within(reviewTab).getByText("2")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "复核与保存" })).toBeVisible();
-    expect(screen.getByText("2 项内容待确认。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存已确认结果（2 项）" })).toBeInTheDocument();
+    expect(screen.getByText("2 项内容待复核。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区（2 项）" })).toBeInTheDocument();
     expect(screen.getAllByText("Thesis outline").length).toBeGreaterThan(0);
     expect(screen.queryByText("研究主题：联邦学习结合大模型微调")).not.toBeInTheDocument();
   });
@@ -589,7 +589,7 @@ describe("LiveWorkflowPanel", () => {
     );
     expect(screen.queryByRole("button", { name: "复核" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "复核与保存" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /保存已确认结果/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存到工作区/ })).not.toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
 
     act(() => {
@@ -598,7 +598,7 @@ describe("LiveWorkflowPanel", () => {
 
     expect(await screen.findByText("暂无需要复核的变更")).toBeVisible();
     expect(screen.queryByText("隐藏背景记忆")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /保存已确认结果/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存到工作区/ })).not.toBeInTheDocument();
   });
 
   it("preserves an explicit tab choice after review becomes available", async () => {
@@ -647,7 +647,7 @@ describe("LiveWorkflowPanel", () => {
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "保存已确认结果（2 项）" }));
+    fireEvent.click(await screen.findByRole("button", { name: "保存到工作区（2 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -701,7 +701,7 @@ describe("LiveWorkflowPanel", () => {
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
     await screen.findByRole("heading", { name: "复核与保存" });
-    expect(screen.queryByRole("button", { name: /保存已确认结果/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存到工作区/ })).not.toBeInTheDocument();
     expect(screen.getByText("文档 / 文档")).toBeInTheDocument();
     expect(screen.getByText("影响位置")).toBeInTheDocument();
     expect(screen.getByText("outline.md")).toBeInTheDocument();
@@ -734,9 +734,9 @@ describe("LiveWorkflowPanel", () => {
         )?.accepted_unit_ids,
       ).toEqual(["unit-doc-1"]),
     );
-    expect(screen.getByRole("button", { name: "保存已确认结果（1 项）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区（1 项）" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -756,13 +756,13 @@ describe("LiveWorkflowPanel", () => {
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
     expect(await screen.findByRole("button", { name: "复核" })).toBeInTheDocument();
-    expect(screen.queryByText("1 项变更待确认。")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 项变更待复核。")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "复核" }));
 
     expect(screen.getByRole("heading", { name: "复核与保存" })).toBeVisible();
-    expect(screen.getByText("0 项变更待确认。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存已确认结果（1 项）" })).toBeInTheDocument();
+    expect(screen.getByText("0 项变更待复核。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区（1 项）" })).toBeInTheDocument();
   });
 
   it("renders automatically applied draft ChangeSet units as read-only review evidence", async () => {
@@ -871,7 +871,7 @@ describe("LiveWorkflowPanel", () => {
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "保存已确认结果（2 项）" }));
+    fireEvent.click(await screen.findByRole("button", { name: "保存到工作区（2 项）" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
@@ -900,7 +900,7 @@ describe("LiveWorkflowPanel", () => {
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "保存已确认结果（2 项）" }));
+    fireEvent.click(await screen.findByRole("button", { name: "保存到工作区（2 项）" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
@@ -924,7 +924,7 @@ describe("LiveWorkflowPanel", () => {
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "保存已确认结果（2 项）" }));
+    fireEvent.click(await screen.findByRole("button", { name: "保存到工作区（2 项）" }));
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
 
     mockFetch.mockResolvedValueOnce({
@@ -935,7 +935,7 @@ describe("LiveWorkflowPanel", () => {
       useWorkbenchLayoutStore.getState().selectRun("exec-2");
     });
     expect(screen.getByText("1 项内容需要确认后再保存。")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
 
     await act(async () => {

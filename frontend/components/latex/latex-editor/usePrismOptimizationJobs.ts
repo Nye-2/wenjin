@@ -160,10 +160,10 @@ export function usePrismOptimizationJobs({
         void loadProject(projectId)
           .then(() => {
             onReviewStateChanged?.();
-            onFeedbackStatus("Agent 已生成待确认修改，请在 Prism 待确认写入中预览并应用。");
+            onFeedbackStatus("研究团队已生成待复核修改，请在 Prism 待复核写入中预览并应用。");
           })
           .catch(() => {
-            onFeedbackStatus("Agent 已完成优化，请刷新后查看 Prism 待确认写入。");
+            onFeedbackStatus("研究团队已完成优化，请刷新后查看 Prism 待复核写入。");
           });
       }
     }

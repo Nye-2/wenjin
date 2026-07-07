@@ -133,7 +133,7 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <Label htmlFor="email">
-              {t("auth.login.email")} <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.email")} <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <Input
               id="email"
@@ -148,7 +148,7 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <Label htmlFor="verificationCode">
-              {t("auth.register.verificationCode")} <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.register.verificationCode")} <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <div className="flex gap-2">
               <Input
@@ -180,13 +180,13 @@ export default function RegisterPage() {
               </Button>
             </div>
             {codeError && (
-              <p className="text-xs text-[var(--semantic-error)]">{codeError}</p>
+              <p className="text-xs text-[var(--wjn-error)]">{codeError}</p>
             )}
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="password">
-              {t("auth.login.password")} <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.login.password")} <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <Input
               id="password"
@@ -203,7 +203,7 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">
-              {t("auth.register.confirmPassword")} <span className="text-[var(--semantic-error)]">*</span>
+              {t("auth.register.confirmPassword")} <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <Input
               id="confirmPassword"

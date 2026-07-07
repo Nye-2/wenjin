@@ -116,7 +116,7 @@ describe("ChangeSetReviewPanel accessibility", () => {
     renderPanel();
 
     expect(
-      screen.getByRole("button", { name: "全选低/中风险待确认变更" }),
+      screen.getByRole("button", { name: "全选低/中风险待复核变更" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "清除已选变更" }),

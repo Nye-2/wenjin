@@ -64,7 +64,7 @@ export function ReviewView({
     return (
       <EmptyState
         title="暂无需要复核的变更"
-        detail="运行结果和复核包会先出现在这里，确认后再保存到工作区房间。"
+        detail="运行结果和复核包会先出现在这里，复核确认后再保存到工作区房间。"
       />
     );
   }
@@ -76,7 +76,7 @@ export function ReviewView({
           <div>
             <h2 style={{ ...styles.sectionTitle, margin: 0 }}>复核与保存</h2>
             <div style={styles.sectionSubtitle}>
-              {pendingCount} 项内容待确认。
+              {pendingCount} 项内容待复核。
             </div>
           </div>
         </div>

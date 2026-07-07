@@ -38,7 +38,7 @@ export function PrismFloatingAssist({
         : selectedCharacterCount > 0
           ? `已选 ${selectedCharacterCount} 字`
           : null;
-  const pillLabel = statusLabel ? `AI 改稿，${statusLabel}` : "AI 改稿";
+  const pillLabel = statusLabel ? `改稿助手，${statusLabel}` : "改稿助手";
 
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">

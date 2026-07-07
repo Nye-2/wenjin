@@ -285,7 +285,7 @@ const TEAM_KERNEL_PROGRESS_LABELS: Record<
   team_recruit: "组织研究小组",
   team_dispatch: "查找证据并起草内容",
   team_quality_gate: "检查质量",
-  team_finish: "等待确认",
+  team_finish: "等待复核",
 };
 
 export function isTerminalRunStatus(status: RunViewStatus | string): boolean {
@@ -486,7 +486,7 @@ export function executionPhaseDisplayName(phaseName?: string | null): string {
     [/research|retriev|search|scout|survey|literature|citation|source|evidence/, "查找证据"],
     [/synth|matrix|gap|plan|outline|strategy|writ|draft|compose|experiment|sandbox|code|compute|analysis/, "起草内容"],
     [/review|critic|quality|gate|verify|check|validat|audit/, "检查质量"],
-    [/commit|save|final|deliver|finish|confirm/, "等待确认"],
+    [/commit|save|final|deliver|finish|confirm/, "等待复核"],
   ];
   return phaseLabels.find(([pattern]) => pattern.test(normalized))?.[1] ?? "准备材料";
 }

@@ -325,14 +325,14 @@ export function PrismAssistPanel({
       ref={panelRef}
       role="dialog"
       aria-modal="false"
-      aria-label="AI 改稿"
+      aria-label="改稿助手"
       data-position={panelPosition}
       className="fixed z-50 flex max-h-[min(72vh,680px)] w-[min(420px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-white/75 bg-white/90 shadow-[var(--wjn-shadow-lg)] backdrop-blur-xl"
       style={effectivePanelStyle}
     >
       <div
         className="flex min-h-12 shrink-0 cursor-move select-none items-center justify-between gap-3 border-b border-[var(--wjn-line)] bg-white/72 px-3 py-2"
-        title="拖动移动 AI 面板"
+        title="拖动移动改稿助手面板"
         onPointerDown={beginPanelDrag}
         onPointerMove={movePanelDrag}
         onPointerUp={endPanelDrag}
@@ -341,7 +341,7 @@ export function PrismAssistPanel({
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--wjn-text)]">
             <GripHorizontal className="h-3.5 w-3.5 text-[var(--wjn-text-muted)]" aria-hidden="true" />
-            AI 改稿
+            改稿助手
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -349,8 +349,8 @@ export function PrismAssistPanel({
             size="sm"
             variant="outline"
             onClick={resetPanelPosition}
-            aria-label="重置 AI 面板位置"
-            title="重置 AI 面板位置"
+            aria-label="重置改稿助手面板位置"
+            title="重置改稿助手面板位置"
           >
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
           </Button>
@@ -358,8 +358,8 @@ export function PrismAssistPanel({
             size="sm"
             variant="outline"
             onClick={onClose}
-            aria-label="关闭 AI 改稿"
-            title="关闭 AI 改稿"
+            aria-label="关闭改稿助手"
+            title="关闭改稿助手"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </Button>
@@ -461,7 +461,7 @@ export function PrismAssistPanel({
                 {fileChanges.length > 0 ? (
                   <AlertTriangle className="h-4 w-4 text-amber-700" aria-hidden="true" />
                 ) : null}
-                <p className="text-sm font-semibold text-[var(--wjn-text)]">待确认写入</p>
+                <p className="text-sm font-semibold text-[var(--wjn-text)]">待复核写入</p>
                 {fileChanges.length > 0 ? (
                   <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-800">
                     {fileChanges.length}
@@ -479,7 +479,7 @@ export function PrismAssistPanel({
             ) : null}
             <PrismReviewList
               items={pendingReviewItems}
-              emptyMessage="暂无待确认写入。"
+              emptyMessage="暂无待复核写入。"
               focusedItemId={focusedReviewItemId}
               focusedLogicalKey={focusedLogicalKey}
               renderActions={(item) => {

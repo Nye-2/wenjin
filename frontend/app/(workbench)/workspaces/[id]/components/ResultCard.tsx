@@ -50,12 +50,12 @@ function reviewNotice(items: WorkspacePrismReviewItem[]): string {
   const prismCount = items.filter(isPrismReviewItem).length;
   const artifactCount = items.filter((item) => item.kind === "sandbox_artifact").length;
   if (prismCount === items.length) {
-    return `文档编辑器有 ${items.length} 项待确认修改`;
+    return `写作台有 ${items.length} 项待复核修改`;
   }
   if (artifactCount === items.length) {
     return `结果有 ${items.length} 项可查看`;
   }
-  return `有 ${items.length} 项待确认`;
+  return `有 ${items.length} 项待复核`;
 }
 
 interface ResultCardProps {
@@ -168,7 +168,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       : reverted
         ? `${receiptResultCount} 项结果已撤回`
         : `${receiptResultCount} 项结果已写入`
-    : `${receiptPendingCount} 项结果待审核保存`;
+    : `${receiptPendingCount} 项结果待复核保存`;
   const showResultPackage =
     visiblePreviews.length > 0 ||
     (canSaveAll && Boolean(workspaceId) && saveCount > 0) ||
@@ -281,7 +281,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     status === "completed"
       ? "var(--wjn-success)"
       : status === "failed_partial"
-        ? "var(--wjn-warning)"
+        ? "var(--wjn-review)"
         : "var(--wjn-error)";
 
   return (
@@ -316,7 +316,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
               href={prismReviewItemHref(workspaceId, firstPrismReviewItem)}
               style={styles.savedLink}
             >
-              预览待确认修改
+              预览待复核修改
             </WorkspaceActionLink>
           ) : null}
         </div>
@@ -400,7 +400,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
               查看运行
             </button>
             {canSaveAll && !commitFinal ? (
-              <span style={styles.statusText}>可保存结果，也可查看运行详情</span>
+              <span style={styles.statusText}>复核后保存到工作区，也可查看运行详情</span>
             ) : null}
             {canSaveAll && !commitFinal && workspaceId && saveCount > 0 ? (
               <button
@@ -416,7 +416,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                   ? "保存中..."
                   : commitError
                     ? `重试保存（${saveCount} 项）`
-                    : `保存已确认结果（${saveCount} 项）`}
+                    : `保存到工作区（${saveCount} 项）`}
               </button>
             ) : null}
             {discarded ? (
@@ -464,9 +464,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
 const styles: Record<string, React.CSSProperties> = {
   card: {
     padding: "16px",
-    background: "var(--wjn-surface-raised)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
+    background: "var(--wjn-surface)",
     borderRadius: "var(--wjn-radius-lg)",
     border: "1px solid var(--wjn-line)",
     boxShadow: "var(--wjn-shadow-sm)",
@@ -503,9 +501,9 @@ const styles: Record<string, React.CSSProperties> = {
   partialNotice: {
     padding: "8px 10px",
     borderRadius: "var(--wjn-radius-md)",
-    background: "rgba(198, 138, 26, 0.08)",
+    background: "var(--wjn-review-soft)",
     border: "1px solid rgba(198, 138, 26, 0.16)",
-    color: "var(--wjn-warning)",
+    color: "var(--wjn-review)",
     fontSize: 12,
     lineHeight: 1.45,
     marginBottom: "12px",
@@ -564,7 +562,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 9px",
     borderRadius: "var(--wjn-radius-md)",
     border: "1px solid rgba(20,20,30,0.06)",
-    background: "rgba(255,255,255,0.62)",
+    background: "var(--wjn-surface-subtle)",
   },
   representativeText: {
     minWidth: 0,
@@ -602,7 +600,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   ghostButton: {
     border: "1px solid rgba(20, 20, 30, 0.08)",
-    background: "rgba(255, 255, 255, 0.72)",
+    background: "var(--wjn-surface)",
     color: "var(--wjn-text-secondary)",
     borderRadius: "var(--wjn-radius-pill)",
     padding: "7px 12px",
@@ -653,9 +651,9 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     gap: 4,
     padding: "0 6px 6px",
-    borderRadius: "var(--wjn-radius-sm)",
+    borderRadius: "var(--wjn-radius)",
     border: "1px solid rgba(20,20,30,0.08)",
-    background: "rgba(255,255,255,0.72)",
+    background: "var(--wjn-surface-subtle)",
   },
   figureThumbBar: {
     width: 6,

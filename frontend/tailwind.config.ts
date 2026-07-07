@@ -63,12 +63,8 @@ const config: Config = {
         },
       },
       animation: {
-        "gradient-x": "gradient-x 4s ease infinite",
         shimmer: "shimmer 3s ease-in-out infinite",
         "pulse-slow": "pulse 3s ease-in-out infinite",
-        "wave-drift": "wave-drift 12s linear infinite",
-        "wave-drift-slow": "wave-drift 18s linear infinite",
-        "wave-float": "wave-float 6s ease-in-out infinite",
         "status-pulse": "status-pulse 2s ease-in-out infinite",
         "shimmer-slide": "shimmer-slide 1.5s ease-in-out infinite",
         "fade-in": "fade-in 300ms ease-out",
@@ -77,21 +73,9 @@ const config: Config = {
         "scale-in": "scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1)",
       },
       keyframes: {
-        "gradient-x": {
-          "0%, 100%": { backgroundPosition: "0% 50%" },
-          "50%": { backgroundPosition: "100% 50%" },
-        },
         shimmer: {
           "0%, 100%": { transform: "translateX(-100%)" },
           "50%": { transform: "translateX(100%)" },
-        },
-        "wave-drift": {
-          "0%": { transform: "translateX(0) translateZ(0)" },
-          "100%": { transform: "translateX(-50%) translateZ(0)" },
-        },
-        "wave-float": {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-8px)" },
         },
         "status-pulse": {
           "0%, 100%": { opacity: "1" },

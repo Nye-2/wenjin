@@ -414,7 +414,7 @@ export function ChatPanel({
                   padding: 14,
                   border: "1px solid var(--wjn-line)",
                   borderRadius: "var(--wjn-radius-lg)",
-                  background: "rgba(255,255,255,0.74)",
+                  background: "var(--wjn-surface)",
                   textAlign: "left",
                 }}
               >
@@ -536,7 +536,7 @@ export function ChatPanel({
         style={{
           borderTop: "1px solid var(--wjn-line)",
           padding: "12px",
-          background: "linear-gradient(180deg, rgba(255,255,255,0.8), rgba(249,250,252,0.96))",
+          background: "var(--wjn-bg-rail)",
         }}
       >
         {/* Attachment chips */}

@@ -309,10 +309,9 @@ export default function V2Page({
                 width: 8,
                 flex: "0 0 8px",
                 cursor: "col-resize",
-                background:
-                  "linear-gradient(90deg, rgba(15,23,42,0.02), rgba(15,23,42,0.075), rgba(15,23,42,0.02))",
-                borderLeft: "1px solid rgba(15, 23, 42, 0.045)",
-                borderRight: "1px solid rgba(15, 23, 42, 0.045)",
+                background: "var(--wjn-bg-rail)",
+                borderLeft: "1px solid var(--wjn-line)",
+                borderRight: "1px solid var(--wjn-line)",
                 zIndex: 2,
               }}
             />
@@ -393,7 +392,7 @@ function MobileSurfaceTabs({
         gap: 4,
         padding: "8px 10px",
         borderBottom: "1px solid var(--wjn-line)",
-        background: "rgba(255,255,255,0.86)",
+        background: "var(--wjn-surface)",
       }}
     >
       {MOBILE_SURFACE_TABS.map((tab) => {

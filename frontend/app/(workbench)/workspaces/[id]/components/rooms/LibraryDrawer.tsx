@@ -179,11 +179,9 @@ export function LibraryDrawer({
         top: 0,
         bottom: 0,
         width: "min(760px, 100%)",
-        background: "rgba(255, 255, 255, 0.92)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
+        background: "var(--wjn-surface)",
         borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
-        boxShadow: "0 8px 32px rgba(20, 20, 30, 0.08)",
+        boxShadow: "var(--wjn-shadow-md)",
         display: "flex",
         flexDirection: "column",
         zIndex: 10,
@@ -312,7 +310,7 @@ export function LibraryDrawer({
                 <div style={{ display: "grid", gap: 10, justifyItems: "center" }}>
                   <div>资料库暂时为空</div>
                   <div style={{ maxWidth: 220, lineHeight: 1.55 }}>
-                    右侧工作台还有 {pendingLibraryCandidates.length} 篇待确认文献，保存后会进入这里。
+                    右侧工作台还有 {pendingLibraryCandidates.length} 篇待复核文献，保存后会进入这里。
                   </div>
                 </div>
               ) : (

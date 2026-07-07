@@ -84,31 +84,31 @@ const COPY: Record<Locale, LandingCopy> = {
       pricing: "定价",
     },
     hero: {
-      eyebrow: "Research OS / Prism-native",
+      eyebrow: "科研工作区 / 写作台原生",
       title: "问津 Wenjin",
       subtitle:
-        "从一个研究想法开始，学术 Harness 召集定制化专家 Agent，组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
+        "从一个研究想法开始，学术 Harness 召集定制化专家助手，组织文献、证据、实验与稿件；你在 Prism 里复核引用、修改和最终成稿。",
       caption: "学术 Harness、专家团队、Library、Run History 与 Prism 文件工作区在同一个 workspace 里协作。",
       previewAlt: "Wenjin Prism 研究工作台产品预览",
-      signals: ["学术 Harness", "专家 Agent", "证据链", "Prism"],
+      signals: ["学术 Harness", "专家助手", "证据链", "Prism"],
     },
     positioning: {
       eyebrow: "Positioning",
       title: "不是聊天框，也不是模板库。它是研究任务的执行环境。",
       body:
         "Wenjin 的价值不是生成一段文字，而是让研究上下文持续沉淀：文献、证据、实验材料、后台 workspace memory 和稿件确认都在同一个 workspace 里推进。",
-      ordinaryLabel: "普通 AI 写作",
+      ordinaryLabel: "普通智能写作",
       ordinaryTitle: "回答结束后，工作流也断了。",
       ordinaryBody:
         "用户还要自己搬运文献、引用、实验、图表和正文。结果能看，但很难变成稳定的研究过程。",
       wenjinLabel: "Wenjin",
-      wenjinTitle: "Agent 带着 workspace 上下文持续工作。",
+      wenjinTitle: "研究团队带着 workspace 上下文持续工作。",
       wenjinBody:
         "每次执行都沉淀到 Library、Prism 文件、Decisions、Tasks 和后台 workspace memory，形成能被确认、复用和继续推进的研究链路。",
     },
     loop: {
       eyebrow: "Operating Loop",
-      title: "用户掌方向，Agent 跑链路。",
+      title: "用户掌方向，研究团队跑链路。",
       body:
         "系统自动推进文献、证据、实验和写作；关键结果回到用户确认。它不是把人排除在外，而是把人的判断放在最重要的位置。",
       steps: [
@@ -124,8 +124,8 @@ const COPY: Record<Locale, LandingCopy> = {
         },
         {
           index: "03",
-          title: "确认成为稿件",
-          body: "最终产出进入 Prism，由用户确认修改和引用。",
+          title: "复核成为稿件",
+          body: "最终产出进入 Prism，由用户复核修改和引用。",
         },
       ],
     },
@@ -137,7 +137,7 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Deliver",
       title: "把科研从临时问答推进到可持续交付。",
       body:
-        "从一个想法开始，进入 workspace，让 Agent 组织上下文、推进任务，并在 Prism 中完成最终确认。",
+        "从一个想法开始，进入 workspace，让研究团队组织上下文、推进任务，并在 Prism 中完成最终复核。",
     },
     quickStartItems: {
       sci: "SCI",
@@ -158,31 +158,31 @@ const COPY: Record<Locale, LandingCopy> = {
       pricing: "Pricing",
     },
     hero: {
-      eyebrow: "Research OS / Prism-native",
+      eyebrow: "Research workbench / Prism-native",
       title: "Wenjin",
       subtitle:
-        "From a research idea, an academic harness recruits custom expert agents to organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
-      caption: "Academic harness, expert agents, Library, Run History, and the Prism file workspace move inside one workspace.",
+        "From a research idea, an academic harness recruits custom expert assistants to organize literature, evidence, experiments, and drafts while you review citations, edits, and final manuscript state in Prism.",
+      caption: "Academic harness, expert assistants, Library, Run History, and the Prism file workspace move inside one workspace.",
       previewAlt: "Wenjin Prism research workbench preview",
-      signals: ["Academic Harness", "Expert Agents", "Evidence Graph", "Prism"],
+      signals: ["Academic Harness", "Expert Assistants", "Evidence Graph", "Prism"],
     },
     positioning: {
       eyebrow: "Positioning",
       title: "Not a chat box or a template library. A runtime for research work.",
       body:
         "Wenjin is not built to generate one isolated answer. It keeps literature, evidence, experiments, hidden workspace memory, and manuscript confirmation moving inside one workspace.",
-      ordinaryLabel: "Ordinary AI writing",
+      ordinaryLabel: "Ordinary assisted writing",
       ordinaryTitle: "Once the answer ends, the workflow breaks.",
       ordinaryBody:
         "Researchers still have to move references, citations, charts, and drafts across tools. The output may be usable, but the process is fragile.",
       wenjinLabel: "Wenjin",
-      wenjinTitle: "Agents keep working with workspace context.",
+      wenjinTitle: "The research team keeps working with workspace context.",
       wenjinBody:
         "Runs write back into Library, Prism files, Decisions, Tasks, and hidden workspace memory, creating a research loop that can be confirmed, reused, and continued.",
     },
     loop: {
       eyebrow: "Operating Loop",
-      title: "You steer. Agents run the research loop.",
+      title: "You steer. The research team runs the loop.",
       body:
         "Wenjin advances literature, evidence, experiments, and writing automatically while returning critical decisions to the user.",
       steps: [

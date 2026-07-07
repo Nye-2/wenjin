@@ -70,7 +70,7 @@ export function WorkbenchHeader({
   return (
     <div style={styles.header}>
       <div style={{ minWidth: 0 }}>
-        <div style={styles.eyebrow}>AI 科研工作台</div>
+        <div style={styles.eyebrow}>科研工作台</div>
         <div style={styles.headerTitle}>研究工作台</div>
       </div>
       <div style={styles.headerMiddle}>

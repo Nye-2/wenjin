@@ -244,14 +244,14 @@ describe("execution run view expert projection", () => {
       "组织研究小组",
       "查找证据并起草内容",
       "检查质量",
-      "等待确认",
+      "等待复核",
     ]);
     expect(items.map((item) => item.phaseTitle)).toEqual([
       "准备材料",
       "组织研究小组",
       "查找证据并起草内容",
       "检查质量",
-      "等待确认",
+      "等待复核",
     ]);
     expect(items.map((item) => item.title).join(" ")).not.toContain("team_");
   });

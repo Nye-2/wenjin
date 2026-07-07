@@ -145,8 +145,7 @@ export function ResultPreviewRenderer({
             height: 136,
             borderRadius: "var(--wjn-radius-md)",
             border: "1px dashed rgba(20, 20, 30, 0.18)",
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.42))",
+            background: "var(--wjn-surface)",
             display: "grid",
             placeItems: "center",
             overflow: "hidden",
@@ -163,7 +162,7 @@ export function ResultPreviewRenderer({
                 width: "100%",
                 height: "100%",
                 objectFit: "contain",
-                background: "rgba(255,255,255,0.72)",
+                background: "var(--wjn-surface)",
               }}
             />
           ) : (

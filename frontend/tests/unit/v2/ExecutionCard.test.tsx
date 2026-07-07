@@ -34,7 +34,7 @@ describe("ExecutionCard", () => {
     render(
       <ExecutionCard
         record={makeRecord({
-          result_summary: "写作结果已进入 Prism 待确认区",
+          result_summary: "写作结果已进入 Prism 待复核区",
           result: {
             data: {
               latex_project_id: "latex-1",
@@ -57,7 +57,7 @@ describe("ExecutionCard", () => {
           next_actions: [
             {
               action: "preview_prism_changes",
-              label: "预览待确认修改",
+              label: "预览待复核修改",
               project_id: "latex-1",
               review_item_id: "review-1",
               logical_key: "section:introduction",
@@ -76,9 +76,9 @@ describe("ExecutionCard", () => {
       />,
     );
 
-    expect(screen.getByText("写作结果已进入 Prism 待确认区")).toBeInTheDocument();
+    expect(screen.getByText("写作结果已进入 Prism 待复核区")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "预览待确认修改" }),
+      screen.getByRole("link", { name: "预览待复核修改" }),
     ).toHaveAttribute(
       "href",
       "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=section%3Aintroduction",
@@ -93,7 +93,7 @@ describe("ExecutionCard", () => {
     render(
       <ExecutionCard
         record={makeRecord({
-          result_summary: "写作结果已进入 Prism 待确认区",
+          result_summary: "写作结果已进入 Prism 待复核区",
           result: {
             data: { latex_project_id: "latex-1" },
           },
@@ -121,7 +121,7 @@ describe("ExecutionCard", () => {
     render(
       <ExecutionCard
         record={makeRecord({
-          result_summary: "写作结果已进入 Prism 待确认区",
+          result_summary: "写作结果已进入 Prism 待复核区",
           result: {
             data: {
               latex_project_id: "latex-1",
@@ -130,7 +130,7 @@ describe("ExecutionCard", () => {
           next_actions: [
             {
               action: "preview_prism_changes",
-              label: "预览待确认修改",
+              label: "预览待复核修改",
               project_id: "latex-1",
             },
             {
@@ -149,7 +149,7 @@ describe("ExecutionCard", () => {
     );
 
     expect(
-      screen.getByRole("link", { name: "预览待确认修改" }),
+      screen.getByRole("link", { name: "预览待复核修改" }),
     ).toHaveAttribute("href", "/workspaces/ws-1/prism?focus=file_changes");
     expect(
       screen.queryByRole("link", { name: "跳转到神秘编辑器" }),

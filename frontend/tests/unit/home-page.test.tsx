@@ -84,14 +84,14 @@ describe("HomePage", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "从一个研究想法开始，学术 Harness 召集定制化专家 Agent，组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
+        "从一个研究想法开始，学术 Harness 召集定制化专家助手，组织文献、证据、实验与稿件；你在 Prism 里复核引用、修改和最终成稿。",
       ),
     ).toBeInTheDocument();
     const heroVisualSrc = screen.getByTestId("landing-hero-visual").getAttribute("src") ?? "";
     expect(decodeURIComponent(heroVisualSrc)).toContain("/hero-prism-workbench.jpg");
     expect(screen.queryByText("点击播放产品演示")).not.toBeInTheDocument();
     expect(screen.getByText("不是聊天框，也不是模板库。它是研究任务的执行环境。")).toBeInTheDocument();
-    expect(screen.getByText("用户掌方向，Agent 跑链路。")).toBeInTheDocument();
+    expect(screen.getByText("用户掌方向，研究团队跑链路。")).toBeInTheDocument();
   });
 
   it("moves credits into the signed-in avatar menu and keeps pricing in the nav", () => {
@@ -182,7 +182,7 @@ describe("HomePage", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "From a research idea, an academic harness recruits custom expert agents to organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
+        "From a research idea, an academic harness recruits custom expert assistants to organize literature, evidence, experiments, and drafts while you review citations, edits, and final manuscript state in Prism.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("Product")).toBeInTheDocument();

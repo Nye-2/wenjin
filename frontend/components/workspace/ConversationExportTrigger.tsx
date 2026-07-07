@@ -57,7 +57,7 @@ export function ConversationExportTrigger({
                 exportConversationAsMarkdown(thread, messages);
                 setOpen(false);
               }}
-              className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"
+              className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4 text-left transition-colors hover:bg-[var(--wjn-surface-muted)]"
             >
               <div className="flex items-center gap-2 text-sm font-medium text-[var(--wjn-text)]">
                 <FileText className="h-4 w-4" />
@@ -73,7 +73,7 @@ export function ConversationExportTrigger({
                 exportConversationAsJson(thread, messages);
                 setOpen(false);
               }}
-              className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"
+              className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4 text-left transition-colors hover:bg-[var(--wjn-surface-muted)]"
             >
               <div className="flex items-center gap-2 text-sm font-medium text-[var(--wjn-text)]">
                 <FileJson className="h-4 w-4" />

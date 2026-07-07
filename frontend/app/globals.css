@@ -10,13 +10,11 @@
   --wjn-gold: #e7b008;
   --wjn-bg-base: #f5f7fa;
   --wjn-bg-rail: #f8fafc;
-  --wjn-bg-material:
-    radial-gradient(720px 420px at 72% 0%, rgba(44, 93, 160, 0.09), transparent 62%),
-    radial-gradient(520px 300px at 4% 100%, rgba(15, 118, 110, 0.05), transparent 66%),
-    linear-gradient(180deg, #fbfcfe 0%, #f4f6f9 100%);
+  --wjn-bg-material: linear-gradient(180deg, #fbfcfe 0%, #f4f6f9 100%);
   --wjn-surface: #ffffff;
   --wjn-surface-raised: rgba(255, 255, 255, 0.88);
   --wjn-surface-subtle: #f1f5f9;
+  --wjn-surface-muted: #e2e8f0;
   --wjn-line: rgba(15, 31, 53, 0.09);
   --wjn-line-strong: rgba(15, 31, 53, 0.14);
   --wjn-text: #0f1f35;
@@ -62,107 +60,6 @@
   --wjn-font-sans: 'SF Pro Display', 'Inter', system-ui, -apple-system, 'PingFang SC', sans-serif;
   --wjn-font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
 
-  /* Compatibility aliases for pre-rollout components. New code should use --wjn-* directly. */
-  --brand-ink: var(--wjn-navy);
-  --brand-navy: var(--wjn-navy);
-  --brand-teal: var(--wjn-evidence);
-  --brand-cyan: var(--wjn-blue);
-  --brand-brass: var(--wjn-gold);
-  --brand-paper: var(--wjn-bg-base);
-  --brand-wash: var(--wjn-surface-subtle);
-  --brand-line: var(--wjn-line);
-  --bg-base: var(--wjn-bg-base);
-  --bg-elevated: var(--wjn-surface);
-  --bg-surface: var(--wjn-surface-subtle);
-  --bg-muted: #e2e8f0;
-  --accent-primary: var(--wjn-navy);
-  --accent-secondary: var(--wjn-blue);
-  --accent-tertiary: var(--wjn-evidence);
-  --accent-gold: var(--wjn-gold);
-  --semantic-success: var(--wjn-success);
-  --semantic-warning: var(--wjn-review);
-  --semantic-error: var(--wjn-error);
-  --semantic-info: var(--wjn-blue);
-  --text-primary: var(--wjn-text);
-  --text-secondary: var(--wjn-text-secondary);
-  --text-muted: var(--wjn-text-muted);
-  --border-default: var(--wjn-line);
-  --border-subtle: rgba(15, 31, 53, 0.06);
-  --border-focus: var(--wjn-blue);
-  --input-bg: var(--wjn-surface);
-  --input-bg-hover: var(--wjn-surface-subtle);
-  --select-option-bg: var(--wjn-surface);
-  --ease-apple: var(--wjn-ease-standard);
-  --ease-flow: var(--wjn-ease-standard);
-  --duration-fast: var(--wjn-duration-fast);
-  --duration-normal: var(--wjn-duration-medium);
-  --duration-slow: 320ms;
-
-  /* Compute compatibility aliases. */
-  --compute-bg-base: var(--wjn-bg-base);
-  --compute-bg-elevated: var(--wjn-surface);
-  --compute-bg-surface: var(--wjn-surface-subtle);
-  --compute-bg-overlay: rgba(245, 247, 250, 0.92);
-  --compute-border: var(--wjn-line);
-  --compute-border-subtle: rgba(15, 31, 53, 0.06);
-  --compute-text-primary: var(--wjn-text);
-  --compute-text-secondary: var(--wjn-text-secondary);
-  --compute-text-muted: var(--wjn-text-muted);
-  --compute-accent-cyan: var(--wjn-blue);
-  --compute-accent-cyan-glow: var(--wjn-accent-soft);
-  --compute-accent-gold: var(--wjn-gold);
-  --compute-accent-green: var(--wjn-evidence);
-  --compute-accent-red: var(--wjn-error);
-  /* V2 compatibility aliases. */
-  --v2-surface-white: var(--wjn-surface);
-  --v2-surface-soft: var(--wjn-bg-base);
-  --v2-surface-card: var(--wjn-surface-subtle);
-  --v2-glass-bg: var(--wjn-surface-raised);
-  --v2-glass-bg-elevated: var(--wjn-surface);
-  --v2-glass-bg-subtle: rgba(255, 255, 255, 0.72);
-  --v2-glass-border: var(--wjn-line);
-  --v2-glass-border-hi: var(--wjn-line-strong);
-  --v2-glass-blur: blur(12px);
-  --v2-glass-blur-hi: blur(16px);
-  --v2-glass-shadow: var(--wjn-shadow-sm);
-  --v2-glass-shadow-hi: var(--wjn-shadow-md);
-  --v2-bg-gradient: var(--wjn-bg-material);
-  --v2-text-primary: var(--wjn-text);
-  --v2-text-secondary: var(--wjn-text-secondary);
-  --v2-text-tertiary: var(--wjn-text-muted);
-  --v2-text-disabled: rgba(15, 31, 53, 0.25);
-  --v2-accent-purple-100: var(--wjn-accent-soft);
-  --v2-accent-purple-300: var(--wjn-accent-line);
-  --v2-accent-purple-500: var(--wjn-blue);
-  --v2-accent-purple-700: var(--wjn-blue);
-  --v2-accent-blue-700: var(--wjn-blue);
-  --v2-status-success-light: var(--wjn-evidence);
-  --v2-status-success-deep: var(--wjn-success);
-  --v2-status-running-light: var(--wjn-blue);
-  --v2-status-running-deep: var(--wjn-blue);
-  --v2-status-error: var(--wjn-error);
-  --v2-status-idle: rgba(15, 31, 53, 0.25);
-  --v2-border-default: var(--wjn-line);
-  --v2-border-soft: var(--wjn-line);
-  --v2-radius-sm: 6px;
-  --v2-radius-md: var(--wjn-radius-md);
-  --v2-radius-lg: var(--wjn-radius-lg);
-  --v2-radius-xl: var(--wjn-radius-xl);
-  --v2-radius-pill: var(--wjn-radius-pill);
-  --v2-space-1: 4px;
-  --v2-space-2: 8px;
-  --v2-space-3: 12px;
-  --v2-space-4: 14px;
-  --v2-space-5: 16px;
-  --v2-space-6: 20px;
-  --v2-space-7: 24px;
-  --v2-space-8: 32px;
-  --v2-ease-standard: var(--wjn-ease-standard);
-  --v2-ease-snappy: var(--wjn-ease-standard);
-  --v2-duration-fast: var(--wjn-duration-fast);
-  --v2-duration-medium: var(--wjn-duration-medium);
-  --v2-font-sans: var(--wjn-font-sans);
-  --v2-font-mono: var(--wjn-font-mono);
 }
 
 /* Global motion primitives */
@@ -212,9 +109,11 @@
 .prose-chat h2 { font-size: 15px; }
 .prose-chat h3 { font-size: 14px; }
 .prose-chat blockquote {
-  border-left: 3px solid var(--wjn-accent-line);
+  border: 1px solid var(--wjn-line);
+  border-radius: var(--wjn-radius);
+  background: var(--wjn-surface-subtle);
   margin: 8px 0;
-  padding-left: 10px;
+  padding: 8px 10px;
   color: var(--wjn-text-secondary);
 }
 .prose-chat a { color: var(--wjn-blue); text-decoration: none; }
@@ -241,21 +140,15 @@ body {
 
 .wjn-topbar {
   border-bottom: 1px solid var(--wjn-line);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.84));
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--wjn-surface);
 }
 
 .wjn-shell-bg {
-  background:
-    radial-gradient(720px 420px at 72% 0%, rgba(44, 93, 160, 0.08), transparent 62%),
-    radial-gradient(520px 300px at 4% 100%, rgba(15, 118, 110, 0.045), transparent 66%),
-    linear-gradient(180deg, #fbfcfe 0%, var(--wjn-bg-base) 100%);
+  background: var(--wjn-bg-material);
 }
 
 .wjn-hairline-panel {
-  background: var(--wjn-surface-raised);
+  background: var(--wjn-surface);
   border: 1px solid var(--wjn-line);
   box-shadow: var(--wjn-shadow-sm);
 }
@@ -378,7 +271,7 @@ body {
 }
 
 .wjn-prism-pdf-toolbar {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+  background: var(--wjn-surface);
 }
 
 .wjn-prism-studio {
@@ -387,9 +280,7 @@ body {
 
 .wjn-prism-context-rail {
   border-bottom: 1px solid var(--wjn-line);
-  background: rgba(255, 255, 255, 0.74);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--wjn-surface);
 }
 
 .wjn-prism-stage-switch {
@@ -398,7 +289,7 @@ body {
   gap: 4px;
   border-radius: var(--wjn-radius-lg);
   border: 1px solid var(--wjn-line);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--wjn-surface);
   padding: 4px;
   box-shadow: var(--wjn-shadow-sm);
 }
@@ -425,65 +316,6 @@ body {
   }
 }
 
-/* ── Gradient Text ── */
-.gradient-text {
-  color: var(--wjn-text);
-}
-
-.gradient-text-subtle {
-  background: linear-gradient(135deg, var(--wjn-navy), var(--wjn-blue));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.gradient-text-shimmer {
-  background: linear-gradient(90deg, var(--wjn-navy), var(--wjn-blue));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-@keyframes gradient-x {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-/* ── Wave Animation (Hero) ── */
-@keyframes wave-drift {
-  0% { transform: translateX(0) translateZ(0); }
-  100% { transform: translateX(-50%) translateZ(0); }
-}
-
-@keyframes wave-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
-}
-
-@keyframes ripple-expand {
-  0% { transform: scale(0.95); opacity: 0.6; }
-  100% { transform: scale(1.05); opacity: 0; }
-}
-
-@keyframes ink-drop {
-  0% { transform: scale(0); opacity: 0.4; }
-  60% { opacity: 0.15; }
-  100% { transform: scale(2.5); opacity: 0; }
-}
-
-.wave-line {
-  animation: wave-drift 12s linear infinite;
-  will-change: transform;
-}
-
-.wave-line-slow {
-  animation: wave-drift 18s linear infinite;
-}
-
-.wave-float {
-  animation: wave-float 6s ease-in-out infinite;
-}
-
 /* ── Scrollbar (Light Theme) ── */
 ::-webkit-scrollbar {
   width: 7px;
@@ -506,15 +338,15 @@ body {
 
 /* ── Scrollbar (Compute Dark Theme) ── */
 .compute-scroll::-webkit-scrollbar-track {
-  background: var(--compute-bg-elevated);
+  background: var(--wjn-surface);
 }
 
 .compute-scroll::-webkit-scrollbar-thumb {
-  background: var(--compute-border);
+  background: var(--wjn-line-strong);
 }
 
 .compute-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--compute-accent-cyan);
+  background: var(--wjn-blue);
 }
 
 /* ── Selection ── */
@@ -525,7 +357,7 @@ body {
 
 .compute-selection ::selection {
   background: rgba(92, 151, 165, 0.25);
-  color: var(--compute-text-primary);
+  color: var(--wjn-text);
 }
 
 /* ── Focus ── */
@@ -535,7 +367,7 @@ body {
 }
 
 .compute-focus:focus-visible {
-  outline: 2px solid var(--compute-accent-cyan);
+  outline: 2px solid var(--wjn-blue);
   outline-offset: 2px;
 }
 
@@ -579,16 +411,16 @@ textarea:focus {
 
 /* ── Compute Input (新增) ── */
 .compute-input {
-  background: var(--compute-bg-surface);
-  border: 1px solid var(--compute-border);
-  color: var(--compute-text-primary);
+  background: var(--wjn-surface-subtle);
+  border: 1px solid var(--wjn-line);
+  color: var(--wjn-text);
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .compute-input::placeholder {
-  color: var(--compute-text-muted);
+  color: var(--wjn-text-muted);
 }
 
 .compute-input:hover {
@@ -597,21 +429,16 @@ textarea:focus {
 
 .compute-input:focus {
   outline: none;
-  border-color: var(--compute-accent-cyan);
-  box-shadow: 0 0 0 3px var(--compute-accent-cyan-glow);
+  border-color: var(--wjn-blue);
+  box-shadow: 0 0 0 3px var(--wjn-accent-soft);
 }
 
 .route-grid {
-  background-image:
-    linear-gradient(rgba(15, 31, 53, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 31, 53, 0.035) 1px, transparent 1px);
-  background-size: 48px 48px;
+  background: var(--wjn-bg-base);
 }
 
 .route-topography {
-  background-image:
-    radial-gradient(720px 420px at 72% 0%, rgba(44, 93, 160, 0.07), transparent 62%),
-    radial-gradient(520px 300px at 4% 100%, rgba(15, 118, 110, 0.04), transparent 66%);
+  background: var(--wjn-bg-material);
 }
 
 .route-card {
@@ -658,9 +485,9 @@ textarea:-webkit-autofill:focus {
 
 /* ── Featured Card Glow ── */
 .route-card-featured {
-  background: linear-gradient(180deg, #fff, #fbfdff);
+  background: var(--wjn-surface);
   border: 1px solid rgba(231, 176, 8, 0.28);
-  box-shadow: var(--wjn-shadow-md);
+  box-shadow: var(--wjn-shadow-sm);
 }
 
 .route-card-featured::before {
@@ -670,15 +497,15 @@ textarea:-webkit-autofill:focus {
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--wjn-gold), var(--wjn-blue), transparent);
-  opacity: 0.6;
+  background: var(--wjn-gold);
+  opacity: 0.72;
   border-radius: 2px 2px 0 0;
 }
 
 /* ── Compute Card (新增) ── */
 .compute-card {
-  background: var(--compute-bg-elevated);
-  border: 1px solid var(--compute-border);
+  background: var(--wjn-surface);
+  border: 1px solid var(--wjn-line);
   border-radius: 0.75rem;
   transition: border-color 200ms ease, box-shadow 200ms ease;
 }
@@ -690,84 +517,37 @@ textarea:-webkit-autofill:focus {
 
 /* ── Atmospheric Background Mesh ── */
 .atmosphere-mesh {
-  background-image:
-    radial-gradient(720px 420px at 72% 0%, rgba(44, 93, 160, 0.07), transparent 62%),
-    radial-gradient(520px 300px at 4% 100%, rgba(15, 118, 110, 0.04), transparent 66%);
+  background: var(--wjn-bg-material);
 }
 
 /* ── Compute Background (新增) ── */
 .compute-bg {
-  background:
-    radial-gradient(720px 420px at 72% 0%, rgba(44, 93, 160, 0.06), transparent 62%),
-    radial-gradient(520px 300px at 4% 100%, rgba(15, 118, 110, 0.035), transparent 66%),
-    var(--compute-bg-base);
-}
-
-/* ── Subtle Noise Texture ── */
-.texture-noise::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.025;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  background-size: 256px 256px;
-  mix-blend-mode: multiply;
+  background: var(--wjn-bg-base);
 }
 
 /* ── Ink Divider ── */
 .ink-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(15, 31, 53, 0.12) 20%, rgba(44, 93, 160, 0.12) 50%, rgba(231, 176, 8, 0.10) 80%, transparent);
+  background: var(--wjn-line);
 }
 
 .compute-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(92, 151, 165, 0.15) 30%, rgba(255, 255, 255, 0.08) 70%, transparent);
+  background: var(--wjn-line);
 }
 
 /* ── Chat Container ── */
 .chat-container {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.88));
+  background: var(--wjn-surface);
   border: 1px solid var(--wjn-line);
   box-shadow: var(--wjn-shadow-sm);
 }
 
 /* ── Inspector Panel ── */
 .inspector-panel {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+  background: var(--wjn-surface);
   border: 1px solid var(--wjn-line);
   box-shadow: var(--wjn-shadow-sm);
-}
-
-/* ── Hero Section Background ── */
-.hero-glow {
-  position: relative;
-}
-
-.hero-glow::before {
-  content: '';
-  position: absolute;
-  top: -40%;
-  left: -10%;
-  width: 60%;
-  height: 120%;
-  background: radial-gradient(ellipse, rgba(44, 93, 160, 0.06), transparent 70%);
-  pointer-events: none;
-}
-
-.hero-glow::after {
-  content: '';
-  position: absolute;
-  bottom: -30%;
-  right: -5%;
-  width: 50%;
-  height: 100%;
-  background: radial-gradient(ellipse, rgba(15, 118, 110, 0.035), transparent 70%);
-  pointer-events: none;
 }
 
 /* ── Stagger Animation Delays ── */
@@ -791,7 +571,7 @@ textarea:-webkit-autofill:focus {
   height: 1.1em;
   margin-right: 0.625rem;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--wjn-navy), var(--wjn-blue));
+  background: var(--wjn-blue);
   vertical-align: text-bottom;
 }
 
@@ -842,23 +622,13 @@ html {
 }
 
 .diff-line-num {
-  color: var(--compute-text-muted);
+  color: var(--wjn-text-muted);
   user-select: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
-  }
-
-  .gradient-text-shimmer {
-    animation: none;
-  }
-
-  .wave-line,
-  .wave-line-slow,
-  .wave-float {
-    animation: none;
   }
 
   .route-card-hover:hover {

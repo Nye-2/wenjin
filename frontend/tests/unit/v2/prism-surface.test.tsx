@@ -179,11 +179,11 @@ describe("workspace prism surface", () => {
       );
     });
 
-    expect(screen.getByRole("tab", { name: "Prism" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "写作台" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "Workbench" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "工作台" })).toHaveAttribute(
       "href",
       "/workspaces/ws-1",
     );
@@ -244,7 +244,7 @@ describe("workspace prism surface", () => {
       "正在打开论文写作台",
     );
     expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
-      "正在加载工作区主稿和待确认修改。",
+      "正在加载工作区主稿和待复核修改。",
     );
   });
 
@@ -466,7 +466,7 @@ describe("workspace prism surface", () => {
       "/workspaces/ws-1?room=library&item_id=lib-1",
     );
     expect(screen.getByTestId("prism-workspace-shell")).toBeInTheDocument();
-    expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("待复核").length).toBeGreaterThan(0);
     expect(screen.getByText("来源")).toBeInTheDocument();
     expect(screen.getByText("活动")).toBeInTheDocument();
     expect(screen.getByText("保护段落")).toBeInTheDocument();

@@ -231,7 +231,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
               <div className="space-y-2">
                 <Label htmlFor="auth-modal-email">
-                  {t("auth.login.email")} <span className="text-[var(--semantic-error)]">*</span>
+                  {t("auth.login.email")} <span className="text-[var(--wjn-error)]">*</span>
                 </Label>
                 <Input
                   id="auth-modal-email"
@@ -260,7 +260,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
               <div className="space-y-2">
                 <Label htmlFor="auth-modal-password">
-                  {t("auth.login.password")} <span className="text-[var(--semantic-error)]">*</span>
+                  {t("auth.login.password")} <span className="text-[var(--wjn-error)]">*</span>
                 </Label>
                 <div className="relative">
                   <Input
@@ -288,7 +288,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                 <>
                   <div className="space-y-2">
                     <Label htmlFor="auth-modal-confirm-password">
-                      {t("auth.register.confirmPassword")} <span className="text-[var(--semantic-error)]">*</span>
+                      {t("auth.register.confirmPassword")} <span className="text-[var(--wjn-error)]">*</span>
                     </Label>
                     <Input
                       id="auth-modal-confirm-password"
@@ -304,7 +304,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
                   <div className="space-y-2">
                     <Label htmlFor="auth-modal-code">
-                      {t("auth.register.verificationCode")} <span className="text-[var(--semantic-error)]">*</span>
+                      {t("auth.register.verificationCode")} <span className="text-[var(--wjn-error)]">*</span>
                     </Label>
                     <div className="flex gap-2">
                       <Input

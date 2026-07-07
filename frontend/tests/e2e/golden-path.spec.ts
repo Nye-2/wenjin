@@ -194,7 +194,7 @@ test("sandbox artifact review items render as artifact saves, not Prism edits", 
   await expect(page.getByText("/workspace/reports/analysis.md")).toBeVisible();
   await expect(page.getByText(/Prism 有/)).toHaveCount(0);
   await expect(
-    page.getByRole("link", { name: "预览待确认修改" }),
+    page.getByRole("link", { name: "预览待复核修改" }),
   ).toHaveCount(0);
 });
 

@@ -21,23 +21,23 @@ describe("WorkspaceChrome", () => {
       "href",
       "/workspaces",
     );
-    expect(screen.getByRole("tab", { name: "Workbench" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "工作台" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "Prism，2 项待确认" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "写作台，2 项待复核" })).toHaveAttribute(
       "href",
       "/workspaces/787153c9-3e09-4a48-b683-e261bf8d18b3/prism",
     );
     expect(
-      screen.getByRole("button", { name: "资料库，2 项待确认" }),
+      screen.getByRole("button", { name: "资料库，2 项待复核" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "启动任务、查找资料或召集团队" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Federated LLM Study")).toBeInTheDocument();
     expect(screen.getByText("运行中")).toBeInTheDocument();
-    expect(screen.getByText("待确认")).toBeInTheDocument();
+    expect(screen.getByText("待复核")).toBeInTheDocument();
     expect(screen.queryByText("787153")).not.toBeInTheDocument();
   });
 });

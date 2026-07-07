@@ -37,7 +37,7 @@ const DEFAULT_ACTION_LABELS: Record<SupportedBlockAction, string> = {
   open_feature: "打开功能",
   rerun_from_artifact: "基于当前结果重跑",
   open_prism: "在 WenjinPrism 中继续编辑",
-  preview_prism_changes: "预览待确认修改",
+  preview_prism_changes: "预览待复核修改",
   open_artifact: "查看结果",
   rerun_feature: "重新运行",
   resume_execution: "继续执行",

@@ -279,7 +279,7 @@ describe("ResultCard", () => {
     expect(screen.queryByText("研究主题：联邦学习大模型")).not.toBeInTheDocument();
     expect(screen.getByText("Deep Learning")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.getByText("可保存结果，也可查看运行详情")).toBeInTheDocument();
+    expect(screen.getByText("复核后保存到工作区，也可查看运行详情")).toBeInTheDocument();
     expect(screen.queryByText("保存到工作区")).not.toBeInTheDocument();
   });
 
@@ -376,8 +376,8 @@ describe("ResultCard", () => {
     await Promise.resolve();
 
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(screen.getByText("可保存结果，也可查看运行详情")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存已确认结果（2 项）" })).toBeInTheDocument();
+    expect(screen.getByText("复核后保存到工作区，也可查看运行详情")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区（2 项）" })).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "打开已保存的 综述初稿" }),
     ).not.toBeInTheDocument();
@@ -386,7 +386,7 @@ describe("ResultCard", () => {
   it("manually saves default-selected chat receipt outputs", async () => {
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（2 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（2 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -428,7 +428,7 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（2 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（2 项）" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
@@ -441,7 +441,7 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    expect(screen.queryByRole("button", { name: /保存已确认结果/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存到工作区/ })).not.toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -466,7 +466,7 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -525,7 +525,7 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -584,8 +584,8 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={NO_OUTPUT_DATA} workspaceId="ws-1" />);
 
-    expect(screen.getByText("1 项结果待审核保存")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    expect(screen.getByText("1 项结果待复核保存")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -604,7 +604,7 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    expect(screen.getByText("可保存结果，也可查看运行详情")).toBeInTheDocument();
+    expect(screen.getByText("复核后保存到工作区，也可查看运行详情")).toBeInTheDocument();
     await Promise.resolve();
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -829,7 +829,7 @@ describe("ResultCard", () => {
     expect(screen.getByText("Intro rewrite")).toBeInTheDocument();
     expect(screen.getByText("sections/introduction.tex")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "预览待确认修改" }),
+      screen.getByRole("link", { name: "预览待复核修改" }),
     ).toHaveAttribute(
       "href",
       "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=section%3Aintroduction",
@@ -873,7 +873,7 @@ describe("ResultCard", () => {
     expect(screen.getByText("/workspace/reports/analysis.md")).toBeInTheDocument();
     expect(screen.queryByText(/文档编辑器有/)).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("link", { name: "预览待确认修改" }),
+      screen.queryByRole("link", { name: "预览待复核修改" }),
     ).not.toBeInTheDocument();
   });
 

@@ -33,15 +33,15 @@ function getPhaseStatus(
 
 const PHASE_DOT_STYLES = {
   completed: {
-    bg: "linear-gradient(135deg, #4ADE80, #16A34A)",
-    boxShadow: "0 3px 12px rgba(22, 163, 74, 0.35), inset 0 0 0 2px rgba(255, 255, 255, 0.4)",
+    bg: "var(--wjn-success)",
+    boxShadow: "none",
     animation: "none",
     content: "✓" as string,
     color: "white" as string,
   },
   running: {
-    bg: "linear-gradient(135deg, var(--wjn-blue), var(--wjn-blue-strong))",
-    boxShadow: "0 3px 12px rgba(44, 93, 160, 0.35), inset 0 0 0 2px rgba(255, 255, 255, 0.4)",
+    bg: "var(--wjn-blue)",
+    boxShadow: "none",
     animation: "wjn-pulse-soft 1.6s ease-in-out infinite",
     content: "" as string,
     color: "white" as string,
@@ -130,7 +130,7 @@ export function PhaseRow({
               minHeight: 28,
               background:
                 phaseStatus === "completed"
-                  ? "linear-gradient(180deg, rgba(74, 222, 128, 0.5), rgba(74, 222, 128, 0.1))"
+                  ? "var(--wjn-risk-low-line)"
                   : "var(--wjn-line)",
               borderRadius: 1,
             }}
@@ -202,7 +202,7 @@ export function PhaseRow({
               padding: "6px 10px",
               borderRadius: "var(--wjn-radius)",
               background: "rgba(44, 93, 160, 0.04)",
-              borderLeft: "3px solid var(--wjn-accent-line)",
+              border: "1px solid var(--wjn-accent-line)",
               fontFamily: "var(--wjn-font-mono)",
               fontSize: 11,
               lineHeight: 1.5,

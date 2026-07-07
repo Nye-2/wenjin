@@ -22,7 +22,7 @@ export function IntakeSpecPreview({
             <FileText size={24} color="var(--wjn-text-muted)" />
             <div style={styles.emptyTitle}>还没有澄清 Spec</div>
             <div style={styles.emptyDetail}>
-              与左侧 Agent 说明目标后，生成的 Spec 会在这里预览。
+              与左侧助手说明目标后，生成的 Spec 会在这里预览。
             </div>
           </div>
         </section>
@@ -32,7 +32,7 @@ export function IntakeSpecPreview({
 
   const ready = spec.status === "ready" && spec.missing_fields.length === 0;
   const statusLabel = ready ? "可执行" : "待补充";
-  const statusColor = ready ? "var(--wjn-accent-strong)" : "var(--wjn-warning)";
+  const statusColor = ready ? "var(--wjn-accent-strong)" : "var(--wjn-review)";
 
   return (
     <div style={styles.viewStack}>
@@ -86,7 +86,7 @@ export function IntakeSpecPreview({
           style={{
             ...styles.iconTextButton,
             marginTop: 12,
-            background: ready ? "var(--wjn-blue)" : "rgba(255,255,255,0.72)",
+            background: ready ? "var(--wjn-blue)" : "var(--wjn-surface)",
             border: ready ? "1px solid var(--wjn-blue)" : styles.iconTextButton.border,
             color: ready ? "#FFFFFF" : "var(--wjn-text-muted)",
             opacity: !ready || isSending ? 0.56 : 1,

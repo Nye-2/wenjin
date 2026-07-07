@@ -260,7 +260,7 @@ describe("CompletedView", () => {
 
     expect(screen.getByText(/本次运行未完整完成/)).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "保存已确认结果（1 项）" }),
+      screen.queryByRole("button", { name: "保存到工作区（1 项）" }),
     ).not.toBeInTheDocument();
   });
 
@@ -352,7 +352,7 @@ describe("CompletedView", () => {
         nextActions={[
           {
             action: "preview_prism_changes",
-            label: "预览待确认修改",
+            label: "预览待复核修改",
             review_item_id: "review-1",
             logical_key: "section:introduction",
           },
@@ -360,7 +360,7 @@ describe("CompletedView", () => {
       />,
     );
 
-    const link = screen.getByRole("link", { name: "预览待确认修改" });
+    const link = screen.getByRole("link", { name: "预览待复核修改" });
     expect(link).toHaveAttribute(
       "href",
       "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=section%3Aintroduction",
@@ -399,9 +399,9 @@ describe("CompletedView", () => {
       />,
     );
 
-    expect(screen.getByText("待确认修改")).toBeInTheDocument();
+    expect(screen.getByText("待复核修改")).toBeInTheDocument();
     expect(screen.getByText("main.tex")).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: "预览待确认修改" });
+    const link = screen.getByRole("link", { name: "预览待复核修改" });
     expect(link).toHaveAttribute(
       "href",
       "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=project%3Amain",
@@ -442,8 +442,8 @@ describe("CompletedView", () => {
     await Promise.resolve();
 
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(screen.getByText("待审核保存")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存已确认结果（1 项）" })).toBeInTheDocument();
+    expect(screen.getByText("待复核保存")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区（1 项）" })).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "打开已保存的 Thesis outline" }),
     ).not.toBeInTheDocument();
@@ -463,8 +463,8 @@ describe("CompletedView", () => {
 
     await screen.findByText("Outline completed.");
 
-    expect(screen.getByText("待审核保存")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /保存已确认结果/ })).not.toBeInTheDocument();
+    expect(screen.getByText("待复核保存")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存到工作区/ })).not.toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -487,7 +487,7 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -545,7 +545,7 @@ describe("CompletedView", () => {
     );
 
     expect(screen.getByText("设置变更已准备好。")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -587,7 +587,7 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -623,7 +623,7 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     expect(await screen.findByText("Commit failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重试保存（1 项）" })).toBeInTheDocument();
@@ -653,7 +653,7 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),
@@ -685,7 +685,7 @@ describe("CompletedView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "保存已确认结果（1 项）" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区（1 项）" }));
 
     expect(
       await screen.findByText("保存状态同步失败，请刷新后重试"),

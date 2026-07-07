@@ -39,7 +39,7 @@ export const WORKSPACE_HUB_ROOMS: readonly WorkspaceHubRoom[] = [
   {
     key: "decisions",
     label: "确认与决策",
-    description: "待确认结果、关键判断与采纳记录",
+    description: "待复核结果、关键判断与采纳记录",
     icon: CheckCircle2,
     countKind: "review",
   },
@@ -113,7 +113,7 @@ export function WorkspaceHubDrawer({
         aria-modal="true"
         aria-label="资料库"
         onMouseDown={(event) => event.stopPropagation()}
-        className="flex h-full w-full max-w-[384px] flex-col border-l border-[var(--wjn-line)] bg-[rgba(255,255,255,0.96)] shadow-[var(--wjn-shadow-lg)]"
+        className="flex h-full w-full max-w-[384px] flex-col border-l border-[var(--wjn-line)] bg-[var(--wjn-surface)] shadow-[var(--wjn-shadow-lg)]"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--wjn-line)] px-5 py-4">
           <div className="min-w-0">
@@ -139,7 +139,7 @@ export function WorkspaceHubDrawer({
                 : 0;
             const tone = room.countKind === "review" ? "review" : "success";
             const ariaLabel = count > 0
-              ? `${room.label}，${count} ${room.countKind === "review" ? "项待确认" : "项新完成"}`
+              ? `${room.label}，${count} ${room.countKind === "review" ? "项待复核" : "项新完成"}`
               : room.label;
             const active = activeRoom === room.key;
 

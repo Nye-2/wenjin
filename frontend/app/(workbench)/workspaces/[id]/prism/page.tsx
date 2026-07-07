@@ -184,7 +184,7 @@ export default function WorkspacePrismPage({
             }
             description={
               t?.("workspaceSurfaces.prismLoadingDescription") ??
-              "正在加载工作区主稿和待确认修改。"
+              "正在加载工作区主稿和待复核修改。"
             }
           />
         )}

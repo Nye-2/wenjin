@@ -34,7 +34,7 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
           padding: "8px 12px",
           display: "grid",
           gap: 4,
-          background: "rgba(255, 255, 255, 0.3)",
+          background: "var(--wjn-surface-subtle)",
         }}
       >
         {lines.length > 0 ? (
@@ -58,7 +58,7 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
               color: "var(--wjn-text-muted)",
             }}
           >
-            No data available
+            暂无可查看数据
           </span>
         )}
       </div>

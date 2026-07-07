@@ -53,7 +53,7 @@ function ContextChip({
 }) {
   if (value <= 0) return null;
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--wjn-line)] bg-[rgba(255,255,255,0.72)] px-2.5 py-1 text-xs text-[var(--wjn-text-secondary)]">
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-2.5 py-1 text-xs text-[var(--wjn-text-secondary)]">
       {icon}
       <span className="text-[var(--wjn-text)]">{value}</span>
       {label}
@@ -97,7 +97,7 @@ export function PrismContextRail({
           <span className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(180,83,9,0.24)] bg-[var(--wjn-review-soft)] px-2.5 py-1 text-xs text-[var(--wjn-review)]">
             <FileCheck2 className="h-3.5 w-3.5" />
             <span className="font-medium">{pendingCount}</span>
-            待确认
+            待复核
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(15,118,110,0.22)] bg-[var(--wjn-evidence-soft)] px-2.5 py-1 text-xs text-[var(--wjn-evidence)]">
             <CircleCheckBig className="h-3.5 w-3.5" />

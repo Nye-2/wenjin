@@ -82,6 +82,7 @@ export function RunView({
       : view.nodeCount
         ? Math.round(((view.completedNodeCount ?? 0) / view.nodeCount) * 100)
         : 0;
+  const progressScale = Math.max(4, Math.min(100, progress)) / 100;
 
   return (
     <div style={styles.runStack}>
@@ -93,7 +94,7 @@ export function RunView({
           </div>
         </div>
         <div style={styles.progressOuter}>
-          <div style={{ ...styles.progressInner, width: `${Math.max(4, Math.min(100, progress))}%` }} />
+          <div style={{ ...styles.progressInner, transform: `scaleX(${progressScale})` }} />
         </div>
         <div style={styles.progressMeta}>
           <span>{view.completedNodeCount ?? 0}/{view.nodeCount ?? 0} 步完成</span>
@@ -190,12 +191,12 @@ export function WritebackStatus({
             ? "正在写入工作区..."
             : writeback.error
               ? "保存状态异常"
-              : "待审核保存";
+              : "待复核保存";
   const saveButtonLabel = writeback.committing
     ? "保存中..."
     : writeback.error
       ? `重试保存（${writeback.saveCount} 项）`
-      : `保存已确认结果（${writeback.saveCount} 项）`;
+      : `保存到工作区（${writeback.saveCount} 项）`;
 
   return (
     <div style={styles.writebackBox}>
@@ -344,10 +345,17 @@ function TeamRoster({ team }: { team: RunViewTeam }) {
               key={member.id}
               style={{
                 ...styles.teamRow,
-                borderLeft: `3px solid ${teamStatusStripe(member.status)}`,
+                borderColor: teamStatusColor(member.status),
               }}
             >
               <div style={styles.teamMemberMain}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    ...styles.teamStatusDot,
+                    background: teamStatusColor(member.status),
+                  }}
+                />
                 <span style={expertAvatarStyle(member)}>{member.expertProfile?.avatarLabel ?? member.displayName.slice(0, 1)}</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={styles.teamMemberName}>{member.displayName}</div>
@@ -556,7 +564,7 @@ const expertChipStyle = {
   borderRadius: 999,
   padding: "0 8px",
   border: "1px solid var(--wjn-line)",
-  background: "rgba(255,255,255,0.72)",
+  background: "var(--wjn-surface)",
   color: "var(--wjn-text-muted)",
   fontSize: 11,
   fontWeight: 650,
@@ -577,7 +585,7 @@ const expertIconButtonStyle = {
   border: "1px solid var(--wjn-line)",
   borderRadius: 8,
   padding: "0 8px",
-  background: "rgba(255,255,255,0.76)",
+  background: "var(--wjn-surface)",
   color: "var(--wjn-text)",
   fontSize: 12,
   cursor: "pointer",
@@ -632,7 +640,7 @@ const expertTimelineItemStyle = {
   border: "1px solid var(--wjn-line)",
   borderRadius: 10,
   padding: 12,
-  background: "rgba(255,255,255,0.64)",
+  background: "var(--wjn-surface-subtle)",
 } as const;
 
 const expertTimelineHeaderStyle = {
@@ -660,7 +668,7 @@ const previewCardButtonStyle = {
   border: "1px solid var(--wjn-line)",
   borderRadius: 10,
   padding: 12,
-  background: "rgba(255,255,255,0.72)",
+  background: "var(--wjn-surface)",
   cursor: "pointer",
 } as const;
 
@@ -683,14 +691,14 @@ const previewFullscreenBodyStyle = {
   border: "1px solid var(--wjn-line)",
   borderRadius: 12,
   padding: 14,
-  background: "rgba(255,255,255,0.7)",
+  background: "var(--wjn-surface)",
   color: "var(--wjn-text)",
   fontSize: 13,
   lineHeight: 1.65,
   whiteSpace: "pre-wrap",
 } as const;
 
-function teamStatusStripe(status: string) {
+function teamStatusColor(status: string) {
   if (status === "completed" || status === "passed" || status === "pass") {
     return "var(--wjn-evidence)";
   }

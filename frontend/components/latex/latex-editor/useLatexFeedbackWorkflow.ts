@@ -385,7 +385,7 @@ export function useLatexFeedbackWorkflow({
         `改稿范围：${feedbackScope === "section" ? "所在 section" : "仅选区"}`,
         "用户指令：",
         item.comment,
-        "请生成 Prism 待确认写入，不要直接覆盖正文。",
+        "请生成 Prism 待复核写入，不要直接覆盖正文。",
       ].join("\n");
       const result = await sendChatMessage(effectiveWorkspaceId, prompt, [], {
         metadata: {
@@ -545,7 +545,7 @@ export function useLatexFeedbackWorkflow({
         "改稿范围：当前主稿全文",
         "用户指令：",
         instruction,
-        "请结合当前主稿、工作区上下文和可用研究材料生成 Prism 待确认写入，不要直接覆盖正文。",
+        "请结合当前主稿、工作区上下文和可用研究材料生成 Prism 待复核写入，不要直接覆盖正文。",
       ].join("\n");
       const result = await sendChatMessage(effectiveWorkspaceId, prompt, [], {
         metadata: {
@@ -585,7 +585,7 @@ export function useLatexFeedbackWorkflow({
           jobId,
           (entry) => ({ ...entry, executionId: result.executionId ?? undefined, status: "running" }),
         );
-        setFeedbackStatus("全文修改已启动，会生成待确认写入。");
+        setFeedbackStatus("全文修改已启动，会生成待复核写入。");
         setFeedbackDraftComment("");
         return;
       }

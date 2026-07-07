@@ -102,7 +102,7 @@ test("result cards stage completed outputs without auto-committing", async ({
   await expect(page.getByText("论文分析报告").first()).toBeVisible();
   await expect(page.getByText("补充对比实验").first()).toBeVisible();
 
-  await expect(page.getByText("2 项结果待审核保存")).toBeVisible();
+  await expect(page.getByText("2 项结果待复核保存")).toBeVisible();
   await expect(page.getByText("可保存结果，也可查看运行详情")).toBeVisible();
   await expect(
     page.getByRole("link", { name: "打开已保存的 论文分析报告" }),
@@ -147,14 +147,14 @@ test("Prism review links open the workspace surface without auto-committing room
           block: {
             kind: "result_card",
             run_id: "run-prism",
-            title: "主稿写入待确认",
-            tldr: "章节写作已进入 Prism 待确认区。",
+            title: "主稿写入待复核",
+            tldr: "章节写作已进入 Prism 待复核区。",
             findings: [],
             recommend: null,
             links: [
               {
                 icon: "sparkles",
-                label: "预览待确认修改",
+                label: "预览待复核修改",
                 href: "/workspaces/ws-1/prism?focus=file_changes&review_item_id=section%3Aintroduction&logical_key=section%3Aintroduction",
               },
             ],
@@ -225,8 +225,8 @@ test("Prism review links open the workspace surface without auto-committing room
 
   await page.goto(workbenchUrl);
 
-  await expect(page.getByText("Prism 有 1 项待确认修改")).toBeVisible();
-  const prismReviewLinks = page.getByRole("link", { name: "预览待确认修改" });
+  await expect(page.getByText("Prism 有 1 项待复核修改")).toBeVisible();
+  const prismReviewLinks = page.getByRole("link", { name: "预览待复核修改" });
   await expect(prismReviewLinks.first()).toBeVisible();
   await prismReviewLinks.first().click();
 
@@ -238,7 +238,7 @@ test("Prism review links open the workspace surface without auto-committing room
 
   await page.goto(workbenchUrl);
 
-  await expect(page.getByText("1 项结果待审核保存")).toBeVisible();
+  await expect(page.getByText("1 项结果待复核保存")).toBeVisible();
   await expect(page.getByText("可保存结果，也可查看运行详情")).toBeVisible();
   await page.waitForTimeout(500);
   expect(commitPayload).toBeNull();

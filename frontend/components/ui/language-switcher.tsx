@@ -27,7 +27,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
             "px-3 py-1.5 rounded-md text-sm font-medium transition-all",
             locale === lang.code
               ? "bg-[var(--wjn-navy)] text-white shadow-sm"
-              : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)] hover:bg-[var(--bg-muted)]"
+              : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)] hover:bg-[var(--wjn-surface-muted)]"
           )}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}

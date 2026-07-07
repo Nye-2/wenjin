@@ -12,21 +12,21 @@ export interface NodePillProps {
 
 const DOT_STYLES: Record<string, { bg: string; border: string; boxShadow: string; animation: string }> = {
   completed: {
-    bg: "linear-gradient(135deg, #4ADE80, #16A34A)",
+    bg: "var(--wjn-success)",
     border: "none",
-    boxShadow: "0 2px 8px rgba(22, 163, 74, 0.35)",
+    boxShadow: "none",
     animation: "none",
   },
   running: {
-    bg: "linear-gradient(135deg, var(--wjn-blue), var(--wjn-blue-strong))",
+    bg: "var(--wjn-blue)",
     border: "none",
-    boxShadow: "0 2px 8px rgba(44, 93, 160, 0.35)",
+    boxShadow: "none",
     animation: "wjn-pulse-soft 1.6s ease-in-out infinite",
   },
   failed: {
-    bg: "linear-gradient(135deg, #F87171, #DC2626)",
+    bg: "var(--wjn-error)",
     border: "none",
-    boxShadow: "0 2px 8px rgba(220, 38, 38, 0.35)",
+    boxShadow: "none",
     animation: "none",
   },
   pending: {

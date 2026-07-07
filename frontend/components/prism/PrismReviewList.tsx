@@ -43,7 +43,7 @@ function reviewItemSummaryForDisplay(item: WorkspacePrismReviewItem, path: strin
 }
 
 function statusLabel(status: string): string {
-  if (status === "pending") return "待确认";
+  if (status === "pending") return "待复核";
   if (status === "applied") return "已写入";
   if (status === "rejected") return "已忽略";
   if (status === "reverted") return "已撤回";
@@ -128,7 +128,7 @@ function isFocusedReviewItem(
 
 export function PrismReviewList({
   items,
-  emptyMessage = "暂无待确认修改",
+  emptyMessage = "暂无待复核修改",
   className,
   focusedItemId,
   focusedLogicalKey,

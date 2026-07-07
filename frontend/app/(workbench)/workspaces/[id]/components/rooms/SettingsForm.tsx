@@ -226,7 +226,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
             )}
           </select>
           {modelsError && (
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--wjn-warning)" }}>
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--wjn-review)" }}>
               模型目录加载失败，将保留当前设置。
             </div>
           )}

@@ -36,7 +36,7 @@ function deriveCardStatus(record: ExecutionRecord): CardStatus {
 function StatusIcon({ status }: { status: CardStatus }) {
   const config: Record<CardStatus, { symbol: string; color: string; animate: boolean }> = {
     completed: { symbol: "✓", color: "var(--wjn-success)", animate: false },
-    partial: { symbol: "!", color: "var(--semantic-warning)", animate: false },
+    partial: { symbol: "!", color: "var(--wjn-review)", animate: false },
     running: { symbol: "⟳", color: "var(--wjn-blue)", animate: true },
     failed: { symbol: "✕", color: "var(--wjn-error)", animate: false },
     cancelled: { symbol: "×", color: "var(--wjn-text-muted)", animate: false },
@@ -80,27 +80,27 @@ function StatusIcon({ status }: { status: CardStatus }) {
 function StatusBadge({ status }: { status: CardStatus }) {
   const config: Record<CardStatus, { label: string; bg: string; color: string }> = {
     completed: {
-      label: "Completed",
+      label: "已完成",
       bg: "rgba(74, 222, 128, 0.12)",
       color: "var(--wjn-success)",
     },
     partial: {
-      label: "Partial",
+      label: "部分完成",
       bg: "rgba(198, 138, 26, 0.12)",
-      color: "var(--semantic-warning)",
+      color: "var(--wjn-review)",
     },
     running: {
-      label: "Running",
+      label: "处理中",
       bg: "var(--wjn-accent-soft)",
       color: "var(--wjn-blue)",
     },
     failed: {
-      label: "Failed",
+      label: "失败",
       bg: "rgba(220, 38, 38, 0.1)",
       color: "var(--wjn-error)",
     },
     cancelled: {
-      label: "Cancelled",
+      label: "已取消",
       bg: "rgba(20, 20, 30, 0.06)",
       color: "var(--wjn-text-muted)",
     },
@@ -142,7 +142,7 @@ export function ExecutionCard({
   const title = runView.title;
   const subtitle = [
     record.workspace_type,
-    (runView.nodeCount ?? nodeCount) > 0 ? `${runView.nodeCount ?? nodeCount} nodes` : null,
+    (runView.nodeCount ?? nodeCount) > 0 ? `${runView.nodeCount ?? nodeCount} 个节点` : null,
     runView.durationLabel,
   ]
     .filter(Boolean)
@@ -151,9 +151,7 @@ export function ExecutionCard({
   return (
     <div
       style={{
-        background: "rgba(255, 255, 255, 0.7)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
+        background: "var(--wjn-surface)",
         borderRadius: 16,
         border: "1px solid var(--wjn-line)",
         boxShadow: "var(--wjn-shadow-sm)",

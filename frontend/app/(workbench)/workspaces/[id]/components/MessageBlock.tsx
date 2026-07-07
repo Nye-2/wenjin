@@ -442,7 +442,7 @@ function ToolResultBlock({
               padding: "7px 9px",
               borderRadius: "var(--wjn-radius)",
               border: "1px solid rgba(20,20,30,0.08)",
-              background: "rgba(255,255,255,0.64)",
+              background: "var(--wjn-surface-subtle)",
               color: "var(--wjn-text-secondary)",
               fontSize: 12,
               lineHeight: 1.45,
@@ -492,7 +492,7 @@ function ToolResultBlock({
           background: "rgba(198, 138, 26, 0.1)",
           borderRadius: "var(--wjn-radius)",
           fontSize: 12.5,
-          color: "var(--semantic-warning)",
+          color: "var(--wjn-review)",
           margin: "6px 0",
         }}
       >
@@ -625,7 +625,7 @@ function IntakeSpecToolResultCard({
           style={{
             marginTop: 8,
             fontSize: 12.5,
-            color: "var(--wjn-warning)",
+            color: "var(--wjn-review)",
           }}
         >
           还缺少：{spec.missing_fields.join("、")}

@@ -406,7 +406,7 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
           readString(preview?.url),
           readString(target?.preview_url),
         ),
-        previewText: summary ?? (rawSummary ? "待确认结果" : previewPath),
+        previewText: summary ?? (rawSummary ? "待复核结果" : previewPath),
         metadata,
         metadataLines,
         defaultChecked: false,

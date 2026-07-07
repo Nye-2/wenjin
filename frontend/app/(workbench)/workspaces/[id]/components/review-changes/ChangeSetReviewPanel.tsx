@@ -49,8 +49,8 @@ interface ChangeSetReviewPanelProps {
 const GROUP_ORDER: Array<{ key: ChangeSetGroup; label: string; detail: string }> = [
   {
     key: "needs_confirmation",
-    label: "待确认",
-    detail: "这些变更需要你确认后才会写入工作区。",
+    label: "待复核",
+    detail: "这些变更需要复核后，才会进入保存流程。",
   },
   {
     key: "blocked",
@@ -60,7 +60,7 @@ const GROUP_ORDER: Array<{ key: ChangeSetGroup; label: string; detail: string }>
   {
     key: "accepted",
     label: "已确认",
-    detail: "这些变更已通过复核，可随结果保存。",
+    detail: "这些变更已确认，下一步可保存到工作区。",
   },
   {
     key: "draft_applied",
@@ -181,16 +181,16 @@ export function ChangeSetReviewPanel({
           <div>
             <h2 style={{ ...styles.sectionTitle, margin: 0 }}>复核与保存</h2>
             <div style={styles.sectionSubtitle}>
-              {pendingReviewCount} 项变更待确认。
+              {pendingReviewCount} 项变更待复核。
             </div>
           </div>
         </div>
         <GuidanceNote>
-          先逐条确认或拒绝变更，再把可保存结果写入工作区。
+          先逐条复核变更；确认后再保存到工作区。
         </GuidanceNote>
 
         <div style={panelStyles.summaryGrid} aria-label="Change set summary">
-          <SummaryCell label="待确认" value={changeSet.counts.needs_confirmation} />
+          <SummaryCell label="待复核" value={changeSet.counts.needs_confirmation} />
           <SummaryCell label="已阻断" value={changeSet.counts.blocked} tone="risk" />
           <SummaryCell label="已确认" value={changeSet.counts.accepted} tone="success" />
           <SummaryCell label="草稿" value={changeSet.counts.draft_applied} />
@@ -202,7 +202,7 @@ export function ChangeSetReviewPanel({
             onClick={selectPendingUnits}
             disabled={bulkSelectableUnits.length === 0 || busy}
             style={styles.ghostButton}
-            aria-label="全选低/中风险待确认变更"
+            aria-label="全选低/中风险待复核变更"
           >
             全选低/中风险
           </button>
@@ -759,7 +759,7 @@ function groupCountStyle(group: ChangeSetGroup): CSSProperties {
     ...styles.previewGroupCount,
     borderColor: border,
     color,
-    background: "rgba(255,255,255,0.68)",
+    background: "var(--wjn-surface)",
   };
 }
 
@@ -842,7 +842,7 @@ const panelStyles: Record<string, CSSProperties> = {
     padding: "8px 9px",
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
-    background: "rgba(255,255,255,0.66)",
+    background: "var(--wjn-surface-subtle)",
   },
   summaryValue: {
     fontSize: 16,
@@ -902,7 +902,7 @@ const panelStyles: Record<string, CSSProperties> = {
     padding: 10,
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
-    background: "rgba(255,255,255,0.72)",
+    background: "var(--wjn-surface)",
   },
   unitRowActive: {
     border: "1px solid var(--wjn-accent-line)",
@@ -972,7 +972,7 @@ const panelStyles: Record<string, CSSProperties> = {
     justifyContent: "center",
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
-    background: "rgba(255,255,255,0.72)",
+    background: "var(--wjn-surface)",
     color: "var(--wjn-text-secondary)",
     cursor: "pointer",
   },
@@ -1005,7 +1005,7 @@ const panelStyles: Record<string, CSSProperties> = {
     padding: 13,
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
-    background: "rgba(255,255,255,0.82)",
+    background: "var(--wjn-surface)",
   },
   detailHeader: {
     display: "flex",
@@ -1057,7 +1057,7 @@ const panelStyles: Record<string, CSSProperties> = {
     padding: "8px 9px",
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
-    background: "rgba(255,255,255,0.62)",
+    background: "var(--wjn-surface-subtle)",
   },
   metadataLabel: {
     color: "var(--wjn-text-muted)",

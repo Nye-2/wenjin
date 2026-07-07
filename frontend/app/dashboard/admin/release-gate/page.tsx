@@ -192,7 +192,7 @@ export default function AdminReleaseGatePage() {
                     className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
                       filterFailed
                         ? "bg-rose-500/15 text-rose-600"
-                        : "bg-[var(--bg-muted)] text-[var(--wjn-text-muted)]"
+                        : "bg-[var(--wjn-surface-muted)] text-[var(--wjn-text-muted)]"
                     }`}
                   >
                     {filterFailed ? "仅失败/缺失" : "全部"}
@@ -200,7 +200,7 @@ export default function AdminReleaseGatePage() {
                   <button
                     type="button"
                     onClick={exportReleaseGateJSON}
-                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium bg-[var(--bg-muted)] text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)] transition-colors"
+                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium bg-[var(--wjn-surface-muted)] text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)] transition-colors"
                     title="导出 JSON 报告"
                   >
                     <Download className="w-3 h-3" />

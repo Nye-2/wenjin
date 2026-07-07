@@ -26,9 +26,9 @@ describe("PrismFloatingAssist", () => {
   it("renders a restrained AI rewrite entry by default", () => {
     const props = renderAssist();
 
-    fireEvent.click(screen.getByRole("button", { name: "AI 改稿" }));
+    fireEvent.click(screen.getByRole("button", { name: "改稿助手" }));
 
-    expect(screen.getByRole("button", { name: "AI 改稿" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "改稿助手" })).toBeInTheDocument();
     expect(props.onOpen).toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "批注" })).not.toBeInTheDocument();
   });
@@ -36,7 +36,7 @@ describe("PrismFloatingAssist", () => {
   it("shows selection actions when text is selected", () => {
     const props = renderAssist({ selectedCharacterCount: 42 });
 
-    expect(screen.getByRole("button", { name: "AI 改稿，已选 42 字" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "改稿助手，已选 42 字" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "批注" }));
     fireEvent.click(screen.getByRole("button", { name: "改这段" }));
     fireEvent.click(screen.getByRole("button", { name: "修改全文" }));
@@ -49,7 +49,7 @@ describe("PrismFloatingAssist", () => {
   it("hides the floating entry while the assist panel is open", () => {
     renderAssist({ isPanelOpen: true });
 
-    expect(screen.queryByRole("button", { name: "AI 改稿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "改稿助手" })).not.toBeInTheDocument();
   });
 
   it("surfaces pending rewrite and async job states on the main pill", () => {
@@ -67,7 +67,7 @@ describe("PrismFloatingAssist", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "AI 改稿，待应用修改" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "改稿助手，待应用修改" })).toBeInTheDocument();
 
     rerender(
       <PrismFloatingAssist
@@ -83,6 +83,6 @@ describe("PrismFloatingAssist", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "AI 改稿，团队处理中" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "改稿助手，团队处理中" })).toBeInTheDocument();
   });
 });

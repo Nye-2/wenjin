@@ -176,7 +176,7 @@ export function CompletedView({
     defaultReviewActionHref !== null &&
     !actionContext.actions.some(
       (action) =>
-        action.href === defaultReviewActionHref || action.label === "预览待确认修改",
+        action.href === defaultReviewActionHref || action.label === "预览待复核修改",
     );
   const completedResultLines = buildCompletedResultStatusLines({
     result,
@@ -222,7 +222,7 @@ export function CompletedView({
                       ? "正在写入工作区..."
                       : commitError
                         ? "保存状态异常"
-                        : "待审核保存"}
+                        : "待复核保存"}
           </span>
           {!commitFinal && saveCount > 0 ? (
             <button
@@ -235,7 +235,7 @@ export function CompletedView({
                 ? "保存中..."
                 : commitError
                   ? `重试保存（${saveCount} 项）`
-                  : `保存已确认结果（${saveCount} 项）`}
+                  : `保存到工作区（${saveCount} 项）`}
             </button>
           ) : null}
           {effectiveCommitState?.status === "committed" ? (
@@ -390,7 +390,7 @@ export function CompletedView({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 240px) minmax(0, 1fr)",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
             gap: 12,
             marginBottom: 12,
           }}
@@ -420,7 +420,7 @@ export function CompletedView({
                       }}
                     >
                       {actionContext.reviewItems.length > 0
-                        ? "待确认修改"
+                        ? "待复核修改"
                         : "下一步操作"}
                     </div>
                   )}
@@ -437,7 +437,7 @@ export function CompletedView({
                             href={defaultReviewActionHref}
                             style={styles.reviewActionLink}
                           >
-                            预览待确认修改
+                            预览待复核修改
                           </WorkspaceActionLink>
                         </div>
                       ) : null}
@@ -535,7 +535,7 @@ export function CompletedView({
                 marginBottom: actionContext.reviewItems.length > 0 ? 8 : 0,
               }}
             >
-              {actionContext.reviewItems.length > 0 ? "待确认修改" : "下一步操作"}
+              {actionContext.reviewItems.length > 0 ? "待复核修改" : "下一步操作"}
             </div>
           ) : null}
 
@@ -551,7 +551,7 @@ export function CompletedView({
                     href={defaultReviewActionHref}
                     style={styles.reviewActionLink}
                   >
-                    预览待确认修改
+                    预览待复核修改
                   </WorkspaceActionLink>
                 </div>
               ) : null}
@@ -772,9 +772,9 @@ const styles: Record<string, React.CSSProperties> = {
   partialNotice: {
     padding: "8px 10px",
     borderRadius: "var(--wjn-radius-md)",
-    background: "rgba(198, 138, 26, 0.08)",
+    background: "var(--wjn-review-soft)",
     border: "1px solid rgba(198, 138, 26, 0.16)",
-    color: "var(--wjn-warning)",
+    color: "var(--wjn-review)",
     fontSize: 11.5,
     lineHeight: 1.45,
     marginBottom: 10,
@@ -796,7 +796,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "0 9px",
     borderRadius: "var(--wjn-radius-pill)",
     border: "1px solid rgba(20,20,30,0.1)",
-    background: "rgba(255,255,255,0.72)",
+    background: "var(--wjn-surface)",
     color: "var(--wjn-text-secondary)",
     fontSize: 11.5,
     fontWeight: 600,

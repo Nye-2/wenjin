@@ -51,7 +51,7 @@ export function ResultPreviewList({
                 : "1px solid rgba(20, 20, 30, 0.08)",
               background: isSelected
                 ? "var(--wjn-accent-soft)"
-                : "rgba(255, 255, 255, 0.72)",
+                : "var(--wjn-surface)",
               boxShadow: isSelected
                 ? "0 0 0 3px var(--wjn-accent-soft)"
                 : "none",
