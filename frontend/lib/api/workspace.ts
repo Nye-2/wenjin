@@ -149,12 +149,12 @@ export async function uploadReferenceFile(
   return response.data;
 }
 
-export async function importSemanticScholarReferences(
+export async function importLiteratureSearchReferences(
   workspaceId: string,
   data: { query: string; discipline?: string | null; limit?: number }
 ): Promise<ReferenceImportResponse> {
   const response = await apiClient.post(
-    `/workspaces/${workspaceId}/references/import/semantic-scholar`,
+    `/workspaces/${workspaceId}/references/import/literature-search`,
     data
   );
   return response.data;
@@ -349,12 +349,12 @@ export async function uploadReferenceBibtexFile(
   return importBibtexReferences(workspaceId, content);
 }
 
-export async function listReferenceCandidatesBySemanticScholar(
+export async function listReferenceCandidatesByLiteratureSearch(
   workspaceId: string,
   query: string,
   limit: number = 10
 ): Promise<ReferenceImportResponse> {
-  return importSemanticScholarReferences(workspaceId, { query, limit });
+  return importLiteratureSearchReferences(workspaceId, { query, limit });
 }
 
 export async function syncReferencesToPrism(

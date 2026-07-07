@@ -139,5 +139,6 @@ extensions:
   search:
     sources:
     - semantic_scholar
+    - web_search
     - curated_academic
     max_results: 10

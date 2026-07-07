@@ -12,7 +12,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 所有文献来源统一进入 `sources`；gateway 层的 reference routes 只是产品入口命名，运行时不再通过 legacy reference tables 写入事实数据：
 
 - 上传 PDF
-- Semantic Scholar 检索
+- literature search 检索（Semantic Scholar、web_search、curated academic fallback）
 - deep search / deep research 产物
 - 手动录入
 - BibTeX import
@@ -34,7 +34,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 1. 文献中心唯一事实源是 canonical `sources`；legacy `workspace_references*` / `reference_*` 不再承载运行时 import、detail、preprocess 或 usage 逻辑，并由 migration `072_drop_legacy_reference_tables.py` 删除。
 2. 所有文献资产必须绑定 `workspace_id`，workspace 间不共享全文、索引、状态或 citation key。
 3. citation key 由系统生成并在 workspace 内唯一，LLM 只能使用已有 key。
-4. Semantic Scholar 的 `verified_papers` 是检索导入事实来源；`model_synthesis` 和 `unverified_leads` 只能作为分析或下一轮检索线索。
+4. Literature search 的 `verified_papers` 是检索导入事实来源；`retrieval.sources` / `retrieval.source_errors` 记录各 source 状态，`model_synthesis` 和 `unverified_leads` 只能作为分析或下一轮检索线索。
 5. 上传全文进入 `workspace_assets` / `source_assets`，预处理后写入 canonical `source_outline_nodes` 和 `source_text_units`。
 6. 写作 evidence pack 只从已纳入 Reference Library 的文献和索引内容构建。
 7. `refs.bib` 是 projection，由 `SourceBibliographyService` 从 Source DataService metadata 生成。
@@ -48,7 +48,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 核心表：
 
 - `sources`：文献主表，包含 title/authors/year/venue/doi/source/status/citation_key/read 状态等。
-- `source_external_ids`：Semantic Scholar、上传 hash 等外部来源 ID。
+- `source_external_ids`：Semantic Scholar、web search URL、上传 hash 等外部来源 ID。
 - `source_assets` + `workspace_assets`：PDF、Markdown、manifest 和补充资产，包含 preprocess 状态。
 - `source_outline_nodes`：目录/页码索引节点。
 - `source_text_units`：可检索全文单元。
@@ -58,7 +58,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 
 关键枚举：
 
-- `source_type`: `upload | semantic_scholar | deep_search | manual | bibtex`
+- `source_type`: `upload | semantic_scholar | web_search | curated_academic | deep_search | manual | bibtex`
 - `library_status`: `candidate | included | core | excluded | used_in_draft`
 - `evidence_level`: `metadata_only | external_verified | uploaded_fulltext | indexed_fulltext`
 - `fulltext_status`: `none | uploaded | preprocessing | indexed | failed`
@@ -68,7 +68,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 服务层：
 
 - `SourceDataService`：CRUD、去重、citation key 唯一性、详情响应、evidence pack、citation usage。
-- `SourceLibraryImportService`：Source Library import service；manual、Semantic Scholar、BibTeX、deep search artifact 和 PDF upload 均委托 Source/Asset DataService。
+- `SourceLibraryImportService`：Source Library import service；manual、literature search、BibTeX、deep search artifact 和 PDF upload 均委托 Source/Asset DataService。
 - `SourcePreprocessService`：PDF 预处理、Source outline/text units 写入。
 - Source outline/text-unit APIs：outline-first 检索与 page/content 读取。
 - `SourceBibliographyService`：BibTeX 生成、citation validation、Prism sync。
@@ -81,7 +81,7 @@ API 面：
 - `GET /api/workspaces/{workspace_id}/references/{reference_id}`
 - `POST /api/workspaces/{workspace_id}/references/manual`
 - `POST /api/workspaces/{workspace_id}/references/upload`
-- `POST /api/workspaces/{workspace_id}/references/import/semantic-scholar`
+- `POST /api/workspaces/{workspace_id}/references/import/literature-search`
 - `POST /api/workspaces/{workspace_id}/references/import/deep-search-artifact`
 - `POST /api/workspaces/{workspace_id}/references/import/bibtex`
 - `GET /api/workspaces/{workspace_id}/references/{reference_id}/outline`
@@ -121,7 +121,7 @@ API 面：
 - Legacy `WorkspaceReferenceService`、`ReferencePreprocessService`、`ReferenceIndexService` 和 `ReferenceUsageService` 已从 runtime service surface 删除。
 - Legacy reference ORM table models 已删除；`Reference*` enum 仅作为 API/status 校验类型保留。
 - Prism context rail 已能展示 canonical source links，并 deep-link 回 Library / Documents。
-- Release gate 覆盖 Semantic Scholar verified import、上传预处理、Reference writing workflow、Prism Review workflow、Reference Import Service、前端 action contract。
+- Release gate 覆盖 literature search verified import、上传预处理、Reference writing workflow、Prism Review workflow、Reference Import Service、前端 action contract。
 - 回归测试以 `docs/current/release-gate-checklist.md` 中的当前命令为准；本文档不保存某次历史测试流水。
 
 ## 7. Workflow Gate

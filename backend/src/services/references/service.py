@@ -75,6 +75,27 @@ def _coerce_enum_value(enum_cls: type[Any], value: Any, field_name: str) -> str:
     raise ValueError(f"Invalid {field_name}: {normalized}. Allowed values: {allowed}")
 
 
+def _reference_source_type_for_search_source(source: str) -> ReferenceSourceType:
+    normalized = str(source or "").strip()
+    if normalized == "semantic_scholar":
+        return ReferenceSourceType.SEMANTIC_SCHOLAR
+    if normalized == "web_search":
+        return ReferenceSourceType.WEB_SEARCH
+    if normalized == "curated_academic":
+        return ReferenceSourceType.CURATED_ACADEMIC
+    return ReferenceSourceType.DEEP_SEARCH
+
+
+def _reference_source_label_for_search_source(source: str) -> str:
+    normalized = str(source or "").strip()
+    labels = {
+        "semantic_scholar": "Semantic Scholar",
+        "web_search": "Web search",
+        "curated_academic": "Curated academic corpus",
+    }
+    return labels.get(normalized, "Literature search")
+
+
 def _serialize_datetime(value: Any) -> str | None:
     return value.isoformat() if value is not None else None
 
@@ -221,7 +242,7 @@ def _serialize_source_reference(source: Any) -> dict[str, Any]:
 
 
 class SourceLibraryImportService:
-    """Import source-library entries from uploads, Semantic Scholar, artifacts, BibTeX, or manual input."""
+    """Import source-library entries from uploads, literature search, artifacts, BibTeX, or manual input."""
 
     def __init__(self, dataservice: AsyncDataServiceClient | None = None) -> None:
         self._dataservice = dataservice
@@ -240,7 +261,7 @@ class SourceLibraryImportService:
             )
         return {"reference": _serialize_source_reference(result.source), "created": result.created}
 
-    async def import_semantic_scholar_query(
+    async def import_literature_search_query(
         self,
         *,
         workspace_id: str,
@@ -253,10 +274,10 @@ class SourceLibraryImportService:
             discipline=discipline,
             limit=limit,
         )
-        import_result = await self.import_semantic_scholar_papers(
+        import_result = await self.import_literature_search_papers(
             workspace_id=workspace_id,
             papers=search_result.get("verified_papers") or [],
-            source_label=f"Semantic Scholar: {search_result.get('query') or query}",
+            source_label=f"Literature search: {search_result.get('query') or query}",
         )
         return {
             **import_result,
@@ -264,7 +285,7 @@ class SourceLibraryImportService:
             "retrieval": search_result.get("retrieval"),
         }
 
-    async def import_semantic_scholar_papers(
+    async def import_literature_search_papers(
         self,
         *,
         workspace_id: str,
@@ -281,6 +302,7 @@ class SourceLibraryImportService:
                 title = str(paper.get("title") or "").strip()
                 if not title:
                     continue
+                source_name = str(paper.get("source") or "").strip() or "literature_search"
                 external_id = str(paper.get("external_id") or paper.get("paperId") or "").strip()
                 result = await client.import_source(
                     _source_import_command(
@@ -293,15 +315,15 @@ class SourceLibraryImportService:
                         url=paper.get("url"),
                         abstract=paper.get("abstract"),
                         citation_count=paper.get("citations_count") or paper.get("citation_count"),
-                        source_type=ReferenceSourceType.SEMANTIC_SCHOLAR,
-                        source_label=source_label or "Semantic Scholar",
+                        source_type=_reference_source_type_for_search_source(source_name),
+                        source_label=source_label or _reference_source_label_for_search_source(source_name),
                         source_artifact_id=source_artifact_id,
                         verified_at=utc_now(),
                         library_status=ReferenceLibraryStatus.CANDIDATE,
                         evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED,
                         external_ids=[
                             {
-                                "source": "semantic_scholar",
+                                "source": source_name,
                                 "external_id": external_id,
                                 "url": paper.get("url"),
                             }

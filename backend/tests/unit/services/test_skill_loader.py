@@ -1,6 +1,7 @@
 """Tests for SkillLoader — YAML → DB seed loader."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -128,3 +129,39 @@ async def test_dataservice_branch_loads_seed_items(tmp_path: Path) -> None:
     assert command.seed_root == str(tmp_path)
     assert command.items[0].data["id"] == "writer"
     assert command.items[0].source_path == str(skill_yaml)
+
+
+@pytest.mark.asyncio
+async def test_sync_seed_updates_upserts_missing_and_changed_seed_owned_rows(tmp_path: Path) -> None:
+    existing_yaml = tmp_path / "research-scout.yaml"
+    new_yaml = tmp_path / "new-skill.yaml"
+    admin_yaml = tmp_path / "admin-custom.yaml"
+    existing_yaml.write_text(yaml.safe_dump(_skill_v2_payload(skill_id="research-scout")))
+    new_yaml.write_text(yaml.safe_dump(_skill_v2_payload(skill_id="new-skill")))
+    admin_yaml.write_text(yaml.safe_dump(_skill_v2_payload(skill_id="admin-custom")))
+
+    dataservice = _SkillSeedCatalogFake(has_skills=True)
+    dataservice.list_catalog_skills.return_value = [
+        SimpleNamespace(
+            id="research-scout",
+            checksum="old-checksum",
+            source_path=str(existing_yaml),
+        ),
+        SimpleNamespace(
+            id="admin-custom",
+            checksum="old-admin-checksum",
+            source_path=None,
+        ),
+    ]
+    dataservice.load_catalog_skill_seed_items.return_value.loaded = 2
+    loader = SkillLoader(seed_dir=tmp_path, dataservice=dataservice)
+
+    count = await loader.sync_seed_updates()
+
+    assert count == 2
+    command = dataservice.load_catalog_skill_seed_items.await_args.args[0]
+    assert command.overwrite is False
+    assert [item.data["id"] for item in command.items] == [
+        "new-skill",
+        "research-scout",
+    ]

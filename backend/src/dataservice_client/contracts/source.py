@@ -14,6 +14,8 @@ class ReferenceSourceType(enum.StrEnum):
 
     UPLOAD = "upload"
     SEMANTIC_SCHOLAR = "semantic_scholar"
+    WEB_SEARCH = "web_search"
+    CURATED_ACADEMIC = "curated_academic"
     DEEP_SEARCH = "deep_search"
     MANUAL = "manual"
     BIBTEX = "bibtex"

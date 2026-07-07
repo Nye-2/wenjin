@@ -56,7 +56,7 @@ class ManualReferenceRequest(ReferenceUpdateRequest):
     title: str = Field(min_length=1)
 
 
-class SemanticScholarImportRequest(BaseModel):
+class LiteratureSearchImportRequest(BaseModel):
     query: str = Field(min_length=1)
     discipline: str | None = None
     limit: int = Field(default=10, ge=1, le=20)
@@ -255,10 +255,10 @@ async def upload_reference_pdf(
     return result
 
 
-@router.post("/import/semantic-scholar")
-async def import_semantic_scholar(
+@router.post("/import/literature-search")
+async def import_literature_search(
     workspace_id: str,
-    request: SemanticScholarImportRequest,
+    request: LiteratureSearchImportRequest,
     current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
@@ -268,7 +268,7 @@ async def import_semantic_scholar(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await SourceLibraryImportService(dataservice).import_semantic_scholar_query(
+    result = await SourceLibraryImportService(dataservice).import_literature_search_query(
         workspace_id=workspace_id,
         query=request.query,
         discipline=request.discipline,

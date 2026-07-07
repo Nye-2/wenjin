@@ -125,9 +125,9 @@ async def async_main() -> int:
                 from src.services.skill_loader import SkillLoader
 
                 skill_loader = SkillLoader()
-                loaded_skills = await skill_loader.load_seeds_if_empty()
+                loaded_skills = await skill_loader.sync_seed_updates()
                 if loaded_skills:
-                    print(f"[bootstrap-admin] Seeded {loaded_skills} skill record(s)")
+                    print(f"[bootstrap-admin] Synced {loaded_skills} skill seed record(s)")
             except Exception as skill_exc:
                 print(f"[bootstrap-admin] WARN: skill seed failed: {skill_exc}")
 

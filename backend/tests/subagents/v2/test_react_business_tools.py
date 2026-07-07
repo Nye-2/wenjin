@@ -15,6 +15,7 @@ def test_react_resolves_business_tools_from_workspace_context() -> None:
             "prism_read",
             "citation_parser",
             "artifact_create",
+            "web_search",
         ],
         workspace_data={
             "library": {"items": [{"title": "Paper A", "citation_key": "paper_a_2026"}]},
@@ -35,7 +36,45 @@ def test_react_resolves_business_tools_from_workspace_context() -> None:
         "prism_read",
         "citation_parser",
         "artifact_create",
+        "web_search",
     }
+
+
+async def test_react_web_search_tool_returns_snippet_results(monkeypatch) -> None:
+    from src.services.search.base import SearchResult
+
+    async def _fake_search(self, query: str, *, year_range=None, limit: int = 10, **kwargs):
+        return [
+            SearchResult(
+                title="OpenAI | Research & Deployment",
+                url="https://openai.com/",
+                abstract="Creating safe and beneficial AI.",
+                external_id="https://openai.com/",
+                source="web_search",
+                raw={"evidence_level": "web_search_result_snippet"},
+            )
+        ]
+
+    monkeypatch.setattr(
+        "src.agents.harness.business_tools.WebSearchSource.search",
+        _fake_search,
+    )
+    ctx = SubagentContext(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        prompt="",
+        inputs={},
+        tools=["web_search"],
+        workspace_data={},
+        capability_policy={},
+        skill=None,
+    )
+
+    tool = _resolve_tools(ctx.tools, ctx)[0]
+    result = await tool.ainvoke({"query": "OpenAI official website", "limit": 3})
+
+    assert "OpenAI | Research & Deployment" in result
+    assert "web_search_result_snippet" in result
 
 
 def test_react_model_id_uses_context_input_model(monkeypatch) -> None:

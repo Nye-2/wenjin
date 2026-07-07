@@ -29,3 +29,9 @@ def test_semantic_scholar_registered():
     import src.services.search.sources  # noqa: F401
 
     assert "semantic_scholar" in SEARCH_SOURCES
+
+
+def test_web_search_registered():
+    import src.services.search.sources  # noqa: F401
+
+    assert "web_search" in SEARCH_SOURCES

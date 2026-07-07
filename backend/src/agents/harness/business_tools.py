@@ -14,6 +14,7 @@ from src.sandbox.workspace_layout import (
     is_workspace_internal_path,
     is_workspace_protected_path,
 )
+from src.services.search.sources.web_search import WebSearchSource
 from src.subagents.v2.base import SubagentContext
 
 from .args_summary import summarize_tool_args
@@ -26,6 +27,7 @@ BUSINESS_TOOL_NAMES = frozenset(
         "prism_read",
         "citation_parser",
         "artifact_create",
+        "web_search",
     }
 )
 
@@ -61,6 +63,11 @@ class ArtifactCreateInput(BaseModel):
     title: str
     markdown: str
     kind: str = "review_report"
+
+
+class WebSearchInput(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=5, ge=1, le=10)
 
 
 BusinessHandler = Callable[[SubagentContext, dict[str, Any]], Awaitable[str]]
@@ -216,6 +223,33 @@ async def _artifact_create(ctx: SubagentContext, args: dict[str, Any]) -> str:
     )
 
 
+async def _web_search(ctx: SubagentContext, args: dict[str, Any]) -> str:
+    _ = ctx
+    query = str(args.get("query") or "").strip()
+    limit = max(1, min(int(args.get("limit") or 5), 10))
+    results = await WebSearchSource().search(query, limit=limit)
+    items = [
+        {
+            "title": item.title,
+            "url": item.url,
+            "abstract": item.abstract,
+            "source": item.source,
+            "external_id": item.external_id,
+            "evidence_level": item.raw.get("evidence_level") if isinstance(item.raw, dict) else None,
+        }
+        for item in results
+    ]
+    return _format_business_result(
+        "web_search",
+        "Public web search results returned.",
+        {
+            "query": query,
+            "items": items,
+            "returned": len(items),
+        },
+    )
+
+
 BUSINESS_TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel], BusinessHandler]] = {
     "library_read": ("Read bounded Workspace Library source summaries.", LibraryReadInput, _library_read),
     "prism_file_read": ("Read bounded Prism workspace file summaries.", PrismFileReadInput, _prism_file_read),
@@ -227,6 +261,7 @@ BUSINESS_TOOL_DEFINITIONS: dict[str, tuple[str, type[BaseModel], BusinessHandler
     "prism_read": ("Read lightweight Prism manuscript context.", PrismReadInput, _prism_read),
     "citation_parser": ("Parse citation keys, DOI-like tokens, and URLs from text.", CitationParserInput, _citation_parser),
     "artifact_create": ("Stage a reviewable artifact payload without committing rooms.", ArtifactCreateInput, _artifact_create),
+    "web_search": ("Search the public web and return snippet-level source evidence.", WebSearchInput, _web_search),
 }
 
 
