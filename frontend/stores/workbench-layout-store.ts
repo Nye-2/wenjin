@@ -20,7 +20,7 @@ interface WorkbenchLayoutState {
   reset: () => void;
 }
 
-const DEFAULT_SPLIT_RATIO = 0.42;
+const DEFAULT_SPLIT_RATIO = 0.56;
 const MIN_SPLIT_RATIO = 0.28;
 const MAX_SPLIT_RATIO = 0.72;
 

@@ -501,11 +501,12 @@ export function LiveWorkflowPanel({
     >
       <WorkbenchHeader
         activeTab={visibleWorkbenchTab}
+        title={mission?.title ?? "研究任务"}
+        eyebrow={typeConfig?.title ?? null}
         evidenceCount={evidenceItems.length}
         reviewCount={pendingReviewCount}
-        showProgressTab={Boolean(runningRecord) || activeWorkbenchTab === "run"}
+        showProgressTab={Boolean(selectedRecord) || activeWorkbenchTab === "run"}
         showReviewTab={
-          Boolean(changeSet) ||
           pendingReviewCount > 0 ||
           activeWorkbenchTab === "review"
         }

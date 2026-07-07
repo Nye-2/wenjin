@@ -556,6 +556,29 @@ describe("LiveWorkflowPanel", () => {
     expect(screen.queryByText("研究主题：联邦学习结合大模型微调")).not.toBeInTheDocument();
   });
 
+  it("hides the evidence and review tabs when there is nothing to show", () => {
+    useExecutionStore.getState().upsertExecution(makeRunningRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.queryByRole("button", { name: "证据" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复核" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "进展" })).toBeInTheDocument();
+  });
+
+  it("keeps the fullscreen control accessible from the mission header", () => {
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    const fullscreenButton = screen.getByRole("button", { name: "右侧全屏" });
+    expect(fullscreenButton).toBeInTheDocument();
+
+    fireEvent.click(fullscreenButton);
+
+    expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
+    expect(screen.getByRole("button", { name: "退出全屏" })).toBeInTheDocument();
+  });
+
   it("keeps an explicitly active review tab instead of remapping it to run", async () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
@@ -606,11 +629,11 @@ describe("LiveWorkflowPanel", () => {
   it("preserves an explicit tab choice after review becomes available", async () => {
     useExecutionStore.getState().upsertExecution(makeRunningRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    expect(screen.getByText("任务进展")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "证据" }));
+    expect(screen.getByRole("button", { name: "证据" })).toBeInTheDocument();
 
     act(() => {
       useExecutionStore.getState().upsertExecution(makeCompletedRecord());
@@ -991,11 +1014,10 @@ describe("LiveWorkflowPanel", () => {
   it("preserves manual evidence focus when a run completes with review", async () => {
     useExecutionStore.getState().upsertExecution(makeRunningRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence");
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "证据" }));
     expect(screen.queryByRole("button", { name: /自动聚焦/ })).not.toBeInTheDocument();
 
     act(() => {

@@ -36,6 +36,7 @@ const MIN_SPLIT_PERCENT = 28;
 const MAX_SPLIT_PERCENT = 72;
 const SPLIT_KEYBOARD_STEP = 0.02;
 const SPLIT_KEYBOARD_LARGE_STEP = 0.1;
+const IDLE_SPLIT_RATIO = 0.62;
 
 type SettingsTab = "decisions" | "settings";
 type RoomKey = WorkspaceHubRoomKey;
@@ -84,6 +85,7 @@ export default function V2Page({
   } | null>(null);
   const [features, setFeatures] = useState<WorkspaceCapability[]>([]);
   const splitRatio = useWorkbenchLayoutStore((state) => state.splitRatio);
+  const selectedRunId = useWorkbenchLayoutStore((state) => state.selectedRunId);
   const isWorkbenchFullscreen = useWorkbenchLayoutStore(
     (state) => state.isWorkbenchFullscreen,
   );
@@ -99,6 +101,10 @@ export default function V2Page({
     useWorkspaceChromeCounts(id);
   const splitRootRef = useRef<HTMLDivElement>(null);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>("chat");
+  const desktopSplitRatio =
+    !isNarrowViewport && !isWorkbenchFullscreen && !selectedRunId
+      ? Math.max(splitRatio, IDLE_SPLIT_RATIO)
+      : splitRatio;
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");
@@ -275,7 +281,7 @@ export default function V2Page({
             <div
               data-testid="chat-region"
               style={{
-                width: `${splitRatio * 100}%`,
+                width: `${desktopSplitRatio * 100}%`,
                 minWidth: 320,
                 maxWidth: "72%",
                 height: "100%",
@@ -298,7 +304,7 @@ export default function V2Page({
               aria-label="调整对话与工作台宽度"
               aria-valuemin={MIN_SPLIT_PERCENT}
               aria-valuemax={MAX_SPLIT_PERCENT}
-              aria-valuenow={Math.round(splitRatio * 100)}
+              aria-valuenow={Math.round(desktopSplitRatio * 100)}
               tabIndex={0}
               data-testid="workbench-resizer"
               onPointerDown={handleResizePointerDown}

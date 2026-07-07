@@ -4,7 +4,6 @@ import {
   Database,
   FileText,
   History,
-  MoreHorizontal,
   Maximize2,
   Minimize2,
   PauseCircle,
@@ -24,12 +23,14 @@ const TABS: Array<{
   { key: "overview", label: "总览", icon: Activity, primary: true },
   { key: "spec", label: "要求", icon: FileText },
   { key: "review", label: "复核", icon: ClipboardCheck },
-  { key: "evidence", label: "证据", icon: Database, primary: true },
+  { key: "evidence", label: "证据", icon: Database },
   { key: "run", label: "进展", icon: History },
 ];
 
 export function WorkbenchHeader({
   activeTab,
+  title,
+  eyebrow,
   evidenceCount,
   reviewCount,
   showProgressTab,
@@ -45,6 +46,8 @@ export function WorkbenchHeader({
   onToggleIntervention,
 }: {
   activeTab: WorkbenchTab;
+  title: string;
+  eyebrow?: string | null;
   evidenceCount: number;
   reviewCount: number;
   showProgressTab: boolean;
@@ -62,6 +65,7 @@ export function WorkbenchHeader({
   const visibleTabs = TABS.filter(
     (tab) =>
       tab.primary ||
+      (tab.key === "evidence" && (evidenceCount > 0 || activeTab === "evidence")) ||
       (tab.key === "review" && showReviewTab) ||
       (tab.key === "run" && showProgressTab) ||
       (tab.key === "spec" && showSpecTab) ||
@@ -70,8 +74,8 @@ export function WorkbenchHeader({
   return (
     <div style={styles.header}>
       <div style={{ minWidth: 0 }}>
-        <div style={styles.eyebrow}>科研工作台</div>
-        <div style={styles.headerTitle}>研究工作台</div>
+        {eyebrow ? <div style={styles.eyebrow}>{eyebrow}</div> : null}
+        <div style={styles.headerTitle}>{title}</div>
       </div>
       <div style={styles.headerMiddle}>
         {visibleTabs.map((tab) => {
@@ -91,7 +95,7 @@ export function WorkbenchHeader({
               onClick={() => onTabChange(tab.key)}
               style={{
                 ...styles.tabButton,
-                ...(activeTab === tab.key ? styles.tabButtonActive : null),
+                ...(activeTab === tab.key ? styles.tabButtonActive : {}),
                 ...(activeTab === tab.key ? styles.tabButtonExpanded : styles.tabButtonIconOnly),
               }}
             >
@@ -104,15 +108,15 @@ export function WorkbenchHeader({
         {hasRunHistory && !showProgressTab && activeTab !== "run" ? (
           <button
             type="button"
-            aria-label="更多运行诊断"
-            title="更多运行诊断"
+            aria-label="查看运行历史"
+            title="查看运行历史"
             onClick={() => onTabChange("run")}
             style={{
               ...styles.tabButton,
               ...styles.tabButtonIconOnly,
             }}
           >
-            <MoreHorizontal size={14} />
+            <History size={14} />
           </button>
         ) : null}
       </div>

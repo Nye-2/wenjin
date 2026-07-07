@@ -49,6 +49,21 @@ describe("V2 Workspace page", () => {
     expect(screen.queryByTestId("rooms-topbar")).not.toBeInTheDocument();
   });
 
+  it("keeps the desktop separator visible while defaulting idle workbench space to chat", async () => {
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    const resizer = screen.getByTestId("workbench-resizer");
+    const chatRegion = screen.getByTestId("chat-region");
+    expect(resizer).toBeInTheDocument();
+    expect(chatRegion).toHaveStyle({ width: "62%" });
+  });
+
   it("renders the surface switch for workspace-owned Prism navigation", async () => {
     await act(async () => {
       render(
@@ -178,6 +193,7 @@ describe("V2 Workspace page", () => {
 
   it("supports keyboard resizing for the desktop split separator", async () => {
     useWorkbenchLayoutStore.getState().setSplitRatio(0.42);
+    useWorkbenchLayoutStore.getState().selectRun("exec-running");
 
     await act(async () => {
       render(
@@ -210,8 +226,8 @@ describe("V2 Workspace page", () => {
     expect(resizer).toHaveAttribute("aria-valuenow", "28");
 
     fireEvent.keyDown(resizer, { key: "Enter" });
-    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.42);
-    expect(resizer).toHaveAttribute("aria-valuenow", "42");
+    expect(useWorkbenchLayoutStore.getState().splitRatio).toBeCloseTo(0.56);
+    expect(resizer).toHaveAttribute("aria-valuenow", "56");
   });
 
   it("uses segmented Chat / Run / Review navigation on mobile", async () => {
