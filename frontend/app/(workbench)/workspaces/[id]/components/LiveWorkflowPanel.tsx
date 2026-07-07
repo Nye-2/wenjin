@@ -118,6 +118,7 @@ export function LiveWorkflowPanel({
   const {
     records,
     selectedRecord,
+    selectedRunView,
     mission,
     previews,
     reviewItems,
@@ -533,6 +534,8 @@ export function LiveWorkflowPanel({
         {visibleWorkbenchTab === "overview" ? (
           <OverviewView
             typeConfig={typeConfig}
+            selectedRecord={selectedRecord}
+            selectedRunView={selectedRunView}
             mission={mission}
             records={records}
             pendingReviewCount={pendingReviewCount}

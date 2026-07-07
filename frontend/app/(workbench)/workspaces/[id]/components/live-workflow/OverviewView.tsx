@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 
 import type { ExecutionRecord } from "@/lib/api/types";
-import type { RunViewMissionState } from "@/lib/execution-run-view";
+import type { RunView, RunViewMissionState } from "@/lib/execution-run-view";
 import { runViewFromExecution } from "@/lib/execution-run-view";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 
@@ -17,6 +17,8 @@ import { isTerminalStatus } from "./utils";
 
 interface OverviewViewProps {
   typeConfig?: WorkspaceTypeConfig;
+  selectedRecord: ExecutionRecord | null;
+  selectedRunView: RunView | null;
   mission: RunViewMissionState | null;
   records: ExecutionRecord[];
   pendingReviewCount: number;
@@ -27,6 +29,8 @@ interface OverviewViewProps {
 
 export function OverviewView({
   typeConfig,
+  selectedRecord,
+  selectedRunView,
   mission,
   records,
   pendingReviewCount,
@@ -36,7 +40,7 @@ export function OverviewView({
 }: OverviewViewProps) {
   const runningCount = records.filter((record) => !isTerminalStatus(record.status)).length;
   const completedCount = records.filter((record) => isTerminalStatus(record.status)).length;
-  const latestRun = records[0] ?? null;
+  const selectedRun = selectedRecord;
   const recentRuns = records.slice(0, 4);
   const nextAction = mission?.nextActions[0] ?? mission?.openQuestions[0] ?? null;
 
@@ -53,10 +57,10 @@ export function OverviewView({
                   : "任务启动后，这里会汇总当前进度、证据和复核动作。")}
             </div>
           </div>
-          {latestRun ? (
+          {selectedRun ? (
             <button
               type="button"
-              onClick={() => onOpenRun(latestRun.id)}
+              onClick={() => onOpenRun(selectedRun.id)}
               style={styles.missionActionButton}
             >
               打开当前运行
@@ -71,7 +75,7 @@ export function OverviewView({
               <div style={styles.missionLabel}>当前任务</div>
               <div style={styles.missionTitleRow}>
                 <div style={styles.missionTitle}>{mission.title}</div>
-                {latestRun ? <StatusPill status={latestRun.status} /> : null}
+                {selectedRunView ? <StatusPill status={selectedRunView.status} /> : null}
               </div>
               <div style={styles.missionGoal}>{mission.goal}</div>
             </div>
@@ -140,12 +144,12 @@ export function OverviewView({
           />
         )}
 
-        {latestRun && (records.length > 0 || evidenceCount > 0) ? (
+        {selectedRun && (records.length > 0 || evidenceCount > 0) ? (
           <div style={styles.missionActionRow}>
             {records.length > 0 ? (
               <button
                 type="button"
-                onClick={() => onOpenRun(latestRun.id)}
+                onClick={() => onOpenRun(selectedRun.id)}
                 style={styles.missionActionButton}
               >
                 <History size={14} />
@@ -155,7 +159,7 @@ export function OverviewView({
             {evidenceCount > 0 ? (
               <button
                 type="button"
-                onClick={() => onOpenRun(latestRun.id)}
+                onClick={() => onOpenRun(selectedRun.id)}
                 style={styles.missionActionButton}
               >
                 <Database size={14} />

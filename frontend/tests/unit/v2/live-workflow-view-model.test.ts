@@ -526,6 +526,29 @@ describe("live workflow view model", () => {
     ).toBe("review");
   });
 
+  it("prefers a focused completed run with pending review over an unrelated active run", () => {
+    const model = buildLiveWorkflowViewModel({
+      records: [runningRecord, completedRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "done-1",
+      focusedRunId: "done-1",
+      activeRunId: "run-1",
+      selectedPreviewId: null,
+    });
+
+    expect(model.selectedRecord?.id).toBe("done-1");
+    expect(model.pendingReviewCount).toBeGreaterThan(0);
+    expect(
+      resolveAutoWorkbenchTab({
+        selectedRecord: model.selectedRecord,
+        previews: model.previews,
+        reviewItems: model.reviewItems,
+        evidenceItems: model.evidenceItems,
+        pendingReviewCount: model.pendingReviewCount,
+      }),
+    ).toBe("review");
+  });
+
   it("projects sandbox figure review items into the review preview list", () => {
     const record = baseRecord({
       id: "figure-review-1",

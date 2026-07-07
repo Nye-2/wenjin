@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionRecord } from "@/lib/api/types";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useChatStoreV2 } from "@/stores/chat-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { LiveWorkflowPanel } from "@/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel";
 
@@ -519,6 +520,7 @@ describe("LiveWorkflowPanel", () => {
     useChatStoreV2.getState().reset();
     useChatStoreV2.setState({ sendMessage: originalSendMessage });
     useExecutionStore.getState().clear();
+    useRunUiStore.getState().reset();
     useWorkbenchLayoutStore.getState().reset();
   });
 
@@ -1264,6 +1266,37 @@ describe("LiveWorkflowPanel", () => {
     expect(await screen.findByText("当前任务")).toBeInTheDocument();
     expect(screen.getAllByText("团队调研").length).toBeGreaterThan(0);
     expect(screen.getByText("准备材料")).toBeInTheDocument();
+  });
+
+  it("keeps review selected ahead of an unrelated active run", async () => {
+    useExecutionStore.getState().upsertExecution(makeRunningRecord());
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useRunUiStore.getState().focusRun("exec-1");
+    useRunUiStore.getState().markRunLaunching("run-1");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    await waitFor(() =>
+      expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review"),
+    );
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
+    expect(screen.getByRole("heading", { name: "复核与保存" })).toBeVisible();
+  });
+
+  it("opens the selected run from overview instead of the latest history row", async () => {
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useExecutionStore.getState().upsertExecution(makeSecondCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "总览" }));
+    fireEvent.click(await screen.findByRole("button", { name: "打开当前运行" }));
+
+    await waitFor(() =>
+      expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run"),
+    );
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
   });
 
   it("keeps review prioritized when pending review exists", async () => {

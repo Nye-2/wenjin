@@ -10,6 +10,13 @@ import type { WorkbenchTab } from "@/stores/workbench-layout-store";
 import type { EvidenceItem } from "./types";
 import { isTerminalStatus } from "./utils";
 
+function hasPendingReview(record: ExecutionRecord | null): boolean {
+  if (!record) {
+    return false;
+  }
+  return runViewFromExecution(record).pendingReviewCount > 0;
+}
+
 export interface LiveWorkflowViewModelInput {
   records: ExecutionRecord[];
   workspaceId: string;
@@ -72,12 +79,16 @@ export function resolveSelectedLiveWorkflowRecord({
   focusedRunId: string | null;
   activeRunId: string | null;
 }): ExecutionRecord | null {
+  const focusedRecord = records.find((record) => record.id === focusedRunId) ?? null;
+  if (hasPendingReview(focusedRecord)) {
+    return focusedRecord;
+  }
+
   const activeRecord = records.find((record) => record.id === activeRunId) ?? null;
   if (activeRecord && !isTerminalStatus(activeRecord.status)) {
     return activeRecord;
   }
 
-  const focusedRecord = records.find((record) => record.id === focusedRunId) ?? null;
   if (focusedRecord && !isTerminalStatus(focusedRecord.status)) {
     return focusedRecord;
   }
