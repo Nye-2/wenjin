@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Search } from "lucide-react";
+import type { RunViewMissionState } from "@/lib/execution-run-view";
 
 import { NodeInspector } from "./NodeInspector";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
@@ -10,6 +11,7 @@ import { truncate } from "./utils";
 
 export function EvidenceView({
   items,
+  mission,
   filter,
   query,
   selectedId,
@@ -18,6 +20,7 @@ export function EvidenceView({
   onSelect,
 }: {
   items: EvidenceItem[];
+  mission: RunViewMissionState | null;
   filter: EvidenceFilter;
   query: string;
   selectedId: string | null;
@@ -75,6 +78,28 @@ export function EvidenceView({
   return (
     <div style={styles.evidenceGrid}>
       <section style={styles.section}>
+        {mission ? (
+          <div style={styles.evidenceSummaryPanel}>
+            <div style={styles.sectionHeaderCompact}>
+              <div>
+                <div style={styles.sectionTitle}>证据摘要</div>
+                <div style={styles.sectionSubtitle}>
+                  用于当前结论的证据采用情况。
+                </div>
+              </div>
+            </div>
+            <div style={styles.summaryStrip}>
+              <SummaryMetric label="已发现" value={mission.evidenceSummary.found} />
+              <SummaryMetric label="已核验" value={mission.evidenceSummary.verified} />
+              <SummaryMetric label="已采用" value={mission.evidenceSummary.used} />
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <GuidanceNote>
+                默认仅展示对结论有用的摘要与来源预览，不展开内部引用键、原始 JSON 或运行输出。
+              </GuidanceNote>
+            </div>
+          </div>
+        ) : null}
         <div style={styles.toolbar}>
           <div style={styles.searchBox}>
             <Search size={15} />
@@ -155,6 +180,16 @@ export function EvidenceView({
           <EmptyState title="选择一项内容" detail="这里会显示结果、来源详情或过程摘要。" compact />
         )}
       </aside>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div role="group" style={styles.metricCard} aria-label={`${label} ${value} 项`}>
+      <div>
+        <div style={styles.metricValue}>{label} {value} 项</div>
+      </div>
     </div>
   );
 }

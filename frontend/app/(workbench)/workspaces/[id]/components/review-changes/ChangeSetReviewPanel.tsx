@@ -380,7 +380,7 @@ function ChangeUnitRow({
         onChange={onSelect}
         aria-label={
           selectionDisabled
-            ? `${unit.title} 已应用或不可批量选择`
+            ? `${unit.title} 已阻断或不可批量选择`
             : `选择变更 ${unit.title}`
         }
         style={panelStyles.checkbox}

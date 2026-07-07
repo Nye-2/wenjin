@@ -19,7 +19,7 @@ export function InterventionBar({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="补充新的约束、方向或纠错信息。提交后会先中断当前 run，再用这条指令启动新 run。"
+        placeholder="补充新的约束、方向或纠错信息。问津会先在安全点中断当前任务，再通过对话继续编排后续处理。"
         rows={2}
         style={styles.interventionInput}
       />

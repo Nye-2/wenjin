@@ -63,8 +63,8 @@ export function ReviewView({
   if (!hasReviewContent) {
     return (
       <EmptyState
-        title="暂无需要复核的变更"
-        detail="运行结果和复核包会先出现在这里，复核确认后再保存到工作区房间。"
+        title="暂无待复核内容"
+        detail="新的候选结果会先出现在这里，确认后再保存到工作区。"
       />
     );
   }

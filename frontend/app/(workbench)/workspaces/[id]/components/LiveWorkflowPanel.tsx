@@ -286,15 +286,15 @@ export function LiveWorkflowPanel({
     }
     setInterventionState((current) => ({
       ...current,
-      status: "已中断，正在用补充指令重启任务",
+      status: "已中断，正在把补充说明发回对话继续处理",
       sent: true,
     }));
     void sendMessage(
       workspaceId,
       [
-        "请基于上一轮被中断的执行继续处理。",
-        `被中断的执行 ID：${interventionState.executionId}`,
-        "补充指令：",
+        "请基于当前任务继续处理。",
+        `上一轮执行 ID：${interventionState.executionId}`,
+        "补充说明：",
         instruction,
         "请复用上一轮已经完成且仍可靠的证据和结果，避免无必要重复。",
       ].join("\n"),
@@ -302,9 +302,11 @@ export function LiveWorkflowPanel({
       {
         metadata: {
           intervention: true,
+          execution_id: interventionState.executionId,
           interrupted_execution_id: interventionState.executionId,
           orchestration: {
             intervention: true,
+            execution_id: interventionState.executionId,
             interrupted_execution_id: interventionState.executionId,
           },
         },
@@ -316,7 +318,7 @@ export function LiveWorkflowPanel({
         executionId: null,
         instruction: "",
         requestedAt: null,
-        status: "补充指令已提交，等待新任务启动",
+        status: "补充说明已提交，等待对话继续编排",
         sent: false,
       });
     });
@@ -473,7 +475,7 @@ export function LiveWorkflowPanel({
       executionId: record.id,
       instruction,
       requestedAt: Date.now(),
-      status: "正在中断当前任务",
+      status: "正在请求安全中断",
       sent: false,
     });
     try {
@@ -598,6 +600,7 @@ export function LiveWorkflowPanel({
         {visibleWorkbenchTab === "evidence" ? (
           <EvidenceView
             items={evidenceItems}
+            mission={mission}
             filter={evidenceFilter}
             query={evidenceQuery}
             selectedId={selectedPreviewId}

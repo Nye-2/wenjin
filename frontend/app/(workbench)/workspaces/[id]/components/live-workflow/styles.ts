@@ -836,6 +836,15 @@ export const styles: Record<string, CSSProperties> = {
     gap: 14,
     minHeight: "100%",
   },
+  evidenceSummaryPanel: {
+    display: "grid",
+    gap: 10,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 8,
+    border: "1px solid var(--wjn-line)",
+    background: "var(--wjn-surface-subtle)",
+  },
   toolbar: {
     display: "flex",
     alignItems: "center",

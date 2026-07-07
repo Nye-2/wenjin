@@ -498,6 +498,60 @@ function makeTechnicalRunningRecord(): ExecutionRecord {
   };
 }
 
+function makeEvidenceMissionRecord(): ExecutionRecord {
+  return {
+    ...makeRunningRecord(),
+    id: "exec-evidence",
+    display_name: "证据整理",
+    graph_structure: {
+      mode: "team_kernel",
+      nodes: [
+        {
+          id: "scholar",
+          type: "agent_invocation",
+          phase: "research",
+          task: "research_scholar",
+          label: "文献专家",
+        },
+      ],
+      edges: [],
+    },
+    node_states: {
+      scholar: {
+        status: "running",
+        node_type: "agent_invocation",
+        label: "文献专家",
+        output: {
+          evidence_packet: [
+            { evidence_id: "ev-1", verification_status: "verified" },
+            { evidence_id: "ev-2", verification_status: "found" },
+          ],
+          claims: [
+            {
+              id: "claim-1",
+              claim: "模型性能提升来自检索到的两篇论文。",
+              status: "verified",
+              evidence_refs: ["ev-1"],
+            },
+          ],
+        },
+      },
+    },
+    runtime_state: {
+      research_state: {
+        schema_version: "wenjin.research_state.v1",
+        goal: "整理当前任务的证据与结论。",
+        open_questions: [],
+        next_actions: ["补充第二条来源"],
+        evidence_packet: [
+          { evidence_id: "ev-1", verification_status: "verified" },
+          { evidence_id: "ev-2", verification_status: "found" },
+        ],
+      },
+    },
+  };
+}
+
 describe("LiveWorkflowPanel", () => {
   beforeEach(() => {
     mockFetch.mockReset();
@@ -635,7 +689,7 @@ describe("LiveWorkflowPanel", () => {
       useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
     });
 
-    expect(await screen.findByText("暂无需要复核的变更")).toBeVisible();
+    expect(await screen.findByText("暂无待复核内容")).toBeVisible();
     expect(screen.queryByText("隐藏背景记忆")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /保存到工作区/ })).not.toBeInTheDocument();
   });
@@ -813,7 +867,7 @@ describe("LiveWorkflowPanel", () => {
 
     render(<LiveWorkflowPanel workspaceId="ws-1" />);
 
-    const checkbox = await screen.findByLabelText("Thesis outline 已应用或不可批量选择");
+    const checkbox = await screen.findByLabelText("Thesis outline 已阻断或不可批量选择");
     expect(checkbox).toBeDisabled();
     expect(screen.getByRole("button", { name: "确认 Thesis outline" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "拒绝 Thesis outline" })).toBeDisabled();
@@ -1023,6 +1077,19 @@ describe("LiveWorkflowPanel", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("研究主题：联邦学习结合大模型微调")).not.toBeInTheDocument();
+  });
+
+  it("renders found verified and used evidence summary from projected mission state", async () => {
+    useExecutionStore.getState().upsertExecution(makeEvidenceMissionRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-evidence");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(await screen.findByText(/已发现\s*2 项/)).toBeInTheDocument();
+    expect(screen.getByText(/已核验\s*1 项/)).toBeInTheDocument();
+    expect(screen.getByText(/已采用\s*0 项/)).toBeInTheDocument();
+    expect(screen.getByText("用于当前结论的证据采用情况。")).toBeInTheDocument();
   });
 
   it("preserves manual evidence focus when a run completes with review", async () => {
@@ -1302,6 +1369,73 @@ describe("LiveWorkflowPanel", () => {
     expect(await screen.findByText("当前任务")).toBeInTheDocument();
     expect(screen.getAllByText("团队调研").length).toBeGreaterThan(0);
     expect(screen.getByText("准备材料")).toBeInTheDocument();
+  });
+
+  it("keeps blocked and high-risk review items out of bulk accept", async () => {
+    useExecutionStore.getState().upsertExecution(makeChangeSetCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "全选低/中风险待复核变更" }));
+
+    expect(screen.getByLabelText("选择变更 Thesis outline")).toBeChecked();
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes.filter((element) => element.checked)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "确认选中变更" })).toBeEnabled();
+  });
+
+  it("sends intervention through chat orchestration with natural prompt metadata", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({ sendMessage });
+    useExecutionStore.getState().upsertExecution(makeRunningRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "中断并补充" }));
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "补充新的约束、方向或纠错信息。问津会先在安全点中断当前任务，再通过对话继续编排后续处理。",
+      ),
+      { target: { value: "请优先补齐证据映射。" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "提交介入" }));
+
+    await waitFor(() =>
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/executions/exec-1/cancel?action=interrupt",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+
+    act(() => {
+      useExecutionStore.getState().upsertExecution({
+        ...makeRunningRecord(),
+        status: "cancelled",
+      });
+    });
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    const [, prompt, , options] = sendMessage.mock.calls[0];
+    expect(prompt).toContain("请基于当前任务继续处理。");
+    expect(prompt).toContain("上一轮执行 ID：exec-1");
+    expect(prompt).toContain("补充说明：");
+    expect(prompt).not.toContain("启动新 run");
+    expect(options.metadata).toMatchObject({
+      intervention: true,
+      execution_id: "exec-1",
+      interrupted_execution_id: "exec-1",
+      orchestration: {
+        intervention: true,
+        execution_id: "exec-1",
+        interrupted_execution_id: "exec-1",
+      },
+    });
+    expect(options.metadata.orchestration).not.toHaveProperty("feature_id");
   });
 
   it("keeps review selected ahead of an unrelated active run", async () => {
