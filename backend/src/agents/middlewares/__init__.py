@@ -14,6 +14,7 @@ from .literature_context import LiteratureContextMiddleware
 from .llm_error_handling import LLMErrorHandlingMiddleware
 from .loop_detection import LoopDetectionMiddleware
 from .memory import MemoryMiddleware
+from .mission_context import MissionContextMiddleware
 from .subagent_limit import SubagentLimitExceeded, SubagentLimitMiddleware
 from .summarization import (
     SummarizationMiddleware,
@@ -41,6 +42,7 @@ __all__ = [
     "LiteratureContextMiddleware",
     "LoopDetectionMiddleware",
     "MemoryMiddleware",
+    "MissionContextMiddleware",
     "Middleware",
     "SubagentLimitExceeded",
     "SubagentLimitMiddleware",

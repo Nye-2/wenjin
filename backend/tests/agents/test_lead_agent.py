@@ -43,7 +43,7 @@ class TestBuildMiddlewares:
             reference_service=reference_service,
         )
 
-        assert len(middlewares) == 7
+        assert len(middlewares) == 8
 
     def test_build_middlewares_order_is_correct(self):
         """Test that middleware order is correct."""
@@ -66,18 +66,20 @@ class TestBuildMiddlewares:
         # Verify order:
         # 1. WorkspaceContextMiddleware
         # 2. CapabilitySkillPreloadMiddleware (after workspace_type is set)
-        # 3. CapabilityAutoLaunchMiddleware
-        # 4. LiteratureContextMiddleware
-        # 5. KnowledgeContextMiddleware
-        # 6. DisciplineContextMiddleware
-        # 7. CitationContextMiddleware
+        # 3. MissionContextMiddleware
+        # 4. CapabilityAutoLaunchMiddleware
+        # 5. LiteratureContextMiddleware
+        # 6. KnowledgeContextMiddleware
+        # 7. DisciplineContextMiddleware
+        # 8. CitationContextMiddleware
         assert isinstance(middlewares[0], WorkspaceContextMiddleware)
         assert isinstance(middlewares[1], CapabilitySkillPreloadMiddleware)
-        assert isinstance(middlewares[2], CapabilityAutoLaunchMiddleware)
-        assert isinstance(middlewares[3], LiteratureContextMiddleware)
-        assert isinstance(middlewares[4], KnowledgeContextMiddleware)
-        assert isinstance(middlewares[5], DisciplineContextMiddleware)
-        assert isinstance(middlewares[6], CitationContextMiddleware)
+        assert middlewares[2].__class__.__name__ == "MissionContextMiddleware"
+        assert isinstance(middlewares[3], CapabilityAutoLaunchMiddleware)
+        assert isinstance(middlewares[4], LiteratureContextMiddleware)
+        assert isinstance(middlewares[5], KnowledgeContextMiddleware)
+        assert isinstance(middlewares[6], DisciplineContextMiddleware)
+        assert isinstance(middlewares[7], CitationContextMiddleware)
 
     def test_build_middlewares_only_with_services(self):
         """Test that middlewares are only created when services are provided."""
@@ -87,12 +89,14 @@ class TestBuildMiddlewares:
 
         # No services
         middlewares = build_middlewares()
-        # CapabilitySkillPreloadMiddleware + CapabilityAutoLaunchMiddleware
-        # + DisciplineContextMiddleware are always created (no service required).
-        assert len(middlewares) == 3
+        # CapabilitySkillPreloadMiddleware + MissionContextMiddleware
+        # + CapabilityAutoLaunchMiddleware + DisciplineContextMiddleware
+        # are always created (no service required).
+        assert len(middlewares) == 4
         assert isinstance(middlewares[0], CapabilitySkillPreloadMiddleware)
-        assert isinstance(middlewares[1], CapabilityAutoLaunchMiddleware)
-        assert isinstance(middlewares[2], DisciplineContextMiddleware)
+        assert middlewares[1].__class__.__name__ == "MissionContextMiddleware"
+        assert isinstance(middlewares[2], CapabilityAutoLaunchMiddleware)
+        assert isinstance(middlewares[3], DisciplineContextMiddleware)
 
     def test_build_middlewares_partial_services(self):
         """Test that middlewares are created for provided services only."""
@@ -105,12 +109,14 @@ class TestBuildMiddlewares:
         middlewares = build_middlewares(workspace_service=workspace_service)
 
         # Should have WorkspaceContextMiddleware, CapabilitySkillPreloadMiddleware,
-        # CapabilityAutoLaunchMiddleware and DisciplineContextMiddleware.
-        assert len(middlewares) == 4
+        # MissionContextMiddleware, CapabilityAutoLaunchMiddleware and
+        # DisciplineContextMiddleware.
+        assert len(middlewares) == 5
         assert isinstance(middlewares[0], WorkspaceContextMiddleware)
         assert isinstance(middlewares[1], CapabilitySkillPreloadMiddleware)
-        assert isinstance(middlewares[2], CapabilityAutoLaunchMiddleware)
-        assert isinstance(middlewares[3], DisciplineContextMiddleware)
+        assert middlewares[2].__class__.__name__ == "MissionContextMiddleware"
+        assert isinstance(middlewares[3], CapabilityAutoLaunchMiddleware)
+        assert isinstance(middlewares[4], DisciplineContextMiddleware)
 
 
 class TestApplyPromptTemplate:

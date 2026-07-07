@@ -93,6 +93,34 @@ class _FakeLaunchDataServiceClient:
         )
 
 
+class _FakeMissionDataServiceClient(_FakeLaunchDataServiceClient):
+    def __init__(
+        self,
+        *,
+        executions: list[object],
+        selected_execution: object | None = None,
+    ) -> None:
+        self._executions = executions
+        self._selected_execution = selected_execution
+
+    async def list_executions(
+        self,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+        thread_id: str | None = None,
+        status: list[str] | None = None,
+        limit: int = 50,
+    ):
+        return list(self._executions)[:limit]
+
+    async def get_execution(self, execution_id: str):
+        selected_id = str(getattr(self._selected_execution, "id", "") or "")
+        if execution_id and execution_id == selected_id:
+            return self._selected_execution
+        return None
+
+
 @pytest.fixture(autouse=True)
 def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
@@ -214,6 +242,61 @@ class _RoutingModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=self._reply(messages))])
 
 
+class _MissionFollowupModel(BaseChatModel):
+    _captured_messages: object | None = PrivateAttr(default=None)
+
+    @property
+    def _llm_type(self) -> str:
+        return "mission-followup-model"
+
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+    def _reply(self, messages):
+        if self._captured_messages is None:
+            self._captured_messages = messages
+
+        system_prompt = messages[0].content if messages else ""
+        if any(isinstance(message, ToolMessage) for message in messages):
+            return AIMessage(content="好的，我继续推进方法部分。")
+
+        human_messages = [
+            message.content
+            for message in messages
+            if isinstance(message, HumanMessage) and isinstance(message.content, str)
+        ]
+        last_user = human_messages[-1] if human_messages else ""
+
+        if last_user == "继续深化方法部分":
+            if (
+                "<mission_context>" in system_prompt
+                and "exec-active-1" in system_prompt
+                and "问题到 SCI 初稿" in system_prompt
+            ):
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call-launch-continue-1",
+                            "name": "launch_feature",
+                            "args": {
+                                "feature_id": "research_question_to_paper",
+                                "params": {"focus": "方法部分"},
+                            },
+                        }
+                    ],
+                )
+            return AIMessage(content="你是想继续哪一个任务？")
+
+        return AIMessage(content="收到。")
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        return ChatResult(generations=[ChatGeneration(message=self._reply(messages))])
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        return ChatResult(generations=[ChatGeneration(message=self._reply(messages))])
+
+
 async def _run_chat_turn(messages: list[HumanMessage]) -> tuple[dict, list[dict]]:
     from src.agents.chat_agent.agent import make_chat_agent
 
@@ -242,6 +325,61 @@ async def _run_chat_turn(messages: list[HumanMessage]) -> tuple[dict, list[dict]
         result = await agent.ainvoke(
             {"messages": messages},
             config={"configurable": {"model_name": "gpt-4o", "thread_id": "thread-1"}},
+        )
+
+    return result, launch_calls
+
+
+async def _run_chat_turn_with_mission_context(
+    messages: list[HumanMessage],
+    *,
+    executions: list[object],
+    selected_execution: object | None = None,
+    execution_id: str | None = None,
+) -> tuple[dict, list[dict]]:
+    from src.agents.chat_agent.agent import make_chat_agent
+    from src.agents.middlewares.mission_context import MissionContextMiddleware
+
+    launch_calls: list[dict] = []
+
+    @tool("launch_feature", args_schema=_LaunchFeatureArgs)
+    async def _fake_launch_feature(feature_id: str, params: dict) -> dict:
+        """Record launch_feature calls for mission follow-up tests."""
+        launch_calls.append({"feature_id": feature_id, "params": params})
+        return {
+            "status": "launched",
+            "execution_id": "exec-test-continue-1",
+            "feature_id": feature_id,
+            "message": "已启动",
+        }
+
+    model = _MissionFollowupModel()
+    with (
+        patch("src.dataservice_client.provider.dataservice_client", lambda: _FakeMissionDataServiceClient(
+            executions=executions,
+            selected_execution=selected_execution,
+        )),
+        patch("src.models.factory.create_chat_model", return_value=model),
+        patch("src.agents.chat_agent.agent.get_available_tools", return_value=[_fake_launch_feature]),
+    ):
+        agent = make_chat_agent(
+            {"configurable": {"model_name": "gpt-4o"}},
+            middlewares=[
+                _InjectSciCapabilityStateMiddleware(),
+                MissionContextMiddleware(),
+            ],
+        )
+        result = await agent.ainvoke(
+            {"messages": messages},
+            config={
+                "configurable": {
+                    "model_name": "gpt-4o",
+                    "thread_id": "thread-1",
+                    "workspace_id": "ws-1",
+                    "user_id": "user-1",
+                    **({"execution_id": execution_id} if execution_id else {}),
+                }
+            },
         )
 
     return result, launch_calls
@@ -411,6 +549,109 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
     assert 'id="research_question_to_paper"' in prompt
     assert 'id="sci_literature_positioning"' in prompt
     assert "<available_features>" not in prompt  # legacy block must be gone
+
+
+@pytest.mark.asyncio
+async def test_mission_context_middleware_renders_bounded_active_and_selected_execution_prompt():
+    from src.agents.chat_agent.agent import apply_prompt_template
+    from src.agents.middlewares.mission_context import MissionContextMiddleware
+    from src.agents.thread_state import create_thread_state
+
+    active_execution = SimpleNamespace(
+        id="exec-active-1",
+        capability_id="research_question_to_paper",
+        display_name="问题到 SCI 初稿",
+        status="running",
+        task_brief_json={"goal": "完成联邦学习论文的方法部分"},
+        result_summary="正在扩写方法设计与实验流程。" + ("A" * 2000),
+        graph_json={"nodes": [{"id": "methods", "phase": "方法部分"}]},
+        node_states_json={"methods": {"status": "running"}},
+        next_actions=[{"label": "补充实验设置", "feature_id": "research_question_to_paper"}],
+        result_json={
+            "open_questions": ["baseline 是否需要单独展开？"],
+            "pending_review_count": 2,
+            "evidence_count": 4,
+        },
+        updated_at="2026-07-07T10:00:00+08:00",
+    )
+    selected_execution = SimpleNamespace(
+        id="exec-selected-1",
+        capability_id="sci_literature_positioning",
+        display_name="文献定位与创新点",
+        status="completed",
+        task_brief_json={"goal": "梳理研究空白与创新点"},
+        result_summary="已完成相关工作与 gap 梳理。",
+        graph_json={},
+        node_states_json={},
+        next_actions=[{"label": "转入论文主稿", "feature_id": "research_question_to_paper"}],
+        result_json={
+            "open_questions": ["是否需要新增 2026 年的补充文献？"],
+            "pending_review_count": 0,
+            "evidence_count": 6,
+        },
+        updated_at="2026-07-06T18:00:00+08:00",
+    )
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        lambda: _FakeMissionDataServiceClient(
+            executions=[active_execution],
+            selected_execution=selected_execution,
+        ),
+    ):
+        middleware = MissionContextMiddleware()
+        state = create_thread_state(
+            {
+                "messages": [],
+                "workspace_type": "sci",
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+                "available_capabilities": [
+                    {
+                        "id": "research_question_to_paper",
+                        "display_name": "问题到 SCI 初稿",
+                        "routing": {"when_to_use": ["用户需要从研究问题推进 SCI 初稿"]},
+                    }
+                ],
+            }
+        )
+        update = await middleware.before_model(
+            state,
+            {
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                    "execution_id": "exec-selected-1",
+                }
+            },
+        )
+
+    assert "mission_prompt_context" in update
+    assert len(update["mission_prompt_context"]) <= 2000
+    assert "exec-active-1" in update["mission_prompt_context"]
+    assert "exec-selected-1" in update["mission_prompt_context"]
+    assert "baseline 是否需要单独展开？" in update["mission_prompt_context"]
+    assert "AAAAAAAAAA" not in update["mission_prompt_context"]
+
+    state["mission_prompt_context"] = update["mission_prompt_context"]
+    prompt = apply_prompt_template(
+        state,
+        {
+            "configurable": {
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+                "execution_id": "exec-selected-1",
+            }
+        },
+    )
+
+    assert "<mission_context>" in prompt
+    assert prompt.index("<mission_context>") < prompt.index("<available_capabilities>")
+    assert "问题到 SCI 初稿" in prompt
+    assert "文献定位与创新点" in prompt
 
 
 @pytest.mark.asyncio
@@ -605,3 +846,73 @@ async def test_chat_first_routing_asks_one_focused_question_when_topic_missing()
     content = result["messages"][-1].content
     assert content == "可以。你想围绕哪个具体研究问题或已有材料来写？"
     assert content.count("？") == 1
+
+
+@pytest.mark.asyncio
+async def test_followup_continue_reuses_active_mission_context_without_cold_start():
+    active_execution = SimpleNamespace(
+        id="exec-active-1",
+        capability_id="research_question_to_paper",
+        display_name="问题到 SCI 初稿",
+        status="running",
+        task_brief_json={"goal": "完成联邦学习论文的方法部分"},
+        result_summary="正在扩写方法设计与实验流程。",
+        graph_json={"nodes": [{"id": "methods", "phase": "方法部分"}]},
+        node_states_json={"methods": {"status": "running"}},
+        next_actions=[{"label": "补充实验设置", "feature_id": "research_question_to_paper"}],
+        result_json={},
+        updated_at="2026-07-07T10:00:00+08:00",
+    )
+
+    result, launch_calls = await _run_chat_turn_with_mission_context(
+        [HumanMessage(content="继续深化方法部分")],
+        executions=[active_execution],
+    )
+
+    assert launch_calls == [
+        {
+            "feature_id": "research_question_to_paper",
+            "params": {"focus": "方法部分"},
+        }
+    ]
+    assert result["messages"][-1].content == "好的，我继续推进方法部分。"
+
+
+@pytest.mark.asyncio
+async def test_missing_mission_context_does_not_fabricate_followup_target():
+    from src.agents.chat_agent.agent import apply_prompt_template
+    from src.agents.middlewares.mission_context import MissionContextMiddleware
+    from src.agents.thread_state import create_thread_state
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        lambda: _FakeMissionDataServiceClient(executions=[]),
+    ):
+        middleware = MissionContextMiddleware()
+        state = create_thread_state(
+            {
+                "messages": [],
+                "workspace_type": "sci",
+                "workspace_id": "ws-1",
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        )
+        update = await middleware.before_model(
+            state,
+            {
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert update == {}
+
+    prompt = apply_prompt_template(
+        state,
+        {"configurable": {"workspace_id": "ws-1", "thread_id": "thread-1", "user_id": "user-1"}},
+    )
+    assert "<mission_context>" not in prompt

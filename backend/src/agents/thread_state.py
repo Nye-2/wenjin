@@ -192,6 +192,7 @@ class ThreadState(AgentState):
     # Capability/skill catalog preloaded by CapabilitySkillPreloadMiddleware
     available_capabilities: NotRequired[list[dict[str, Any]] | None]
     available_skills: NotRequired[list[dict[str, Any]] | None]
+    mission_prompt_context: NotRequired[str | None]
 
     # Citation tracking with deduplication reducer
     cited_references: Annotated[list[str], merge_cited_references]

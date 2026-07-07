@@ -124,3 +124,17 @@ def test_capability_routing_prompt_says_right_panel_cards_are_not_the_ui_model()
 
     assert "right-panel capability cards are internal" in prompt
     assert "Do not ask the user to click a capability card" in prompt
+
+
+def test_capability_routing_prompt_prefers_active_mission_for_unambiguous_continue() -> None:
+    prompt = _build_capability_routing_prompt("<available_capabilities />")
+
+    assert '"继续" should prefer the active mission' in prompt
+    assert "when it is unambiguous" in prompt
+
+
+def test_capability_routing_prompt_asks_one_question_for_ambiguous_continue() -> None:
+    prompt = _build_capability_routing_prompt("<available_capabilities />")
+
+    assert 'If "继续" could mean multiple selected or completed missions' in prompt
+    assert "ask one question" in prompt

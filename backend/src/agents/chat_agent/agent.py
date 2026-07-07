@@ -29,6 +29,7 @@ from src.agents.middlewares import (
     LLMErrorHandlingMiddleware,
     LoopDetectionMiddleware,
     MemoryMiddleware,
+    MissionContextMiddleware,
     SummarizationMiddleware,
     ThreadDataMiddleware,
     TitleMiddleware,
@@ -57,6 +58,7 @@ _PROMPT_CONTEXT_CHAR_LIMITS = {
     "literature_context": 3000,
     "memory_context": 1800,
     "knowledge_context": 2200,
+    "mission_prompt_context": 2000,
     "template_context": 3200,
 }
 
@@ -277,6 +279,12 @@ by the Lead Agent; do not expose workflow-step choices, route-card internals, or
   workspace context, uploaded material summaries, and active mission summaries.
   If the topic, goal, or materials are already available there, launch or answer
   from that context instead of asking the user to repeat it.
+- `continue_with_active_mission`: when the user says "继续" or a close follow-up like
+  "继续深化方法部分", and the mission context shows one clear active mission,
+  "继续" should prefer the active mission when it is unambiguous instead of
+  cold-starting or asking the user to restate context.
+- `continue_disambiguation`: If "继续" could mean multiple selected or completed missions,
+  ask one question to disambiguate which mission to continue before launching.
 - `mission_plan_then_launch`: if the user asks "你打算怎么做" or otherwise asks how Wenjin
   will proceed, give a short editable plan in natural language first. Launch only
   when the user confirms.
@@ -525,6 +533,13 @@ def apply_prompt_template(
             max_chars=_PROMPT_CONTEXT_CHAR_LIMITS["template_context"],
         )
 
+    mission_prompt_context = state.get("mission_prompt_context")
+    if mission_prompt_context:
+        base_prompt += "\n\n" + _truncate_prompt_block(
+            mission_prompt_context,
+            max_chars=_PROMPT_CONTEXT_CHAR_LIMITS["mission_prompt_context"],
+        )
+
     configurable = config.get("configurable", {})
     selected_skill = (
         configurable.get("selected_skill")
@@ -676,6 +691,7 @@ def build_middlewares(
 
     # Must follow WorkspaceContextMiddleware so workspace_type is in state.
     middlewares.append(CapabilitySkillPreloadMiddleware())
+    middlewares.append(MissionContextMiddleware())
     middlewares.append(CapabilityAutoLaunchMiddleware())
 
     if index_service:
@@ -834,6 +850,7 @@ def build_pipeline(
         )
     # Must follow WorkspaceContextMiddleware so workspace_type is in state.
     pipeline.append(CapabilitySkillPreloadMiddleware())
+    pipeline.append(MissionContextMiddleware())
     pipeline.append(CapabilityAutoLaunchMiddleware())
     if index_service:
         pipeline.append(
