@@ -624,6 +624,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       activeWorkspaceId: null,
       messagesByWorkspace: {},
       messages: [],
+      isSending: false,
       currentAssistantId: null,
       finalizedMessageIds: new Set<string>(),
     });

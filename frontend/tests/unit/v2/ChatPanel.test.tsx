@@ -264,6 +264,25 @@ describe("ChatPanel v2", () => {
     expect(screen.getByText("思考过程")).toBeInTheDocument();
   });
 
+  it("shows a visible pending response while the assistant is thinking before blocks arrive", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.user.message",
+      data: { id: "u1", content: "帮我分析一下", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    useChatStoreV2.setState({ isSending: true });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    expect(screen.getByTestId("chat-pending-response")).toHaveTextContent(
+      "模型正在思考",
+    );
+  });
+
   it("renders tool invocation blocks", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({

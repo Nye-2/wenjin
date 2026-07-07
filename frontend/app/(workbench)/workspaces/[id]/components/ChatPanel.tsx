@@ -147,6 +147,7 @@ export function ChatPanel({
   }, [isSending, messages]);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
+  const lastMessageId = messages[messages.length - 1]?.id ?? null;
   const intakeGuidance = typeConfig?.intakeGuidance;
   const suggestionTexts =
     intakeGuidance?.chips?.length ? intakeGuidance.chips : typeConfig?.suggestions ?? [];
@@ -467,6 +468,12 @@ export function ChatPanel({
               workspaceId={workspaceId}
               onIntent={handleBlockIntent}
               intentDisabled={isSending}
+              pending={
+                isSending &&
+                msg.role === "assistant" &&
+                msg.id === lastMessageId &&
+                msg.blocks.length === 0
+              }
             />
           ))
         )}
@@ -812,6 +819,7 @@ const MessageRow = memo(function MessageRow({
   workspaceId,
   onIntent,
   intentDisabled,
+  pending,
 }: {
   message: Message;
   workspaceId: string;
@@ -820,6 +828,7 @@ const MessageRow = memo(function MessageRow({
     options?: SendMessageOptions,
   ) => void;
   intentDisabled?: boolean;
+  pending?: boolean;
 }) {
   const isUser = message.role === "user";
   return (
@@ -842,27 +851,67 @@ const MessageRow = memo(function MessageRow({
           border: isUser ? "1px solid var(--wjn-line)" : "none",
         }}
       >
-        {message.blocks.map((block, i) => (
-          <MessageBlock
-            key={i}
-            block={block}
-            workspaceId={workspaceId}
-            onIntent={
-              onIntent
-                ? (intent, sourceBlockKind) =>
-                    onIntent(
-                      intent,
-                      buildBlockIntentForwardingOptions(
-                        message.metadata,
-                        buildContinueThreadBlockAction(intent, sourceBlockKind),
-                      ),
-                    )
-                : undefined
-            }
-            intentDisabled={intentDisabled}
-          />
-        ))}
+        {pending ? (
+          <PendingAssistantResponse />
+        ) : (
+          message.blocks.map((block, i) => (
+            <MessageBlock
+              key={i}
+              block={block}
+              workspaceId={workspaceId}
+              onIntent={
+                onIntent
+                  ? (intent, sourceBlockKind) =>
+                      onIntent(
+                        intent,
+                        buildBlockIntentForwardingOptions(
+                          message.metadata,
+                          buildContinueThreadBlockAction(intent, sourceBlockKind),
+                        ),
+                      )
+                  : undefined
+              }
+              intentDisabled={intentDisabled}
+            />
+          ))
+        )}
       </div>
     </div>
   );
 });
+
+function PendingAssistantResponse() {
+  return (
+    <div
+      data-testid="chat-pending-response"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        minHeight: 30,
+        padding: "6px 10px",
+        borderRadius: "var(--wjn-radius)",
+        border: "1px solid var(--wjn-line)",
+        background: "var(--wjn-surface-subtle)",
+        color: "var(--wjn-text-secondary)",
+        fontSize: 12.5,
+        fontWeight: 600,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "999px",
+          background: "var(--wjn-accent)",
+          animation: "wjn-pulse-soft 1.2s infinite",
+        }}
+      />
+      模型正在思考
+    </div>
+  );
+}
