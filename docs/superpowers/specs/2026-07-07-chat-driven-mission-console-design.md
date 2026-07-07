@@ -35,6 +35,10 @@ The product model becomes:
 
 This redesign does not introduce a second router, embedding matcher, frontend capability classifier, or new execution stream. It does not add a separate feature slug page. It does not let the frontend bypass Chat Agent. It does not persist long-term change history for accepted/rejected drafts. Reviewable diffs and old versions remain temporary execution-backed material until accepted, rejected, or superseded.
 
+This redesign also does not turn Wenjin into a local scientific IDE. File trees, terminal panes, code editors, session timelines, and inline scientific renderers can be useful for researcher-engineers, but they are not the default experience for undergraduate and ordinary master's users. Wenjin should borrow the research harness pattern, not the heavy IDE shell.
+
+OpenScience is a useful external reference for this distinction. It validates a goal-first research loop with research, literature-review, critique, reviewer, and write agents, but its browser workspace exposes a file tree, editor, terminal, session history, and scientific renderers. Wenjin should keep those capabilities behind sandbox, Prism, review, and room surfaces instead of making them the main workspace UI.
+
 ## User Experience
 
 ### Idle State
@@ -65,6 +69,8 @@ The Chat Agent must carry forward conversation history. If the user has already 
 
 Capability ids, schema names, trigger phrases, and internal route-card labels must not appear in normal user-facing copy.
 
+The Chat Agent may mention the research route in plain language, such as "先做文献定位，再形成方法框架", but it should not ask the user to choose an internal capability. It should also be able to propose a compact mission plan when the user asks "你打算怎么做", while still treating the final launch as a normal chat turn.
+
 ### Launch Receipt
 
 When `launch_feature` returns `status == "launched"`, chat shows a concise launch receipt and the Mission Console opens automatically.
@@ -91,6 +97,8 @@ Default running view:
 
 The default view should avoid raw logs, raw node JSON, full DAG diagrams, or always-on expert roster details. Users can expand details when needed.
 
+For deep research missions, stage names should be human and compact. The Mission Console can show "界定问题", "文献定位", "方法设计", "实验/证据", "写作/复核" rather than exposing the full harness graph. The detailed harness phases remain backend state.
+
 ### Review State
 
 Review state is the strongest right-side state. If there are pending review items, the Mission Console should prioritize them over generic progress.
@@ -113,6 +121,8 @@ Default copy should be short, for example:
 
 Expanded evidence view can show source title, evidence strength, citation risk, and related claim. It must not expose raw stdout, internal harness refs, raw schema ids, or unbounded tool output.
 
+Evidence must distinguish between "found", "verified", and "used". A paper or source being retrieved is not enough to support a claim. Claims, numbers, figures, and citations become trusted only when tied to a verified source, script output, sandbox artifact, or review packet finding.
+
 ### Completed State
 
 After a mission completes and there are no pending review decisions, the Mission Console should collapse back toward a light summary:
@@ -133,6 +143,33 @@ The default workspace should have three layers:
 3. Detail layer: expandable run history, evidence ledger, expert trace, and room writeback details.
 
 The capability catalog is not part of the primary layer. It can remain available to admin/catalog surfaces and possibly a low-emphasis advanced drawer, but not as the default workspace panel.
+
+## Research Harness Lessons From OpenScience
+
+The OpenScience repository supports the direction of this design in five ways:
+
+- It treats the user entry as "give it a goal", not "choose a workflow card".
+- It puts the research loop inside the agent harness: scope, literature, reasoning, methodology, compute, analyze, synthesize, write.
+- It uses hidden specialist agents for literature review, critique, review, and writing.
+- It treats critique as a distinct read-only role that catches unsupported claims, wrong statistics, data leakage, and untraceable numbers.
+- It maintains research state and provenance so later steps can recover what was tried, what failed, and what evidence supports the result.
+
+Wenjin should adapt these ideas into its existing architecture:
+
+- Chat Agent remains the single user-facing navigator.
+- Capability methodology defines the research loop, required artifacts, review gates, and evidence surfaces.
+- TeamKernel and Lead Agent run the loop through bounded experts and sandbox tools.
+- Mission Console only projects the current stage, review needs, and evidence summary.
+- Review, citation, claim, and computation traceability are enforced through Wenjin's execution, review packet, and commit contracts.
+
+Wenjin should not copy OpenScience's default workspace shell. The target user needs a guided academic workbench, not a terminal/editor/file-tree IDE.
+
+Sources reviewed:
+
+- OpenScience README and architecture docs.
+- OpenScience agent prompt map in `CLAUDE.md`.
+- OpenScience `research`, `literature-review`, `critique`, `reviewer`, and `write` agent prompts.
+- OpenScience provenance and reviewer-gate code paths.
 
 ## Frontend Design
 
@@ -207,6 +244,8 @@ Required behavior:
 - Keep choices natural-language. Do not expose capability ids.
 - Do not launch when the user only asks a concept question or local writing edit.
 
+For research-writing missions, the Chat Agent should be allowed to propose a short mission plan before launch. The plan is conversational and editable, not a separate capability form. If the user approves or continues naturally, the same context should flow into `launch_feature`.
+
 ### Capability
 
 Capability remains the mission contract:
@@ -223,6 +262,80 @@ Capability remains the mission contract:
 
 Capability display metadata may still exist for admin and advanced browsing, but the default workspace does not render it as a grid of launch buttons.
 
+### Methodology Contract
+
+SCI and thesis capabilities should standardize a deeper research loop in their `methodology_contract`:
+
+1. Scope: research question, target deliverable, assumptions, and success criteria.
+2. Literature: decompose the topic into 3 to 5 facets and dispatch parallel literature-review experts.
+3. Reason: consolidate findings, contradictions, gaps, and candidate hypotheses or contribution routes.
+4. Methodology: choose method, data, evaluation plan, baselines, risks, and fallback.
+5. Execute: run sandbox analysis, citation audit, or writing tasks as required by the capability.
+6. Analyze: interpret results against the literature and success criteria.
+7. Synthesize: produce bounded claims, evidence packets, limitations, and next actions.
+8. Write or revise: stage document changes through review-first Prism or room outputs.
+
+The user should not see this as an eight-step flow by default. The Mission Console can project it into compact stage labels, while the backend preserves the full methodology for quality gates and context handoff.
+
+### Facet-Based Literature Review
+
+For broad research topics, the literature stage should decompose the question into facets before synthesis. Example for "federated learning + large model fine-tuning":
+
+- Federated PEFT and LoRA
+- Non-IID and personalization
+- Communication compression
+- Security, poisoning, privacy, and robustness
+- Federated RAG or domain knowledge augmentation
+
+Each facet expert should return verified papers, evidence strength, contradictions, gaps, and BibTeX/citation metadata. The synthesis step must evaluate each facet before merging it:
+
+- Include high-relevance, verified evidence.
+- Include weak evidence only with caveats.
+- Exclude low-relevance facets and record why.
+- Preserve contradictions instead of silently flattening them.
+
+### Mission State
+
+Wenjin should introduce an internal `MissionState` projection for active and recent missions. This should reuse existing execution/runtime state and Academic Harness research state contracts rather than adding a second durable task model.
+
+Minimum fields:
+
+- mission id and parent execution id
+- current stage
+- research question or goal
+- key decisions
+- selected capability and methodology stage
+- evidence summary
+- critique and reviewer history
+- artifact refs and Prism review refs
+- what worked
+- what did not work
+- open questions
+- next recommended action
+
+This state is for context recovery, follow-up routing, and Mission Console projection. It is not a user-facing markdown file by default, and it must not become a second execution fact source.
+
+### Critique and Reviewer Gates
+
+Wenjin should separate two review roles:
+
+- Critique: read-only review before expensive or irreversible steps. It checks methodology, data integrity, statistics, leakage, and plan soundness.
+- Reviewer: blind evidence audit before trusting outputs. It checks citation mismatch, untraceable numbers, figure/table mismatch, unsupported claims, and internal consistency.
+
+The gates should be runtime-enforced through TeamKernel quality gates or final report evaluation where possible, not only prompt instructions. Recommended gate points:
+
+- Pre-execution methodology critique before expensive sandbox work or large document rewrites.
+- Post-compute output integrity review before analysis and synthesis.
+- Pre-write or pre-commit reviewer audit for claims, citations, figures, and primary document changes.
+
+Gate severity should map to existing review policy:
+
+- Blocking findings prevent bulk accept and require revision or explicit user decision.
+- Major findings require visible review and cannot be hidden in raw logs.
+- Minor and info findings appear as caveats or quality notes.
+
+The reviewer must receive artifacts, evidence summaries, and provenance, not the generator's hidden reasoning. This preserves a blind actor-critic pattern without exposing chain-of-thought.
+
 ### Launch Feature
 
 `launch_feature` remains the execution creation boundary. It must continue to return advisory when required context is missing, and launched when execution starts.
@@ -234,6 +347,8 @@ No frontend direct execution endpoint should be added.
 Follow-up should be chat-first. A user saying "继续", "换成综述方向", "先做 gap", or "暂停这个，补充一个约束" should be interpreted by Chat Agent with active execution context.
 
 The Mission Console intervention box remains useful during active runs, but it should send natural-language instructions through the same chat/orchestration path.
+
+Follow-up routing should read `MissionState` when available. The system should know whether "继续" means continue the active mission, deepen a selected result, rerun a failed stage, or start a child mission. If ambiguous, Chat Agent asks one short question.
 
 ## Data Flow
 
@@ -281,6 +396,18 @@ User sends follow-up in chat
   -> Mission Console updates from execution projection
 ```
 
+Deep research:
+
+```text
+Chat Agent launches mission
+  -> capability methodology_contract defines research loop
+  -> MissionState starts at scope/literature
+  -> TeamKernel dispatches facet experts when needed
+  -> ResearchState / review_packet accumulates claims, evidence, artifacts, blockers
+  -> critique/reviewer gates annotate or block high-risk outputs
+  -> Mission Console shows compact stage + review/evidence needs
+```
+
 ## Error Handling
 
 Missing context:
@@ -309,6 +436,12 @@ Evidence risk:
 - High-risk evidence blocks bulk accept.
 - Unsupported claims require user decision or revision.
 
+Critique or reviewer failure:
+
+- Blocking findings keep the mission in review/revise state.
+- The Mission Console shows the finding in plain language with the affected claim, citation, number, or artifact.
+- The system may revise and re-run bounded checks. Repeated blocking findings escalate to the user with options instead of looping indefinitely.
+
 ## Accessibility and Interaction Requirements
 
 - All controls must be keyboard reachable.
@@ -327,6 +460,8 @@ Evidence risk:
 - Keep `run-ui-store` focused on UI focus/badges only. Do not add mission state there.
 - Keep `LiveWorkflowViewModel` as the projection boundary. Do not parse raw harness schemas in view components.
 - Do not add compatibility wrappers named legacy, compat, or fallback.
+- Do not add a frontend capability recommendation engine. Chat Agent and backend route cards own task navigation.
+- Do not surface full methodology graphs, provenance DAGs, or reviewer checklists in the default Mission Console.
 
 ## Implementation Boundaries
 
@@ -348,7 +483,14 @@ Likely backend and prompt files:
 - `backend/src/agents/middlewares/capability_skill_preload.py`
 - capability seed files under `backend/seed/capabilities/`
 
-Backend changes should be limited to Chat Agent routing quality if current prompts still ask from scratch. The primary UI change should not create new backend execution concepts.
+The primary Mission Console UI change should not create new backend execution concepts. Harness-depth refinements should reuse existing execution, review packet, Academic Harness research state, and TeamKernel quality gate contracts. If current Chat Agent prompts still ask from scratch, they should be tightened as part of this work.
+
+Likely contract additions or refinements:
+
+- `MissionState` projection derived from `ExecutionRecord.runtime_state`, `TaskReport.review_packet`, and Academic Harness `ResearchStateV1`.
+- Capability methodology updates for SCI and thesis research loops.
+- TeamKernel quality gate mapping for critique and reviewer findings.
+- RunView projection fields for compact stage, critique status, and evidence verification counts.
 
 ## Testing Plan
 
@@ -369,6 +511,8 @@ Chat and integration tests:
 - Ambiguous durable intent offers natural-language choices without capability ids.
 - Missing required context returns advisory and does not create execution.
 - `tool_result.status == "launched"` still anchors run receipt and Mission Console state.
+- Broad SCI topic decomposes into literature facets in backend methodology state without rendering a capability grid.
+- Follow-up "继续" uses active MissionState rather than cold-starting a new capability prompt.
 
 Regression tests:
 
@@ -376,6 +520,8 @@ Regression tests:
 - No raw tool JSON appears in chat or Mission Console.
 - High-risk review items block bulk accept.
 - Accepted change-unit temporary materialization state is cleared after finalize.
+- Blocking critique/reviewer findings surface as review state and prevent blind accept.
+- Numbers and citations in high-risk outputs have traceable evidence refs or are marked unsupported.
 
 Commands:
 
@@ -395,5 +541,7 @@ The redesign is successful when:
 - Capability remains powerful in the backend but mostly invisible to normal users.
 - The Mission Console appears only when there is state worth reviewing.
 - Review and evidence remain stricter than ordinary progress UI.
+- Broad research missions can run a deeper literature, reasoning, methodology, critique, and writing loop without exposing that complexity as UI chrome.
+- Follow-up turns use MissionState so the user does not have to restate the topic or restart a workflow.
+- High-risk claims, citations, numbers, figures, and document changes have reviewer or evidence-gate coverage before acceptance.
 - No new execution fact source, route bypass, compatibility layer, or frontend matcher is introduced.
-
