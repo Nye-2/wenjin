@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from src.application.results import ThreadTurnAttachment, ThreadTurnRequest
 from src.runtime.runs import RunRecord
 
-ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
 RunUploadKind = Literal["literature", "workspace_context", "transient"]
 
 

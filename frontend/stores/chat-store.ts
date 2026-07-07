@@ -12,6 +12,7 @@ import type {
 } from "@/lib/api/blocks";
 import { normalizeChatBlock } from "@/lib/api/blocks";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
+import type { ReasoningEffort } from "@/lib/api/types";
 import { useRunUiStore } from "@/stores/run-ui-store";
 
 // ── Data types ──────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ export type Message = {
 export type SendMessageOptions = {
   skill?: string | null;
   model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -770,6 +772,12 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       }
       if (typeof options.model === "string" && options.model.trim()) {
         runPayload.model = options.model.trim();
+      }
+      if (
+        typeof options.reasoning_effort === "string" &&
+        options.reasoning_effort.trim()
+      ) {
+        runPayload.reasoning_effort = options.reasoning_effort.trim();
       }
       if (options.metadata && typeof options.metadata === "object") {
         runPayload.metadata = options.metadata;

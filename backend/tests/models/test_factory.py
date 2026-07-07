@@ -234,6 +234,25 @@ class TestCreateChatModel:
 
             assert getattr(model, "reasoning_effort", None) is None
 
+    def test_openai_compatible_model_disables_provider_storage(self) -> None:
+        config = json.dumps([
+            {
+                "id": "no-store",
+                "model": "provider/no-store",
+                "api_key": "sk-no-store",
+                "base_url": "https://example.com/v1",
+            }
+        ])
+
+        with patch.dict(os.environ, {"LLM_MODELS": config}, clear=False):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+
+            reload_models()
+            model = create_chat_model(model_id="no-store")
+
+            assert getattr(model, "store", None) is False
+
 
 class TestModelProviderDetection:
     """Test provider detection logic."""

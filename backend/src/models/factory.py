@@ -281,6 +281,7 @@ def _create_openai_compatible_model(
         "max_tokens": max_tokens,
         "timeout": _request_timeout_value(request_timeout),
         "max_retries": _max_retries_value(max_retries),
+        "store": False,
     }
     if reasoning_effort:
         kwargs["reasoning_effort"] = reasoning_effort

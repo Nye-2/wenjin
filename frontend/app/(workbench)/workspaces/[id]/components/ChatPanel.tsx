@@ -3,7 +3,12 @@
 import { useRef, useEffect, useMemo, useState, memo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { SendHorizontal } from "lucide-react";
-import { listModels, type Model, type WorkspaceCapability } from "@/lib/api";
+import {
+  listModels,
+  type Model,
+  type ReasoningEffort,
+  type WorkspaceCapability,
+} from "@/lib/api";
 import {
   buildContinueThreadBlockAction,
   type ContinueThreadBlockAction,
@@ -89,6 +94,8 @@ export function ChatPanel({
   const [modelLoadState, setModelLoadState] = useState<
     "loading" | "ready" | "error"
   >("loading");
+  const [reasoningEffort, setReasoningEffort] =
+    useState<ReasoningEffort>("medium");
   const [historyHydration, setHistoryHydration] = useState<{
     workspaceId: string;
     hydrated: boolean;
@@ -146,18 +153,24 @@ export function ChatPanel({
   const selectedModelLabel =
     modelOptions.find((model) => model.name === selectedModel)?.display_name ??
     selectedModel;
+  const selectedModelOption = modelOptions.find(
+    (model) => model.name === selectedModel,
+  );
+  const selectedModelSupportsReasoning =
+    selectedModelOption?.supports_reasoning_effort === true;
   const withSelectedModel = useCallback(
     (options?: SendMessageOptions): SendMessageOptions | undefined => {
       const model = selectedModel.trim();
-      if (!model) {
-        return options;
+      const nextOptions: SendMessageOptions = { ...(options ?? {}) };
+      if (model) {
+        nextOptions.model = model;
       }
-      return {
-        ...(options ?? {}),
-        model,
-      };
+      if (selectedModelSupportsReasoning) {
+        nextOptions.reasoning_effort = reasoningEffort;
+      }
+      return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
     },
-    [selectedModel],
+    [reasoningEffort, selectedModel, selectedModelSupportsReasoning],
   );
   const handleBlockIntent = useCallback(
     (
@@ -699,6 +712,69 @@ export function ChatPanel({
               )}
             </select>
           </label>
+          {selectedModelSupportsReasoning ? (
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                minWidth: 92,
+                maxWidth: 116,
+                height: 38,
+                borderRadius: "var(--wjn-radius)",
+                border: "1px solid var(--wjn-line)",
+                background: "#fff",
+                color: "var(--wjn-text-secondary)",
+                position: "relative",
+                overflow: "hidden",
+              }}
+              title="思考强度"
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  width: 1,
+                  height: 1,
+                  padding: 0,
+                  margin: -1,
+                  overflow: "hidden",
+                  clip: "rect(0, 0, 0, 0)",
+                  whiteSpace: "nowrap",
+                  border: 0,
+                }}
+              >
+                选择思考强度
+              </span>
+              <select
+                aria-label="选择思考强度"
+                data-testid="chat-reasoning-selector"
+                value={reasoningEffort}
+                onChange={(event) =>
+                  setReasoningEffort(event.target.value as ReasoningEffort)
+                }
+                disabled={isSending}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--wjn-text-secondary)",
+                  fontSize: 12,
+                  fontWeight: 650,
+                  padding: "0 24px 0 10px",
+                  outline: "none",
+                  cursor: isSending ? "not-allowed" : "pointer",
+                  opacity: isSending ? 0.58 : 1,
+                  fontFamily: "var(--wjn-font-sans)",
+                }}
+              >
+                <option value="minimal">极简</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+                <option value="xhigh">超高</option>
+              </select>
+            </label>
+          ) : null}
           <button
             onClick={handleSubmit}
             disabled={isSending || !inputValue.trim()}

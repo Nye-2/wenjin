@@ -176,6 +176,51 @@ describe("ChatPanel v2", () => {
     );
   });
 
+  it("sends reasoning effort when the selected model supports it", async () => {
+    mockListModels.mockResolvedValueOnce({
+      models: [
+        {
+          name: "gpt-5.5",
+          display_name: "GPT 5.5",
+          provider: "sub2api",
+          category: "llm",
+          max_tokens: 128000,
+          supports_thinking: true,
+          supports_reasoning_effort: true,
+          supports_vision: false,
+          is_default: true,
+        },
+      ],
+    });
+    const loadHistory = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      loadHistory,
+      sendMessage,
+      messages: [],
+      isSending: false,
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    const effortSelector = await screen.findByTestId("chat-reasoning-selector");
+    expect(effortSelector).toHaveValue("medium");
+    fireEvent.change(effortSelector, { target: { value: "xhigh" } });
+
+    const input = screen.getByPlaceholderText("输入消息... Shift+Enter 换行");
+    fireEvent.change(input, { target: { value: "深度分析这个题目" } });
+    fireEvent.click(screen.getByTestId("chat-send"));
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        "ws-1",
+        "深度分析这个题目",
+        [],
+        { model: "gpt-5.5", reasoning_effort: "xhigh" },
+      ),
+    );
+  });
+
   it("renders user messages with gray bubble", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({

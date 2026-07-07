@@ -934,7 +934,7 @@ export type WorkspaceEvent =
   | WorkspaceSubagentUpdatedEvent
   | WorkspaceComputeSessionEvent;
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface RunRequest {
   message: string;
