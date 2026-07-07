@@ -199,6 +199,37 @@ export interface RunProgressItem {
   hasOutput: boolean;
 }
 
+export interface RunViewMissionStage {
+  id: string;
+  label: string;
+  status: "pending" | "running" | "completed" | "review" | "blocked";
+}
+
+export interface RunViewMissionState {
+  title: string;
+  goal: string;
+  currentStageLabel: string;
+  statusLine: string;
+  stages: RunViewMissionStage[];
+  evidenceSummary: {
+    found: number;
+    verified: number;
+    used: number;
+    risky: number;
+  };
+  reviewSummary: {
+    pending: number;
+    blockers: number;
+    needsConfirmation: number;
+  };
+  critiqueSummary: {
+    status: "not_run" | "pass" | "warning" | "blocked";
+    detail: string | null;
+  };
+  openQuestions: string[];
+  nextActions: string[];
+}
+
 export interface RunView {
   id: string;
   workspaceId: string;
@@ -229,6 +260,7 @@ export interface RunView {
   commitState: ExecutionCommitState | null;
   changeSet: RunViewChangeSet | null;
   changeSetReceipt: RunViewChangeSetReceipt | null;
+  mission: RunViewMissionState | null;
   team?: RunViewTeam | null;
   reviewPacket?: RunViewReviewPacket | null;
   qualityHighlights: RunViewQualityHighlight[];
@@ -357,25 +389,37 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   ].slice(0, 6);
   const commitState = readCommitStateFromResult(record.result);
   const changeSetReceipt = changeSetReceiptFromResult(record.result);
+  const title = runTitleFromExecution(record, taskReport);
+  const summary = runSummaryForState({
+    status,
+    pendingReviewCount,
+    commitState,
+    fallbackSummary: safeRunSummary(
+      status,
+      record.result_summary,
+      taskReport?.narrative,
+      record.message,
+      rawFailureMessage,
+    ),
+  });
+  const mission = missionStateFromExecution(record, {
+    title,
+    summary,
+    taskReport,
+    reviewPacket,
+    evidenceItems,
+    pendingReviewCount,
+    qualityHighlights,
+    progressItems,
+  });
 
   return {
     id: record.id,
     workspaceId: record.workspace_id ?? "",
     capabilityId: record.feature_id ?? stringValue(taskReport?.capability_id),
-    title: runTitleFromExecution(record, taskReport),
+    title,
     status,
-    summary: runSummaryForState({
-      status,
-      pendingReviewCount,
-      commitState,
-      fallbackSummary: safeRunSummary(
-        status,
-        record.result_summary,
-        taskReport?.narrative,
-        record.message,
-        rawFailureMessage,
-      ),
-    }),
+    summary,
     startedAt: record.started_at ?? record.created_at,
     completedAt: record.completed_at ?? null,
     durationLabel: formatDuration(record.started_at ?? record.created_at, record.completed_at),
@@ -400,6 +444,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     commitState,
     changeSet,
     changeSetReceipt,
+    mission,
     team,
     reviewPacket,
     qualityHighlights,
@@ -543,6 +588,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     commitState: null,
     changeSet: null,
     changeSetReceipt: null,
+    mission: null,
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -613,6 +659,7 @@ export function runViewFromResultCard(
     commitState,
     changeSet: null,
     changeSetReceipt: null,
+    mission: null,
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -672,6 +719,7 @@ export function mergeRunViews(
     commitState: live.commitState ?? historical.commitState,
     changeSet: live.changeSet ?? historical.changeSet,
     changeSetReceipt: live.changeSetReceipt ?? historical.changeSetReceipt,
+    mission: live.mission ?? historical.mission,
     team: live.team ?? historical.team,
     reviewPacket: live.reviewPacket ?? historical.reviewPacket,
     qualityHighlights: live.qualityHighlights.length
@@ -714,6 +762,64 @@ function taskReportFromResult(
   return result as TaskReportProjection;
 }
 
+function missionStateFromExecution(
+  record: ExecutionRecord,
+  runFacts: {
+    title: string;
+    summary: string;
+    taskReport: TaskReportProjection | null;
+    reviewPacket: RunViewReviewPacket | null;
+    evidenceItems: RunViewEvidenceItem[];
+    pendingReviewCount: number;
+    qualityHighlights: RunViewQualityHighlight[];
+    progressItems: RunProgressItem[];
+  },
+): RunViewMissionState | null {
+  const researchState =
+    researchStateFromRuntimeState(record.runtime_state) ??
+    researchStateFromTaskReport(runFacts.taskReport);
+  const stages =
+    missionStagesFromProgressItems(runFacts.progressItems) ??
+    missionStagesFromMethodology(record.runtime_state);
+  const currentStage =
+    stages.find((stage) => stage.status === "running") ??
+    stages.find((stage) => stage.status === "review") ??
+    stages.find((stage) => stage.status === "blocked") ??
+    [...stages].reverse().find((stage) => stage.status === "completed") ??
+    stages[0];
+  const reviewSummary = missionReviewSummary(
+    runFacts.reviewPacket,
+    runFacts.pendingReviewCount,
+    runFacts.qualityHighlights,
+  );
+  const critiqueSummary = missionCritiqueSummary(
+    runFacts.reviewPacket,
+    runFacts.qualityHighlights,
+  );
+  const goal =
+    stringValue(researchState?.goal) ??
+    stringValue(runFacts.taskReport?.narrative) ??
+    stringValue(record.message) ??
+    runFacts.title;
+
+  return {
+    title: runFacts.title,
+    goal,
+    currentStageLabel: currentStage?.label ?? "准备材料",
+    statusLine: runFacts.summary,
+    stages: stages.slice(0, 5),
+    evidenceSummary: evidenceVerificationCounts({
+      taskReport: runFacts.taskReport,
+      evidenceItems: runFacts.evidenceItems,
+      researchState,
+    }),
+    reviewSummary,
+    critiqueSummary,
+    openQuestions: stringArrayValue(researchState?.open_questions).slice(0, 3),
+    nextActions: stringArrayValue(researchState?.next_actions).slice(0, 3),
+  };
+}
+
 function isDirectTaskReportProjection(value: Record<string, unknown>): boolean {
   const status = stringValue(value.status);
   return Boolean(
@@ -723,6 +829,215 @@ function isDirectTaskReportProjection(value: Record<string, unknown>): boolean {
         Object.prototype.hasOwnProperty.call(value, field),
       ),
   );
+}
+
+function researchStateFromRuntimeState(
+  runtimeState: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  const direct = objectValue(runtimeState?.research_state);
+  if (looksLikeResearchState(direct)) {
+    return direct;
+  }
+  const nestedCandidates = [
+    objectValue(objectValue(runtimeState?.team)?.research_state),
+    objectValue(objectValue(runtimeState?.workspace_data)?.research_state),
+  ];
+  return nestedCandidates.find((candidate) => looksLikeResearchState(candidate)) ?? null;
+}
+
+function researchStateFromTaskReport(
+  taskReport: TaskReportProjection | null,
+): Record<string, unknown> | null {
+  const candidates = [
+    objectValue(taskReport?.research_state),
+    objectValue(objectValue(taskReport?.workspace_data)?.research_state),
+    objectValue(objectValue(taskReport?.result)?.research_state),
+  ];
+  return candidates.find((candidate) => looksLikeResearchState(candidate)) ?? null;
+}
+
+function looksLikeResearchState(
+  value: Record<string, unknown> | null | undefined,
+): value is Record<string, unknown> {
+  if (!value) {
+    return false;
+  }
+  return (
+    stringValue(value.schema_version) === "wenjin.research_state.v1" ||
+    Boolean(stringValue(value.goal)) ||
+    Array.isArray(value.open_questions) ||
+    Array.isArray(value.next_actions) ||
+    Array.isArray(value.evidence_packet)
+  );
+}
+
+function missionStagesFromProgressItems(
+  progressItems: RunProgressItem[],
+): RunViewMissionStage[] | null {
+  if (!progressItems.length) {
+    return null;
+  }
+  return progressItems.slice(0, 5).map((item) => ({
+    id: item.id,
+    label: missionStageLabel(item.id, item.phaseTitle || item.title),
+    status: missionStageStatus(item.status),
+  }));
+}
+
+function missionStagesFromMethodology(
+  runtimeState: Record<string, unknown> | null | undefined,
+): RunViewMissionStage[] {
+  const candidates = [
+    arrayValue(objectValue(runtimeState?.methodology_contract)?.stages),
+    arrayValue(objectValue(objectValue(runtimeState?.team)?.methodology_contract)?.stages),
+    arrayValue(objectValue(runtimeState?.methodology)?.stages),
+  ];
+  const stages = candidates.find((items) => items.length > 0) ?? [];
+  return stages.slice(0, 5).flatMap((value, index) => {
+    const stage = objectValue(value);
+    const id = stringValue(stage?.id) ?? `stage-${index + 1}`;
+    const label = missionStageLabel(id, stringValue(stage?.purpose) ?? id);
+    if (!label) {
+      return [];
+    }
+    return [
+      {
+        id,
+        label,
+        status: index === 0 ? "running" : "pending",
+      } satisfies RunViewMissionStage,
+    ];
+  });
+}
+
+function missionStageLabel(
+  id: string | null | undefined,
+  fallback?: string | null,
+): string {
+  const rawId = stringValue(id) ?? "";
+  if (TEAM_KERNEL_PROGRESS_LABELS[rawId as keyof typeof TEAM_KERNEL_PROGRESS_LABELS]) {
+    return TEAM_KERNEL_PROGRESS_LABELS[rawId as keyof typeof TEAM_KERNEL_PROGRESS_LABELS];
+  }
+  const candidate = stringValue(fallback);
+  if (candidate && containsCjk(candidate) && !looksTechnicalName(candidate)) {
+    return candidate;
+  }
+  return executionPhaseDisplayName(candidate ?? rawId);
+}
+
+function missionStageStatus(value: string | null | undefined): RunViewMissionStage["status"] {
+  if (value === "completed") return "completed";
+  if (value === "running" || value === "launching") return "running";
+  if (value === "failed_partial") return "review";
+  if (value === "failed" || value === "cancelled") return "blocked";
+  return "pending";
+}
+
+function missionReviewSummary(
+  reviewPacket: RunViewReviewPacket | null,
+  pendingReviewCount: number,
+  qualityHighlights: RunViewQualityHighlight[],
+): RunViewMissionState["reviewSummary"] {
+  const warningCount = qualityHighlights.filter((item) => item.status === "warning").length;
+  return {
+    pending: pendingReviewCount,
+    blockers: reviewPacket?.blockerCount ?? 0,
+    needsConfirmation: Math.max(reviewPacket?.needsConfirmationCount ?? 0, warningCount),
+  };
+}
+
+function missionCritiqueSummary(
+  reviewPacket: RunViewReviewPacket | null,
+  qualityHighlights: RunViewQualityHighlight[],
+): RunViewMissionState["critiqueSummary"] {
+  const blocker = reviewPacket?.items.find((item) => item.supportState === "blocker");
+  if (blocker) {
+    return {
+      status: "blocked",
+      detail: blocker.summary || blocker.title,
+    };
+  }
+  const failingHighlight = qualityHighlights.find((item) => item.status === "fail");
+  if (failingHighlight) {
+    return {
+      status: "blocked",
+      detail: failingHighlight.detail,
+    };
+  }
+  const warningHighlight = qualityHighlights.find((item) => item.status === "warning");
+  if (warningHighlight) {
+    return {
+      status: "warning",
+      detail: warningHighlight.detail,
+    };
+  }
+  const passingHighlight = qualityHighlights.find((item) => item.status === "pass");
+  if (passingHighlight) {
+    return {
+      status: "pass",
+      detail: passingHighlight.detail,
+    };
+  }
+  return {
+    status: "not_run",
+    detail: null,
+  };
+}
+
+function evidenceVerificationCounts({
+  taskReport,
+  evidenceItems,
+  researchState,
+}: {
+  taskReport: TaskReportProjection | null;
+  evidenceItems: RunViewEvidenceItem[];
+  researchState: Record<string, unknown> | null;
+}): RunViewMissionState["evidenceSummary"] {
+  const evidencePacket = arrayValue(researchState?.evidence_packet);
+  const foundEvidenceIds = new Set<string>();
+  const verifiedEvidenceIds = new Set<string>();
+
+  for (const value of evidencePacket) {
+    const item = objectValue(value);
+    const evidenceId =
+      stringValue(item?.evidence_id) ??
+      stringValue(item?.id) ??
+      stringValue(item?.ref_id);
+    if (!evidenceId) continue;
+    foundEvidenceIds.add(evidenceId);
+    const verification =
+      stringValue(item?.verification_status) ??
+      stringValue(item?.status) ??
+      stringValue(item?.verification);
+    if (verification === "verified" || verification === "supported" || verification === "pass") {
+      verifiedEvidenceIds.add(evidenceId);
+    }
+  }
+
+  if (foundEvidenceIds.size === 0) {
+    for (const item of evidenceItems) {
+      for (const ref of item.evidenceRefs ?? []) {
+        foundEvidenceIds.add(ref);
+      }
+    }
+  }
+
+  const usedEvidenceIds = new Set<string>();
+  const reviewPacketItems = arrayValue(objectValue(taskReport?.review_packet)?.items);
+  for (const value of reviewPacketItems) {
+    const item = objectValue(value);
+    for (const ref of stringArrayValue(item?.evidence_refs)) {
+      usedEvidenceIds.add(ref);
+    }
+  }
+
+  const risky = evidenceItems.filter((item) => item.riskLevel === "warning" || item.riskLevel === "high").length;
+  return {
+    found: foundEvidenceIds.size,
+    verified: verifiedEvidenceIds.size,
+    used: usedEvidenceIds.size,
+    risky,
+  };
 }
 
 function reviewItemsFromTaskReport(

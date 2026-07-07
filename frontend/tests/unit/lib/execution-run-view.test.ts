@@ -990,4 +990,206 @@ describe("execution run view projection", () => {
     expect(merged.hasPrismChanges).toBe(true);
     expect(merged.actions).toContain("open_prism");
   });
+
+  it("projects an active TeamKernel mission with human stage labels", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        display_name: "联邦学习文献综述",
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [
+            { id: "team_prepare", type: "system", label: "team_prepare" },
+            { id: "team_recruit", type: "system", label: "team_recruit" },
+            { id: "team_dispatch", type: "system", label: "team_dispatch" },
+            { id: "team_quality_gate", type: "system", label: "team_quality_gate" },
+            { id: "team_finish", type: "system", label: "team_finish" },
+          ],
+          edges: [],
+        } as ExecutionRecord["graph_structure"],
+        node_states: {
+          "research_scout.v1__1": {
+            status: "completed",
+            node_type: "agent_invocation",
+            node_metadata: {
+              team: true,
+              template_id: "research_scout.v1",
+              display_name: "文献检索专家",
+            },
+          },
+          "literature_synthesizer.v1__1": {
+            status: "running",
+            node_type: "agent_invocation",
+            node_metadata: {
+              team: true,
+              template_id: "literature_synthesizer.v1",
+              display_name: "文献综合专家",
+            },
+          },
+        } as ExecutionRecord["node_states"],
+        runtime_state: {
+          research_state: {
+            schema_version: "wenjin.research_state.v1",
+            execution_id: "exec-1",
+            goal: "梳理联邦学习与大模型微调的研究空白",
+          },
+        },
+      }),
+    );
+
+    expect(view.mission).toMatchObject({
+      title: "联邦学习文献综述",
+      goal: "梳理联邦学习与大模型微调的研究空白",
+      currentStageLabel: "查找证据并起草内容",
+    });
+    expect(view.mission?.stages.map((stage) => stage.label)).toEqual([
+      "准备材料",
+      "组织研究小组",
+      "查找证据并起草内容",
+      "检查质量",
+      "等待复核",
+    ]);
+    expect(view.mission?.stages[2]?.status).toBe("running");
+  });
+
+  it("marks mission critique as blocked when the review packet has blockers", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "failed_partial",
+        result: {
+          task_report: {
+            narrative: "初步结论仍缺关键证据。",
+            review_packet: {
+              packet_id: "packet-1",
+              title: "研究候选结果",
+              summary: "存在阻断项。",
+              completion_status: "partial",
+              items: [
+                {
+                  item_id: "warning-1",
+                  kind: "warning",
+                  title: "关键论断缺证据",
+                  summary: "核心比较缺少直接来源。",
+                  risk: { level: "high" },
+                  can_commit: false,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.critiqueSummary).toEqual({
+      status: "blocked",
+      detail: "核心比较缺少直接来源。",
+    });
+    expect(view.mission?.reviewSummary.blockers).toBe(1);
+  });
+
+  it("bounds research-state open questions and next actions in the mission projection", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        runtime_state: {
+          research_state: {
+            schema_version: "wenjin.research_state.v1",
+            execution_id: "exec-1",
+            goal: "确认论文研究路线",
+            open_questions: [
+              "Q1",
+              "Q2",
+              "Q3",
+              "Q4",
+            ],
+            next_actions: [
+              "A1",
+              "A2",
+              "A3",
+              "A4",
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.openQuestions).toEqual(["Q1", "Q2", "Q3"]);
+    expect(view.mission?.nextActions).toEqual(["A1", "A2", "A3"]);
+  });
+
+  it("separates used evidence from merely found evidence in mission counts", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        result: {
+          task_report: {
+            review_packet: {
+              packet_id: "packet-1",
+              title: "研究候选结果",
+              summary: "已有候选。",
+              completion_status: "complete",
+              items: [
+                {
+                  item_id: "artifact-1",
+                  kind: "artifact",
+                  title: "文献证据包",
+                  summary: "候选结论引用了两条证据。",
+                  evidence_refs: ["ev-1", "ev-2"],
+                  artifact_refs: ["artifact:/workspace/outputs/evidence.md"],
+                },
+              ],
+            },
+            research_state: {
+              schema_version: "wenjin.research_state.v1",
+              execution_id: "exec-1",
+              goal: "补全文献证据链",
+              evidence_packet: [
+                { evidence_id: "ev-1", verification_status: "verified" },
+                { evidence_id: "ev-2", verification_status: "verified" },
+                { evidence_id: "ev-3", verification_status: "verified" },
+                { evidence_id: "ev-4", verification_status: "pending" },
+              ],
+            },
+          },
+        },
+        node_states: {
+          scout: {
+            status: "completed",
+            output: {
+              claim_evidence_map: [
+                {
+                  claim_id: "claim-1",
+                  claim_text: "发现四条相关证据",
+                  citation_keys: ["C1"],
+                  evidence_refs: ["ev-1", "ev-2", "ev-3", "ev-4"],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.evidenceSummary).toEqual({
+      found: 4,
+      verified: 3,
+      used: 2,
+      risky: 0,
+    });
+  });
+
+  it("returns a null mission when there is no selected execution state to project", () => {
+    const view = runViewFromRunRecord(
+      {
+        id: "run-2",
+        workspace_id: "ws-1",
+        capability_id: "cap-2",
+        capability_name: "论文研究包",
+        status: "completed",
+        started_at: "2026-05-22T00:00:00Z",
+        completed_at: "2026-05-22T00:01:00Z",
+        summary: "done",
+      },
+      "ws-1",
+    );
+
+    expect(view.mission).toBeNull();
+  });
 });
