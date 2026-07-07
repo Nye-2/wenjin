@@ -85,6 +85,31 @@ describe("ChatPanel v2", () => {
     );
   });
 
+  it("does not render a feature menu from the features prop", () => {
+    render(
+      <ChatPanel
+        workspaceId="ws-1"
+        workspaceName="科研工作台"
+        typeConfig={WORKSPACE_TYPE_CONFIG.sci}
+        features={[
+          {
+            id: "sci_literature_positioning",
+            name: "文献定位与创新点",
+            description: "建立相关工作、gap 和 contribution positioning",
+            icon: "book-open",
+            stages: [],
+          },
+        ]}
+        data-testid="chat-panel"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "文献定位与创新点" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("建立相关工作、gap 和 contribution positioning"),
+    ).not.toBeInTheDocument();
+  });
+
   it("loads chat models into the composer selector from the model catalog", async () => {
     mockListModels.mockResolvedValueOnce({
       models: [

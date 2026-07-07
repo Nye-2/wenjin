@@ -445,6 +445,87 @@ describe("live workflow view model", () => {
     ).toBe("review");
   });
 
+  it("reports no mission activity when there are no records", () => {
+    const model = buildLiveWorkflowViewModel({
+      records: [],
+      workspaceId: "ws-1",
+      selectedRunId: null,
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+    });
+
+    expect(model.selectedRunView).toBeNull();
+    expect(model.hasMissionActivity).toBe(false);
+  });
+
+  it("reports mission activity for active, review, evidence, and selected completed runs", () => {
+    const activeModel = buildLiveWorkflowViewModel({
+      records: [runningRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "run-1",
+      focusedRunId: null,
+      activeRunId: "run-1",
+      selectedPreviewId: null,
+    });
+    expect(activeModel.hasMissionActivity).toBe(true);
+    expect(activeModel.selectedRunView?.mission).not.toBeNull();
+
+    const reviewModel = buildLiveWorkflowViewModel({
+      records: [changeSetOnlyRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "changes-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+    });
+    expect(reviewModel.pendingReviewCount).toBeGreaterThan(0);
+    expect(reviewModel.hasMissionActivity).toBe(true);
+
+    const evidenceModel = buildLiveWorkflowViewModel({
+      records: [sandboxRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "sandbox-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+    });
+    expect(evidenceModel.evidenceItems).toHaveLength(1);
+    expect(evidenceModel.hasMissionActivity).toBe(true);
+
+    const completedModel = buildLiveWorkflowViewModel({
+      records: [completedRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "done-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+    });
+    expect(completedModel.selectedRunView?.mission).not.toBeNull();
+    expect(completedModel.hasMissionActivity).toBe(true);
+  });
+
+  it("keeps review as the auto tab when pending review exists alongside evidence", () => {
+    const model = buildLiveWorkflowViewModel({
+      records: [completedRecord, sandboxRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "done-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+    });
+
+    expect(
+      resolveAutoWorkbenchTab({
+        selectedRecord: model.selectedRecord,
+        previews: model.previews,
+        reviewItems: model.reviewItems,
+        evidenceItems: model.evidenceItems,
+        pendingReviewCount: model.pendingReviewCount,
+      }),
+    ).toBe("review");
+  });
+
   it("projects sandbox figure review items into the review preview list", () => {
     const record = baseRecord({
       id: "figure-review-1",

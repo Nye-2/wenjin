@@ -1076,65 +1076,6 @@ describe("LiveWorkflowPanel", () => {
     }
   });
 
-  it("routes direct capability picks through canonical orchestration metadata", async () => {
-    const sendMessage = vi.fn().mockResolvedValue(undefined);
-    useChatStoreV2.setState({ sendMessage });
-
-    render(
-      <LiveWorkflowPanel
-        workspaceId="ws-1"
-        features={[
-          {
-            id: "sci_literature_positioning",
-            name: "文献定位与创新点",
-            description: "建立相关工作、gap 和 contribution positioning",
-            icon: "book-open",
-            stages: [],
-          },
-        ]}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "文献定位与创新点" }));
-
-    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
-    const [, prompt, , options] = sendMessage.mock.calls[0];
-    expect(prompt).toContain("我想使用「文献定位与创新点」能力。");
-    expect(prompt).toContain("请先确认启动所需的具体研究主题、材料或目标");
-    expect(options.metadata.orchestration.feature_id).toBe("sci_literature_positioning");
-  });
-
-  it("routes super workflow capability picks into intake mode instead of direct launch", async () => {
-    const sendMessage = vi.fn().mockResolvedValue(undefined);
-    useChatStoreV2.setState({ sendMessage });
-
-    render(
-      <LiveWorkflowPanel
-        workspaceId="ws-1"
-        features={[
-          {
-            id: "software_copyright_application_pack",
-            name: "软著申报材料包",
-            description: "一步生成软著申报书、说明书、mock 代码和静态页面截图",
-            icon: "file-text",
-            stages: [],
-          },
-        ]}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "软著申报材料包" }));
-
-    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
-    const [, prompt, , options] = sendMessage.mock.calls[0];
-    expect(prompt).toContain("先帮我梳理软著申报材料包的执行 Spec");
-    expect(options.metadata.orchestration).toBeUndefined();
-    expect(options.metadata.workbench_launch).toMatchObject({
-      capability_id: "software_copyright_application_pack",
-      mode: "intake",
-    });
-  });
-
   it("previews the latest intake spec and approves execution through chat launch metadata", async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     useChatStoreV2.setState({
@@ -1283,31 +1224,57 @@ describe("LiveWorkflowPanel", () => {
     });
   });
 
-  it("keeps the idle overview focused on task launch instead of empty dashboard controls", () => {
-    render(
-      <LiveWorkflowPanel
-        workspaceId="ws-1"
-        features={[
-          {
-            id: "sci_literature_positioning",
-            name: "文献定位与创新点",
-            description: "建立相关工作、gap 和 contribution positioning",
-            icon: "book-open",
-            stages: [],
-          },
-        ]}
-      />,
-    );
+  it("keeps the idle overview in a chat-first empty state without capability launchers", () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({ sendMessage });
 
-    expect(screen.queryByRole("button", { name: "中断并补充" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "文献定位与创新点" })).toBeInTheDocument();
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
     expect(
-      screen.queryByRole("button", {
-        name: /建立相关工作、gap 和 contribution positioning/,
-      }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("正在处理")).not.toBeInTheDocument();
-    expect(screen.queryByText("还没有运行记录")).not.toBeInTheDocument();
+      screen.getAllByText("还没有正在执行的研究任务。直接在左侧描述你想推进的论文、实验或材料。").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "文献定位与创新点" })).not.toBeInTheDocument();
+    expect(screen.queryByText("能力已就绪")).not.toBeInTheDocument();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not send a launch prompt from overview interactions", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({ sendMessage });
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useExecutionStore.getState().upsertExecution(makeSecondCompletedRecord());
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "总览" }));
+    fireEvent.click(await screen.findByRole("button", { name: "打开当前运行" }));
+
+    await waitFor(() =>
+      expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run"),
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("shows mission progress in overview for an active run", async () => {
+    useExecutionStore.getState().upsertExecution(makeTeamRunningRecord());
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "总览" }));
+    expect(await screen.findByText("当前任务")).toBeInTheDocument();
+    expect(screen.getAllByText("团队调研").length).toBeGreaterThan(0);
+    expect(screen.getByText("准备材料")).toBeInTheDocument();
+  });
+
+  it("keeps review prioritized when pending review exists", async () => {
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    await waitFor(() =>
+      expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review"),
+    );
+    expect(screen.getByRole("heading", { name: "复核与保存" })).toBeVisible();
   });
 });
 

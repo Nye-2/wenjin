@@ -1,145 +1,181 @@
 import {
   Activity,
+  ArrowRight,
   ClipboardList,
   Database,
-  FileCheck2,
-  PlayCircle,
+  History,
 } from "lucide-react";
 
-import type { ExecutionRecord, WorkspaceCapability } from "@/lib/api/types";
+import type { ExecutionRecord } from "@/lib/api/types";
+import type { RunViewMissionState } from "@/lib/execution-run-view";
 import { runViewFromExecution } from "@/lib/execution-run-view";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 
-import { EmptyState, GuidanceNote, MetricCard, StatusPill } from "./shared";
+import { EmptyState, MetricCard, StatusPill } from "./shared";
 import { styles } from "./styles";
 import { isTerminalStatus } from "./utils";
 
-export function OverviewView({
-  typeConfig,
-  features,
-  records,
-  pendingReviewCount,
-  evidenceCount,
-  isSending,
-  onLaunchFeature,
-  onOpenRun,
-}: {
+interface OverviewViewProps {
   typeConfig?: WorkspaceTypeConfig;
-  features: WorkspaceCapability[];
+  mission: RunViewMissionState | null;
   records: ExecutionRecord[];
   pendingReviewCount: number;
   evidenceCount: number;
-  isSending: boolean;
-  onLaunchFeature: (feature: WorkspaceCapability) => void;
+  hasMissionActivity: boolean;
   onOpenRun: (runId: string) => void;
-}) {
+}
+
+export function OverviewView({
+  typeConfig,
+  mission,
+  records,
+  pendingReviewCount,
+  evidenceCount,
+  hasMissionActivity,
+  onOpenRun,
+}: OverviewViewProps) {
   const runningCount = records.filter((record) => !isTerminalStatus(record.status)).length;
   const completedCount = records.filter((record) => isTerminalStatus(record.status)).length;
-  const hasActivity =
-    records.length > 0 || pendingReviewCount > 0 || evidenceCount > 0;
-  const hasSoftwareCopyrightPack = features.some(
-    (feature) => feature.id === "software_copyright_application_pack",
-  );
-  const hasMathModelingPack = features.some(
-    (feature) => feature.id === "math_modeling_paper_pack",
-  );
-  const overviewCopy = hasSoftwareCopyrightPack
-    ? {
-        subtitle:
-          "先把软件名称、形态、语言和功能重点写成澄清 Spec；确认后再生成申报材料包。",
-        metaHint: "先写 Spec，确认后执行",
-        guidance:
-          "轻量问题可直接在左侧问；要生成完整软著材料包时，从这里进入澄清 Spec。",
-        note:
-          "软著材料包会按 mock 后端代码、静态前端页面截图、说明书和材料清单组织。",
-      }
-    : hasMathModelingPack
-      ? {
-          subtitle:
-            "先提交赛题题面和数据附件，问津会整理建模论文包 Spec；确认后再执行。",
-          metaHint: "先写 Spec，确认后执行",
-          guidance:
-            "没有赛题时可先在左侧讨论思路；正式生成论文包前，请先进入澄清 Spec。",
-          note:
-            "数模执行默认使用 Python，并按高教社杯论文格式组织模型、图表和 LaTeX 初稿。",
-        }
-      : {
-          subtitle:
-            "选择一个方向后，问津会先确认主题、材料和目标；信息足够时再启动研究团队。",
-          metaHint: "先确认信息，再进入团队任务",
-          guidance:
-            "如果你只是想问概念、改一句话或讨论选题，直接在左侧输入即可，不需要先点能力。",
-          note:
-            "能力入口适合长任务：文献、写作、实验和成稿。轻量问题直接聊天，会更快。",
-        };
+  const latestRun = records[0] ?? null;
+  const recentRuns = records.slice(0, 4);
+  const nextAction = mission?.nextActions[0] ?? mission?.openQuestions[0] ?? null;
+
   return (
     <div style={styles.viewStack}>
       <section style={styles.primarySection}>
         <div style={styles.sectionHeader}>
           <div>
-            <div style={styles.sectionTitle}>{typeConfig?.title ?? "能力启动台"}</div>
+            <div style={styles.sectionTitle}>{typeConfig?.title ?? "研究工作台"}</div>
             <div style={styles.sectionSubtitle}>
-              {overviewCopy.subtitle}
+              {mission?.statusLine ??
+                (hasMissionActivity
+                  ? "右侧会跟随运行、证据和复核状态持续更新。"
+                  : "任务启动后，这里会汇总当前进度、证据和复核动作。")}
             </div>
           </div>
+          {latestRun ? (
+            <button
+              type="button"
+              onClick={() => onOpenRun(latestRun.id)}
+              style={styles.missionActionButton}
+            >
+              打开当前运行
+              <ArrowRight size={14} />
+            </button>
+          ) : null}
         </div>
-        {features.length > 0 ? (
-          <>
-            <div style={styles.featureGrid}>
-              {features.slice(0, 10).map((feature) => {
-                const description =
-                  feature.description || "启动该能力并展示关键进展和结果";
-                const descriptionId = `capability-${feature.id.replace(/[^a-zA-Z0-9_-]/g, "-")}-description`;
 
-                return (
-                  <button
-                    key={feature.id}
-                    type="button"
-                    disabled={isSending}
-                    aria-label={feature.name}
-                    aria-describedby={descriptionId}
-                    onClick={() => onLaunchFeature(feature)}
-                    style={styles.featureButton}
-                  >
-                    <PlayCircle size={16} />
-                    <span style={{ minWidth: 0 }}>
-                      <span style={styles.featureTitle}>{feature.name}</span>
-                      <span
-                        id={descriptionId}
-                        style={styles.featureDescription}
-                      >
-                        {description}
-                      </span>
-                      <span style={styles.featureMetaHint}>
-                        {overviewCopy.metaHint}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+        {mission ? (
+          <div style={styles.missionConsole}>
+            <div style={styles.missionHeader}>
+              <div style={styles.missionLabel}>当前任务</div>
+              <div style={styles.missionTitleRow}>
+                <div style={styles.missionTitle}>{mission.title}</div>
+                {latestRun ? <StatusPill status={latestRun.status} /> : null}
+              </div>
+              <div style={styles.missionGoal}>{mission.goal}</div>
             </div>
-            <div style={styles.featureGuidance}>
-              {overviewCopy.guidance}
+
+            <div style={styles.missionStageRow}>
+              {mission.stages.map((stage) => (
+                <div
+                  key={stage.id}
+                  style={{
+                    ...styles.missionStageChip,
+                    ...(stage.status === "running"
+                      ? styles.missionStageChipActive
+                      : stage.status === "completed"
+                        ? styles.missionStageChipDone
+                        : stage.status === "review"
+                          ? styles.missionStageChipReview
+                          : stage.status === "blocked"
+                            ? styles.missionStageChipBlocked
+                            : null),
+                  }}
+                >
+                  {stage.label}
+                </div>
+              ))}
             </div>
-            <GuidanceNote>
-              {overviewCopy.note}
-            </GuidanceNote>
-          </>
+
+            <div style={styles.summaryStrip}>
+              <MetricCard
+                icon={Activity}
+                label="阶段"
+                value={mission.currentStageLabel}
+                detail="当前推进位置"
+              />
+              <MetricCard
+                icon={Database}
+                label="证据"
+                value={String(mission.evidenceSummary.used)}
+                detail={`已发现 ${mission.evidenceSummary.found} · 风险 ${mission.evidenceSummary.risky}`}
+              />
+              <MetricCard
+                icon={ClipboardList}
+                label="复核"
+                value={String(mission.reviewSummary.pending)}
+                detail={`阻塞 ${mission.reviewSummary.blockers} · 待确认 ${mission.reviewSummary.needsConfirmation}`}
+              />
+            </div>
+
+            {nextAction ? (
+              <div style={styles.missionNextAction}>
+                <span style={styles.missionLabel}>下一步</span>
+                <span style={styles.missionNextActionText}>{nextAction}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : hasMissionActivity ? (
+          <div style={styles.missionIdleState}>
+            <div style={styles.missionLabel}>当前任务</div>
+            <div style={styles.sectionSubtitle}>
+              右侧会随着运行、证据和复核状态更新；先打开最近一次任务即可继续查看。
+            </div>
+          </div>
         ) : (
-          <EmptyState title="暂无可启动能力" detail="能力目录加载后会显示在这里。" />
+          <EmptyState
+            title="等待左侧发起研究任务"
+            detail="还没有正在执行的研究任务。直接在左侧描述你想推进的论文、实验或材料。"
+          />
         )}
+
+        {latestRun && (records.length > 0 || evidenceCount > 0) ? (
+          <div style={styles.missionActionRow}>
+            {records.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => onOpenRun(latestRun.id)}
+                style={styles.missionActionButton}
+              >
+                <History size={14} />
+                查看最近运行
+              </button>
+            ) : null}
+            {evidenceCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => onOpenRun(latestRun.id)}
+                style={styles.missionActionButton}
+              >
+                <Database size={14} />
+                查看证据摘要
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
-      {hasActivity ? (
+      {hasMissionActivity ? (
         <div style={styles.summaryStrip}>
           <MetricCard icon={Activity} label="正在处理" value={String(runningCount)} detail="进行中的任务" />
           <MetricCard icon={Database} label="证据" value={String(evidenceCount)} detail="已沉淀材料" />
-          <MetricCard icon={ClipboardList} label="结果" value={String(pendingReviewCount)} detail="已写入或待处理" />
-          <MetricCard icon={FileCheck2} label="最近完成" value={String(completedCount)} detail="可回看任务" />
+          <MetricCard icon={ClipboardList} label="结果" value={String(pendingReviewCount)} detail="待复核或待保存" />
+          <MetricCard icon={History} label="最近完成" value={String(completedCount)} detail="可回看任务" />
         </div>
       ) : null}
 
-      {records.length > 0 ? (
+      {recentRuns.length > 0 ? (
         <section style={styles.section}>
           <div style={styles.sectionHeader}>
             <div>
@@ -148,7 +184,7 @@ export function OverviewView({
             </div>
           </div>
           <div style={styles.runList}>
-            {records.slice(0, 6).map((record) => {
+            {recentRuns.map((record) => {
               const view = runViewFromExecution(record);
               return (
                 <button
@@ -159,9 +195,7 @@ export function OverviewView({
                 >
                   <span style={styles.runListMain}>
                     <span style={styles.runListTitle}>{view.title}</span>
-                    <span style={styles.runListMeta}>
-                      {view.durationLabel ?? "计时中"} · {view.completedNodeCount ?? 0}/{view.nodeCount ?? 0} 步
-                    </span>
+                    <span style={styles.runListMeta}>{view.summary}</span>
                   </span>
                   <StatusPill status={view.status} />
                 </button>

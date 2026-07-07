@@ -330,7 +330,6 @@ export default function V2Page({
             <LiveWorkflowPanel
               workspaceId={id}
               typeConfig={typeConfig ?? undefined}
-              features={features}
               className="h-full"
               data-testid="workflow-panel"
             />

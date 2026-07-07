@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import type { ExecutionRecord, WorkspacePrismReviewItem } from "@/lib/api/types";
 import type { RunViewChangeSet } from "@/lib/change-set-view";
+import type { RunView, RunViewMissionState } from "@/lib/execution-run-view";
 import { runViewFromExecution } from "@/lib/execution-run-view";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import type { WorkbenchTab } from "@/stores/workbench-layout-store";
@@ -21,6 +22,8 @@ export interface LiveWorkflowViewModelInput {
 export interface LiveWorkflowViewModel {
   records: ExecutionRecord[];
   selectedRecord: ExecutionRecord | null;
+  selectedRunView: RunView | null;
+  mission: RunViewMissionState | null;
   previews: WorkspaceResultPreview[];
   reviewItems: WorkspacePrismReviewItem[];
   evidenceItems: EvidenceItem[];
@@ -29,6 +32,7 @@ export interface LiveWorkflowViewModel {
   changeSet: RunViewChangeSet | null;
   pendingReviewCount: number;
   sandboxCount: number;
+  hasMissionActivity: boolean;
 }
 
 export function selectLiveWorkflowRecords({
@@ -134,11 +138,11 @@ export function buildLiveWorkflowViewModel(
     focusedRunId: input.focusedRunId,
     activeRunId: input.activeRunId,
   });
-  const runView = selectedRecord ? runViewFromExecution(selectedRecord) : null;
-  const previews = runView?.resultPreviews ?? [];
-  const reviewItems = runView?.reviewItems ?? [];
-  const evidenceItems = runView?.evidenceItems ?? [];
-  const changeSet = runView?.changeSet ?? null;
+  const selectedRunView = selectedRecord ? runViewFromExecution(selectedRecord) : null;
+  const previews = selectedRunView?.resultPreviews ?? [];
+  const reviewItems = selectedRunView?.reviewItems ?? [];
+  const evidenceItems = selectedRunView?.evidenceItems ?? [];
+  const changeSet = selectedRunView?.changeSet ?? null;
   const selectedPreview =
     previews.find((preview) => preview.id === input.selectedPreviewId) ??
     previews[0] ??
@@ -146,12 +150,21 @@ export function buildLiveWorkflowViewModel(
   const runningRecord = selectedRecord && !isTerminalStatus(selectedRecord.status)
     ? selectedRecord
     : records.find((record) => !isTerminalStatus(record.status)) ?? null;
-  const pendingReviewCount = runView?.pendingReviewCount ?? 0;
-  const sandboxCount = runView?.sandboxCount ?? 0;
+  const pendingReviewCount = selectedRunView?.pendingReviewCount ?? 0;
+  const sandboxCount = selectedRunView?.sandboxCount ?? 0;
+  const mission = selectedRunView?.mission ?? null;
+  const hasMissionActivity =
+    Boolean(selectedRecord) ||
+    Boolean(runningRecord) ||
+    pendingReviewCount > 0 ||
+    evidenceItems.length > 0 ||
+    Boolean(mission);
 
   return {
     records,
     selectedRecord,
+    selectedRunView,
+    mission,
     previews,
     reviewItems,
     evidenceItems,
@@ -160,6 +173,7 @@ export function buildLiveWorkflowViewModel(
     changeSet,
     pendingReviewCount,
     sandboxCount,
+    hasMissionActivity,
   };
 }
 

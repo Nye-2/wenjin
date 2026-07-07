@@ -3,9 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
-import type {
-  WorkspaceCapability,
-} from "@/lib/api/types";
 import {
   acceptExecutionChangeSetUnits,
   rejectExecutionChangeSetUnits,
@@ -20,7 +17,6 @@ import {
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
   findLatestIntakeSpec,
-  isSuperWorkflowCapability,
   type IntakeSpecV1,
 } from "@/lib/intake-spec";
 import { filterVisibleWorkspaceResultItems } from "@/lib/workspace-result-kind";
@@ -56,7 +52,6 @@ import type { WorkbenchTab } from "@/stores/workbench-layout-store";
 interface LiveWorkflowPanelProps {
   workspaceId: string;
   typeConfig?: WorkspaceTypeConfig;
-  features?: WorkspaceCapability[];
   className?: string;
   "data-testid"?: string;
 }
@@ -64,7 +59,6 @@ interface LiveWorkflowPanelProps {
 export function LiveWorkflowPanel({
   workspaceId,
   typeConfig,
-  features = [],
   className,
   "data-testid": testId,
 }: LiveWorkflowPanelProps) {
@@ -124,12 +118,14 @@ export function LiveWorkflowPanel({
   const {
     records,
     selectedRecord,
+    mission,
     previews,
     reviewItems,
     evidenceItems,
     runningRecord,
     changeSet,
     pendingReviewCount,
+    hasMissionActivity,
   } = useLiveWorkflowViewModel({
     records: executionRecords,
     workspaceId,
@@ -337,54 +333,6 @@ export function LiveWorkflowPanel({
     return () => window.clearTimeout(timer);
   }, [interventionState.executionId, interventionState.sent]);
 
-  async function handleLaunchFeature(feature: WorkspaceCapability) {
-    if (isSending) {
-      return;
-    }
-    if (isSuperWorkflowCapability(feature.id)) {
-      const prompt =
-        feature.id === "software_copyright_application_pack"
-          ? [
-              "先帮我梳理软著申报材料包的执行 Spec。",
-              "请通过对话确认：我要做一个什么软件、软件名称、Web 还是 App、后端语言偏好，以及是否有必须强调的功能点。",
-              "Spec 写好后生成一张澄清卡片，等我同意后再开始执行。",
-            ].join("\n")
-          : [
-              "先帮我梳理数学建模论文生成的执行 Spec。",
-              "请通过对话确认题目、数据、竞赛格式和需要强调的建模方向。编程统一使用 Python，不要询问语言。",
-              "Spec 写好后生成一张澄清卡片，等我同意后再开始执行。",
-            ].join("\n");
-      setActiveWorkbenchTab("spec");
-      await sendMessage(workspaceId, prompt, [], {
-        metadata: {
-          workbench_launch: {
-            capability_id: feature.id,
-            capability_name: feature.name,
-            mode: "intake",
-          },
-        },
-      });
-      return;
-    }
-    const prompt = [
-      `我想使用「${feature.name}」能力。`,
-      "请先确认启动所需的具体研究主题、材料或目标；信息足够时再组织研究团队。",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    await sendMessage(workspaceId, prompt, [], {
-      metadata: {
-        orchestration: {
-          feature_id: feature.id,
-        },
-        workbench_launch: {
-          capability_id: feature.id,
-          capability_name: feature.name,
-        },
-      },
-    });
-  }
-
   async function handleApproveIntakeSpec(spec: IntakeSpecV1) {
     if (isSending || spec.status !== "ready" || spec.missing_fields.length > 0) {
       return;
@@ -585,12 +533,11 @@ export function LiveWorkflowPanel({
         {visibleWorkbenchTab === "overview" ? (
           <OverviewView
             typeConfig={typeConfig}
-            features={features}
+            mission={mission}
             records={records}
             pendingReviewCount={pendingReviewCount}
             evidenceCount={evidenceItems.length}
-            isSending={isSending}
-            onLaunchFeature={(feature) => void handleLaunchFeature(feature)}
+            hasMissionActivity={hasMissionActivity}
             onOpenRun={(runId) => {
               selectRun(runId);
               setActiveWorkbenchTab("run");
