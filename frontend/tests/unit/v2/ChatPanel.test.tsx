@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
-import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
+import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-type-config";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
@@ -40,22 +40,20 @@ describe("ChatPanel v2", () => {
     ).toBeInTheDocument();
   });
 
-  it("defines intake guidance for student-heavy workspace types", () => {
-    for (const workspaceType of [
-      "thesis",
-      "math_modeling",
-      "patent",
-      "software_copyright",
-    ] as const) {
-      const guidance = WORKSPACE_TYPE_CONFIG[workspaceType].intakeGuidance;
-      expect(guidance?.checklist.length).toBeGreaterThanOrEqual(4);
-      expect(guidance?.chips.length).toBeGreaterThanOrEqual(3);
+  it("defines branded welcome prompts for every workspace type", () => {
+    for (const config of Object.values(WORKSPACE_TYPE_CONFIG)) {
+      expect(config.welcome.eyebrow).toContain("问津");
+      expect(config.welcome.body).toContain("问津");
+      expect(config.welcome.chips.length).toBeGreaterThanOrEqual(3);
+      expect(config.welcome.chips.length).toBeLessThanOrEqual(4);
     }
   });
 
-  it("renders intake checklist and sends intake chip prompts", async () => {
+  it("renders a non-persistent welcome and fills the composer from chips", async () => {
+    const loadHistory = vi.fn().mockResolvedValue(null);
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     useChatStoreV2.setState({
+      loadHistory,
       sendMessage,
       messages: [],
       isSending: false,
@@ -70,22 +68,20 @@ describe("ChatPanel v2", () => {
       />,
     );
 
-    expect(screen.getByText("先准备这些信息")).toBeInTheDocument();
-    expect(screen.getByText("论文题目或研究方向")).toBeInTheDocument();
+    expect(await screen.findByTestId("workspace-welcome")).toHaveTextContent(
+      "问津 · 论文工作台",
+    );
+    expect(screen.queryByText("先准备这些信息")).not.toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "我有题目和初稿，帮我梳理下一步",
+        name: "确定选题",
       }),
     );
 
-    await waitFor(() =>
-      expect(sendMessage).toHaveBeenCalledWith(
-        "ws-1",
-        "我有题目和初稿，帮我梳理下一步",
-        [],
-        undefined,
-      ),
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chat-composer-input")).toHaveValue(
+      "我想先确定一个更稳的论文选题，我的专业和大致方向是：",
     );
   });
 

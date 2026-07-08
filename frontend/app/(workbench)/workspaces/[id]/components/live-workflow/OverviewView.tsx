@@ -9,7 +9,7 @@ import {
 import type { ExecutionRecord } from "@/lib/api/types";
 import type { RunView, RunViewMissionState } from "@/lib/execution-run-view";
 import { runViewFromExecution } from "@/lib/execution-run-view";
-import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
+import type { WorkspaceTypeConfig } from "@/lib/workspace-type-config";
 
 import { EmptyState, MetricCard, StatusPill } from "./shared";
 import { styles } from "./styles";

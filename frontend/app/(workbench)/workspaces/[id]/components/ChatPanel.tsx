@@ -29,7 +29,10 @@ import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { MessageBlock } from "./MessageBlock";
 import { FileAttachButton } from "./FileAttachButton";
-import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
+import type {
+  WorkspaceTypeConfig,
+  WorkspaceWelcomeConfig,
+} from "@/lib/workspace-type-config";
 import {
   buildWorkspaceThreadEntryMetadata,
   buildWorkspaceThreadEntryPrompt,
@@ -215,6 +218,17 @@ export function ChatPanel({
     }
     return features?.find((candidate) => candidate.id === entrySeed.featureId) ?? null;
   }, [entrySeed, features]);
+  const activeMissionRunId = useMemo(
+    () => workspaceScopedMissionRunId(focusedRunId || selectedRunId, workspaceId),
+    [focusedRunId, selectedRunId, workspaceId],
+  );
+  const welcome = typeConfig?.welcome ?? null;
+  const showWorkspaceWelcome =
+    historyHydrated &&
+    messages.length === 0 &&
+    welcome !== null &&
+    !entrySeedSignature &&
+    activeMissionRunId === null;
   const inputPlaceholder = useMemo(() => {
     if (isSending) {
       return "等待回复中...";
@@ -228,14 +242,14 @@ export function ChatPanel({
     if (lastAssistantMessage?.blocks.some((block) => block.kind === "result_card")) {
       return "或对结果反馈、推翻、迭代";
     }
+    if (showWorkspaceWelcome && welcome) {
+      return welcome.inputPlaceholder;
+    }
     return "输入消息... Shift+Enter 换行";
-  }, [isSending, messages]);
+  }, [isSending, messages, showWorkspaceWelcome, welcome]);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
-  const intakeGuidance = typeConfig?.intakeGuidance;
-  const suggestionTexts =
-    intakeGuidance?.chips?.length ? intakeGuidance.chips : typeConfig?.suggestions ?? [];
   const selectedModelLabel =
     modelOptions.find((model) => model.name === selectedModel)?.display_name ??
     selectedModel;
@@ -274,6 +288,19 @@ export function ChatPanel({
       void sendMessage(workspaceId, intent.trim(), [], withSelectedModel(options));
     },
     [isSending, sendMessage, withSelectedModel, workspaceId],
+  );
+  const handleWelcomePrompt = useCallback(
+    (prompt: string) => {
+      if (isSending) {
+        return;
+      }
+      setInputValue(prompt);
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(prompt.length, prompt.length);
+      });
+    },
+    [isSending],
   );
 
   useEffect(() => {
@@ -498,95 +525,14 @@ export function ChatPanel({
         ref={scrollRef}
         style={{ flex: 1, overflowY: "auto", padding: "18px 14px" }}
       >
-        {messages.length === 0 && workspaceName && typeConfig ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              padding: "0 22px",
-              animation: "wjn-panel-in 400ms var(--wjn-ease-standard)",
-            }}
-          >
-            <div
-              className="wjn-hairline-panel"
-              style={{
-                width: 46,
-                height: 46,
-                borderRadius: 12,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 24,
-                marginBottom: 14,
-              }}
-            >
-              {typeConfig.icon}
-            </div>
-            <div
-              style={{
-                fontSize: 18,
-                fontWeight: 700,
-                color: "var(--wjn-text)",
-                marginBottom: 6,
-                fontFamily: "var(--wjn-font-sans)",
-              }}
-            >
-              {workspaceName}
-            </div>
-            <div
-              style={{
-                fontSize: 13,
-                color: "var(--wjn-text-muted)",
-                fontFamily: "var(--wjn-font-sans)",
-                textAlign: "center",
-                lineHeight: 1.6,
-              }}
-            >
-              {typeConfig.chatSubtitle}
-            </div>
-            {intakeGuidance ? (
-              <div
-                style={{
-                  width: "min(100%, 340px)",
-                  marginTop: 18,
-                  padding: 14,
-                  border: "1px solid var(--wjn-line)",
-                  borderRadius: "var(--wjn-radius-lg)",
-                  background: "var(--wjn-surface)",
-                  textAlign: "left",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: "var(--wjn-text)",
-                    marginBottom: 8,
-                    fontFamily: "var(--wjn-font-sans)",
-                  }}
-                >
-                  先准备这些信息
-                </div>
-                <ul
-                  style={{
-                    margin: 0,
-                    padding: "0 0 0 18px",
-                    color: "var(--wjn-text-secondary)",
-                    fontSize: 12.5,
-                    lineHeight: 1.7,
-                    fontFamily: "var(--wjn-font-sans)",
-                  }}
-                >
-                  {intakeGuidance.checklist.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
+        {showWorkspaceWelcome && welcome ? (
+          <WorkspaceWelcome
+            icon={typeConfig?.icon ?? "问"}
+            workspaceName={workspaceName}
+            welcome={welcome}
+            disabled={isSending}
+            onChoose={handleWelcomePrompt}
+          />
         ) : (
           messages.map((msg) => (
             <MessageRow
@@ -621,62 +567,6 @@ export function ChatPanel({
           </div>
         )}
       </div>
-
-      {/* Suggestion pills — shown only before first message */}
-      {messages.length === 0 &&
-        typeConfig &&
-        suggestionTexts.length > 0 && (
-          <div
-            style={{
-              padding: "0 12px 8px",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 6,
-            }}
-          >
-            {suggestionTexts.map((text) => (
-              <button
-                key={text}
-                onClick={() =>
-                  void sendMessage(
-                    workspaceId,
-                    text,
-                    [],
-                    withSelectedModel(),
-                  )
-                }
-                disabled={isSending}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: "var(--wjn-radius)",
-                  border: "1px solid var(--wjn-line)",
-                  background: "#fff",
-                  color: "var(--wjn-text-secondary)",
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  cursor: isSending ? "not-allowed" : "pointer",
-                  fontFamily: "var(--wjn-font-sans)",
-                  transition: "background 150ms, border-color 150ms",
-                  opacity: isSending ? 0.5 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (!isSending) {
-                    e.currentTarget.style.background =
-                      "var(--wjn-accent-soft)";
-                    e.currentTarget.style.borderColor =
-                      "var(--wjn-accent-line)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#fff";
-                  e.currentTarget.style.borderColor = "var(--wjn-line)";
-                }}
-              >
-                {text}
-              </button>
-            ))}
-          </div>
-        )}
 
       {/* Input area */}
       <div
@@ -738,6 +628,7 @@ export function ChatPanel({
           />
           <textarea
             ref={textareaRef}
+            data-testid="chat-composer-input"
             placeholder={inputPlaceholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
@@ -1025,6 +916,174 @@ export function ChatPanel({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function WorkspaceWelcome({
+  icon,
+  workspaceName,
+  welcome,
+  disabled,
+  onChoose,
+}: {
+  icon: string;
+  workspaceName?: string;
+  welcome: WorkspaceWelcomeConfig;
+  disabled: boolean;
+  onChoose: (prompt: string) => void;
+}) {
+  return (
+    <div
+      data-testid="workspace-welcome"
+      style={{
+        minHeight: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px 18px",
+        animation: "wjn-panel-in 360ms var(--wjn-ease-standard)",
+      }}
+    >
+      <section
+        aria-label={welcome.eyebrow}
+        style={{
+          width: "min(100%, 480px)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: 14,
+        }}
+      >
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "var(--wjn-radius)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--wjn-text)",
+              color: "#fff",
+              fontSize: 14,
+              fontWeight: 800,
+              fontFamily: "var(--wjn-font-sans)",
+            }}
+          >
+            {icon}
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                color: "var(--wjn-text-muted)",
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: "var(--wjn-font-sans)",
+              }}
+            >
+              {welcome.eyebrow}
+            </div>
+            {workspaceName ? (
+              <div
+                style={{
+                  color: "var(--wjn-text)",
+                  fontSize: 13,
+                  fontWeight: 750,
+                  fontFamily: "var(--wjn-font-sans)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  maxWidth: 340,
+                }}
+              >
+                {workspaceName}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div>
+          <h2
+            style={{
+              margin: 0,
+              color: "var(--wjn-text)",
+              fontSize: 21,
+              fontWeight: 760,
+              lineHeight: 1.28,
+              fontFamily: "var(--wjn-font-sans)",
+            }}
+          >
+            {welcome.title}
+          </h2>
+          <p
+            style={{
+              margin: "8px 0 0",
+              color: "var(--wjn-text-secondary)",
+              fontSize: 13.5,
+              lineHeight: 1.75,
+              fontFamily: "var(--wjn-font-sans)",
+            }}
+          >
+            {welcome.body}
+          </p>
+        </div>
+
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          {welcome.chips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              data-testid="workspace-welcome-chip"
+              disabled={disabled}
+              onClick={() => onChoose(chip.prompt)}
+              style={{
+                minHeight: 34,
+                padding: "0 12px",
+                borderRadius: "var(--wjn-radius)",
+                border: "1px solid var(--wjn-line)",
+                background: "var(--wjn-surface)",
+                color: "var(--wjn-text)",
+                fontSize: 13,
+                fontWeight: 680,
+                fontFamily: "var(--wjn-font-sans)",
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.55 : 1,
+                transition: "background 150ms, border-color 150ms, color 150ms",
+              }}
+              onMouseEnter={(event) => {
+                if (disabled) {
+                  return;
+                }
+                event.currentTarget.style.background = "var(--wjn-accent-soft)";
+                event.currentTarget.style.borderColor = "var(--wjn-accent-line)";
+                event.currentTarget.style.color = "var(--wjn-accent-strong)";
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.background = "var(--wjn-surface)";
+                event.currentTarget.style.borderColor = "var(--wjn-line)";
+                event.currentTarget.style.color = "var(--wjn-text)";
+              }}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

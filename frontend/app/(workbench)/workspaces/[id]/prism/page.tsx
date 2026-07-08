@@ -11,7 +11,7 @@ import {
   getWorkspacePrismSurface,
 } from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
-import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
+import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-type-config";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { PrismContextRail } from "./PrismContextRail";
 import { PrismWorkspaceShell } from "./PrismWorkspaceShell";

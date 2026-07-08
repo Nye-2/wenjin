@@ -14,7 +14,7 @@ import {
   responseResultPatch,
   type ExecutionChangeSetResponse,
 } from "@/lib/change-set-view";
-import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
+import type { WorkspaceTypeConfig } from "@/lib/workspace-type-config";
 import {
   findLatestIntakeSpec,
   type IntakeSpecV1,

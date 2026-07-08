@@ -25,7 +25,7 @@ import {
 } from "./components/shell/WorkspaceHubDrawer";
 import { useWorkspaceChromeCounts } from "./components/shell/useWorkspaceChromeCounts";
 import { getWorkspace, getWorkspaceFeatures } from "@/lib/api/workspace";
-import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
+import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-type-config";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
