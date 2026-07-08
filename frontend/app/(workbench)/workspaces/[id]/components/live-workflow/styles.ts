@@ -473,6 +473,14 @@ export const styles: Record<string, CSSProperties> = {
     border: "1px solid var(--wjn-line)",
     background: "var(--wjn-surface)",
   },
+  writebackBoxCommitted: {
+    border: "1px solid rgba(23, 122, 98, 0.28)",
+    background: "var(--wjn-evidence-soft)",
+  },
+  writebackBoxError: {
+    border: "1px solid rgba(220, 38, 38, 0.22)",
+    background: "var(--wjn-error-soft)",
+  },
   writebackMain: {
     display: "inline-flex",
     alignItems: "center",

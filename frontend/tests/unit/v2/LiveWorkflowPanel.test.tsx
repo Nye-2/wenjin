@@ -1126,7 +1126,7 @@ describe("LiveWorkflowPanel", () => {
     expect(screen.queryByText("研究主题：联邦学习结合大模型微调")).not.toBeInTheDocument();
   });
 
-  it("renders found verified and used evidence summary from projected mission state", async () => {
+  it("renders found verified and written evidence summary from projected mission state", async () => {
     useExecutionStore.getState().upsertExecution(makeEvidenceMissionRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-evidence");
     useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence");
@@ -1135,7 +1135,7 @@ describe("LiveWorkflowPanel", () => {
 
     expect(await screen.findByText(/已发现\s*2 项/)).toBeInTheDocument();
     expect(screen.getByText(/已核验\s*1 项/)).toBeInTheDocument();
-    expect(screen.getByText(/已采用\s*0 项/)).toBeInTheDocument();
+    expect(screen.getByText(/已写入\s*0 项/)).toBeInTheDocument();
     expect(screen.getByText("用于当前结论的证据采用情况。")).toBeInTheDocument();
   });
 

@@ -83,6 +83,7 @@ export function ReviewView({
         <GuidanceNote>
           先检查暂存结果，再保存确认过的工作区内容。
         </GuidanceNote>
+        {writeback ? <WritebackStatus writeback={writeback} /> : null}
         <div style={{ height: 12 }} />
         {previews.length > 0 ? (
           <ResultPreviewList
@@ -100,10 +101,7 @@ export function ReviewView({
       </section>
 
       <aside style={styles.reviewDetail}>
-        <ResultPreviewDetail
-          preview={selectedPreview}
-          footer={writeback ? <WritebackStatus writeback={writeback} /> : null}
-        />
+        <ResultPreviewDetail preview={selectedPreview} />
       </aside>
     </div>
   );

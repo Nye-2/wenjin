@@ -367,6 +367,62 @@ describe("execution run view projection", () => {
     expect(view.actions).toContain("preview_results");
   });
 
+  it("does not leak internal tool names in failure messages", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "failed_partial",
+        last_error: "unknown capability tool: document_read",
+        node_states: {
+          scout: { status: "failed" },
+        },
+        result: {
+          task_report: {
+            capability_id: "sci_literature_positioning",
+            status: "failed_partial",
+            errors: [{ error: "unknown capability tool: document_read" }],
+          },
+        },
+      }),
+    );
+
+    expect(view.failureMessage).toBe(
+      "研究团队缺少可用工具或资料源，请补充材料或改用联网检索后继续。",
+    );
+    expect(view.summary).toBe(
+      "研究团队缺少可用工具或资料源，请补充材料或改用联网检索后继续。",
+    );
+    expect(JSON.stringify(view)).not.toContain("document_read");
+    expect(JSON.stringify(view)).not.toContain("unknown capability tool");
+  });
+
+  it("sanitizes internal tool names from non-team progress details", () => {
+    const progressItems = buildRunProgressItems(
+      makeExecution({
+        graph_structure: {
+          nodes: [
+            {
+              id: "retrieve_sources",
+              type: "agent_invocation",
+              label: "查找证据",
+            },
+          ],
+          edges: [],
+        },
+        node_states: {
+          retrieve_sources: {
+            status: "failed",
+            node_type: "agent_invocation",
+            error: "unknown capability tool: document_read",
+          },
+        },
+      }),
+    );
+
+    expect(progressItems[0]?.detail).toBe(
+      "研究团队缺少可用工具或资料源，请补充材料或改用联网检索后继续。",
+    );
+  });
+
   it("projects dynamic team members from agent invocation node metadata", () => {
     const view = runViewFromExecution(
       makeExecution({
@@ -859,6 +915,55 @@ describe("execution run view projection", () => {
     expect(view.team?.members[1]?.displayName).not.toContain("research_scholar");
   });
 
+  it("builds canonical TeamKernel progress when only team members are persisted", () => {
+    const record = makeExecution({
+      graph_structure: {
+        mode: "team_kernel",
+        nodes: [],
+        edges: [],
+      } as ExecutionRecord["graph_structure"],
+      node_states: {
+        "research_scout.v1__1": {
+          status: "completed",
+          node_type: "agent_invocation",
+          node_metadata: {
+            team: true,
+            template_id: "research_scout.v1",
+            display_name: "文献检索专家",
+          },
+        },
+        "literature_synthesizer.v1__1": {
+          status: "running",
+          node_type: "agent_invocation",
+          node_metadata: {
+            team: true,
+            template_id: "literature_synthesizer.v1",
+            display_name: "文献综合专家",
+          },
+        },
+      } as ExecutionRecord["node_states"],
+    });
+
+    const progressItems = buildRunProgressItems(record);
+    const view = runViewFromExecution(record);
+
+    expect(progressItems.map((item) => item.id)).toEqual([
+      "team_prepare",
+      "team_recruit",
+      "team_dispatch",
+      "team_quality_gate",
+      "team_finish",
+    ]);
+    expect(progressItems[2]).toMatchObject({
+      title: "查找证据并起草内容",
+      status: "running",
+      detail: "1/2 个成员完成",
+    });
+    expect(view.nodeCount).toBe(5);
+    expect(view.completedNodeCount).toBe(2);
+    expect(view.mission?.currentStageLabel).toBe("查找证据并起草内容");
+  });
+
   it("orders team members by graph node order instead of node state key order", () => {
     const view = runViewFromExecution(
       makeExecution({
@@ -1051,6 +1156,43 @@ describe("execution run view projection", () => {
     expect(view.mission?.stages[2]?.status).toBe("running");
   });
 
+  it("counts visible evidence items as discovered evidence even without refs", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        result: {
+          task_report: {
+            status: "completed",
+            outputs: [
+              {
+                id: "draft-gap-map",
+                kind: "document",
+                preview: "研究空白与创新点梳理",
+                data: {
+                  name: "gap-map.md",
+                  content: "Non-IID 联邦 LoRA 聚合仍缺少统一评测。",
+                },
+              },
+              {
+                id: "lib-fedpeft",
+                kind: "library_item",
+                preview: "联邦参数高效微调代表文献",
+                data: {
+                  title: "Federated PEFT for LLMs",
+                  abstract: "联邦 PEFT 证据摘要。",
+                },
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(view.evidenceItems).toHaveLength(2);
+    expect(view.mission?.evidenceSummary.found).toBe(2);
+    expect(view.mission?.evidenceSummary.used).toBe(0);
+  });
+
   it("marks mission critique as blocked when the review packet has blockers", () => {
     const view = runViewFromExecution(
       makeExecution({
@@ -1153,6 +1295,58 @@ describe("execution run view projection", () => {
         label: "起草论证",
         status: "pending",
       },
+    ]);
+  });
+
+  it("uses research current_stage to project methodology progress", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        runtime_state: {
+          research_state: {
+            schema_version: "wenjin.research_state.v1",
+            goal: "梳理论文路线",
+            current_stage: "synthesize_argument",
+          },
+          methodology_contract: {
+            stages: [
+              { id: "collect_evidence", purpose: "查找证据" },
+              { id: "synthesize_argument", purpose: "起草论证" },
+              { id: "quality_check", purpose: "检查质量" },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.currentStageLabel).toBe("起草论证");
+    expect(view.mission?.stages).toEqual([
+      { id: "collect_evidence", label: "查找证据", status: "completed" },
+      { id: "synthesize_argument", label: "起草论证", status: "running" },
+      { id: "quality_check", label: "检查质量", status: "pending" },
+    ]);
+  });
+
+  it("marks methodology stages complete for completed runs", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        runtime_state: {
+          methodology_contract: {
+            stages: [
+              { id: "scope", purpose: "确认主题边界" },
+              { id: "literature", purpose: "跨源检索" },
+              { id: "synthesize", purpose: "综合成可写贡献" },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(view.mission?.currentStageLabel).toBe("综合成可写贡献");
+    expect(view.mission?.stages.map((stage) => stage.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
     ]);
   });
 

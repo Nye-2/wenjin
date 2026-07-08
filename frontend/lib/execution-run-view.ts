@@ -274,6 +274,8 @@ type TaskReportProjection = Record<string, unknown> & {
 };
 
 const RUN_FAILURE_FALLBACK = "运行问题已记录";
+const MISSING_CAPABILITY_TOOL_FAILURE =
+  "研究团队缺少可用工具或资料源，请补充材料或改用联网检索后继续。";
 const CITATION_SOURCE_AUDIT_SCHEMA =
   "wenjin.quality.citation_source_audit_finding.v1";
 const MAX_CITATION_SOURCE_AUDIT_ITEMS = 8;
@@ -779,10 +781,18 @@ function missionStateFromExecution(
   const researchState =
     researchStateFromRuntimeState(record.runtime_state) ??
     researchStateFromTaskReport(runFacts.taskReport);
+  const runStatus = normalizeExecutionStatus(record.status);
+  const methodologyStages = missionStagesFromMethodology(
+    record.runtime_state,
+    researchState,
+    runStatus,
+  );
   const stages =
-    (record.graph_structure?.mode === "team_kernel"
-      ? missionStagesFromProgressItems(runFacts.progressItems)
-      : null) ?? missionStagesFromMethodology(record.runtime_state);
+    methodologyStages.length > 0
+      ? methodologyStages
+      : (record.graph_structure?.mode === "team_kernel"
+        ? missionStagesFromProgressItems(runFacts.progressItems)
+        : []) ?? [];
   const currentStage =
     stages.find((stage) => stage.status === "running") ??
     stages.find((stage) => stage.status === "review") ??
@@ -888,6 +898,8 @@ function missionStagesFromProgressItems(
 
 function missionStagesFromMethodology(
   runtimeState: Record<string, unknown> | null | undefined,
+  researchState: Record<string, unknown> | null,
+  runStatus: RunViewStatus,
 ): RunViewMissionStage[] {
   const candidates = [
     arrayValue(objectValue(runtimeState?.methodology_contract)?.stages),
@@ -895,7 +907,7 @@ function missionStagesFromMethodology(
     arrayValue(objectValue(runtimeState?.methodology)?.stages),
   ];
   const stages = candidates.find((items) => items.length > 0) ?? [];
-  return stages.slice(0, 5).flatMap((value, index) => {
+  const projected = stages.slice(0, 5).flatMap((value, index) => {
     const stage = objectValue(value);
     const id = stringValue(stage?.id) ?? `stage-${index + 1}`;
     const label = missionStageLabel(id, stringValue(stage?.purpose) ?? id);
@@ -906,10 +918,29 @@ function missionStagesFromMethodology(
       {
         id,
         label,
-        status: index === 0 ? "running" : "pending",
+        status: "pending",
       } satisfies RunViewMissionStage,
     ];
   });
+  const currentStage = firstStringValue(
+    researchState?.current_stage,
+    researchState?.stage,
+    researchState?.phase,
+  );
+  const currentIndex = currentStage
+    ? projected.findIndex((stage) => missionStageMatchesCurrent(stage, currentStage))
+    : -1;
+  const terminal = isTerminalRunStatus(runStatus);
+  return projected.map((stage, index) => ({
+    ...stage,
+    status: methodologyStageStatus({
+      index,
+      currentIndex,
+      runStatus,
+      terminal,
+      total: projected.length,
+    }),
+  }));
 }
 
 function missionStageLabel(
@@ -933,6 +964,56 @@ function missionStageStatus(value: string | null | undefined): RunViewMissionSta
   if (value === "failed_partial") return "review";
   if (value === "failed" || value === "cancelled") return "blocked";
   return "pending";
+}
+
+function methodologyStageStatus({
+  index,
+  currentIndex,
+  runStatus,
+  terminal,
+  total,
+}: {
+  index: number;
+  currentIndex: number;
+  runStatus: RunViewStatus;
+  terminal: boolean;
+  total: number;
+}): RunViewMissionStage["status"] {
+  if (total === 0) {
+    return "pending";
+  }
+  if (runStatus === "completed") {
+    return "completed";
+  }
+  if (terminal) {
+    if (currentIndex < 0) {
+      return index === 0 ? missionStageStatus(runStatus) : "pending";
+    }
+    if (index < currentIndex) return "completed";
+    if (index === currentIndex) return missionStageStatus(runStatus);
+    return "pending";
+  }
+  if (currentIndex < 0) {
+    return index === 0 ? "running" : "pending";
+  }
+  if (index < currentIndex) return "completed";
+  if (index === currentIndex) return "running";
+  return "pending";
+}
+
+function missionStageMatchesCurrent(
+  stage: Pick<RunViewMissionStage, "id" | "label">,
+  currentStage: string,
+): boolean {
+  const normalizedStageId = normalizeTechnicalName(stage.id);
+  const normalizedStageLabel = normalizeTechnicalName(stage.label);
+  const normalizedCurrent = normalizeTechnicalName(currentStage);
+  return (
+    normalizedStageId === normalizedCurrent ||
+    normalizedStageLabel === normalizedCurrent ||
+    normalizedStageId.includes(normalizedCurrent) ||
+    normalizedCurrent.includes(normalizedStageId)
+  );
 }
 
 function missionReviewSummary(
@@ -1025,6 +1106,12 @@ function evidenceVerificationCounts({
       for (const ref of refs) {
         verifiedEvidenceIds.add(ref);
       }
+    }
+  }
+
+  if (foundEvidenceIds.size === 0) {
+    for (const item of evidenceItems) {
+      foundEvidenceIds.add(item.id);
     }
   }
 
@@ -2290,9 +2377,13 @@ function buildTeamKernelProgressItems(
   nodes: ExecutionGraphNode[],
 ): RunProgressItem[] {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const teamNodes = TEAM_KERNEL_PROGRESS_ORDER
+  const teamNodesFromGraph = TEAM_KERNEL_PROGRESS_ORDER
     .map((id) => nodeById.get(id))
     .filter((node): node is ExecutionGraphNode => Boolean(node));
+  const teamNodes =
+    teamNodesFromGraph.length > 0
+      ? teamNodesFromGraph
+      : syntheticTeamKernelProgressNodes(record);
 
   return teamNodes.map((node) => {
     const status = teamKernelProgressStatus(record, node.id);
@@ -2311,6 +2402,24 @@ function buildTeamKernelProgressItems(
       hasOutput: node.id === "team_finish" && Boolean(record.result),
     };
   });
+}
+
+function syntheticTeamKernelProgressNodes(
+  record: ExecutionRecord,
+): ExecutionGraphNode[] {
+  const hasTeamActivity =
+    teamMembersFromNodeStates(record.node_states).length > 0 ||
+    teamQualityGatesFromRuntimeState(record.runtime_state).length > 0 ||
+    Boolean(record.result || record.result_summary) ||
+    isTerminalRunStatus(normalizeExecutionStatus(record.status));
+  if (!hasTeamActivity) {
+    return [];
+  }
+  return TEAM_KERNEL_PROGRESS_ORDER.map((id) => ({
+    id,
+    type: "control",
+    label: TEAM_KERNEL_PROGRESS_LABELS[id],
+  }));
 }
 
 function teamKernelProgressLabel(nodeId: string): string {
@@ -2424,7 +2533,7 @@ function countProgressItemsByStatus(
 function progressDetailFromNodeState(state: ExecutionNodeState | null): string | null {
   if (!state) return null;
   const error = safeRuntimeText(state.error, 120);
-  if (error) return error;
+  if (error) return userFacingRunSummary(error);
   if (state.error) return "运行问题已记录";
   const harnessActivity = harnessActivityFromNodeState(state).label;
   if (harnessActivity) return harnessActivity;
@@ -2689,6 +2798,9 @@ function firstSafeRuntimeText(values: unknown[], max: number): string | null {
 }
 
 function userFacingRunSummary(value: string): string {
+  if (isInternalCapabilityToolError(value)) {
+    return MISSING_CAPABILITY_TOOL_FAILURE;
+  }
   return value
     .replace(/launch_feature/g, "研究任务")
     .replace(/DataService rooms?/g, "工作区资料")
@@ -2698,6 +2810,15 @@ function userFacingRunSummary(value: string): string {
     .replace(/quality gate/gi, "风险项")
     .replace(/质量门/g, "风险项")
     .replace(/审阅/g, "确认");
+}
+
+function isInternalCapabilityToolError(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("unknown capability tool") ||
+    normalized.includes("capability tool:") ||
+    normalized.includes("document_read")
+  );
 }
 
 function formatDuration(

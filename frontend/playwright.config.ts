@@ -8,6 +8,8 @@ import { defineConfig, devices } from "@playwright/test";
  */
 
 const browserChannel = process.env.WENJIN_E2E_BROWSER_CHANNEL || undefined;
+const baseURL = process.env.WENJIN_E2E_BASE_URL || "http://localhost:3099";
+const skipWebServer = process.env.WENJIN_E2E_SKIP_WEB_SERVER === "1";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -16,17 +18,19 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   use: {
-    baseURL: "http://localhost:3099",
+    baseURL,
     trace: "on-first-retry",
     actionTimeout: 5_000,
     channel: browserChannel,
   },
-  webServer: {
-    command: "npm run dev -- --port 3099",
-    url: "http://localhost:3099",
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
+  webServer: skipWebServer
+    ? undefined
+    : {
+        command: "npm run dev -- --port 3099",
+        url: baseURL,
+        reuseExistingServer: true,
+        timeout: 60_000,
+      },
   projects: [
     // Workspace layout tests
     {
@@ -34,7 +38,7 @@ export default defineConfig({
       testDir: "./tests/e2e/v2",
       use: {
         ...devices["Desktop Chrome"],
-        baseURL: "http://localhost:3099",
+        baseURL,
         channel: browserChannel,
       },
     },

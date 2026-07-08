@@ -24,8 +24,11 @@ type MockOptions = {
   workspaceId?: string;
   workspaceName?: string;
   workspaceType?: string;
+  models?: Array<Record<string, unknown>>;
   capabilities?: Array<Record<string, unknown>>;
   executions?: Array<Record<string, unknown>>;
+  libraryItems?: Array<Record<string, unknown>>;
+  runRecords?: Array<Record<string, unknown>>;
   prismReview?: {
     projectId?: string;
     logicalKey?: string;
@@ -39,6 +42,7 @@ type MockOptions = {
     messages: WorkspaceMessage[];
   };
   runStreamBody?: string;
+  runStreamBodies?: string[];
   onRunStream?: (payload: Record<string, unknown>) => void;
   onCommit?: (payload: Record<string, unknown>) => void;
   commitResponse?: unknown;
@@ -143,7 +147,36 @@ export async function installWorkspaceRouteMocks(
       ui_meta: { icon: "microscope" },
     },
   ];
+  const models = options.models ?? [
+    {
+      name: "gpt-5.5",
+      display_name: "GPT-5.5 (Default)",
+      category: "chat",
+      provider: "openai-compatible",
+      max_tokens: 128000,
+      supports_tools: true,
+      supports_thinking: true,
+      supports_reasoning_effort: true,
+      supports_vision: true,
+      is_default: true,
+    },
+    {
+      name: "gpt-5.3-codex-spark",
+      display_name: "GPT-5.3 Codex Spark",
+      category: "chat",
+      provider: "openai-compatible",
+      max_tokens: 32000,
+      supports_tools: true,
+      supports_thinking: true,
+      supports_reasoning_effort: true,
+      supports_vision: false,
+      is_default: false,
+    },
+  ];
+  const libraryItems = options.libraryItems ?? [];
+  const runRecords = options.runRecords ?? [];
   const thread = options.thread ?? { id: "thread-1", messages: [] };
+  let runStreamCallCount = 0;
   const prismReview = options.prismReview;
   const prismProjectId = prismReview?.projectId ?? "latex-1";
   const prismLogicalKey = prismReview?.logicalKey ?? "section:introduction";
@@ -265,6 +298,11 @@ export async function installWorkspaceRouteMocks(
     const request = route.request();
     const { pathname, searchParams } = new URL(request.url());
 
+    if (pathname === "/api/models") {
+      await route.fulfill(json({ models }));
+      return;
+    }
+
     if (pathname === `/api/workspaces/${workspaceId}`) {
       await route.fulfill(
         json({
@@ -315,8 +353,41 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
+    if (
+      pathname === `/api/workspaces/${workspaceId}/library` &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill(json({ items: libraryItems, count: libraryItems.length }));
+      return;
+    }
+
+    const libraryDetailMatch = pathname.match(
+      new RegExp(`^/api/workspaces/${workspaceId}/library/([^/]+)$`),
+    );
+    if (libraryDetailMatch && request.method() === "GET") {
+      const item = libraryItems.find(
+        (candidate) =>
+          String(candidate.id ?? candidate.source_id ?? "") === libraryDetailMatch[1],
+      );
+      await route.fulfill(json(item ?? { id: libraryDetailMatch[1], title: "未命名文献" }));
+      return;
+    }
+
+    if (libraryDetailMatch && request.method() === "DELETE") {
+      await route.fulfill(json({ ok: true }));
+      return;
+    }
+
     if (pathname === `/api/workspaces/${workspaceId}/compute/sessions`) {
       await route.fulfill(json({ items: [], count: 0 }));
+      return;
+    }
+
+    if (
+      pathname === `/api/workspaces/${workspaceId}/runs` &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill(json({ items: runRecords, count: runRecords.length }));
       return;
     }
 
@@ -498,10 +569,15 @@ export async function installWorkspaceRouteMocks(
           JSON.parse(request.postData() || "{}") as Record<string, unknown>,
         );
       }
+      const runStreamBody =
+        options.runStreamBodies?.[runStreamCallCount] ??
+        options.runStreamBody ??
+        buildEventStreamBody([]);
+      runStreamCallCount += 1;
       await route.fulfill({
         status: 200,
         contentType: "text/event-stream",
-        body: options.runStreamBody ?? buildEventStreamBody([]),
+        body: runStreamBody,
       });
       return;
     }

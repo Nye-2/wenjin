@@ -88,7 +88,7 @@ export function EvidenceView({
             <div style={styles.summaryStrip}>
               <SummaryMetric label="已发现" value={mission.evidenceSummary.found} />
               <SummaryMetric label="已核验" value={mission.evidenceSummary.verified} />
-              <SummaryMetric label="已采用" value={mission.evidenceSummary.used} />
+              <SummaryMetric label="已写入" value={mission.evidenceSummary.used} />
             </div>
             <div style={{ marginTop: 12 }}>
               <GuidanceNote>

@@ -112,8 +112,8 @@ export function OverviewView({
               <MetricCard
                 icon={Database}
                 label="证据"
-                value={String(mission.evidenceSummary.used)}
-                detail={`已发现 ${mission.evidenceSummary.found} · 风险 ${mission.evidenceSummary.risky}`}
+                value={`${mission.evidenceSummary.found} 项`}
+                detail={`已写入 ${mission.evidenceSummary.used} · 风险 ${mission.evidenceSummary.risky}`}
               />
               <MetricCard
                 icon={ClipboardList}

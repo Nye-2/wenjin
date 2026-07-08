@@ -100,6 +100,11 @@ export function RunView({
           <span>{view.completedNodeCount ?? 0}/{view.nodeCount ?? 0} 步完成</span>
           <span>{view.durationLabel ?? "计时中"}</span>
         </div>
+        {view.failureMessage ? (
+          <GuidanceNote tone="warning">
+            {view.failureMessage} 可以在左侧补充材料，或要求问津改用联网搜索继续。
+          </GuidanceNote>
+        ) : null}
         <div style={styles.quickActions}>
           <button type="button" onClick={onOpenEvidence} style={styles.secondaryButton}>
             <Database size={14} />
@@ -199,7 +204,16 @@ export function WritebackStatus({
       : `保存到工作区（${writeback.saveCount} 项）`;
 
   return (
-    <div style={styles.writebackBox}>
+    <div
+      style={{
+        ...styles.writebackBox,
+        ...(writeback.committed
+          ? styles.writebackBoxCommitted
+          : writeback.error
+            ? styles.writebackBoxError
+            : null),
+      }}
+    >
       <div
         style={styles.writebackMain}
         role="status"
