@@ -2,80 +2,94 @@
 
 ## Project
 
-Wenjin (问津) — AI workbench for academic research and writing. Six workspace types: sci, thesis, proposal, software_copyright, math_modeling, patent.
+Wenjin (问津) is a chat-native AI workbench for academic research and writing. Workspace types: `sci`, `thesis`, `proposal`, `software_copyright`, `math_modeling`, and `patent`.
 
-## Architecture
+## Current architecture
 
-- **Two-agent topology**: Chat Agent (left panel, conversation/intent) + Lead Agent (right panel, runs LangGraph subagents). 1:1 mapping, lead-busy blocks new dispatches.
-- **8 workspace rooms**: Library, Documents, Decisions, Memory, Run History, Sandbox, Tasks, Settings — isolated data layer per workspace.
-- **Capability data-driven**: YAML seed + DB-backed capabilities. Admin can edit at runtime. No draft/review cycle — lead agent has runtime discretion.
-- **Curated result_card flow**: Execution outputs staged → user reviews via checkboxes → commit writes to rooms. Low-risk outputs default checked + one-click "全部接受"; evidence/citation/claim high-risk outputs are unchecked by default and disable one-click accept-all until manually reviewed.
-- **Block protocol**: 7 block types — `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, `tool_result`. Blocks stored in arrival order (thinking never prepended).
-- **Execution UX projection**: Chat launch receipt, LiveWorkflowPanel Current run, and Runs drawer share `frontend/lib/execution-run-view.ts`; `run-ui-store` only tracks UI focus/badges.
-- **Frontend workspace UI**: System-grade research workbench. Trusted chrome, quiet content, compact right-side team/evidence/review panel. New UI uses `--wjn-*`; `--v2-*` remains compatibility only.
+- **Single agent topology**: `WorkspaceAgent` owns conversation, intent, Mission start/steer, and the structured Mission loop. It may spawn isolated workers through `SubagentRuntime`; there is no separate conversational/leader agent layer.
+- **Durable Mission aggregate**: `MissionRun`, ordered `MissionItem`, atomic `MissionReviewItem`, and idempotent `MissionCommit` are the only long-task persistence model.
+- **Transient chat transport**: `ChatTurnRun` streams one conversational turn. It is not research history or a durable workflow aggregate.
+- **Outcome-first methodology**: `MissionPolicy` pins goals, completion targets, stage contracts, tool groups, review, and budget. `WorkerSkill` supplies compact guidance/examples. The agent loop chooses the internal plan.
+- **Quality progression**: `StageAcceptanceContract` deterministically blocks downstream stages until required evidence, artifacts, and criteria pass.
+- **Canonical tools**: a frozen `ToolCatalog` plus `ToolOrchestrator` owns tool ids, policy, operation identity, lease fencing, receipts, and typed failures.
+- **Reviewed writes**: protected changes become review items; `ReviewCommitRuntime` handles decisions, conflict checks, partial materialization, and commit receipts.
+- **Sandbox vNext**: Docker-only typed operations, pinned image, restricted network profiles, read-before-write, bounded outputs, and reproducibility/file-change receipts.
+- **Frontend**: Chat is task navigation. `MissionView` is the only research-task projection. The right Mission Console is closed by default and expands on demand.
+- **DataService boundary**: DataService owns all runtime database transactions. Redis/Celery/SSE messages are delivery/invalidation hints only.
 
-## Key Files
+## Persistence and queues
 
-| Area | Entry Point |
-|------|-------------|
-| Chat agent | `backend/src/agents/chat_agent/agent.py` |
-| Chat agent prompts | `backend/src/agents/chat_agent/prompts/` |
-| Lead agent v2 | `backend/src/agents/lead_agent/v2/runtime.py` |
-| TeamKernel runtime | `backend/src/agents/lead_agent/v2/team/kernel.py` |
-| Lead compiler | `backend/src/agents/lead_agent/v2/compiler.py` |
-| Output mapping | `backend/src/agents/lead_agent/v2/output_mapping.py` |
-| Expert presentation contracts | `backend/src/contracts/team_presentation.py` |
-| Expert runtime contracts | `backend/src/contracts/team_expert.py` |
-| Subagent registry | `backend/src/subagents/v2/registry.py` |
-| Execution engine | `backend/src/execution/engine.py` |
-| Commit service | `backend/src/services/execution_commit_service.py` |
-| Task contracts | `backend/src/agents/contracts/task_brief.py` |
-| Output contracts | `backend/src/agents/contracts/task_report.py` |
-| Workspace page | `frontend/app/(workbench)/workspaces/[id]/page.tsx` |
-| Chat store | `frontend/stores/chat-store.ts` |
-| Execution store | `frontend/stores/execution-store.ts` |
-| Run view projection | `frontend/lib/execution-run-view.ts` |
-| Run UI focus store | `frontend/stores/run-ui-store.ts` |
-| Evidence ledger projection | `frontend/lib/execution-run-view.ts` |
-| Chat panel | `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx` |
-| Workflow panel | `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx` |
-| CSS variables | `frontend/app/globals.css` (`--wjn-*` tokens; `--v2-*` compatibility only) |
-| Design language | `docs/current/wenjin-research-navigation-uiux.md` |
+- Mission tables: `mission_runs`, `mission_items`, `mission_review_items`, `mission_commits`.
+- Catalog tables: `mission_policies`, `worker_skills`.
+- Default worker queues: `default,priority`.
+- Mission worker queue: `long_running`, concurrency 1, prefetch 1.
+- Memory worker queue: `memory`.
+- Current migration head: `096_mission_aggregate_references`.
+- Migrations 086-096 are irreversible development cutovers; use drop/reseed, never compatibility layers.
+
+## Model and search
+
+- Only `gpt-5.5` is enabled for chat, Mission loop, workers, and review.
+- Main generation uses Chat Completions with `store=false`.
+- Reasoning efforts are exactly `low`, `medium`, `high`, and `xhigh`; default is `xhigh`.
+- Model capability is probe-backed and hash-bound, not controlled by static support flags.
+- Native web search is a separate Responses SSE tool transport. It is valid only with verified `web_search_call`, source receipts, URL citations, and completion boundary. No alternate search-provider fallback.
+
+## Key files
+
+| Area | Entry point |
+|---|---|
+| Workspace agent | `backend/src/agents/workspace_agent/agent.py` |
+| Mission loop | `backend/src/agents/workspace_agent/mission_loop.py` |
+| Chat turn transport | `backend/src/runtime/chat_turns/` |
+| Mission runtime | `backend/src/mission_runtime/runtime.py` |
+| Production composition | `backend/src/mission_runtime/composition.py` |
+| Mission persistence | `backend/src/dataservice/domains/mission/` |
+| Mission models | `backend/src/database/models/mission.py` |
+| Mission API | `backend/src/gateway/routers/missions.py` |
+| Subagents | `backend/src/subagent_runtime/` |
+| Tool orchestrator | `backend/src/tools/orchestrator/` |
+| Mission tool catalog | `backend/src/tools/mission/catalog.py` |
+| Mission policy/stages | `backend/src/contracts/mission_policy.py`, `backend/src/contracts/stage_acceptance.py` |
+| Policy loader | `backend/src/services/mission_policy_loader.py` |
+| Review/permissions | `backend/src/review_commit_runtime/`, `backend/src/permission_runtime/` |
+| Sandbox | `backend/src/sandbox/` |
+| Model capability | `backend/src/models/capability_profile.py`, `backend/src/models/capability_probe.py` |
+| Native search | `backend/src/services/search/model_native.py` |
+| Frontend Mission API | `frontend/lib/api/missions.ts` |
+| Mission Console | `frontend/app/(workbench)/workspaces/[id]/components/mission-console/` |
+| Current architecture | `docs/current/architecture.md` |
+| Migration specs | `docs/superpowers/specs/mission-runtime/00_index.md` |
 
 ## Commands
 
 ```bash
 # Backend
-cd backend && .venv/bin/python -m pytest tests/ -v    # run all tests
-cd backend && .venv/bin/python -m pytest tests/path -v # run specific tests
-cd backend && alembic upgrade head                     # run migrations
+cd backend && .venv/bin/python -m pytest tests/ -q
+cd backend && .venv/bin/python -m ruff check src tests
+cd backend && .venv/bin/python -m compileall -q src
+cd backend && .venv/bin/python -m alembic heads
+cd backend && .venv/bin/python -m src.quality.mission_cutover_gate --project-root ..
 
 # Frontend
-cd frontend && npm run dev        # dev server
-cd frontend && npm run build      # production build
-cd frontend && npm run typecheck  # type check
-cd frontend && npx vitest run     # unit tests
+cd frontend && npm run typecheck
+cd frontend && npx vitest run
+cd frontend && npm run build
+cd frontend && npx playwright test tests/e2e/mission-console-main-chain.spec.ts --project=chromium
 
 # Docker
-docker compose up -d              # standard full stack
-docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build # explicit local rebuild
+docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
-
-## Docs
-
-- `docs/current/architecture.md` — current architecture source of truth
-- `docs/current/workspace-current-state.md` — workspace / thread / execution current behavior
-- `docs/current/frontend-feature-plugin-contract.md` — frontend/backend capability and execution contract
-- `docs/current/workspace-feature-catalog.md` — capability / skill / expert template catalog truth
-- `docs/current/wenjin-research-navigation-uiux.md` — current UIUX and visual system truth
 
 ## Conventions
 
-- Backend: Python 3.13, FastAPI, SQLAlchemy async, Pydantic v2, LangGraph
-- Frontend: Next.js 16, React 19, TypeScript, Tailwind, Zustand, @xyflow/react
-- UI design: new surfaces use `--wjn-*`; do not introduce 古风 tokens, decorative orbs, raw log panels, or fixed technical sidebars in default UX
-- No compatibility layers or fallback code — clean migrations only
-- All chat through chat_agent → lead_agent pipeline — no bypass routers
-- Tests must pass before commit
-- Capability YAML seeds: `backend/seed/capabilities/{workspace_type}/`
-- DB tests use SQLite mock models from `backend/tests/database/conftest.py`
+- Backend: Python 3.13, FastAPI, SQLAlchemy async, Pydantic v2, Celery.
+- Frontend: Next.js 16, React 19, TypeScript, Tailwind, Zustand.
+- New UI uses `--wjn-*` tokens and Mission terminology.
+- No compatibility aliases, dual reads/writes, fallback routers, or stale serializer fields.
+- Long research work always flows through WorkspaceAgent to MissionRuntime.
+- Tools must be registered in the canonical catalog and narrowed by pinned Mission policy.
+- Protected workspace writes always pass review/commit.
+- Tests and the strict anti-compat gate must pass before commit.
+- Never commit provider keys, `.env`, raw prompts, protected paths, or unbounded tool output.

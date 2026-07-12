@@ -18,9 +18,7 @@ from src.dataservice.domains.asset.contracts import (
     WorkspaceAssetUpdateCommand,
 )
 from src.dataservice.domains.asset.models import WorkspaceAssetRecord
-from src.dataservice.domains.asset.review_handler import build_workspace_asset_review_handler
 from src.dataservice.domains.asset.service import WorkspaceAssetService
-from src.dataservice.domains.review.contracts import ReviewItemProjection
 
 
 class FakeSession:
@@ -269,34 +267,6 @@ async def test_register_list_update_download_and_delete_asset() -> None:
     assert all_after_delete[0].id == created.id
     assert repository.assets[created.id].deleted_at is not None
     assert session.commit_count == 3
-
-
-@pytest.mark.asyncio
-async def test_workspace_asset_review_handler_registers_asset_from_review_payload() -> None:
-    service, _, _ = _service()
-    handler = build_workspace_asset_review_handler(service)
-    item = ReviewItemProjection(
-        id="review-item-1",
-        batch_id="batch-1",
-        workspace_id="ws-1",
-        item_kind="workspace_asset",
-        target_domain="asset",
-        target_kind="workspace_asset",
-        status="accepted",
-        title="Register figure",
-        payload_json={
-            "asset_kind": "figure",
-            "name": "figure-1.png",
-            "storage_backend": "local",
-            "storage_path": "figures/figure-1.png",
-            "mime_type": "image/png",
-            "created_by": "agent",
-        },
-    )
-
-    result = await handler(item)
-
-    assert result == {"asset_id": "asset-1", "storage_path": "figures/figure-1.png"}
 
 
 @pytest.mark.asyncio

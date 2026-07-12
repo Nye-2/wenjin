@@ -1,0 +1,206 @@
+# 07 ReviewCommitRuntime Spec
+
+Status: Implemented
+Updated: 2026-07-11
+
+Implementation outcome: item-level decisions, review modes, conflict checks, partial commit, materializers, receipts, and linked-domain provenance are implemented. Old batch/change review ownership was deleted.
+Depends on: `03_dataservice_mission_schema.md`, `08_mission_console_frontend.md`, `10_sandbox_vnext.md`
+
+## Goal
+
+Replace `ExecutionCommitService` and result-card commit semantics with mission-native review and commit:
+
+```text
+MissionOutput / ResearchToolOutcome
+  -> MissionReviewItem
+  -> ReviewDecision
+  -> MissionCommit
+  -> room service / Prism apply / asset write
+```
+
+Review is item-level in storage. Frontend can batch low-risk actions.
+
+`ReviewBatch` and `ChangeSet` are not retained as runtime review facts. Their useful duties move as follows:
+
+| Old duty | New owner |
+|---|---|
+| batch grouping | MissionView projection / frontend selection |
+| accepted/rejected item truth | MissionReviewItem decision fields |
+| change application | MissionCommit orchestrating room/domain services |
+| room apply handlers | Room / Prism / Source / Memory domain service |
+| audit trail | MissionItem + MissionCommit |
+| idempotency | one MissionCommit per atomic MissionReviewItem with stable commit key |
+
+## Current Code Anchors
+
+| Current file | Current responsibility | Target action |
+|---|---|---|
+| `backend/src/services/execution_commit_service.py` | Commits accepted TaskReport outputs using `accepted_ids` / `accepted_unit_ids` | Replace with ReviewCommitRuntime over mission review items |
+| `backend/src/services/change_unit_materializer.py` | Materializes ChangeUnit into rooms | Move useful apply logic behind MissionCommit; remove execution-temp state and ChangeUnit runtime identity |
+| `backend/src/services/change_unit_materializer.py` / `frontend/lib/change-set-view.ts` | Change set review projection | Fold into MissionReviewItem projection |
+| `backend/src/dataservice/review_api.py`, `backend/src/dataservice_client/contracts/review.py` | ReviewBatch / ReviewItem domain tied to execution/runtime review | Remove as task review SSOT; move necessary apply handlers into room/domain services |
+| `frontend/app/(workbench)/workspaces/[id]/components/review-changes/ChangeSetReviewPanel.tsx` | Review UI | Rebind to mission review items and user review modes |
+| `frontend/lib/execution-commit.ts` | Commit state using accepted ids | Replace with mission review decision/commit client |
+
+## Review Modes
+
+Workspace/mission review mode:
+
+```text
+review_all
+balanced_default
+auto_draft
+```
+
+Rules:
+
+- `review_all`: every candidate waits for confirmation.
+- `balanced_default`: low-risk organization/summaries are suggested-selected in MissionView/UI but still wait for confirmation; high-risk stays unselected and manual.
+- `auto_draft`: eligible low-risk draft-only content receives an auditable policy acceptance and ordinary draft-target MissionCommit automatically; high-risk still manual.
+
+Non-bypassable high risk:
+
+```text
+citation
+claim
+evidence
+experiment conclusion
+statistical result
+Prism structural edit
+patent claim
+long-term memory
+external data access
+```
+
+## MissionReviewItem Fields
+
+```text
+review_item_id
+mission_id
+source_item_seq
+target_kind
+target_room
+target_ref
+base_revision_ref
+base_hash
+title
+summary
+risk_level
+status
+review_required_reason
+preview_json
+preview_ref
+preview_hash
+preview_expires_at
+decision_json
+decided_by
+decided_at
+```
+
+`checkbox` and batch selection are UI only. The decision fields on MissionReviewItem are the current review fact; every decision command also appends an immutable MissionItem for audit.
+
+Canonical row statuses are:
+
+```text
+pending | accepted | rejected | needs_more_evidence | committed | superseded
+```
+
+`auto_draft` is policy, `regenerate`/`save_draft_only` are actions, and suggested/default checkbox state is a MissionView projection. They are not persisted as additional statuses.
+
+MissionView can derive `suggestedSelected` and a selection revision from review mode/risk. The frontend owns only the user's temporary checkbox selection; acceptance still requires a decision command or an auditable `auto_draft` policy decision.
+
+Storage, API, and user-facing runtime names use `MissionReviewItem`. Generic `ReviewItem` may survive only as an internal room-domain object that neither owns mission review state nor appears in mission APIs.
+
+Large diff/version content is stored behind `preview_ref` with TTL. Once an item is accepted, rejected, superseded, or committed and its grace period ends, preview content is deleted; decision metadata, target, hashes, and commit audit remain.
+
+For an existing target, MissionReviewItem captures the base revision/hash used to build the preview. Room/domain apply performs an optimistic precondition check. A mismatch marks the old item `superseded` and produces a new candidate from the current target; it never overwrites a newer user or mission edit.
+
+## MissionCommit
+
+```text
+commit_id
+mission_id
+review_item_id
+commit_key
+actor_user_id
+targets_json
+status
+error_json
+attempt_count
+created_at
+completed_at
+```
+
+One MissionCommit applies one atomic MissionReviewItem. Idempotency is based on a stable item-scoped commit key; duplicate requests return the existing result instead of writing the domain twice.
+
+MissionCommit status is `pending | applying | committed | failed | cancelled`. The row stores current apply truth; every attempt/result also appends an immutable MissionItem audit entry. A failed row may retry under the same commit key and increments `attempt_count`.
+
+Frontend batch acceptance submits multiple independent items. Successful commits remain successful if another item fails, and only failed items are retried. There is no batch-level all-or-nothing claim and no distributed transaction across room domains.
+
+Review and commit may continue after MissionRun execution is terminal. They append audit MissionItems and update review/commit summaries, but cannot reopen the agent loop or mutate the terminal execution status/timestamp. `needs_more_evidence` creates a linked child mission when new research is required after terminal completion.
+
+## Commit Targets
+
+| Target | Commit boundary |
+|---|---|
+| Library | Source/Asset/Reference domain service |
+| Documents / Prism | Prism review apply or document room service |
+| Decisions | Decision room service |
+| Tasks | Task room service |
+| Workspace memory | WorkspaceMemory service, high-risk default unchecked |
+| Sandbox artifact | Asset/artifact service with manifest provenance |
+
+ReviewCommitRuntime must not implement room domain internals; it orchestrates accepted write requests.
+
+## Rejected / Needs Evidence
+
+User actions and their persisted effects:
+
+| Action | Persisted effect |
+|---|---|
+| accept | item -> `accepted`; optional MissionCommit |
+| reject | item -> `rejected` |
+| needs more evidence | item -> `needs_more_evidence`; create/resume research command |
+| regenerate | old item -> `superseded`; create a stage command and later a new candidate |
+| save draft only | accept an already draft-target item, or supersede it and create a new draft-target candidate before commit |
+
+`needs_more_evidence` is not a commit. For an in-loop waiting mission it resumes the same stage; for a terminal mission it creates a linked child MissionRun seeded from the relevant stage/evidence gap.
+
+## Deletions
+
+- `accepted_ids`
+- `accepted_unit_ids`
+- runtime `ReviewBatch`
+- runtime `ChangeSet`
+- execution change-set review endpoints
+- result-card local committed truth
+- review packet item id as commit id
+- execution temp `change_unit_materialization` as long-lived recovery path
+- Redis-only commit truth
+
+Best-effort locks can remain, but MissionCommit is durable truth.
+
+## Migration
+
+1. Create mission_review_items and mission_commits tables.
+2. Replace execution commit endpoint with mission review decision endpoint.
+3. Build MissionReviewItem creation from MissionOutput/ResearchToolOutcome.
+4. Wire each accepted item through an item-scoped MissionCommit.
+5. Update frontend review panels to operate on review item ids.
+6. Delete execution commit code path.
+7. Delete runtime ReviewBatch / ChangeSet code paths instead of wrapping them.
+
+## Tests
+
+- `balanced_default` blocks high-risk accept-all.
+- `auto_draft` cannot auto-commit claim/evidence/citation.
+- Review status validation rejects policy/action/UI values such as `auto_draft`, `regenerate`, `save_draft_only`, and `default_checked`.
+- Duplicate commit key is idempotent.
+- Rejected item never writes rooms.
+- Needs-more-evidence resumes an in-loop waiting stage or creates a linked child mission after terminal execution.
+- Prism item requires preview/apply boundary.
+- Commit failure records failed MissionCommit and does not fake success in UI.
+- A batch with mixed outcomes preserves successful items and retries only failed items.
+- Expired preview content can be regenerated from the current target without reviving old version compatibility data.
+- Stale base revision/hash cannot overwrite a newer target and requires a newly reviewed candidate.
+- No runtime API exposes ReviewBatch or ChangeSet as mission review truth.

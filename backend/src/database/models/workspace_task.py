@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,13 +19,16 @@ class WorkspaceTask(Base, UUIDMixin, TimestampMixin):
         description: Optional task description
         status: Task status (pending/in_progress/done)
         priority: Priority (higher = more important)
-        related_execution_ids: JSON list of related execution IDs
+        related_mission_ids: JSON list of related execution IDs
         created_by: Who created this task
         completed_at: When the task was completed
         deleted_at: Soft delete timestamp
     """
 
     __tablename__ = "workspace_tasks"
+    __table_args__ = (
+        Index("uq_workspace_tasks_mission_commit", "source_mission_commit_id", unique=True),
+    )
 
     workspace_id: Mapped[str] = mapped_column(
         String(36),
@@ -38,18 +41,19 @@ class WorkspaceTask(Base, UUIDMixin, TimestampMixin):
         String(20), nullable=False, default="pending",
     )
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    related_execution_ids: Mapped[list[str]] = mapped_column(
+    related_mission_ids: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=list,
     )
     created_by: Mapped[str] = mapped_column(String(60), nullable=False)
-    source_review_batch_id: Mapped[str | None] = mapped_column(
+    source_mission_id: Mapped[str | None] = mapped_column(
         String(36),
-        ForeignKey("review_batches.id", ondelete="SET NULL"),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
         nullable=True,
     )
-    source_review_item_id: Mapped[str | None] = mapped_column(
+    source_mission_item_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_mission_commit_id: Mapped[str | None] = mapped_column(
         String(36),
-        ForeignKey("review_items.id", ondelete="SET NULL"),
+        ForeignKey("mission_commits.commit_id", ondelete="SET NULL"),
         nullable=True,
     )
     completed_at: Mapped[datetime | None] = mapped_column(

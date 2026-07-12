@@ -103,7 +103,7 @@ Docs and release gates:
 
 - Modify `docs/current/architecture.md`
 - Modify `docs/current/workspace-current-state.md`
-- Modify `docs/current/frontend-feature-plugin-contract.md`
+- Modify `docs/current/frontend-mission-contract.md`
 - Modify `docs/current/release-gate-checklist.md`
 
 ---
@@ -2071,7 +2071,7 @@ git commit -m "feat: strengthen research evidence recovery"
 - Modify: `backend/src/application/services/feature_launch_context.py`
 - Modify: `backend/src/tools/builtins/launch_feature.py`
 - Test: `backend/tests/tools/test_launch_feature_tool.py`
-- Test: `backend/tests/services/test_capability_schema.py`
+- Test: `backend/tests/services/test_mission_policy_schema.py`
 
 - [ ] **Step 1: Write fallback removal test**
 
@@ -2156,7 +2156,7 @@ Pass it into `build_missing_context_advisory`.
 Run:
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/tools/test_launch_feature_tool.py tests/services/test_capability_schema.py tests/seed/test_capability_seeds_load.py -q
+cd backend && .venv/bin/python -m pytest tests/tools/test_launch_feature_tool.py tests/services/test_mission_policy_schema.py tests/seed/test_capability_seeds_load.py -q
 ```
 
 Expected: all tests pass and visible capability seeds provide routing minimum context.
@@ -2175,7 +2175,7 @@ git commit -m "refactor: rely on capability routing context contract"
 **Files:**
 - Modify: `docs/current/architecture.md`
 - Modify: `docs/current/workspace-current-state.md`
-- Modify: `docs/current/frontend-feature-plugin-contract.md`
+- Modify: `docs/current/frontend-mission-contract.md`
 - Modify: `docs/current/release-gate-checklist.md`
 
 - [ ] **Step 1: Update architecture runtime constraints**
@@ -2191,7 +2191,7 @@ In `docs/current/architecture.md`, update the Agent Harness and Runtime sections
 
 - [ ] **Step 2: Update frontend contract**
 
-In `docs/current/frontend-feature-plugin-contract.md`, add:
+In `docs/current/frontend-mission-contract.md`, add:
 
 ```markdown
 Commit state is execution-backed. ResultCard, CompletedView, LiveWorkflowPanel, and Runs drawer must read accepted/rejected output state from execution projection when available; local `committed` state is only an optimistic pending indicator during the current request.
@@ -2228,7 +2228,7 @@ Expected: remaining matches are either explicit prohibitions, migration history,
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/current/architecture.md docs/current/workspace-current-state.md docs/current/frontend-feature-plugin-contract.md docs/current/release-gate-checklist.md
+git add docs/current/architecture.md docs/current/workspace-current-state.md docs/current/frontend-mission-contract.md docs/current/release-gate-checklist.md
 git commit -m "docs: align runtime harness optimization contract"
 ```
 

@@ -1,0 +1,2 @@
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_search_2","status":"completed","output":[{"id":"ws_2","type":"web_search_call","status":"completed","action":{"type":"search","query":"federated LoRA","sources":[{"url":"https://example.edu/paper","title":"Federated LoRA"}]}},{"type":"message","content":[{"type":"output_text","text":"No citations","annotations":[]}]}]}}

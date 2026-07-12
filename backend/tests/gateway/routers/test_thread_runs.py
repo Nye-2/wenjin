@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from src.application.handlers.thread_turn_handler import ThreadStreamDelta
 from src.application.results import CompletedThreadTurn, GeneratedThreadReply, PreparedThreadTurn
 from src.gateway.routers import runs, thread_runs
-from src.runtime.runs import DisconnectMode, RunManager, RunRecord, RunStatus, run_thread_turn
+from src.runtime.chat_turns import ChatTurnDisconnectMode, ChatTurnRunManager, ChatTurnRunRecord, ChatTurnRunStatus, run_chat_turn
 from src.runtime.stream_bridge import MemoryStreamBridge
 from src.task.tasks.run import _build_turn_request
 
@@ -109,11 +109,11 @@ class _FakeHandler:
         )
 
 
-class _FakeExecuteRunTask:
+class _FakeProcessChatTurnTask:
     def __init__(
         self,
         *,
-        run_manager: RunManager,
+        run_manager: ChatTurnRunManager,
         bridge: MemoryStreamBridge,
         handler: _FakeHandler,
     ) -> None:
@@ -133,7 +133,7 @@ class _FakeExecuteRunTask:
             if record is None:
                 return
             request = _build_turn_request(request_payload)
-            await run_thread_turn(
+            await run_chat_turn(
                 self._bridge,
                 self._run_manager,
                 record,
@@ -151,15 +151,15 @@ def _create_client(
     *,
     user_id: str = "user-1",
     shared_handler: _FakeHandler | None = None,
-    run_manager: RunManager | None = None,
+    run_manager: ChatTurnRunManager | None = None,
     stream_bridge: MemoryStreamBridge | None = None,
 ) -> TestClient:
     app = FastAPI()
     shared_handler = shared_handler or _FakeHandler()
-    run_manager = run_manager or RunManager()
+    run_manager = run_manager or ChatTurnRunManager()
     stream_bridge = stream_bridge or MemoryStreamBridge(queue_maxsize=64)
-    app.state.run_manager = run_manager
-    app.state.stream_bridge = stream_bridge
+    app.state.chat_turn_run_manager = run_manager
+    app.state.chat_turn_stream_bridge = stream_bridge
 
     async def _override_user():
         user = MagicMock()
@@ -172,15 +172,15 @@ def _create_client(
     async def _override_thread_service():
         return shared_handler.thread_service
 
-    import src.gateway.services.run_launch as run_launch_module
-    import src.gateway.services.run_lifecycle as run_lifecycle_module
+    import src.gateway.services.chat_turn_launch as run_launch_module
+    import src.gateway.services.chat_turn_lifecycle as run_lifecycle_module
     import src.task.tasks as task_module
 
     async def _allow_workspace_owner(*args, **kwargs):
         workspace_id = kwargs.get("workspace_id")
         return SimpleNamespace(id=workspace_id)
 
-    fake_execute_run = _FakeExecuteRunTask(
+    fake_process_chat_turn = _FakeProcessChatTurnTask(
         run_manager=run_manager,
         bridge=stream_bridge,
         handler=shared_handler,
@@ -192,7 +192,7 @@ def _create_client(
     )
     monkeypatch.setattr(run_lifecycle_module.celery_settings, "enabled", True)
     monkeypatch.setattr(run_lifecycle_module.redis_settings, "enabled", True)
-    monkeypatch.setattr(task_module, "execute_run", fake_execute_run)
+    monkeypatch.setattr(task_module, "process_chat_turn", fake_process_chat_turn)
 
     app.dependency_overrides[thread_runs.get_current_user] = _override_user
     app.dependency_overrides[thread_runs.get_thread_turn_handler] = _override_handler
@@ -335,7 +335,7 @@ def test_stateless_wait_returns_thread_values_snapshot(monkeypatch: pytest.Monke
 
 def test_run_id_endpoints_require_run_owner(monkeypatch: pytest.MonkeyPatch):
     shared_handler = _FakeHandler()
-    run_manager = RunManager()
+    run_manager = ChatTurnRunManager()
     stream_bridge = MemoryStreamBridge(queue_maxsize=64)
 
     owner_client = _create_client(
@@ -372,7 +372,7 @@ def test_run_id_endpoints_require_run_owner(monkeypatch: pytest.MonkeyPatch):
 
 def test_thread_scoped_run_endpoints_require_thread_owner(monkeypatch: pytest.MonkeyPatch):
     shared_handler = _FakeHandler()
-    run_manager = RunManager()
+    run_manager = ChatTurnRunManager()
     stream_bridge = MemoryStreamBridge(queue_maxsize=64)
 
     owner_client = _create_client(
@@ -411,15 +411,15 @@ def test_run_id_owner_metadata_allows_owner_before_thread_binding(
     monkeypatch: pytest.MonkeyPatch,
 ):
     shared_handler = _FakeHandler()
-    run_manager = RunManager()
+    run_manager = ChatTurnRunManager()
     stream_bridge = MemoryStreamBridge(queue_maxsize=64)
     run_id = "run-prebind-owner"
-    run_manager._runs[run_id] = RunRecord(
+    run_manager._chat_turns[run_id] = ChatTurnRunRecord(
         run_id=run_id,
         thread_id="placeholder-thread",
         assistant_id="thread",
-        status=RunStatus.pending,
-        on_disconnect=DisconnectMode.continue_,
+        status=ChatTurnRunStatus.pending,
+        on_disconnect=ChatTurnDisconnectMode.continue_,
         metadata={"_owner_id": "user-1"},
     )
 

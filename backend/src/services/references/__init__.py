@@ -1,9 +1,5 @@
 """Workspace reference library service surface."""
 
-from .boundaries import (
-    REFERENCE_LIBRARY_BYPASS_TOOL_NAMES,
-    is_reference_library_bypass_tool,
-)
 from .service import (
     REFERENCE_PREPROCESS_THRESHOLD_BYTES,
     SourceBibliographyService,
@@ -16,6 +12,4 @@ __all__ = [
     "SourceLibraryImportService",
     "SourcePreprocessService",
     "SourceBibliographyService",
-    "REFERENCE_LIBRARY_BYPASS_TOOL_NAMES",
-    "is_reference_library_bypass_tool",
 ]

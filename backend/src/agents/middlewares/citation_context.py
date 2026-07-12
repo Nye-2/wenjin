@@ -120,9 +120,9 @@ class CitationContextMiddleware(Middleware):
                 SourceCitationUsageCreatePayload(
                     workspace_id=workspace_id,
                     citation_keys=citation_keys,
-                    execution_id=(
-                        state.get("execution_id")
-                        or configurable.get("execution_id")
+                    mission_id=(
+                        state.get("mission_id")
+                        or configurable.get("mission_id")
                         or None
                     ),
                     task_id=state.get("task_id") or configurable.get("task_id") or None,

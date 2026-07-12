@@ -1,12 +1,8 @@
 """Database models package - exports all ORM models."""
 
 from .admin_log import AdminActionType, AdminLog
-from .agent_template import AgentTemplate
 from .artifact import Artifact, ArtifactType
 from .audit_log import AuditLog
-from .capability import Capability
-from .capability_skill import CapabilitySkill
-from .compute_session import ComputeSessionRecord
 from .credit import CreditTransaction, CreditTransactionType
 from .credit_grant_rule import CreditGrantRule, CreditGrantRuleType
 from .credit_redeem_code import CreditRedeemCode
@@ -18,25 +14,27 @@ from .credit_reservation import (
 )
 from .decision import Decision
 from .document_v2 import DocumentV2
-from .execution import ExecutionRecord
-from .execution_node import ExecutionNodeRecord
 from .generation import GenerationRecord
 from .latex_compile_history import LatexCompileHistory
 from .latex_project import LatexProject
 from .latex_template import LatexTemplate
 from .library_item import LibraryItem
+from .mission import (
+    MissionCommitRecord,
+    MissionItemRecord,
+    MissionReviewItemRecord,
+    MissionRunRecord,
+)
+from .mission_catalog import MissionPolicyRecord, WorkerSkillRecord
 from .model_catalog import (
     ModelCatalogEntry,
     ModelCategory,
     ModelHealthStatus,
-    ModelProviderProtocol,
     ModelTrustLevel,
 )
 from .pricing_policy import PricingPolicy, PricingPolicyKind
 from .referral import Referral
-from .run_history import RunHistory
 from .sandbox import Sandbox
-from .subagent_task import SubagentTaskRecord
 from .task import TaskRecord
 from .thread import Thread
 from .user import User
@@ -65,21 +63,23 @@ __all__ = [
     "CreditReservationScope",
     "CreditReservationStatus",
     "CreditRedemption",
-    "ComputeSessionRecord",
     # Admin Audit
     "AdminLog",
     "AdminActionType",
     # Audit Log
     "AuditLog",
-    # Capability
-    "Capability",
-    "CapabilitySkill",
-    "AgentTemplate",
+    # Mission policy catalog
+    "MissionPolicyRecord",
+    "WorkerSkillRecord",
     "ModelCatalogEntry",
-    "ModelProviderProtocol",
     "ModelCategory",
     "ModelTrustLevel",
     "ModelHealthStatus",
+    # Mission Runtime
+    "MissionRunRecord",
+    "MissionItemRecord",
+    "MissionReviewItemRecord",
+    "MissionCommitRecord",
     "PricingPolicy",
     "PricingPolicyKind",
     # Thread
@@ -92,10 +92,6 @@ __all__ = [
     "GenerationRecord",
     # Task
     "TaskRecord",
-    "SubagentTaskRecord",
-    # Execution (unified)
-    "ExecutionRecord",
-    "ExecutionNodeRecord",
     # Workspace Template
     "WorkspaceTemplate",
     # Room: Library
@@ -106,8 +102,6 @@ __all__ = [
     "Decision",
     # Referral
     "Referral",
-    # Room: Run History
-    "RunHistory",
     # Room: Sandbox
     "Sandbox",
     # Room: Workspace Tasks

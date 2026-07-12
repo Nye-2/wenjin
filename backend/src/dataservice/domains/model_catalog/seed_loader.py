@@ -10,8 +10,21 @@ from typing import Any
 
 from src.config.llm_config import ModelConfig
 from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
+from src.models.capability_profile import GenerationAPI, gpt55_release_assessment
 
 logger = logging.getLogger(__name__)
+
+_CATALOG_ONLY_FIELDS = frozenset(
+    {
+        "category",
+        "enabled",
+        "is_default",
+        "pricing_policy_key",
+        "provider",
+        "provider_name",
+        "trust_level",
+    }
+)
 
 
 class DataServiceModelCatalogSeedLoader:
@@ -39,6 +52,13 @@ class DataServiceModelCatalogSeedLoader:
         loaded = 0
         for seed in seeds:
             await self.service.create_model(seed, admin_id=self.admin_id)
+            assessment = _release_assessment_for_seed(seed)
+            if assessment is not None:
+                await self.service.update_capability_assessment(
+                    seed["model_id"],
+                    profile=assessment.profile,
+                    evidence=assessment.evidence,
+                )
             loaded += 1
         if loaded:
             logger.info("Loaded %d model catalog seed(s) from env config", loaded)
@@ -76,12 +96,13 @@ class DataServiceModelCatalogSeedLoader:
         try:
             loaded = json.loads(raw)
         except json.JSONDecodeError as exc:
-            logger.warning("Failed to parse %s JSON for model catalog seed: %s", key, exc)
-            return []
+            raise ValueError(f"{key} must contain valid JSON") from exc
         if not isinstance(loaded, list):
-            logger.warning("%s must be a JSON list for model catalog seed", key)
-            return []
-        return [dict(item) for item in loaded if isinstance(item, dict)]
+            raise ValueError(f"{key} must be a JSON list")
+        invalid_indexes = [index for index, item in enumerate(loaded) if not isinstance(item, dict)]
+        if invalid_indexes:
+            raise ValueError(f"{key} entries must be objects; invalid indexes: {invalid_indexes}")
+        return [dict(item) for item in loaded]
 
     def _seed_from_row(
         self,
@@ -89,17 +110,20 @@ class DataServiceModelCatalogSeedLoader:
         *,
         category: str,
         default_id: str,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any]:
+        model_payload = {
+            key: value
+            for key, value in row.items()
+            if key not in _CATALOG_ONLY_FIELDS
+        }
+        model_payload.setdefault("name", row.get("id", ""))
         try:
-            model = ModelConfig.model_validate(row)
+            model = ModelConfig.model_validate(model_payload)
         except Exception as exc:
-            logger.warning("Skipping invalid model catalog seed row: %s", exc)
-            return None
+            model_id = str(row.get("id") or "<missing>")
+            raise ValueError(f"invalid {category} model catalog seed {model_id!r}") from exc
 
         provider_name = str(row.get("provider_name") or row.get("provider") or "Custom").strip()
-        supports_reasoning_effort = bool(
-            row.get("supports_reasoning_effort", row.get("supports_thinking", False))
-        )
         enabled = bool(row.get("enabled", True))
         pricing_policy_id = row.get("pricing_policy_id") or row.get("pricing_policy_key")
         if enabled and not str(pricing_policy_id or "").strip():
@@ -107,7 +131,7 @@ class DataServiceModelCatalogSeedLoader:
         return {
             "model_id": model.id,
             "display_name": model.name or model.id,
-            "provider_protocol": str(row.get("provider_protocol") or "openai_compatible"),
+            "generation_api": model.generation_api.value if category == "llm" and model.generation_api else None,
             "provider_name": provider_name or "Custom",
             "category": category,
             "model_name": model.model,
@@ -115,17 +139,25 @@ class DataServiceModelCatalogSeedLoader:
             "api_key": model.api_key,
             "enabled": enabled,
             "is_default": model.id == default_id,
-            "supports_streaming": model.supports_streaming,
-            "supports_tools": model.supports_tools,
-            "supports_json_mode": model.supports_json_mode,
-            "supports_json_schema": model.supports_json_schema,
-            "supports_vision": model.supports_vision,
-            "supports_reasoning_effort": supports_reasoning_effort,
             "max_tokens": model.max_tokens,
             "temperature": model.temperature,
-            "timeout_seconds": row.get("timeout_seconds"),
-            "max_retries": row.get("max_retries"),
+            "timeout_seconds": model.timeout_seconds,
+            "max_retries": model.max_retries,
             "trust_level": str(row.get("trust_level") or "custom"),
             "pricing_policy_id": pricing_policy_id,
             "default_headers": dict(model.default_headers or {}),
         }
+
+
+def _release_assessment_for_seed(seed: dict[str, Any]):
+    if (
+        seed.get("category") == "llm"
+        and seed.get("model_id") == "gpt-5.5"
+        and seed.get("model_name") == "gpt-5.5"
+        and str(seed.get("base_url") or "").rstrip("/")
+        == "https://api.nainai.love/v1"
+        and str(seed.get("generation_api") or "")
+        == GenerationAPI.CHAT_COMPLETIONS.value
+    ):
+        return gpt55_release_assessment()
+    return None

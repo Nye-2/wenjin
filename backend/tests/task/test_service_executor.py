@@ -16,7 +16,7 @@ def mock_store():
             MagicMock(
                 created_at=datetime.now(UTC),
                 started_at=None,
-                task_type="execution",
+                task_type="reference_preprocess",
             ),
             0,
         )
@@ -40,7 +40,7 @@ class TestSubmitTaskUsesExecutor:
         ):
             await service.submit_task(
                 user_id="user-1",
-                task_type="execution",
+                task_type="reference_preprocess",
                 payload={"workspace_id": "ws-1"},
                 priority=5,
             )
@@ -63,10 +63,10 @@ class TestSubmitTaskUsesExecutor:
         ):
             await service.submit_task(
                 user_id="user-1",
-                task_type="execution",
+                task_type="reference_preprocess",
                 payload={
                     "workspace_id": "ws-1",
-                    "feature_id": "deep_research",
+                    "reference_id": "deep_research",
                     "params": {"topic": "LLM agents"},
                 },
                 priority=5,
@@ -74,8 +74,9 @@ class TestSubmitTaskUsesExecutor:
 
         first_payload = publish_workspace_event.await_args_list[0].args[2]
         assert first_payload["activity"]["id"].startswith("task:")
-        assert first_payload["activity"]["kind"] == "feature_task"
-        assert first_payload["activity"]["feature_id"] == "deep_research"
+        assert first_payload["activity"]["kind"] == "task"
+        assert first_payload["activity"]["mission_id"] is None
+        assert first_payload["activity"]["mission_policy_id"] is None
         assert first_payload["activity"]["summary"] == "LLM agents"
 
     @pytest.mark.asyncio
@@ -94,7 +95,7 @@ class TestSubmitTaskUsesExecutor:
             with pytest.raises(ConnectionError):
                 await service.submit_task(
                     user_id="user-1",
-                    task_type="execution",
+                    task_type="reference_preprocess",
                     payload={},
                 )
 
@@ -111,13 +112,13 @@ class TestCancelTaskInCeleryMode:
         record = MagicMock()
         record.user_id = "user-1"
         record.status = "running"
-        record.task_type = "execution"
+        record.task_type = "reference_preprocess"
         record.id = "task-1"
         record.progress = 42
-        record.execution_id = "exec-1"
+        record.mission_id = None
         record.payload = {
             "workspace_id": "ws-1",
-            "feature_id": "deep_research",
+            "reference_id": "deep_research",
             "params": {"topic": "LLM agents"},
         }
         record.created_at = datetime.now(UTC)
@@ -138,10 +139,6 @@ class TestCancelTaskInCeleryMode:
             patch("src.task.service.celery_settings") as mock_celery_settings,
             patch("src.task.service.celery_app.control.revoke") as mock_revoke,
             patch("src.task.service.publish_workspace_event", new=AsyncMock()) as publish_workspace_event,
-            patch(
-                "src.task.service.ExecutionService.apply_task_transition",
-                new=AsyncMock(),
-            ) as update_execution,
         ):
             mock_celery_settings.enabled = True
             cancelled = await service.cancel_task("task-1", "user-1")
@@ -161,12 +158,6 @@ class TestCancelTaskInCeleryMode:
         assert first_payload["task"]["progress"] == 73
         assert first_payload["task"]["metadata"] == {"runtime": {"current_phase": "drafting"}}
         assert first_payload["activity"]["metadata"]["progress"] == 73
-        update_execution.assert_awaited_once()
-        assert update_execution.await_args.args[0] == "exec-1"
-        assert update_execution.await_args.kwargs["status"] == "cancelled"
-        assert update_execution.await_args.kwargs["runtime_state"] == {
-            "current_phase": "drafting"
-        }
 
     @pytest.mark.asyncio
     async def test_cancel_falls_back_to_record_progress_when_runtime_state_missing(self, mock_store):
@@ -175,13 +166,13 @@ class TestCancelTaskInCeleryMode:
         record = MagicMock()
         record.user_id = "user-1"
         record.status = "running"
-        record.task_type = "execution"
+        record.task_type = "reference_preprocess"
         record.id = "task-2"
         record.progress = 58
-        record.execution_id = "exec-2"
+        record.mission_id = None
         record.payload = {
             "workspace_id": "ws-1",
-            "feature_id": "deep_research",
+            "reference_id": "deep_research",
             "params": {"topic": "LLM agents"},
         }
         record.created_at = datetime.now(UTC)
@@ -195,10 +186,6 @@ class TestCancelTaskInCeleryMode:
             patch("src.task.service.celery_settings") as mock_celery_settings,
             patch("src.task.service.celery_app.control.revoke") as mock_revoke,
             patch("src.task.service.publish_workspace_event", new=AsyncMock()) as publish_workspace_event,
-            patch(
-                "src.task.service.ExecutionService.apply_task_transition",
-                new=AsyncMock(),
-            ) as update_execution,
         ):
             mock_celery_settings.enabled = True
             cancelled = await service.cancel_task("task-2", "user-1")
@@ -216,7 +203,6 @@ class TestCancelTaskInCeleryMode:
         assert first_payload["task"]["progress"] == 58
         assert first_payload["task"]["metadata"] is None
         assert first_payload["activity"]["metadata"]["progress"] == 58
-        assert update_execution.await_args.kwargs["runtime_state"] is None
 
     @pytest.mark.asyncio
     async def test_cancel_raises_when_celery_disabled(self, mock_store):
@@ -225,10 +211,10 @@ class TestCancelTaskInCeleryMode:
         record = MagicMock()
         record.user_id = "user-1"
         record.status = "running"
-        record.task_type = "execution"
+        record.task_type = "reference_preprocess"
         record.id = "task-3"
         record.progress = 0
-        record.execution_id = None
+        record.mission_id = None
         record.payload = {"workspace_id": "ws-1"}
         record.created_at = datetime.now(UTC)
         record.started_at = datetime.now(UTC)

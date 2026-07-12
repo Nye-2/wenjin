@@ -1,4 +1,4 @@
-"""TaskReport contract — structured output from a capability execution."""
+"""Structured report emitted by a WorkerSkill during a Mission."""
 
 from typing import Annotated, Any, Literal
 
@@ -132,52 +132,6 @@ ResultOutput = Annotated[
 # Review packet payloads
 # ---------------------------------------------------------------------------
 
-ReviewPacketItemKind = Literal[
-    "document",
-    "memory",
-    "decision",
-    "reference",
-    "dataset",
-    "artifact",
-    "prism_change",
-    "task",
-    "warning",
-]
-ReviewPacketCompletionStatus = Literal["complete", "partial", "failed", "cancelled"]
-
-
-class ReviewPacketItem(BaseModel):
-    """A user-reviewable candidate produced by an academic harness run."""
-
-    schema_version: Literal["wenjin.review_packet.item.v1"] = "wenjin.review_packet.item.v1"
-    item_id: str
-    kind: ReviewPacketItemKind
-    title: str
-    summary: str
-    preview: dict[str, Any] = Field(default_factory=dict)
-    source: dict[str, Any] = Field(default_factory=dict)
-    claim_refs: list[str] = Field(default_factory=list)
-    evidence_refs: list[str] = Field(default_factory=list)
-    artifact_refs: list[str] = Field(default_factory=list)
-    prism_change_refs: list[str] = Field(default_factory=list)
-    quality_surfaces: list[str] = Field(default_factory=list)
-    risk: dict[str, Any] = Field(default_factory=lambda: {"level": "low", "reasons": []})
-    default_checked: bool = True
-    can_commit: bool = True
-    provenance: dict[str, Any] = Field(default_factory=dict)
-
-
-class ReviewPacket(BaseModel):
-    """Semantic completion envelope for user-reviewable academic outputs."""
-
-    schema_version: Literal["wenjin.review_packet.v1"] = "wenjin.review_packet.v1"
-    packet_id: str
-    execution_id: str
-    capability_id: str
-    title: str
-    summary: str
-    completion_status: ReviewPacketCompletionStatus
-    items: list[ReviewPacketItem] = Field(default_factory=list)
 
 # ---------------------------------------------------------------------------
 # Error record
@@ -198,11 +152,11 @@ class ResultError(BaseModel):
 
 
 class TaskReport(BaseModel):
-    """Structured report produced by a capability executor upon completion.
+    """Structured report produced by a WorkerSkill upon completion.
 
     Attributes:
-        execution_id: Unique identifier for this execution run.
-        capability_id: Identifier of the capability that was executed.
+        mission_id: Unique identifier for this execution run.
+        skill_id: Identifier of the WorkerSkill that was executed.
         status: Outcome status of the execution.
         duration_seconds: Wall-clock duration in seconds.
         token_usage: Optional breakdown of token usage (input/output/total).
@@ -213,8 +167,8 @@ class TaskReport(BaseModel):
         errors: List of errors encountered during execution.
     """
 
-    execution_id: str
-    capability_id: str
+    mission_id: str
+    skill_id: str
     status: Literal["completed", "failed_partial", "cancelled"]
     duration_seconds: int
     token_usage: dict[str, int] | None = None
@@ -222,6 +176,5 @@ class TaskReport(BaseModel):
     narrative: str
     outputs: list[ResultOutput] = Field(default_factory=list)
     review_items: list[dict] = Field(default_factory=list)
-    review_packet: ReviewPacket | None = None
     preview_item_id: str | None = None
     errors: list[ResultError] = Field(default_factory=list)

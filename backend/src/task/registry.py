@@ -30,7 +30,6 @@ class TaskQueue(StrEnum):
 
 DOCUMENT_PREPROCESS_TASK = "document_preprocess"
 REFERENCE_PREPROCESS_TASK = "reference_preprocess"
-EXECUTION_TASK = "execution"
 
 
 @dataclass
@@ -57,12 +56,6 @@ TASK_REGISTRY: dict[str, TaskTypeConfig] = {
         timeout=1200,
         retry=1,
         description="Async preprocessing and page-indexing for reference-library assets",
-    ),
-    EXECUTION_TASK: TaskTypeConfig(
-        queue=TaskQueue.DEFAULT,
-        timeout=300,
-        retry=1,
-        description="Canonical execution task metadata bridge",
     ),
 }
 

@@ -36,7 +36,6 @@ def _settings_row(workspace_id: str = "ws-1") -> WorkspaceSettings:
         thinking_enabled=True,
         sandbox_provider="local",
         auto_compact_threshold=0.8,
-        capability_overrides={},
         settings_json={},
         metadata_json={},
     )
@@ -60,7 +59,7 @@ async def test_create_workspace_creates_owner_membership_and_settings() -> None:
     assert workspace.type == WorkspaceType.THESIS
     assert workspace.config["language"] == "zh"
     assert workspace.config["rollout"]["thread_cockpit_enabled"] is True
-    assert workspace.config["write_mode"] == "auto_draft"
+    assert workspace.config["review_mode"] == "balanced_default"
     assert any(isinstance(item, WorkspaceMembership) for item in session.added)
     assert any(isinstance(item, WorkspaceSettings) for item in session.added)
     session.commit.assert_awaited_once()
@@ -106,21 +105,20 @@ async def test_get_or_create_workspace_settings_creates_default_record() -> None
     values = service.repository.create_workspace_settings_from_values.call_args.kwargs["values"]  # type: ignore[attr-defined]
     assert values["thinking_enabled"] is True
     assert values["sandbox_provider"] == "local"
-    assert values["settings_json"]["write_mode"] == "auto_draft"
+    assert values["settings_json"]["review_mode"] == "balanced_default"
     assert record.workspace_id == "ws-1"
-    assert record.capability_overrides == {}
-    assert record.write_mode == "auto_draft"
-    assert record.settings_json["write_mode"] == "auto_draft"
+    assert record.review_mode == "balanced_default"
+    assert record.settings_json["review_mode"] == "balanced_default"
     session.commit.assert_awaited_once()
 
 
-def test_workspace_settings_record_projects_missing_write_mode_default() -> None:
+def test_workspace_settings_record_projects_missing_review_mode_default() -> None:
     settings = _settings_row()
 
     record = DataServiceWorkspaceService.to_settings_record(settings)
 
-    assert record.write_mode == "auto_draft"
-    assert record.settings_json["write_mode"] == "auto_draft"
+    assert record.review_mode == "balanced_default"
+    assert record.settings_json["review_mode"] == "balanced_default"
 
 
 @pytest.mark.asyncio
@@ -135,19 +133,17 @@ async def test_update_workspace_settings_returns_projection() -> None:
         command=WorkspaceSettingsUpdateCommand(
             default_model="mimo-v2.5-pro",
             thinking_enabled=False,
-            capability_overrides={"cap": {"enabled": False}},
         ),
     )
 
     assert record is not None
     assert record.default_model == "mimo-v2.5-pro"
     assert record.thinking_enabled is False
-    assert record.capability_overrides == {"cap": {"enabled": False}}
     session.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_update_workspace_settings_write_mode_preserves_settings_json_keys() -> None:
+async def test_update_workspace_settings_review_mode_preserves_settings_json_keys() -> None:
     session = FakeSession()
     service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
     settings = _settings_row()
@@ -156,46 +152,46 @@ async def test_update_workspace_settings_write_mode_preserves_settings_json_keys
 
     record = await service.update_workspace_settings(
         "ws-1",
-        command=WorkspaceSettingsUpdateCommand(write_mode="strict_review"),
+        command=WorkspaceSettingsUpdateCommand(review_mode="review_all"),
     )
 
     assert record is not None
     assert settings.settings_json == {
         "language": "zh",
         "rollout": {"thread_cockpit_enabled": False},
-        "write_mode": "strict_review",
+        "review_mode": "review_all",
     }
-    assert record.write_mode == "strict_review"
+    assert record.review_mode == "review_all"
     session.commit.assert_awaited_once()
 
 
-def test_workspace_settings_update_rejects_invalid_write_mode() -> None:
+def test_workspace_settings_update_rejects_invalid_review_mode() -> None:
     with pytest.raises(ValidationError):
-        WorkspaceSettingsUpdateCommand(write_mode="review_everything")
+        WorkspaceSettingsUpdateCommand(review_mode="review_everything")
 
 
-def test_workspace_settings_update_trims_write_mode() -> None:
-    command = WorkspaceSettingsUpdateCommand(write_mode=" ask_workspace_write ")
+def test_workspace_settings_update_trims_review_mode() -> None:
+    command = WorkspaceSettingsUpdateCommand(review_mode=" auto_draft ")
 
-    assert command.write_mode == "ask_workspace_write"
+    assert command.review_mode == "auto_draft"
 
 
 @pytest.mark.asyncio
-async def test_update_workspace_settings_write_mode_null_does_not_overwrite_existing_mode() -> None:
+async def test_update_workspace_settings_review_mode_null_does_not_overwrite_existing_mode() -> None:
     session = FakeSession()
     service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
     settings = _settings_row()
-    settings.settings_json = {"write_mode": "strict_review", "language": "zh"}
+    settings.settings_json = {"review_mode": "review_all", "language": "zh"}
     service.repository.get_workspace_settings = AsyncMock(return_value=settings)  # type: ignore[method-assign]
 
     record = await service.update_workspace_settings(
         "ws-1",
-        command=WorkspaceSettingsUpdateCommand(write_mode=None),
+        command=WorkspaceSettingsUpdateCommand(review_mode=None),
     )
 
     assert record is not None
-    assert settings.settings_json == {"write_mode": "strict_review", "language": "zh"}
-    assert record.write_mode == "strict_review"
+    assert settings.settings_json == {"review_mode": "review_all", "language": "zh"}
+    assert record.review_mode == "review_all"
     session.commit.assert_awaited_once()
 
 

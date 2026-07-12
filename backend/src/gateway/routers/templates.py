@@ -163,6 +163,7 @@ async def upload_template(
             from io import BytesIO
 
             import docx
+
             doc = docx.Document(BytesIO(content_bytes))
             file_content = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         except Exception:

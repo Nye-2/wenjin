@@ -1,5 +1,9 @@
 # Academic Harness v2: Research Brief, Claim Evidence, Workspace Map, Prompt Pack
 
+Status: Superseded for runtime topology by `docs/superpowers/specs/mission-runtime-overview.md` and `docs/superpowers/specs/mission-runtime/`.
+
+Note: domain ideas such as claim/evidence, research brief, workspace map, and prompt quality remain useful reference material. Any implementation must use WorkspaceAgent -> MissionRuntime -> MissionItem / MissionReviewItem, not the older launch_feature / ExecutionRecord / Lead Agent chain described below.
+
 ## Goal
 
 Deepen Wenjin's academic harness without changing the core product topology.
@@ -836,4 +840,3 @@ Mitigation: Default panel shows one-line expert status, brief summary, and group
 - Can a later expert use prior evidence without replaying full transcripts?
 - Can a user understand what is reliable, what is uncertain, and what needs action?
 - Are all raw internals hidden from default UI?
-

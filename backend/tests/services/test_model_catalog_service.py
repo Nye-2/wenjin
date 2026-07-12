@@ -10,6 +10,11 @@ from src.dataservice_client.contracts.model_catalog import (
     ModelCatalogPayload,
     ModelRuntimeConfigPayload,
 )
+from src.models.capability_profile import (
+    GenerationAPI,
+    gpt55_release_assessment,
+    unverified_capability_assessment,
+)
 from src.services.model_catalog_cache import reset_model_catalog_cache
 from src.services.model_catalog_service import ModelCatalogService
 
@@ -26,9 +31,21 @@ def _model_payload(**overrides: Any) -> ModelCatalogPayload:
         "category": "llm",
         "enabled": True,
         "is_default": True,
-        "supports_tools": True,
+        "generation_api": "chat_completions",
     }
     data.update(overrides)
+    assessment = unverified_capability_assessment(
+        model_id=data["model_id"],
+        model_name=data["model_name"],
+        base_url=data["base_url"],
+        generation_api=GenerationAPI(data["generation_api"]),
+    )
+    data.update(
+        capability_profile=assessment.profile,
+        capability_probe=assessment.evidence,
+        capability_probe_hash=assessment.profile.probe_hash,
+        capability_observed_at=assessment.profile.observed_at,
+    )
     return ModelCatalogPayload.model_validate(data)
 
 
@@ -42,9 +59,23 @@ def _runtime_payload(**overrides: Any) -> ModelRuntimeConfigPayload:
         "base_url": "https://api.example.com/v1",
         "api_key": "sk-live-1234abcd",
         "is_default": True,
-        "supports_tools": True,
+        "generation_api": "chat_completions",
+        "timeout_seconds": 30,
+        "max_retries": 0,
     }
     data.update(overrides)
+    assessment = unverified_capability_assessment(
+        model_id=data["model_id"],
+        model_name=data["model_name"],
+        base_url=data["base_url"],
+        generation_api=GenerationAPI(data["generation_api"]),
+    )
+    data.update(
+        capability_profile=assessment.profile,
+        capability_probe=assessment.evidence,
+        capability_probe_hash=assessment.profile.probe_hash,
+        capability_observed_at=assessment.profile.observed_at,
+    )
     return ModelRuntimeConfigPayload.model_validate(data)
 
 
@@ -61,6 +92,7 @@ class _FakeDataService:
         self.updated: list[tuple[str, Any]] = []
         self.defaults: list[tuple[str, str | None]] = []
         self.health_updates: list[tuple[str, Any]] = []
+        self.capability_updates: list[tuple[str, Any]] = []
         self.items = [
             _model_payload(model_id="enabled-model", enabled=True),
             _model_payload(model_id="disabled-model", enabled=False),
@@ -75,6 +107,12 @@ class _FakeDataService:
 
     async def list_model_catalog_runtime_models(self, *, category: str | None = None):
         return [item for item in self.runtime_items if category is None or item.category == category]
+
+    async def get_model_catalog_runtime_model(self, model_id: str):
+        return next(
+            (item for item in self.runtime_items if item.model_id == model_id),
+            None,
+        )
 
     async def create_model_catalog_model(self, command):
         self.created = command
@@ -92,6 +130,10 @@ class _FakeDataService:
         self.health_updates.append((model_id, command))
         return _model_payload(model_id=model_id, health_status=command.status)
 
+    async def update_model_capability_assessment(self, model_id: str, command):
+        self.capability_updates.append((model_id, command))
+        return _model_payload(model_id=model_id, health_status="healthy")
+
 
 @pytest.mark.asyncio
 async def test_create_model_passes_admin_id_to_dataservice() -> None:
@@ -105,6 +147,7 @@ async def test_create_model_passes_admin_id_to_dataservice() -> None:
             "model_name": "deepseek/deepseek-v3",
             "base_url": "https://api.example.com/v1",
             "api_key": "sk-live-1234abcd",
+            "generation_api": "chat_completions",
         },
         admin_id="admin-1",
     )
@@ -168,31 +211,81 @@ async def test_disable_model_uses_dataservice_update_invariant() -> None:
 
 
 @pytest.mark.asyncio
-async def test_test_model_marks_runtime_config_healthy() -> None:
+async def test_test_model_records_probe_backed_assessment(monkeypatch) -> None:
     dataservice = _FakeDataService()
+    dataservice.runtime_items = [
+        _runtime_payload(
+            model_id="gpt-5.5",
+            display_name="GPT-5.5",
+            provider_name="OpenAI",
+            model_name="gpt-5.5",
+            base_url="https://api.nainai.love/v1",
+        )
+    ]
     service = ModelCatalogService(dataservice=dataservice)  # type: ignore[arg-type]
+    assessment = gpt55_release_assessment()
 
-    record = await service.test_model("deepseek-v3")
+    async def _probe(_target):
+        return assessment
+
+    monkeypatch.setattr(
+        "src.services.model_catalog_service.probe_model_capabilities",
+        _probe,
+    )
+
+    record = await service.test_model("gpt-5.5")
 
     assert record is not None
     assert record.health_status == "healthy"
-    _model_id, command = dataservice.health_updates[0]
-    assert command.status == "healthy"
+    _model_id, command = dataservice.capability_updates[0]
+    assert command.profile == assessment.profile
+    assert command.evidence == assessment.evidence
 
 
 @pytest.mark.asyncio
-async def test_test_model_marks_missing_runtime_config_failed() -> None:
+async def test_test_model_can_probe_a_disabled_catalog_entry(monkeypatch) -> None:
+    dataservice = _FakeDataService()
+    dataservice.runtime_items = [
+        _runtime_payload(
+            model_id="disabled-model",
+            display_name="GPT-5.5",
+            provider_name="OpenAI",
+            model_name="gpt-5.5",
+            base_url="https://api.nainai.love/v1",
+        )
+    ]
+    service = ModelCatalogService(dataservice=dataservice)  # type: ignore[arg-type]
+    assessment = gpt55_release_assessment()
+
+    async def _probe(_target):
+        return assessment
+
+    monkeypatch.setattr(
+        "src.services.model_catalog_service.probe_model_capabilities",
+        _probe,
+    )
+
+    record = await service.test_model("disabled-model")
+
+    assert record is not None
+    assert record.health_status == "healthy"
+    assert dataservice.capability_updates[0][0] == "disabled-model"
+    assert dataservice.health_updates == []
+
+
+@pytest.mark.asyncio
+async def test_test_model_marks_missing_catalog_entry_failed() -> None:
     dataservice = _FakeDataService()
     dataservice.runtime_items = []
     service = ModelCatalogService(dataservice=dataservice)  # type: ignore[arg-type]
 
-    record = await service.test_model("disabled-model")
+    record = await service.test_model("missing-model")
 
     assert record is not None
     assert record.health_status == "failed"
     _model_id, command = dataservice.health_updates[0]
     assert command.status == "failed"
-    assert "unavailable" in str(command.error_message)
+    assert "not found" in str(command.error_message)
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,8 @@ class WorkspaceMemoryRewriteCommand(BaseModel):
     content_markdown: str = Field(min_length=1)
     update_reason: str = Field(default="manual", min_length=1, max_length=100)
     updated_by: str = Field(default="system", min_length=1, max_length=100)
-    source_execution_id: str | None = Field(default=None, max_length=36)
+    source_mission_id: str | None = Field(default=None, max_length=36)
+    source_mission_commit_id: str | None = Field(default=None, max_length=36)
     source_thread_id: str | None = Field(default=None, max_length=36)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -27,9 +28,10 @@ class WorkspaceMemoryItemCommand(BaseModel):
 class WorkspaceMemoryMergeCommand(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=36)
     items: list[WorkspaceMemoryItemCommand] = Field(default_factory=list)
-    update_reason: str = Field(default="execution_commit", min_length=1, max_length=100)
+    update_reason: str = Field(default="mission_commit", min_length=1, max_length=100)
     updated_by: str = Field(default="system", min_length=1, max_length=100)
-    source_execution_id: str | None = Field(default=None, max_length=36)
+    source_mission_id: str | None = Field(default=None, max_length=36)
+    source_mission_commit_id: str | None = Field(default=None, max_length=36)
     source_thread_id: str | None = Field(default=None, max_length=36)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -41,7 +43,8 @@ class WorkspaceMemoryDocumentProjection(BaseModel):
     content_hash: str
     revision: int
     updated_by: str
-    source_execution_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_commit_id: str | None = None
     source_thread_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
@@ -56,7 +59,8 @@ class WorkspaceMemoryRevisionProjection(BaseModel):
     content_markdown: str
     content_hash: str
     update_reason: str
-    source_execution_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_commit_id: str | None = None
     source_thread_id: str | None = None
     created_by: str
     created_at: datetime | None = None

@@ -86,7 +86,7 @@ def normalize_block_payload(
         tool_call_id = extract_invocation_ref(source) or extract_invocation_ref(payload)
         if tool_call_id:
             normalized["tool_call_id"] = tool_call_id
-        for key in ("execution_id", "feature_id"):
+        for key in ("mission_id", "mission_policy_id"):
             value = source.get(key, payload.get(key))
             if isinstance(value, str) and value.strip():
                 normalized[key] = value.strip()

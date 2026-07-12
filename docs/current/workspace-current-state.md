@@ -1,206 +1,111 @@
-# Workspace 当前状态
+# Workspace Current State
 
-更新时间：2026-07-07
-状态：Current
-适用项目：`wenjin`
+> Status: Current source of truth
+> Updated: 2026-07-11
 
-本文件是 workspace/thread/capability 执行协作行为的当前事实源。用户可见产品定位是科研工作台；内部 `ComputeSessionRecord` 只作为 execution projection shell，不作为独立产品 surface 或业务事实源。
+## Product model
 
-## 1. 用户入口
+Each workspace is a durable academic project with a type-specific `MissionPolicy`: `sci`, `thesis`, `proposal`, `software_copyright`, `math_modeling`, or `patent`. The primary surface is conversation. Users describe a need, upload context, ask follow-ups, and steer work in ordinary language; they do not select a fixed workflow from a grid.
 
-1. canonical workspace route：`/workspaces/{workspace_id}`
-2. canonical workspace Prism route：`/workspaces/{workspace_id}/prism`
-3. 任务入口：通过 chat 面板对话触发，Chat Agent 根据 mission catalog 识别意图、决定是否追问或直接调用 `launch_feature`
-4. 旧 `/chat` 语义已收敛到当前 workspace chat / execution 体系，不再作为独立 feature 流程事实源
-5. 旧 workspace-owned `/latex/{project_id}` 页面入口已移除；主稿只通过 workspace Prism surface 进入
-6. workspace query seed 或 follow-up route 只提供 capability hint；如果没有具体主题、问题、材料、query、keywords、dataset 或 source artifact，系统只返回需要补充上下文的 advisory，不创建执行、不扣积分、不启动外部检索
+The workspace has two visible surfaces:
 
-## 2. 双 Agent 拓扑
+- **Workbench**: chat plus an on-demand Mission Console;
+- **Prism writing desk**: document editing, compilation, feedback, and reviewed mission writes.
 
-1. **Chat Agent**（左面板）：处理对话、意图识别、补充澄清，并决定何时启动 mission
-2. **Lead Agent v2**（右面板）：执行 capability graph，运行 subagent，产出结构化结果
-3. 1:1 映射：lead-busy 时阻塞新的 dispatch
-4. Chat turn 本身通过 `/api/threads/{thread_id}/runs/stream` 运行；当 Chat Agent 调用 `launch_feature` 时，stream 会显式输出 `tool_invocation` 与 `tool_result`
-5. `launch_feature` 的 `tool_result.status == "launched"` 必须包含 canonical `execution_id`，前端据此建立 run receipt 与右侧 Current run 焦点
-6. `launch_feature` 按已持久化 user message id / `launch_idempotency_key` 幂等；agent retry 重复调用同一 key 时返回原 `execution_id`，不创建第二次 execution，也不把重复启动误判为无关 lead-busy
-7. `launch_feature` 的 `tool_result.status == "advisory"` 表示尚未进入执行链路；前端只展示补充信息提示，不设置 active run，也不打开 Current run
-8. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
-9. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
-10. 前端 chat store 按 workspace 隔离 message state；`messages` 只代表 active workspace projection，不得用一个 workspace 的历史阻止另一个 workspace seed / history load。
+The workspace rooms remain domain views for Library, Documents, Decisions, Memory, Tasks, Settings, Sandbox, and Mission History. They are not independent orchestration systems.
 
-右侧默认是 Mission Console：它跟随当前 mission 或 review 状态投影进展、证据、候选结果和提交动作，而不是提供第二套能力导航。
+## Welcome state
 
-## 3. Capability 数据驱动
+An empty thread displays a non-persisted, workspace-type welcome state. It speaks as Wenjin, suggests three or four suitable starting points, and invites the user to state a goal. SCI guidance may ask for a research direction; math modeling prioritizes uploading the problem PDF. Once a real message exists, the welcome state disappears and is never written into conversation history.
 
-1. Capability 定义在 YAML seed 文件（`backend/seed/capabilities/{workspace_type}/`），并由 DataService Catalog 持久化为 SSOT。
-2. 当前 capability schema 为 `capability.v2`；旧 workflow-step id 已删除，不提供 alias、fallback 或双读兼容层。
-3. Capability Skill 定义在 `backend/seed/skills/`，当前 schema 为 `capability_skill.v2`；skill 是 worker instruction pack，不是用户入口。
-4. Catalog skill DB row 必须包含完整 canonical `skill_json`；projection/preload 不从旧字段读时合成 skill pack，缺失时直接失败。
-5. 每个 capability 的 `mission` 定义产品目标、主 surface、document role 和允许交付物。
-6. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`citation_policy`、`research_evidence`、`methodology`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
-7. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
-8. `methodology` 是 capability 级研究方法合同；TeamKernel 成员上下文会收到 bounded `methodology_contract`，用于理解阶段、必备产物、claim audit、retrieval escalation 和 completion research surfaces。
-9. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由普通 Lead runtime / TeamKernel 通过共享 Prism staging helper 写入 DB-backed review item。
-10. Capability launch context 只能来自用户显式输入、query seed、route params、source artifact 和已提交的 room context；不得用 workspace 名称/描述、capability 名称、通用卡片提示词或“未命名任务”合成 goal。
+## Conversation path
 
-## 4. Workspace Persistent Surfaces
+1. The frontend creates a `ChatTurnRun` and streams one assistant turn.
+2. `WorkspaceAgent` reads the thread, workspace context, focused mission, and user message.
+3. It either answers directly or emits a strict mission action.
+4. A mission start returns a chat-native receipt with `mission_id`; steering appends an ordered mission command.
+5. The Mission Console peeks and canonical Mission state is fetched.
 
-1. **Library** — 文献条目（library_item outputs commit 到此）
-2. **Prism files** — Markdown / LaTeX / 图片等项目文件（document / figure outputs commit 到此）
-3. **Decisions** — 决策记录（decision outputs）
-4. **Run History** — 执行历史记录
-5. **Tasks** — 后续任务（task outputs）
-6. **Settings** — 工作区设置
-7. **Workspace memory** — 后台隐藏维护的一份 workspace 绑定 Markdown 文档（不在用户默认导航中展示）
+`ChatTurnRun` is transport state only. Research history is a list of `MissionRun`s. A follow-up such as “继续深化实验设计” stays in chat and is routed to the focused mission when appropriate.
 
-Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用的内部执行基座；用户只在 execution/run detail、ResultCard 和 review item 中查看只读计算记录、脚本摘要、日志、产物和 provenance。内部诊断 capability 可以被 Chat Agent 调度，但实际 Docker sandbox 运行必须发生在 LeadAgentRuntime 的 `sandbox_python` subagent 或 Lead/subagent agent harness 中。
+## Mission path
 
-当前 sandbox 运行态已收敛为 workspace 级单环境：每个 workspace 最多一个 active sandbox environment，runtime provider key 为 `workspace-{workspace_id}`。Docker container 不跨任务常驻；每次 run 启动短生命周期容器，但挂载同一个 `/workspace`，保留数据集、脚本、outputs、Python venv 和 package cache。`sandbox_python` subagent 只声明 `dependency_hints` 和 Python 脚本，Lead-owned runtime 在 workspace lease 内自动确保 venv、安装依赖、缺包重试一次，并把安装记录为 unbilled `install_dependencies` sandbox job；`sandbox.run_python` 的 `script_name` 在 harness boundary 和 runner 内共用同一 sanitizer，最终只会写入 `/workspace/scripts/{safe_name}`；实际 run job 仍通过 sandbox credit reservation 计费。每次 Python run 会创建 `/workspace/tmp/tasks/{execution_id}/{node_id}`，以该目录作为实际 command cwd，并注入 `WENJIN_TASK_SCRATCH` 与 `WENJIN_WORKSPACE_ROOT`。这个 invocation scratch 是中间实验文件和临时接续上下文，不是用户可直接接受的 document room；最终报告、manifest 和可审阅产物仍必须通过 artifact collector / review item 后才进入 workspace rooms。harness `sandbox.run_python` 每次返回都会附带四类证据：`execution_lifecycle(schema=wenjin.sandbox.execution_lifecycle.v1)` 是 DataService sandbox job lifecycle 契约，记录 queued/final status、workspace/execution/node、job/environment id、runtime/provider image、command preview/argv、cwd、env keys、network profile、timeout、exit code、output refs 和 artifact count，不包含 raw stdout/stderr 或脚本正文；`execution_manifest(schema=wenjin.harness.run_python.execution_manifest.v1)` 是运行身份契约，记录 workspace/execution/node/invocation、脚本路径、task scratch path、dependency hints、job/environment id、网络 profile 和有效 timeout；`reproducibility_manifest(schema=wenjin.harness.run_python.reproducibility_manifest.v1)` 是可复现实验证据契约，记录脚本、task scratch path、requested/installed dependencies、sandbox run/install job、retry count、生成产物、已同步 dataset provenance 和 run/install command audit 的 verdict/risk 摘要；`experiment_narrative(schema=wenjin.harness.run_python.experiment_narrative.v1)` 是长程实验接续契约，记录 status、script path、task scratch path、dataset/artifact paths、dependency names、command risk 和 next actions。manifest / narrative 不包含 raw stdout/stderr、环境变量、API key、host path 或 raw argv。`report_markdown` 会展示用户可读的 Experiment narrative、Reproducibility 和 Dataset provenance 段落，包括脚本路径、task scratch path、依赖、install job ids、retry count、command audit 摘要、dataset manifest path、dataset input paths/source ids/hash 摘要和 reviewable artifact paths；依赖安装失败也会返回带 Recovery guidance 的报告，提示检查 pinned package spec、Python 环境兼容性和需要系统库时的替代方案。用户代码非零退出时，harness tool 会保留 runner output payload 并附加 `failure_classification(schema=wenjin.harness.run_python.failure_classification.v1)` / `error_code=python_exit_nonzero` 和 bounded Recovery guidance，而不是把失败压扁成普通工具异常。
+At start, the runtime validates and pins policy, stages, tools, model profile, review mode, budget, and intake. The long-running worker then advances bounded slices:
 
-`sandbox_execution_summary` 会把 `execution_lifecycle` 的 bounded lifecycle count、job status、exit code 和 explicit `/workspace/tmp/tasks/.harness/outputs/**` output refs 带入后续 harness context。lifecycle 自身也只保留 explicit internal output refs，且 artifact count 只按唯一 virtual path 统计 layout 判定为用户可审阅的 `/workspace/outputs/**` 或 `/workspace/reports/**` 产物；同一产物同时出现在 tool record 和 metadata 时不会重复计数。context assembly 只在 `sandbox_execution_summary.output_refs` 中保留这类可通过 `sandbox.read_output_ref` 读取的 refs，其他 internal/protected/non-output paths 仍按普通规则过滤；当 refs 存在时，bundle 还会提供 `output_ref_recovery(schema=wenjin.harness.output_ref_recovery.v1)`，把 `read_tool=sandbox.read_output_ref`、refs 和恢复建议放到顶层，提示后续成员先读取被省略输出再决定是否重跑实验。
+1. claim a due mission lease;
+2. apply ordered user commands;
+3. ask the mission loop for the next structured action;
+4. call a canonical tool, spawn scoped subagents, assess a stage, propose review items, pause, or finish;
+5. append semantic `MissionItem`s and update the bounded snapshot;
+6. release the lease and publish completion or the next wakeup.
 
-Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py` 统一定义，Local/Docker provider acquire 时创建同一套布局。Agent 可见根目录固定为 `/workspace`：`main` 放主项目文件，`datasets` 放数据集，`scripts` 放实验脚本，`outputs` 放可展示产物，`reports` 放阶段报告，`tmp` 放临时 scratch，`tmp/tasks` 是稳定 task-scoped scratch root，`.wenjin/env` 和 `.wenjin/cache` 由 Lead-owned runtime 管理，`.wenjin/manifest.json` 记录机器可读 layout 契约，整个 `.wenjin/**` 元数据树对 model tools 都是 protected。sandbox 目录是闭合集，不创建 `/workspace/library`、`/workspace/documents`、`/workspace/decisions` 这类 DataService room 镜像；需要进入实验的输入材料必须通过 source asset / dataset provenance 物化到 `/workspace/datasets`。所有 workspace type 共用这套目录；垂直差异通过 `workspace_profile(schema=wenjin.workspace_sandbox.type_profile.v1)` 进入 `.wenjin/manifest.json`、DataService sandbox environment metadata 和 harness context，只给 `primary_files`、`script_paths`、`output_paths`、`report_paths` 与规则建议。例如 `sci` 推荐 `/workspace/main/main.tex`、`/workspace/main/refs.bib`、`/workspace/scripts/analysis.py`、`/workspace/outputs/figures` 和 `/workspace/reports/experiment-report.md`；`patent` 推荐 `/workspace/main/patent-draft.md`、`/workspace/main/claims.md` 和 `/workspace/reports/claim-risk-review.md`。未知类型使用 `generic` profile。Lead-owned sandbox runtime 在 acquire 后会用 Lead 已知的 workspace type 刷新 mounted `/workspace/.wenjin/manifest.json`，并把轻量 `workspace_layout` / `workspace_profile` 写入 DataService environment metadata；复用已有 active environment 时会合并新的 runtime metadata，避免 provider 初始 generic manifest、管理面和 subagent context profile 分裂。新增业务类型应优先扩展 profile，不新增平行目录或 provider 分支。初始化会在 `/workspace/main/README.md` 写入简短目录使用规范，在 `/workspace/datasets/README.md` 写入数据集使用规范，并在 `/workspace/datasets/manifest.json(schema=wenjin.workspace_sandbox.dataset_provenance.v1)` 创建可编辑 dataset provenance 清单，在 `/workspace/reports/artifacts.json(schema=wenjin.workspace_sandbox.artifact_manifest.v1)` 创建可编辑 artifact metadata 清单；已有主项目 README、dataset manifest 或 artifact manifest 不会被覆盖。`datasets/scripts/outputs/reports` 会放置 `.gitkeep`。Lead runtime 加载 workspace source context 时统一使用 DataService source page 内嵌的 `assets`，把已经显式位于 `/workspace/datasets/**` 的 source asset 转成 `workspace_file_summary.dataset_provenance`；普通 Library 上传的 `references/...` 不会被伪装成 sandbox dataset。harness context bundle 会携带 bounded `workspace_file_summary`：visible roots、dataset provenance、recent scripts、recent outputs/reports 都从 `build_agent_workspace_contract().path_classes` 派生并过滤 protected/internal refs；bundle 也会携带 `workspace_profile`、`path_classes`、`operation_policy(schema=wenjin.workspace_sandbox.operation_policy.v1)`、`task_scratch_root=/workspace/tmp/tasks`、当前执行成员的 `task_scratch_path=/workspace/tmp/tasks/{execution_id}/{invocation_id}`、agent-safe `task_contract(schema=wenjin.workspace_sandbox.task_contract.v1)` 与 `search_ignored_names`，让 agent 同时理解垂直默认命名约定、任务临时文件位置、direct write 标准目录、根目录直接项目文件兼容、manifest 更新工具和 list/search 默认跳过的常见缓存与依赖目录。底层 `build_workspace_task_contract()` 仍是真实 task-scoped 路径来源，包含 scratch path、内部 output-ref root、manifest path 和 reviewable artifact roots；context 投影会省略 raw `output_ref_root`，只有明确 `sandbox_execution_summary.output_refs` 和 `output_ref_recovery` 可以把可读 internal refs 带给后续成员。`task_scratch_path` 由 `workspace_task_scratch_path()` 安全生成，属于当前任务/成员的普通 scratch，不是 `.harness` internal ref，也不是用户可审阅 artifact root。预算过小时会先裁剪 recent execution evidence、file summary、sandbox rules 和 search ignore 列表这类可恢复上下文，避免突破 `max_chars` 并尽量保留用户 task。Lead-owned `sandbox.run_python` 会在脚本执行前、同一个 workspace lease 内把这份安全 dataset provenance 合并到 `/workspace/datasets/manifest.json`，只追加 sandbox contract datasets path class 下的数据文件并保留用户已有条目优先权，不把 manifest/README/.gitkeep、protected/internal refs、非 workspace refs 或普通 outputs 写入 manifest。tool-using ReactSubagent 也可以在 capability 与 skill 都允许时调用 `sandbox.register_dataset` 维护同一份 manifest；该工具只接受 `/workspace/datasets/**` 数据文件，复用 layout merge/sanitization，拒绝 guidance/protected/internal/non-dataset path，过滤 host path 与 secret ref 值，写入前要求 `filesystem.write` 和 `filesystem.diff`，并把 manifest diff 作为普通 harness `file_change` 记录。`sandbox.register_artifact` 用同样权限边界维护 `/workspace/reports/artifacts.json`，只接受 `/workspace/outputs/**` 或 `/workspace/reports/**` 的用户可审阅文件，拒绝 `/workspace/tmp/tasks/.harness/outputs/**`、manifest/guidance、protected/internal、host path 和 non-artifact refs，并把 title、description、artifact_kind、source_script、dataset_paths、notes 等安全字段用于后续 artifact discovery enrich。harness 新链路只使用 `/workspace`，不再新增 `/mnt/user-data` alias。layout 模块同时提供 normalize/classify/protected/internal/reviewable artifact/guidance/user-editable 判断，文件工具、artifact discovery 和 sandbox review staging 共用这套分类；`HarnessPolicy` 默认 `protected_paths` 也来自这套 layout 常量，所以直接构造 policy 的测试、mock 或未来工具入口不会比 resolver 生产路径更宽。model-facing file tools 的入参必须已经是 `/workspace` 虚拟路径；provider stdout/stderr、listing 和 artifact discovery 可以把物理 sandbox root 反解回 `/workspace`，但不能把宿主绝对路径当作合法工具入参。`sandbox.list_dir`、`sandbox.glob` 和 `sandbox.grep` 会过滤 protected/internal 路径，避免 `.env`、`.wenjin/**` 或 `/workspace/tmp/tasks/.harness/outputs/**` 被 agent 当作普通文件发现；list/search 还会跳过 `node_modules`、`__pycache__`、`.venv`、`venv`、`site-packages`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache`、`.next`、`.turbo` 等常见 generated/cache 目录，降低模型被依赖包、构建缓存和临时索引噪声干扰的概率；list/search 还会按 resolved physical target 跳过指向 workspace 外部、protected target 或 internal target 的 symlink，避免泄露外部文件、受保护文件、内部 refs 或 host physical path；direct `sandbox.read_file` 会拒绝 protected 路径和非 output-ref internal 路径，明确的 internal output ref 优先通过 `sandbox.read_output_ref` bounded 只读回看；`sandbox.write_file`、`sandbox.str_replace` 和 `sandbox.apply_patch` 会拒绝 protected/internal 路径和 layout guidance/manifest 路径，并拒绝任意新顶层目录树，只允许根目录直接项目文件或标准目录树内文件，在 provider 调用前校验目标 resolved physical path 仍在 `/workspace`，且反推回 workspace virtual path 后不是 protected/internal target，把 symlink escape 统一归一成 harness path policy error；dataset/artifact manifest 更新只能通过 `sandbox.register_dataset` / `sandbox.register_artifact` 这类结构化工具完成。Local provider listing 对 workspace 内部 symlink 保留链接自身的 virtual path，避免 `name=linked.txt,path=target.txt` 这种不一致投影；`read_file(max_chars=...)`、`glob(max_matches=...)` 和 `grep(max_matches=...)` 的调用参数只能进一步收窄 policy 上限，不能放大 `read_max_chars` 或 `search_max_matches`；externalized preview 的 head/tail 正文片段同样不能通过 `preview_head_chars` / `preview_tail_chars` 超过 fallback budget；`list_dir` 的 preview 和 structured `entries` 共用 `search_max_matches` 上限，并返回 total/returned 计数；`glob` / `grep` 的 structured `matches` 也同样 bounded，并返回 `returned_matches` / `match_limit`；`grep(literal=true)` 会把 pattern 当普通文本搜索，默认仍是 regex；`grep` 按 `grep_max_file_bytes` / `grep_max_line_chars` 跳过超大文件、二进制文件和超长行，并返回扫描/跳过计数；非法 regex 只返回 recoverable JSON tool error，不扫描文件、不中断 agent loop。工具大输出的当前外部化目录由 `workspace_harness_output_ref_path()` 统一生成，落在 `/workspace/tmp/tasks/.harness/outputs/{execution_id}/{node_id}/{invocation_id}/`；模型只接收 bounded preview 和 refs，完整 stdout/read_file 内容与大 unified diff 留在 workspace sandbox 内；明确的 output ref 可通过 `sandbox.read_output_ref(output_ref,start_line,end_line,max_chars)` bounded 只读回看，但不能被 list/search 发现，不能写入、替换或注册为用户 artifact。`sandbox.apply_patch` 是结构化多文件 patch 工具，只支持 `replace` 和 `write` edit，会先校验全部 edit、唯一匹配和路径边界，再执行任何 mutation；它返回 `file_changes[]` 供多文件 diff evidence 聚合。Lead-owned `sandbox.run_python` 还会在 lease 内扫描 `/workspace/outputs` 与 `/workspace/reports`，但候选项必须通过 `is_user_reviewable_workspace_artifact_path()`，所以 protected `.env`、internal refs、README/manifest/`.gitkeep` guidance files 不会进入 `generated_artifacts[]`；安全候选会用 artifact manifest 中同 path 的元数据丰富。普通 LangGraph runtime 与 TeamKernel 都会把可信候选注册为 `workspace_asset(storage_backend=sandbox)` 和 `sandbox_artifact` review item，用户接受后才进入 materialized 状态。
+Dynamic subagents receive isolated context, allowed tool ids, explicit deliverables, and stop conditions. Their user-facing names are chosen by the main agent and may be playful but should remain legible and professionally relevant. The UI shows who is working and what each member is doing without exposing raw prompts or tool JSON.
 
-当前 artifact discovery 的 reviewability 判断不是只看链接自身路径。若 provider 可以反解 resolved target，`discover_generated_artifacts()` 会同时要求 candidate path 和 resolved target 都通过 `is_user_reviewable_workspace_artifact_path()`；因此 `/workspace/outputs/**` 或 `/workspace/reports/**` 下指向 `.env`、`.wenjin/**` 或 `/workspace/tmp/tasks/.harness/**` 的 symlink 不会进入 `generated_artifacts[]`、`workspace_asset` 或 `sandbox_artifact` review item。
+## Quality progression
 
-TeamKernel 通过 `backend/src/agents/lead_agent/v2/team/member_context.py` 为每个实名成员生成 bounded input：优先保留用户显式 `query/topic/goal/raw_message`，缺 query 时从 raw message 的英文术语或紧凑原文派生检索 query，并附加 role-specific `task_focus`、team blackboard 和 upstream summary；protected/internal `/workspace/.wenjin/**`、`/workspace/tmp/tasks/.harness/outputs/**` refs 会在进入成员上下文前过滤。这样 `research_scout` 不再依赖 graph-template inputs 才能拿到检索 query。
+Stages come from the pinned `MissionPolicy` and resolved `StageAcceptanceContract`s. A stage can advance only when required artifacts, evidence refs, minimum criteria, blocker checks, and iteration rules pass. An assessment may use model judgment, but every supporting ref must belong to the current operation. A failed first question in math modeling is revised before question two; an SCI topic or experiment design is similarly refined before downstream writing.
 
-ReactSubagent 只要带 sandbox 工具或 capability sandbox policy，就会通过 `backend/src/agents/harness/context_assembly.py` 构造同一份 `_harness_context(schema=wenjin.harness.context_bundle.v1)` bounded bundle，并同时注入默认 payload 与 system prompt 的 `Harness context bundle` 段落。bundle 是 harness-enabled 团队成员的执行上下文 schema：top-level 暴露 `capability_goal`、`member_role`、`allowed_tools`、`workspace_roots`、当前成员 `task_scratch_path`、上游 `scratch_refs`、`search_ignored_names`、最新 `recent_file_change_summary`、`sandbox_execution_summary`、`output_ref_recovery`、`reproducibility_summary`、`experiment_interpretation_summary`、`statistical_robustness_summary`、`member_execution_transcript`、`harness_replan_signals` 和 `upstream_artifact_candidates`；同时保留任务摘要、workspace 类型、`/workspace` sandbox contract、artifact roots、protected/internal paths、recent execution evidence 和预算信息。`allowed_tools` 会把 `sandbox.read_output_ref` 作为 `sandbox.read_file` / `sandbox.run_python` 的安全 companion 注入，只允许读取 explicit internal output ref，不开放 internal refs 的 list/search/artifact discovery。recent execution evidence 和上游产物候选都会过滤 protected/internal workspace refs，并携带 node-level reproducibility 的脚本路径、产物路径、依赖名、job/environment id、实验解释摘要、统计稳健性摘要与成员工具执行摘要，让后续团队成员能接续已有实验而不读取 raw tool JSON 或任意内部路径。上游 sandbox output payload 和 `member_execution_transcript.scratch_refs` 中的安全 `/workspace/tmp/tasks/{execution_id}/{node_id}` 会进入 `scratch_refs[]`，`member_execution_transcript.output_refs_read` 只保留成员实际通过 `sandbox.read_output_ref` 读过的 `/workspace/tmp/tasks/.harness/outputs/**`，用于上下文交接和 `workflow_trace` 审计判断是否复用过外部化证据；这些 refs 不会进入 `upstream_artifact_candidates`、workspace file summary 或用户 review item。raw `sandbox_outputs` / `upstream_sandbox_outputs` 也会从 bundle 的 `task` 字段剥离，避免非 contract path 绕过过滤。TeamKernel 会在每个 core batch 后把当前 harness evidence 同步回 `workspace_data`；因此声明 `max_parallel_invocations=1` 的长链工作流可以实现“上一成员实验产出 -> 下一成员写作/综合使用”的上下文交接。预算策略由 `backend/src/agents/harness/context_budget_policy.py` 统一执行；预算过小时，会先裁剪 recent execution evidence、上游泛型 artifact/sandbox payload、非保护 evidence summaries 和 workspace file summary，最后才降级 capability-required evidence summary 与 task。
-`sandbox_execution_summary.output_refs` 是唯一用于恢复读取的 explicit internal output refs summary 字段；它只保留 `/workspace/tmp/tasks/.harness/outputs/**`，用于让后续成员通过 `sandbox.read_output_ref` 继续查看被省略的 stdout/stderr 或大 diff 片段。`member_execution_transcript.output_refs_read` 是只读复用 telemetry，也只保留同类 refs；两者都不会把 internal refs 提升为 review artifact、scratch ref、workspace file summary 或普通可搜索文件。
+The stage result is recorded in Mission items and reflected in the Mission snapshot. The UI translates internal outcomes into calm user language such as “正在补充证据” or “需要你确认”, not alarming infrastructure terminology.
 
-工具型 ReactSubagent 会在 LangGraph ReAct loop 的 `pre_model_hook` 里执行本地消息完整性修复：若 provider/model 历史里出现 structured、raw provider 或 invalid tool call 但缺少对应 `ToolMessage`，运行时会补一个 bounded synthetic error tool result，并使用 LangGraph 的 `RemoveMessage(REMOVE_ALL_MESSAGES)` 覆盖旧消息序列。这个修复只保护 provider 消息顺序和下一轮模型调用，不创建新的事件流、不执行额外工具、不把 raw invalid args、host path 或 protected workspace path 写入 synthetic message；正常无缺失时 hook 只返回 `llm_input_messages`，不改变 durable execution state。
+## Tools and evidence
 
-Agent harness 第一版把 ReactSubagent 的工具请求接到同一条执行链：`library_read/prism_file_read/workspace_memory_read/prism_read/citation_parser/artifact_create` 这些 business-context tools 读取 bounded workspace snapshot 或返回 staged artifact payload，不直接提交 rooms、写 Prism 或物化 artifact；调用记录会写入 `_harness_tool_records` 并随节点记录进入 `ExecutionNodeRecord.tool_calls`。`sandbox.list_dir/glob/grep/read_file/read_output_ref/write_file/str_replace/apply_patch/register_dataset/register_artifact/run_python` 由 capability/skill policy 过滤，sandbox 工具通过 workspace scheduler 串行，tool calls 写回对应 `ExecutionNodeRecord.tool_calls`，debug 事件走现有 `execution.harness.*` stream；business-context tools 和 sandbox tools 共用 `backend/src/agents/harness/args_summary.py` 作为 debug args 摘要边界，`citation_parser.text`、`artifact_create.markdown`、`sandbox.run_python.script`、`sandbox.write_file.content`、`sandbox.apply_patch.edits` 和 `dependency_hints` 这类可能携带大文本或未校验输入的工具参数只记录 `chars` / `items` / `sha256` 摘要，不把原文写入 debug args；如果工具入参在 LangChain/Pydantic schema 层校验失败，adapter 会返回 `error_code=tool_input_validation` 的 recoverable JSON tool result，并把字段级 validation summary 写入 failed tool record，且不会回显 raw invalid payload。文件工具只允许访问 `/workspace`，受保护路径来自 workspace layout：`.git/**`、根目录和子目录 `.env` / `.env.*`、`*.pem`、`*.key`、`.wenjin/**`；读/list/search 工具在实现边界也要求 `filesystem.read`，写工具、`sandbox.apply_patch`、`sandbox.register_dataset` 和 `sandbox.register_artifact` 在 mutation 前同时要求 `filesystem.write` / `filesystem.diff`，不能只依赖上层 registry 过滤；list/search 会过滤这些 protected 路径和 `/workspace/tmp/tasks/.harness/outputs/**` internal refs，直接 read/write/str_replace/apply_patch 也会拒绝 protected/internal 路径，以及 resolved target 落到 workspace 外、protected 或 internal 的 symlink。本地 sandbox provider 会在 command stdout/stderr 边界把物理 workspace 路径反解回 `/workspace`，保证本地测试、mock sandbox 和 Docker sandbox 的 public 文件系统契约一致，避免宿主机路径进入 harness 结果或 agent 上下文。`list_dir`、`glob`、`grep`、`read_file` 和 Lead-owned `sandbox.run_python` stdout/stderr 已接入 output budget / result bounding：超过阈值或数量上限时只返回 bounded payload，并把必要 refs、`externalized`、`truncated` 标记返回给 tool result、tool call record 和 `execution.harness.output_externalized` 事件。`sandbox.write_file` / `sandbox.str_replace` / `sandbox.apply_patch` / `sandbox.register_dataset` / `sandbox.register_artifact` 的 hash + unified diff 会进入 tool call record、`execution.harness.tool_call.completed` 和 `execution.harness.file_change` 事件；小 diff 直接保留，大 diff 以 `unified_diff` 预览 + `diff_output_refs` 引用形式外部化到 `/workspace/tmp/tasks/.harness/outputs/**`；Lead runtime 与 TeamKernel 会把同一批 tool call 聚合为 `node_metadata.harness.file_change_summary`，供节点详情和后续审阅面读取。单次 harness tool exception 会在 adapter 边界降级为 bounded JSON error result，同时写入 `status=failed` tool record 和 `execution.harness.tool_call.failed` 事件，模型可以带着错误上下文继续执行；TeamKernel 还会把 failed / recoverable tool calls 聚合为 `node_metadata.harness.tool_failure_summary(schema=wenjin.harness.tool_failure_summary.v1)`，后续 replanning、运行详情和质量门不需要解析 raw tool JSON；`sandbox.run_python` 的 `execution_manifest`、`reproducibility_manifest`、`experiment_narrative` 与 `failure_classification` 会投影到 tool record metadata / completed event metadata，并进一步聚合为 `node_metadata.harness.sandbox_execution_summary(schema=wenjin.harness.sandbox_execution_summary.v1)` 和 `node_metadata.harness.reproducibility_summary(schema=wenjin.harness.reproducibility_summary.v1)`：前者记录 Python run 数、失败数、recoverable failure 数、sandbox job/environment ids、failure codes 与 generated artifact count，后者记录 manifest/narrative 数、脚本路径、dataset/artifact 路径、依赖名、sandbox job/environment ids、install job ids、command risk levels 和 next actions；`node_metadata.harness.member_execution_transcript(schema=wenjin.harness.member_execution_transcript.v1)` 作为成员执行记忆，汇总工具调用数、工具名、失败工具、变更路径、sandbox job/environment ids、安全 scratch refs、读取过的 explicit output refs、产物数、token usage 和 duration，但不保存 raw args、脚本、stdout/stderr、protected 路径或任意 internal path；`node_metadata.harness.run_journal_summary(schema=wenjin.harness.run_journal_summary.v1)` 是 RunView 优先读取的成员进度摘要，事件 envelope 也会携带 `journal(schema=wenjin.harness.journal_event.v1)` 作为现有 execution event path 上的精简进度条目。`python_exit_nonzero` / `sandbox_queue_timeout` / `tool_forbidden` / `tool_unknown` 会生成 `node_metadata.harness.replan_signals(schema=wenjin.harness.replan_signal.v1)`，TeamKernel 只把 latest signals 写入 blackboard 并交给 `harness_replan_signal` quality gate：非零退出可做一次同模板修订，queue timeout 和 forbidden/unknown tool 不会触发重复招募。只有 LangGraph 控制流信号和 loop guard hard stop 会继续硬停止。重复相同工具调用达到 warning 阈值时，harness 发布 `execution.harness.loop_warning(team_visible)`，但不会往模型消息序列中插入 warning。command audit 基座已落在 `backend/src/agents/harness/command_audit.py`：Lead-owned `run_python`、`install_dependencies` 和 smoke check sandbox jobs 写入 `metadata.command_audit`，其中 `policy_decision(schema=wenjin.harness.command_policy_decision.v1)` 明确记录 `allow/forbid`、reason 和 bounded command preview；forbid 会在创建 sandbox job 与 acquire sandbox 前被硬拦截，网络/提权程序、host path、protected/internal workspace path 和非规范 pip spec 不进入运行态。harness `sandbox.run_python` 会把 run/install 审计带回 payload、tool record、completed event，并发布 `execution.harness.command_audit(team_visible)`；不向 subagent 暴露通用 `sandbox.run_command`。默认 UI 仍展示团队成员进度和交付物，不直接展示 raw tool JSON。
+The frozen production catalog currently covers workspace assets/documents/source text, source candidate import, source-code reads, sandbox compute and manifests, artifact candidate creation, model-native web search, and review candidate staging. Tool calls produce started/completed/failed receipts with operation ids and bounded summaries.
 
-当前 `sandbox_execution_summary` 字段列表在上述基础上还包含 lifecycle projection：`execution_lifecycle_count`、`job_statuses`、`exit_codes` 和经过 output-ref 白名单过滤的 `output_refs`。`generated_artifact_count` 只统计 layout 判定为用户可审阅的 `/workspace/outputs/**` 或 `/workspace/reports/**` 产物，不统计 internal harness refs、protected paths 或普通非产物文件。这些字段来自 existing tool calls / lifecycle metadata，不读取 raw JSON stdout/stderr，也不新增 run table。
+Model-native web search is accepted only with source and citation receipts. Search results remain candidates until imported into the workspace Library. Claims, citation keys, numeric results, scripts, datasets, and generated artifacts retain Mission provenance.
 
-`member_execution_transcript.billing.credits_charged` 只汇总现有 tool call billing payload，帮助成员上下文和后续 UI 理解一次成员执行的积分影响；实际扣费、reservation reconciliation 和余额仍以 DataService billing records 为准。
+## Review and save
 
-`experiment_interpretation_summary(schema=wenjin.harness.experiment_interpretation_summary.v1)` 是当前 harness node metadata 的实验解释投影。它只从现有 tool call metadata 聚合 bounded 方法摘要、指标名、已验证结果数、限制数，以及安全 `/workspace/datasets/**`、`/workspace/outputs/**`、`/workspace/reports/**` refs；protected/internal 路径、raw stdout/stderr refs 和 `/workspace/tmp/tasks/.harness/outputs/**` 不进入该 summary。context bundle 会把最新 `experiment_interpretation_summary` 放在 top-level，并保留在 `recent_execution_evidence[].harness`，供后续团队成员接续实验解释，不新增运行态或前端 stream。
+The user chooses one of three review modes:
 
-`statistical_robustness_summary(schema=wenjin.harness.statistical_robustness_summary.v1)` 是当前 harness node metadata 的统计稳健性投影。它只从现有 tool call metadata 的 `statistical_check` 聚合 bounded 方法摘要、指标名、样本量、稳健性检查计数、通过/失败/critical 失败计数、限制，以及安全 `/workspace/datasets/**`、`/workspace/outputs/**`、`/workspace/reports/**` refs；protected/internal 路径、raw stdout/stderr refs、host path、traversal path 和 `/workspace/tmp/tasks/.harness/outputs/**` 不进入该 summary。context bundle 会把最新 `statistical_robustness_summary` 放在 top-level，并保留在 `recent_execution_evidence[].harness`，供后续团队成员基于已完成实验继续判断稳健性，不新增运行态、模型 judge 或前端 stream。
+- `review_all`: every proposed workspace mutation is reviewed;
+- `balanced_default`: drafts may flow more freely, while claims, citations, evidence, memory, and protected documents require confirmation;
+- `auto_draft`: low-risk draft material may be staged automatically, with protected truth still reviewed.
 
-Prism review projection 现在会给 `.tex` pending review item 同时生成 `preview.content_contract` 和 `preview.semantic_contract(schema=wenjin.prism.semantic_contract.v1)`。`content_contract` 保持 LaTeX document/fragment、括号平衡等结构信息；`semantic_contract` 是 bounded structural heuristic 或上游已给合约的净化投影，只记录 target path、risk、claim/citation/equation/table preservation flags、citation count 和是否含公式/表格，不包含 pending content、原文全文或 raw diff。`writing_semantic_preservation` deterministic eval 只读取这些 review item preview 字段，要求没有 high-risk、结构无效或 claim/citation/equation/table preservation failure；它不调用模型、不读取全文原稿、不绕过用户 review/apply。
+Review items are atomic previews with a target, base revision/hash, risk reason, and expiry. The user may accept, reject, ask for more evidence, or save an accepted subset. Commit materialization is idempotent and records receipts. A stale base revision yields a conflict and requires regeneration; it is not silently overwritten.
 
-Prism review projection 也会给 `.tex` pending review item 生成或净化 `preview.academic_style_contract(schema=wenjin.prism.academic_style_contract.v1)`。该合同只包含 target path、basis、risk、bounded academic style score、signals、anti-pattern names、citation-key count，以及可选 `style_delta(schema=wenjin.prism.academic_style_delta.v1)`；Prism DataService 入库时先对上游合同做 allowlist bounding，projection 再重算 signal/anti-pattern counts、限制 citation-key count、用 baseline/pending score 重算 delta，并移除 raw before/after、pending content 和 raw diff。`writing_academic_style` deterministic eval 只读取该 preview 合同；若存在 `style_delta`，schema、pending score、score_delta 公式和 `improves_academic_style=true` 必须一致且为正向提升。旧 `prism.file_changes[]` surface 只保留 diff/apply 所需字段，不承载 `content_contract`、`semantic_contract` 或 `academic_style_contract`；质量证据统一从 canonical `review_items[].preview` 读取，避免未净化上游合同被旧 surface 暴露。
+## Pause and resume
 
-当前 `policy_decision` 字段全集是 `operation`、`decision`、`risk_level`、`reason`、`network_profile`、`billable`、`blocked_before_job` 和 `command_preview`。`install_dependencies` 使用 `package_index_only` 网络 profile 且 `billable=false`；`run_python` 与 `smoke_check` 是 billable sandbox jobs；所有 `forbid` decision 都表示 job 创建前阻断。
+A mission may wait for user input, a specific permission, review, budget, or an external dependency. The pause request is durable and appears in chat and Mission Console. Resolving it appends a command and wakes the mission. Cancelling is terminal; pausing is not.
 
-`tool_input_validation` 现在也会生成 `node_metadata.harness.replan_signals(schema=wenjin.harness.replan_signal.v1)`，recommended action 为 `revise_tool_call_args`。TeamKernel 的 `harness_replan_signal` quality gate 会把它作为同模板修订处理，让原成员按工具 schema 修正参数再试一次；它不触发权限升级或额外补位成员。
-`tool_input_validation` 还会发布 `execution.harness.tool_call.failed(debug_only)`，payload 只包含 tool name、validation summary、recoverable error metadata 和 result preview，保证 live run stream 与 node metadata 都能看到这类失败，但不会暴露 raw invalid args。
+## Frontend projection
 
-TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_gates`，用于刷新或历史恢复后的 LiveWorkflowPanel/RunView 展示；这不是新的执行事实源，只是从 TeamKernel blackboard 导出的运行态摘要。节点运行详情仍由 `ExecutionNodeRecord` 拥有；Gateway/API read path 会通过 `ExecutionService` 把 `execution_nodes` hydrate 回 `ExecutionRecord.node_states`，保证 list/detail/Current run 能恢复团队成员、工具摘要和 harness metadata。前端默认进展只展示 `准备上下文 -> 组建团队 -> 成员执行 -> 质量闭环 -> 整理结果` 五步流程；实名成员列表和成员 harness activity 归 team roster 展示，成员模板不会再作为 `team_template_*` 流程占位节点出现。质量门展示会按 gate id 聚合为当前状态，避免历史 quality gate event 重复刷屏；`frontend/lib/execution-run-view.ts` 还会把已知 outcome-quality gates 投影成 `qualityHighlights`：`引用支撑`、`实验解释`、`统计稳健`、`语义保持` 等短标签，detail 只使用 bounded 计数或固定文案，不展示 `*.v1` schema、raw stdout/stderr、raw findings 或 `/workspace/tmp/tasks/.harness/**` internal refs。证据闭环里，QualityContract 会携带当前 workspace 的 `allowed_citation_keys` 和 `allowed_source_ids`；`claim_evidence_map_required` 会校验每条 supported claim 是否同时包含 claim 文本和当前 workspace 允许的 `source_id` 或 `citation_key`；仅有 claim/evidence 描述、无来源锚点或引用了 workspace 外 citation key 的输出会要求成员修订。`source-quality-auditor` / `citation-auditor` 的结构化输出也进入质量门：source authority、metadata completeness、weak support、fabricated citation、claim-source binding 和 style consistency 这些 gate 不能只靠 prose/acknowledgement 通过，必须返回 `citation_key_audit`、`missing_sources`、`fabrication_risks` 或 `bibtex_projection_notes` 等字段；字段里的 citation/source refs 若出现，必须属于当前 workspace allowlist；若 audit row 标记 `fabricated`、`not_ready`、`replace`、`missing`、`unsupported`、`weak` 或 high/critical/blocking severity，会要求成员修订而不是被当作通过。
+`MissionView` is the only research-task projection. It contains:
 
-## 5. Result Card 闭环流程
+- mission identity, status, stage, and progress;
+- active and recent subagents;
+- evidence and artifacts;
+- review items and commit state;
+- user-safe capability gaps and next action;
+- a lazy, redacted trace.
 
-1. Chat Agent 在上下文足够时调用 `launch_feature` → chat stream 输出 `tool_invocation` / `tool_result`
-2. `tool_result.status == "advisory"` → ChatPanel 渲染补充上下文提示，闭环停在 chat，不进入 execution / billing / external search
-3. `tool_result.status == "launched"` → ChatPanel 渲染启动回执，`run-ui-store` 标记 active run
-4. capability 执行完成 → `TaskReport` 含 `outputs[]`；Academic Harness 任务还可包含 `review_packet`
-5. SSE `execution.completed` 事件 → 前端 execution-store
-6. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
-7. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item；右侧 Mission Console/LiveWorkflowPanel 把 `review_packet` 渲染为只读候选预览和风险提示
-8. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
-9. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到 Library / Prism files / hidden workspace memory / Decisions / Tasks
-10. commit state 以 execution projection 为准；ResultCard、CompletedView、LiveWorkflowPanel 和 Runs drawer 优先读取 execution-backed accepted/rejected output state，本地 `committed` 只表示当前请求中的 optimistic pending
-11. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
-12. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 Workspace Hub、workspace activity 和 Prism context
+The right panel is closed by default, peeks when work starts or needs attention, and expands on demand. SSE messages are invalidation hints. The client always refetches Mission state, and a sequence jump forces a full refresh. Refresh and reconnect recover from DataService, not Zustand-only state.
 
-`review_packet` 是候选结果语义预览层：它帮助用户理解专家产出、证据风险和待确认项，但不直接作为 commit 输入。保存到 Library / Prism files / hidden workspace memory / Decisions / Tasks 仍由 `TaskReport.outputs` 与 `ExecutionCommitService` 完成；稿件审阅变更仍由 Prism review item 的 apply/reject/revert 完成。
+Mission History lists only durable missions. Chat turn transport records, raw sandbox logs, and internal tool traces do not appear as separate user tasks.
 
-Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_workspace_map.v1` summary 和 `research_brief.v1`。初始专家收到 brief/map；后续专家收到 enriched `ResearchStateV1`，其中包含 compact `claim_inventory`、`evidence_packet`、artifact index 和 unresolved blockers。Prompt Pack v3 worker prompt 会同时读取 `methodology_contract`，把输出对齐到 stage、`required_artifacts`、two-pass claim audit 和 retrieval escalation；检索、综述、写作、引用审计、审稿、专利和软著 worker 都保留角色特定方法提示，不只依赖通用安全约束。右侧工作台通过 `frontend/lib/execution-run-view.ts` 把候选结果、节点输出、claim/citation 审计项、sandbox trace 和质量门风险投影到 Evidence Ledger；默认视图只展示“已支持 / 需确认 / 阻断”一类用户语义，不展示 raw schema、raw expert report 或内部 harness refs。
+## Workspace domain writes
 
-## 5.1 Execution UX 当前收敛
+Accepted commits may materialize into Documents/Prism, Library, Decisions, Memory, Tasks, or artifact storage. Linked records carry Mission provenance. Agent output that has not passed the applicable review policy remains a candidate and cannot masquerade as workspace truth.
 
-1. `frontend/lib/execution-run-view.ts` 是前端执行展示投影事实源，负责从 `ExecutionRecord`、Runs `RunRecord`、chat `result_card` 派生统一 `RunView`
-2. `RunView` 统一拥有 result/evidence/review projection：`resultPreviews`、`reviewItems`、`evidenceItems`、`pendingReviewCount`、`sandboxCount` 都从 execution projection 派生；证据项只能使用 sanitized summary、basename、计数、风险和下一步，不展示 raw stdout/stderr、raw findings 或 internal harness refs
-3. `frontend/stores/run-ui-store.ts` 只保存 UI 焦点：active / focused / highlighted / preview item / completed run ids；不拥有执行状态事实
-4. LiveWorkflowPanel 会 pin 当前 run：running 时自动展开执行卡，completed 后保持 Current run 摘要；active/focused 的非终态 run 优先于历史抽屉里的 stale selection，避免新启动团队任务被旧记录遮住
-5. Runs toolbar 按钮显示运行中/已完成提示；Runs drawer 合并 live execution store 与 `/api/workspaces/{workspace_id}/runs` 历史记录
-6. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`
-7. Prism tab / result card / Runs drawer 在存在 review items 时显示 pending handoff；Prism review state 仍以 canonical `review_items` 为准
-8. LiveWorkflowPanel 和 workspace chrome 的待确认计数同时读取 `outputs[]`、canonical `review_items` 和 `TaskReport.review_packet.items`；其中 packet item 默认只读预览，不显示可保存勾选。review packet 预览按 `supported / needs_confirmation / blocker` 投影为“已支持 / 需确认 / 阻断”。
-9. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
-10. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
-11. 浏览器 smoke 已验证：TeamKernel execution read path hydrate 后，LiveWorkflowPanel 能从 `execution_nodes` 恢复全部团队实名成员，并从 `runtime_state.quality_gates` 恢复质量检查数量；默认展示不暴露 raw tool JSON。
-12. 浏览器 smoke 已验证：历史 TeamKernel run 在刷新后展示为五步任务进展，顶部计数与步骤列表一致；旧 `team_template_*` 不再显示为“工作步骤/待处理”，质量门从历史事件列表聚合为当前 gate 状态。
-13. follow-up 例如“继续深化方法部分”仍通过 Chat Agent 进入；当前 mission context 来自 active/focused execution projection 与显式 follow-up metadata，而不是右侧按钮重新选路。
+## Operational facts
 
-## 6. Prism 主稿协作面
+- DataService owns mission and linked-domain transactions.
+- The default worker handles chat turns and short jobs.
+- The long-running worker handles mission slices with concurrency 1 and prefetch 1.
+- Leases and versions fence duplicate workers.
+- Redis/Celery delivery and SSE are non-authoritative hints.
+- Due waiting/running missions can be reconciled after worker loss.
+- The model baseline is GPT-5.5; reasoning efforts are `low`, `medium`, `high`, `xhigh`.
 
-1. Prism 是 workspace 的第二主 surface，canonical route 为 `/workspaces/{workspace_id}/prism`
-2. `LatexProject.workspace_id + surface_role=primary_manuscript` 是 workspace 与主稿项目的绑定事实
-3. LaTeX editor/compile/file-change endpoints 只作为 Prism adapter 暴露在 `/api/prism/latex-adapter/*`；旧 `/api/latex/*` 不提供兼容层、fallback 或 redirect
-4. Canonical `review_items` 是文件变更 review 状态事实源；ResultCard、CompletedView、Compute、Prism Changes 共享同一 projection
-5. Canonical `provenance_links` 记录稿件变更与 Library / Prism files / execution 输出的 provenance
-6. Canonical `prism_protected_scopes` 记录用户手动保护的稿件范围，并进入后续 agent launch context
-7. `WorkspacePrismService` 对外提供 surface projection：file tree、main file、target files、pending/applied review items、source links、protected sections、activity、compile status
-8. `TaskBrief.manuscript_context` 只注入 lightweight manuscript projection，不传完整正文、完整 diff 或 PDF
-9. `research_question_to_paper`、`idea_to_thesis_manuscript` 和 TeamKernel 写作成员的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
-10. DataService review batch/action log 是 Prism review 的事务边界；batch/items 先 flush，action log 后写入，保证独立 DataService + Postgres 部署下 FK 顺序稳定。
-11. Prism adapter routers 和 LaTeX/WorkspacePrism runtime services 通过 DataService client 访问 Latex/Prism/Review/Source facts，不再携带 runtime DB session。
-12. Workspace memory runtime 与 workspace-context upload memory note 通过 WorkspaceMemory DataService client 访问 persistence；默认对话 turn 不再触发 memory capture，旧 memory compaction / cross-workspace memory 表不再作为运行态路径存在。
-13. DashboardService / WorkspaceSummaryService 和 gateway dashboard dependencies 通过 DataService-backed construction 访问 dashboard、summary 和 execution facts，不再携带 runtime DB session。
-14. Workspace capability action resolve 和 WorkspaceContextMiddleware 通过 Workspace/Catalog/Template DataService-backed services 访问 workspace/action/template facts，不再注入 `get_db` 或自行打开 `get_db_session`。
-15. Admin capability / skill catalog 的 router、service、validator 和 seed loader 通过 Catalog DataService client 访问 persistence，不再携带 runtime DB session；seed/admin/runtime 共用 `capability.v2` / `capability_skill.v2` schema。
-16. Reference Library、BibTeX export/validation 和 Prism `refs.bib` sync 通过 Source/Asset/Prism DataService client 访问 persistence，不再在 references router 或 `SourceBibliographyService` 中注入 DB session；运行时 enum / request contract 来自 `dataservice_client.contracts.source`，DB reference model 只属于持久化层。
-17. Source domain 的 Library reference projection 是当前契约；list/detail helper 不再以 `compat` 命名承载当前 API shape。
-18. Catalog skill projection 只读取完整 canonical `skill_json`；空缺或空对象直接失败，不再从旧列读时合成 skill pack。
-19. Thread、Template、WorkspaceActivity、AdminAnalytics 和 workspace skill label helper 均已收敛为 DataService-backed facade，不再保留可选 DB 构造参数。
-20. Gateway common deps 已移除通用 `get_db`；ExecutionService、TaskStore、SkillResolver、CapabilityResolver、WorkspaceService、GenerationService 均不再接受历史 DB/session 构造参数，workspace 运行链路只通过 DataService client 触达持久化。
-21. Prism file workspace 和 workspace activity 的 asset projection 只读取 canonical metadata 字段，不再在运行时读取 `legacy_kind`、`legacy_parent_id`、`legacy_version`。
-22. Gateway routers 的 `current_user` / admin subject 均以 `AccountAuthSubject` 标注，不再导入 DB `User` model 作为运行时鉴权类型。
-23. Prism adapter metadata 在 DataService helper 和 runtime projection 中均只暴露 `source_metadata`，不再把 project metadata 放进 `legacy_metadata` 字段。
-24. Worker execution 解析 workspace type 时只读取 DataService workspace projection；workspace 或 type 缺失会显式失败，不再默认降级为 thesis。
-25. Feature execution params 只保留 canonical TaskBrief wrapper；旧 plain-param execution params 解析入口已移除。
-26. Artifact follow-up / rerun action state 只从显式 mission params 或来源 artifact 推导 goal；缺少上下文时返回不可重跑原因，前后端均不再用 workspace 描述、`fallbackTaskName` 或“未命名任务”兜底。
-27. Workspace upload stored path 只接受 workspace-relative path 或 workspace-root 内绝对路径；历史 cwd-relative 全根路径不再由运行时解析。
-28. Conversation block payload 只持久化 canonical `kind`，不再写入旧 kind 的 shadow 字段。
-29. React subagent 请求 tools 但没有解析到 callable 时显式失败；不会把工具型节点静默当作普通 LLM 节点执行。
-30. `AuditService` 只通过 Audit DataService client 写入和查询审计记录，不再暴露 `session_factory` / ORM model 构造入口。
-31. Execution commit 接受 Library outputs 后会通过同一个 Source/Prism DataService client 同步 Prism `refs.bib`，不依赖 execution service 上的 DB session。
-32. Gateway / Worker 进程生命周期不再初始化、重置或关闭 DB engine；Gateway readiness 检查 DataService `/readyz`，worker bootstrap 只处理 Sentry、Redis 和 MCP runtime。
-33. Thread / workspace runtime helper 的类型注解使用 DataService payload contract，不再引用 DB `Thread` / `Workspace` model。
+## Current limitations
 
-## 7. 前端信息架构
+- Native search availability depends on a current Responses SSE probe with complete receipts; a search-required mission fails closed when the provider does not satisfy that contract.
+- Full production confidence still requires a real-provider, real-Docker, multi-turn browser run after deployment configuration is available.
+- Historical pre-Mission development records are intentionally not migrated; development environments are reseeded.
 
-1. **Workspace shell**：提供 Workbench / Prism 两个主 surface switch
-2. **Workbench 左面板**（Chat）：对话与结果卡片入口
-3. **Workbench 右面板**（Mission Console / Research Workbench）：Current run、专家团队、证据预览、候选结果、运行历史和诊断详情
-4. **Prism surface**：文件树、Markdown/LaTeX/plain/image 编辑预览、autosave、LaTeX adapter compile/PDF、Changes review、workspace context rail
-5. Workspace Hub：Library / Decisions / Tasks / Runs / Settings 等；Runs 是执行历史与审计面，不是第二套运行状态源
-6. Settings page：workspace 设置与偏好；Memory 后台隐藏维护，Sandbox 不在 Settings 或顶栏 room 中暴露为用户操作台
+## Canonical references
 
-### 7.1 全站 UIUX 收敛原则
-
-1. Workbench、Prism、rooms、admin、settings 统一遵守“自动适配 + 信息分层”原则。
-2. 页面应根据 viewport、当前 run、完成态和选中项自动调整展示面；不得要求用户理解或手动恢复内部 focus/lock 状态。
-3. 窄区域默认 list-first；点击条目后进入详情面或 fullscreen split view。宽屏才并列展示列表与详情。
-4. 二级导航、筛选和次级操作应轻量化：icon-only + tooltip、compact segmented controls、pills 优先，避免重复文字按钮和大卡片堆叠。
-5. 列表中的长标题、作者、文件名、URL 和 run 名必须截断；完整内容只在详情区展示。
-
-## 8. 线程模型
-
-1. single-thread-per-workspace 的主体验模型
-2. thread 仍是服务端持久化单元，用于恢复和历史
-3. assistant thread message 的 `metadata.orchestration.execution_id` 会持久化，用于 result card 归属与刷新后恢复
-
-## 9. 文档优先级
-
-1. 当前行为以本文件、`workspace-feature-catalog.md`、`docs/current/architecture.md` 为准。
-2. 历史方案和阶段性过渡文档已清理；追溯请查看 Git 历史。
-3. WenjinPrism 改稿采用 `preview -> apply -> revert`：局部批注是 `selection` / `section` scope，必须能解析到选区 anchor；一句话全文改稿是 `document` scope，不依赖选区文本或 anchor，目标范围固定为当前主稿全文。
-   - `preview` 只生成候选和 diff，不写文件。
-   - `apply` 在后端执行签名/哈希校验、结构门禁和编译门禁，通过后写文件。
-   - `revert` 使用 `apply` 返回的撤销 payload 做一次性回滚。
-4. 结构性风险由后端强约束兜底；前端 risk/diff 主要用于语义判断与人工审阅，不承担安全职责。
-5. 写作类 feature 对已有 Prism 文件不直接覆盖，生成内容进入 `file_changes`：
-   - `file-changes/preview` 生成 diff 和签名。
-   - `file-changes/apply` 必须携带 preview 签名。
-   - `file-changes/discard` 丢弃待确认写入。
-   - `file-changes/revert` 使用 `applied_file_changes` 中的签名和文件 hash 撤回。
-6. Workbench ResultCard、CompletedView、chat result block 和 Prism Changes 共享 `WorkspacePrismReviewItem` / `PrismReviewList`。
-7. Prism apply / reject / revert / protect 会写入 canonical review state、protected scope 或 workspace activity，不走 frontend-only 状态。
-8. 当前 UX 约定：
-   - 支持候选切换、inline/side-by-side、hunk 折叠、空白改动过滤、重生成、复制候选。
-   - 支持快捷键：`Ctrl/Cmd + Enter` 应用候选，`Esc` 取消预览。
+- Runtime architecture: `docs/current/architecture.md`
+- Frontend/API contract: `docs/current/frontend-mission-contract.md`
+- Policy/skill catalog: `docs/current/workspace-mission-catalog.md`
+- UX language: `docs/current/wenjin-research-navigation-uiux.md`
+- Migration specs: `docs/superpowers/specs/mission-runtime/00_index.md`

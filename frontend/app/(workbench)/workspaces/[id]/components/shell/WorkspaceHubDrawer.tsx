@@ -17,7 +17,7 @@ import { IconButton } from "@/components/ui/icon-button";
 export type WorkspaceHubRoomKey =
   | "library"
   | "decisions"
-  | "runs"
+  | "missions"
   | "tasks"
   | "settings";
 
@@ -26,7 +26,7 @@ type WorkspaceHubRoom = {
   label: string;
   description: string;
   icon: LucideIcon;
-  countKind?: "review" | "runs";
+  countKind?: "review" | "missions";
 };
 
 export const WORKSPACE_HUB_ROOMS: readonly WorkspaceHubRoom[] = [
@@ -44,11 +44,11 @@ export const WORKSPACE_HUB_ROOMS: readonly WorkspaceHubRoom[] = [
     countKind: "review",
   },
   {
-    key: "runs",
-    label: "运行记录",
-    description: "历史任务、过程证据与执行摘要",
+    key: "missions",
+    label: "研究任务记录",
+    description: "历史研究任务、过程证据与成果摘要",
     icon: History,
-    countKind: "runs",
+    countKind: "missions",
   },
   {
     key: "tasks",
@@ -134,7 +134,7 @@ export function WorkspaceHubDrawer({
             const Icon = room.icon;
             const count = room.countKind === "review"
               ? pendingReviewCount
-              : room.countKind === "runs"
+              : room.countKind === "missions"
                 ? completedRunCount
                 : 0;
             const tone = room.countKind === "review" ? "review" : "success";

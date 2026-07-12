@@ -54,13 +54,22 @@ class SourceRepository:
         return record
 
     async def get_source_asset(self, source_asset_id: str) -> SourceAssetRecord | None:
-        result = await self.session.execute(
-            select(SourceAssetRecord).where(SourceAssetRecord.id == source_asset_id)
-        )
+        result = await self.session.execute(select(SourceAssetRecord).where(SourceAssetRecord.id == source_asset_id))
         return result.scalar_one_or_none()
 
     async def get_source(self, source_id: str) -> SourceRecord | None:
         result = await self.session.execute(select(SourceRecord).where(SourceRecord.id == source_id))
+        return result.scalar_one_or_none()
+
+    async def get_source_by_mission_commit(
+        self,
+        mission_commit_id: str,
+    ) -> SourceRecord | None:
+        result = await self.session.execute(
+            select(SourceRecord).where(
+                SourceRecord.ingest_mission_commit_id == mission_commit_id
+            )
+        )
         return result.scalar_one_or_none()
 
     async def get_external_id(
@@ -202,11 +211,7 @@ class SourceRepository:
             )
         if not include_deleted:
             stmt = stmt.where(SourceRecord.is_deleted.is_(False))
-        result = await self.session.execute(
-            stmt.order_by(SourceRecord.updated_at.desc())
-            .offset(max(0, int(offset)))
-            .limit(max(1, min(int(limit), 5000)))
-        )
+        result = await self.session.execute(stmt.order_by(SourceRecord.updated_at.desc()).offset(max(0, int(offset))).limit(max(1, min(int(limit), 5000))))
         return list(result.scalars().all())
 
     async def count_sources(
@@ -414,9 +419,7 @@ class SourceRepository:
         )
         if source_ids:
             stmt = stmt.where(SourceTextUnitRecord.source_id.in_(source_ids))
-        result = await self.session.execute(
-            stmt.order_by(SourceTextUnitRecord.updated_at.desc()).limit(max(1, min(limit, 50)))
-        )
+        result = await self.session.execute(stmt.order_by(SourceTextUnitRecord.updated_at.desc()).limit(max(1, min(limit, 50))))
         return list(result.scalars().all())
 
     async def list_sources_by_citation_keys(

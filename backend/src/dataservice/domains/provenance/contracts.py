@@ -20,8 +20,9 @@ class ProvenanceLinkCreateCommand(BaseModel):
     citation_key: str | None = None
     claim_text: str | None = None
     generated_text: str | None = None
-    review_item_id: str | None = None
-    execution_id: str | None = None
+    mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
+    mission_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -38,8 +39,9 @@ class ProvenanceLinkProjection(BaseModel):
     citation_key: str | None = None
     claim_text: str | None = None
     generated_text: str | None = None
-    review_item_id: str | None = None
-    execution_id: str | None = None
+    mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
+    mission_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None

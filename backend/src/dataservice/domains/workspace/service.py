@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from src.contracts.change_set import normalize_write_mode
+from src.contracts.review_policy import DEFAULT_REVIEW_MODE, normalize_review_mode
 from src.database.models.workspace import Workspace
 from src.database.models.workspace_settings import WorkspaceSettings
 from src.dataservice.common.errors import DataServiceConflictError, DataServiceNotFoundError
@@ -23,8 +23,8 @@ from src.dataservice.domains.workspace.contracts import (
 )
 from src.dataservice.domains.workspace.policies import (
     normalize_workspace_type,
+    with_review_mode_default,
     with_workspace_settings_defaults,
-    with_write_mode_default,
 )
 from src.dataservice.domains.workspace.repository import WorkspaceRepository
 
@@ -32,8 +32,7 @@ _WORKSPACE_SETTINGS_DEFAULTS: dict[str, Any] = {
     "thinking_enabled": True,
     "sandbox_provider": "local",
     "auto_compact_threshold": 0.8,
-    "capability_overrides": {},
-    "settings_json": {"write_mode": "auto_draft"},
+    "settings_json": {"review_mode": DEFAULT_REVIEW_MODE},
     "metadata_json": {},
 }
 
@@ -105,10 +104,7 @@ class DataServiceWorkspaceService:
 
     async def get_admin_workspace_stats(self) -> WorkspaceAdminStatsRecord:
         by_type_rows = await self.repository.count_workspaces_by_type()
-        by_type = {
-            workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type): count
-            for workspace_type, count in by_type_rows
-        }
+        by_type = {workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type): count for workspace_type, count in by_type_rows}
         return WorkspaceAdminStatsRecord(
             total=sum(by_type.values()),
             by_type=by_type,
@@ -216,17 +212,16 @@ class DataServiceWorkspaceService:
             "thinking_enabled",
             "sandbox_provider",
             "auto_compact_threshold",
-            "capability_overrides",
             "metadata_json",
         ):
             if field in command.model_fields_set:
                 value = getattr(command, field)
                 setattr(settings, field, dict(value) if isinstance(value, dict) else value)
         if "settings_json" in command.model_fields_set:
-            settings.settings_json = with_write_mode_default(command.settings_json)
-        if "write_mode" in command.model_fields_set and command.write_mode is not None:
-            next_settings_json = with_write_mode_default(settings.settings_json)
-            next_settings_json["write_mode"] = normalize_write_mode(command.write_mode)
+            settings.settings_json = with_review_mode_default(command.settings_json)
+        if "review_mode" in command.model_fields_set and command.review_mode is not None:
+            next_settings_json = with_review_mode_default(settings.settings_json)
+            next_settings_json["review_mode"] = normalize_review_mode(command.review_mode)
             settings.settings_json = next_settings_json
         if self.autocommit:
             await self.session.commit()
@@ -265,16 +260,15 @@ class DataServiceWorkspaceService:
 
     @staticmethod
     def to_settings_record(settings: WorkspaceSettings) -> WorkspaceSettingsRecord:
-        settings_json = with_write_mode_default(settings.settings_json)
+        settings_json = with_review_mode_default(settings.settings_json)
         return WorkspaceSettingsRecord(
             workspace_id=str(settings.workspace_id),
             default_model=settings.default_model,
             thinking_enabled=bool(settings.thinking_enabled),
             sandbox_provider=settings.sandbox_provider,
             auto_compact_threshold=float(settings.auto_compact_threshold),
-            capability_overrides=dict(settings.capability_overrides or {}),
             settings_json=settings_json,
-            write_mode=settings_json["write_mode"],
+            review_mode=settings_json["review_mode"],
             metadata_json=dict(settings.metadata_json or {}),
             created_at=settings.created_at,
             updated_at=settings.updated_at,
@@ -283,7 +277,6 @@ class DataServiceWorkspaceService:
 
 def _default_workspace_settings_values() -> dict[str, Any]:
     values = dict(_WORKSPACE_SETTINGS_DEFAULTS)
-    values["capability_overrides"] = {}
     values["settings_json"] = dict(_WORKSPACE_SETTINGS_DEFAULTS["settings_json"])
     values["metadata_json"] = {}
     return values

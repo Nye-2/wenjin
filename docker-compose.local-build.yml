@@ -66,6 +66,32 @@ services:
     image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
 
+  mission-worker:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+    environment:
+      - SANDBOX_DEPLOYMENT_MODE=development
+    command:
+      [
+        "python",
+        "-m",
+        "src.sandbox.preflight",
+        "--exec",
+        "python",
+        "-m",
+        "src.task.worker",
+        "1",
+        "--queues",
+        "long_running",
+        "--prefetch-multiplier",
+        "1",
+        "--require-mission-model-profile",
+      ]
+
+  celery-beat:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+
   memory-worker:
     image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build

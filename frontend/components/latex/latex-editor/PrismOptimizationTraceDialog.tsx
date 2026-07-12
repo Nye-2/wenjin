@@ -7,8 +7,7 @@ import {
   X,
 } from "lucide-react";
 
-import type { ExecutionRecord } from "@/lib/api";
-import type { PhaseGroup } from "@/lib/execution-phases";
+import type { MissionView } from "@/lib/api/mission-types";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 import {
-  prismExecutionNodeLabel,
+  prismMissionStageLabel,
   prismJobStatusLabel,
   trimSnippet,
   type PrismOptimizationJob,
@@ -29,8 +28,7 @@ export function PrismOptimizationTraceDialog({
   open,
   activeJob,
   jobs,
-  activeRecord,
-  activePhases,
+  activeMission,
   fileChangesCount,
   onOpenChange,
   onSelectJob,
@@ -39,8 +37,7 @@ export function PrismOptimizationTraceDialog({
   open: boolean;
   activeJob: PrismOptimizationJob | null;
   jobs: PrismOptimizationJob[];
-  activeRecord: ExecutionRecord | null;
-  activePhases: PhaseGroup[];
+  activeMission: MissionView | null;
   fileChangesCount: number;
   onOpenChange: (open: boolean) => void;
   onSelectJob: (jobId: string) => void;
@@ -139,60 +136,27 @@ export function PrismOptimizationTraceDialog({
               <div className="rounded-xl border border-[var(--wjn-line)] bg-white/80 p-3">
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-[var(--wjn-blue)]" />
-                  <p className="text-sm font-medium">执行节点</p>
+                  <p className="text-sm font-medium">任务进展</p>
                 </div>
-                {activeRecord ? (
+                {activeMission ? (
                   <div className="mt-3 space-y-3">
-                    <div className="grid gap-2 text-xs text-[var(--wjn-text-muted)] md:grid-cols-3">
-                      <span>执行：{activeRecord.id.slice(0, 8)}</span>
-                      <span>状态：{activeRecord.status}</span>
-                      <span>进度：{Math.round(activeRecord.progress || 0)}%</span>
+                    <div className="grid gap-2 text-xs text-[var(--wjn-text-muted)] md:grid-cols-2">
+                      <span>状态：{activeMission.statusLabel}</span>
+                      <span>当前：{activeMission.activeStage?.title ?? "准备中"}</span>
                     </div>
-                    {activePhases.length > 0 ? (
-                      <div className="space-y-3">
-                        {activePhases.map((phase) => (
-                          <div key={`${phase.name}-${phase.index}`} className="rounded-lg border border-[var(--wjn-line)] bg-[rgba(19,34,53,0.025)] p-2">
-                            <p className="text-xs font-medium text-[var(--wjn-text-secondary)]">
-                              {phase.name}
-                            </p>
-                            <div className="mt-2 space-y-2">
-                              {phase.nodes.map((node) => {
-                                const nodeState = activeRecord.node_states[node.id] || {};
-                                return (
-                                  <div key={node.id} className="rounded-md bg-white/80 px-3 py-2">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <p className="text-xs font-medium">
-                                        {node.label || node.task || node.id}
-                                      </p>
-                                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--wjn-line)] bg-white px-2 py-0.5 text-[11px] text-[var(--wjn-text-muted)]">
-                                        <Clock3 className="h-3 w-3" />
-                                        {prismExecutionNodeLabel(nodeState.status)}
-                                      </span>
-                                    </div>
-                                    {nodeState.output_preview ? (
-                                      <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-muted)]">
-                                        {nodeState.output_preview}
-                                      </p>
-                                    ) : nodeState.thinking ? (
-                                      <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-muted)]">
-                                        {trimSnippet(nodeState.thinking, 180)}
-                                      </p>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[var(--wjn-text-muted)]">正在等待执行图回传。</p>
-                    )}
+                    <div className="space-y-2">
+                      {activeMission.stages.map((stage) => (
+                        <div key={stage.id} className="flex items-start justify-between gap-3 rounded-lg bg-[var(--wjn-surface-subtle)] px-3 py-2">
+                          <div><p className="text-xs font-medium">{stage.title}</p>{stage.summary ? <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-muted)]">{stage.summary}</p> : null}</div>
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[var(--wjn-text-muted)]"><Clock3 className="h-3 w-3" />{prismMissionStageLabel(stage.status)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <p className="mt-3 text-xs text-[var(--wjn-text-muted)]">
-                    {activeJob.executionId
-                      ? "已启动，正在拉取执行过程。"
+                    {activeJob.missionId
+                      ? "已启动，正在同步任务进展。"
                       : "正在等待研究团队启动。"}
                   </p>
                 )}

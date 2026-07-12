@@ -8,11 +8,11 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.access_control import require_workspace_owner_by_dataservice
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps import get_dataservice_client, get_thread_service
-from src.gateway.deps.runtime import get_run_manager
+from src.gateway.deps.runtime import get_chat_turn_run_manager
 from src.gateway.routers.thread_contracts import (
     ThreadCreate,
     ThreadListResponse,
@@ -23,7 +23,7 @@ from src.gateway.routers.thread_contracts import (
 )
 from src.gateway.routers.thread_serializers import thread_to_response, thread_to_summary
 from src.models.router import InvalidRequestedModelError
-from src.runtime.runs import RunManager, RunStatus
+from src.runtime.chat_turns import ChatTurnRunManager, ChatTurnRunStatus
 from src.runtime.serialization import serialize_channel_values
 from src.services.thread_events import publish_thread_deleted, publish_thread_updated
 from src.services.thread_service import ThreadService
@@ -116,20 +116,20 @@ def _thread_metadata(thread: Any) -> dict[str, Any]:
     }
 
 
-def _thread_status_from_runs(runs: list[Any]) -> str:
+def _thread_status_from_chat_turns(runs: list[Any]) -> str:
     for run in runs:
-        if run.status in (RunStatus.pending, RunStatus.running):
+        if run.status in (ChatTurnRunStatus.pending, ChatTurnRunStatus.running):
             return "busy"
     if runs:
         latest = runs[0]
-        if latest.status == RunStatus.interrupted:
+        if latest.status == ChatTurnRunStatus.interrupted:
             return "interrupted"
-        if latest.status == RunStatus.error:
+        if latest.status == ChatTurnRunStatus.error:
             return "error"
     return "idle"
 
 
-def _active_run_tasks_from_runs(runs: list[Any]) -> list[dict[str, Any]]:
+def _active_chat_turn_tasks(runs: list[Any]) -> list[dict[str, Any]]:
     return [
         {
             "id": run.run_id,
@@ -137,11 +137,11 @@ def _active_run_tasks_from_runs(runs: list[Any]) -> list[dict[str, Any]]:
             "status": run.status.value,
         }
         for run in runs
-        if run.status in (RunStatus.pending, RunStatus.running)
+        if run.status in (ChatTurnRunStatus.pending, ChatTurnRunStatus.running)
     ]
 
 
-def _group_runs_by_thread(runs: list[Any]) -> dict[str, list[Any]]:
+def _group_chat_turns_by_thread(runs: list[Any]) -> dict[str, list[Any]]:
     grouped: dict[str, list[Any]] = {}
     for run in runs:
         grouped.setdefault(run.thread_id, []).append(run)
@@ -194,9 +194,7 @@ async def create_thread(
 @router.post("/workspaces/{workspace_id}/thread", response_model=ThreadDetailResponse)
 async def ensure_workspace_thread(
     workspace_id: str,
-    request: WorkspaceThreadEnsureRequest = Body(
-        default_factory=WorkspaceThreadEnsureRequest
-    ),
+    request: WorkspaceThreadEnsureRequest = Body(default_factory=WorkspaceThreadEnsureRequest),
     current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
@@ -288,7 +286,7 @@ async def search_threads(
     body: ThreadSearchRequest,
     current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-    run_manager: RunManager = Depends(get_run_manager),
+    run_manager: ChatTurnRunManager = Depends(get_chat_turn_run_manager),
 ) -> list[PlatformThreadResponse]:
     user_id = str(current_user.id)
     workspace_id = body.metadata.get("workspace_id")
@@ -300,14 +298,14 @@ async def search_threads(
     )
 
     runs = await run_manager.list_all()
-    runs_by_thread = _group_runs_by_thread(runs)
+    chat_turns_by_thread = _group_chat_turns_by_thread(runs)
 
     rows: list[PlatformThreadResponse] = []
     for thread in threads:
         metadata = _thread_metadata(thread)
         if body.metadata and not all(metadata.get(key) == value for key, value in body.metadata.items()):
             continue
-        status = _thread_status_from_runs(runs_by_thread.get(str(thread.id), []))
+        status = _thread_status_from_chat_turns(chat_turns_by_thread.get(str(thread.id), []))
         if body.status and status != body.status:
             continue
         rows.append(
@@ -329,7 +327,7 @@ async def get_thread_state(
     thread_id: str,
     current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-    run_manager: RunManager = Depends(get_run_manager),
+    run_manager: ChatTurnRunManager = Depends(get_chat_turn_run_manager),
 ) -> ThreadStateResponse:
     thread = await _get_owned_thread_or_404(
         thread_id=thread_id,
@@ -339,8 +337,8 @@ async def get_thread_state(
     )
 
     runs = await run_manager.list_by_thread(thread_id)
-    status = _thread_status_from_runs(runs)
-    tasks = _active_run_tasks_from_runs(runs)
+    status = _thread_status_from_chat_turns(runs)
+    tasks = _active_chat_turn_tasks(runs)
     created_at = _iso(thread.updated_at)
     checkpoint_id = f"thread:{thread_id}:{int(thread.updated_at.timestamp() * 1000)}"
     messages = await _thread_messages(thread_service, thread)
@@ -362,7 +360,7 @@ async def get_thread_history(
     body: ThreadHistoryRequest,
     current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
-    run_manager: RunManager = Depends(get_run_manager),
+    run_manager: ChatTurnRunManager = Depends(get_chat_turn_run_manager),
 ) -> list[HistoryEntry]:
     thread = await _get_owned_thread_or_404(
         thread_id=thread_id,
@@ -376,8 +374,8 @@ async def get_thread_history(
         return []
 
     runs = await run_manager.list_by_thread(thread_id)
-    status = _thread_status_from_runs(runs)
-    tasks = _active_run_tasks_from_runs(runs)
+    status = _thread_status_from_chat_turns(runs)
+    tasks = _active_chat_turn_tasks(runs)
     messages = await _thread_messages(thread_service, thread)
     entry = HistoryEntry(
         checkpoint_id=checkpoint_id,

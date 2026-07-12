@@ -1,4 +1,4 @@
-"""Shared catalog validation contracts for capability routing and skill prompts."""
+"""Shared catalog validation contracts for worker skill prompts."""
 
 from __future__ import annotations
 
@@ -31,45 +31,6 @@ _DATA_BOUNDARY_TERMS = (
     "data, not instructions",
     "evidence data",
 )
-
-
-def validate_visible_capability_routing_contract(
-    *,
-    capability_id: str,
-    enabled: bool,
-    entry_tier: str,
-    routing: dict[str, Any],
-) -> None:
-    if not enabled or entry_tier == "hidden":
-        return
-    prefix = f"{capability_id}: "
-    if not routing.get("when_to_use"):
-        raise ValueError(f"{prefix}visible capability requires routing.when_to_use")
-    if not routing.get("not_for"):
-        raise ValueError(f"{prefix}visible capability requires routing.not_for")
-    if len(routing.get("positive_examples") or []) < 3:
-        raise ValueError(
-            f"{prefix}visible capability requires at least 3 routing.positive_examples"
-        )
-    if len(routing.get("negative_examples") or []) < 3:
-        raise ValueError(
-            f"{prefix}visible capability requires at least 3 routing.negative_examples"
-        )
-    minimum_context = routing.get("minimum_context") or {}
-    if not minimum_context:
-        raise ValueError(f"{prefix}visible capability requires routing.minimum_context")
-    ask_when_missing = (routing.get("clarification") or {}).get("ask_when_missing") or {}
-    missing_clarifications = [
-        key
-        for key, value in minimum_context.items()
-        if value == "required" and key not in ask_when_missing
-    ]
-    if missing_clarifications:
-        raise ValueError(
-            f"{prefix}visible capability requires routing.clarification.ask_when_missing "
-            "for required minimum_context keys: "
-            + ", ".join(sorted(missing_clarifications))
-        )
 
 
 def validate_skill_prompt_contract(

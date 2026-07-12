@@ -27,9 +27,7 @@ def create_test_app(user, workspace_service, summary_service):
 
     app = FastAPI()
     workspace = getattr(workspace_service.get, "return_value", None)
-    workspace_service.has_active_membership = AsyncMock(
-        return_value=workspace is not None and str(workspace.user_id) == str(user.id)
-    )
+    workspace_service.has_active_membership = AsyncMock(return_value=workspace is not None and str(workspace.user_id) == str(user.id))
 
     async def override_get_current_user():
         return user
@@ -42,9 +40,7 @@ def create_test_app(user, workspace_service, summary_service):
 
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
-    app.dependency_overrides[workspaces.get_workspace_summary_service] = (
-        override_get_workspace_summary_service
-    )
+    app.dependency_overrides[workspaces.get_workspace_summary_service] = override_get_workspace_summary_service
     app.include_router(workspaces.router)
     return TestClient(app)
 
@@ -67,13 +63,15 @@ def test_workspace_summary_returns_cockpit_payload():
                 "percent": 42,
             },
             "current_phase": {
-                "feature_id": "opening_research",
+                "mission_id": "mission-1",
+                "mission_policy_id": "opening_research",
                 "title": "开题调研",
                 "status": "in_progress",
                 "description": "该模块正在推进中。",
             },
             "next_step": {
-                "feature_id": "opening_research",
+                "mission_id": "mission-1",
+                "mission_policy_id": "opening_research",
                 "title": "开题调研",
                 "description": "开题报告调研与撰写辅助",
                 "reason": "当前已有任务在运行，建议优先跟进其结果。",
@@ -82,7 +80,8 @@ def test_workspace_summary_returns_cockpit_payload():
             },
             "recommended_actions": [
                 {
-                    "feature_id": "opening_research",
+                    "mission_id": "mission-1",
+                    "mission_policy_id": "opening_research",
                     "title": "开题调研",
                     "description": "开题报告调研与撰写辅助",
                     "reason": "当前已有任务在运行，建议优先跟进其结果。",
@@ -90,7 +89,8 @@ def test_workspace_summary_returns_cockpit_payload():
                     "status_label": "进行中",
                 },
                 {
-                    "feature_id": "thesis_writing",
+                    "mission_id": "mission-2",
+                    "mission_policy_id": "thesis_writing",
                     "title": "论文写作",
                     "description": "大纲生成与章节内容撰写",
                     "reason": "主链推荐下一步。",
@@ -108,7 +108,7 @@ def test_workspace_summary_returns_cockpit_payload():
             "recent_activity": {
                 "title": "开题调研",
                 "summary": "最近更新",
-                "kind": "feature_task",
+                "kind": "mission",
                 "occurred_at": "2026-03-23T09:00:00+00:00",
             },
         }
@@ -120,8 +120,8 @@ def test_workspace_summary_returns_cockpit_payload():
     assert response.status_code == 200
     data = response.json()
     assert data["workspace_id"] == "ws-1"
-    assert data["current_phase"]["feature_id"] == "opening_research"
-    assert data["recommended_actions"][1]["feature_id"] == "thesis_writing"
+    assert data["current_phase"]["mission_policy_id"] == "opening_research"
+    assert data["recommended_actions"][1]["mission_policy_id"] == "thesis_writing"
     summary_svc.get_summary.assert_awaited_once_with(
         "ws-1",
         workspace_type="thesis",

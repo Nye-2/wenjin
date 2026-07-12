@@ -79,7 +79,5 @@ async def run_event_loop_watchdog(
             on_hard_block(sample, consecutive_breaches)
             return
 
-        logger.critical(
-            "Gateway event loop appears blocked; forcing process exit for container restart"
-        )
+        logger.critical("Gateway event loop appears blocked; forcing process exit for container restart")
         os._exit(1)

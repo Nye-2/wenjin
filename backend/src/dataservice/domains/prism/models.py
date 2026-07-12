@@ -113,7 +113,8 @@ class PrismFileVersionRecord(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         Index("uq_prism_file_versions_file_version", "file_id", "version_no", unique=True),
         Index("ix_prism_file_versions_workspace_created", "workspace_id", "created_at"),
-        Index("ix_prism_file_versions_review_item", "review_item_id"),
+        Index("ix_prism_file_versions_mission_review_item", "mission_review_item_id"),
+        Index("uq_prism_file_versions_mission_commit", "mission_commit_id", unique=True),
     )
 
     workspace_id: Mapped[str] = mapped_column(
@@ -127,7 +128,16 @@ class PrismFileVersionRecord(Base, UUIDMixin, TimestampMixin):
         nullable=False,
     )
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
-    review_item_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    mission_review_item_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_review_items.review_item_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    mission_commit_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_commits.commit_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     content_inline: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_asset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -153,7 +163,11 @@ class PrismRenderRecord(Base, UUIDMixin, TimestampMixin):
         ForeignKey("prism_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
-    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    mission_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     render_kind: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     engine: Mapped[str | None] = mapped_column(String(50), nullable=True)

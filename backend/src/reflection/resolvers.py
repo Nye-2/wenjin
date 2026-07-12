@@ -4,10 +4,7 @@ import os
 from typing import Any, cast
 
 MODULE_TO_PACKAGE_HINTS = {
-    "langchain_google_genai": "langchain-google-genai",
-    "langchain_anthropic": "langchain-anthropic",
     "langchain_openai": "langchain-openai",
-    "langchain_deepseek": "langchain-deepseek",
 }
 
 

@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from src.database.base import Base
-from src.dataservice.domains.review.contracts import ReviewItemProjection
 from src.dataservice.domains.rooms.contracts import (
     DecisionSetCommand,
     WorkspaceTaskCreateCommand,
@@ -44,29 +43,18 @@ class FakeRoomsRepository:
 
     async def get_active_decision(self, *, workspace_id: str, key: str) -> SimpleNamespace | None:
         for record in self.decisions.values():
-            if (
-                record.workspace_id == workspace_id
-                and record.key == key
-                and record.deleted_at is None
-                and record.superseded_by is None
-            ):
+            if record.workspace_id == workspace_id and record.key == key and record.deleted_at is None and record.superseded_by is None:
                 return record
         return None
 
-    async def get_decision_by_review_source(
+    async def get_decision_by_mission_commit(
         self,
         *,
         workspace_id: str,
-        source_review_batch_id: str,
-        source_review_item_id: str,
+        source_mission_commit_id: str,
     ) -> SimpleNamespace | None:
         for record in self.decisions.values():
-            if (
-                record.workspace_id == workspace_id
-                and record.source_review_batch_id == source_review_batch_id
-                and record.source_review_item_id == source_review_item_id
-                and record.deleted_at is None
-            ):
+            if record.workspace_id == workspace_id and record.source_mission_commit_id == source_mission_commit_id and record.deleted_at is None:
                 return record
         return None
 
@@ -78,12 +66,7 @@ class FakeRoomsRepository:
         extracted_by: str,
     ) -> SimpleNamespace | None:
         for record in self.decisions.values():
-            if (
-                record.workspace_id == workspace_id
-                and record.key == key
-                and record.extracted_by == extracted_by
-                and record.deleted_at is None
-            ):
+            if record.workspace_id == workspace_id and record.key == key and record.extracted_by == extracted_by and record.deleted_at is None:
                 return record
         return None
 
@@ -94,8 +77,9 @@ class FakeRoomsRepository:
                 "id": decision_id,
                 "source_message_id": None,
                 "superseded_by": None,
-                "source_review_batch_id": None,
-                "source_review_item_id": None,
+                "source_mission_id": None,
+                "source_mission_item_seq": None,
+                "source_mission_commit_id": None,
                 **values,
             }
         )
@@ -103,11 +87,7 @@ class FakeRoomsRepository:
         return record
 
     async def list_active_decisions(self, workspace_id: str) -> list[SimpleNamespace]:
-        return [
-            record
-            for record in self.decisions.values()
-            if record.workspace_id == workspace_id and record.deleted_at is None and record.superseded_by is None
-        ]
+        return [record for record in self.decisions.values() if record.workspace_id == workspace_id and record.deleted_at is None and record.superseded_by is None]
 
     async def get_decision_by_id(self, decision_id: str) -> SimpleNamespace | None:
         return self.decisions.get(decision_id)
@@ -122,28 +102,23 @@ class FakeRoomsRepository:
             {
                 "id": task_id,
                 "completed_at": None,
-                "source_review_batch_id": None,
-                "source_review_item_id": None,
+                "source_mission_id": None,
+                "source_mission_item_seq": None,
+                "source_mission_commit_id": None,
                 **values,
             }
         )
         self.tasks[task_id] = record
         return record
 
-    async def get_workspace_task_by_review_source(
+    async def get_workspace_task_by_mission_commit(
         self,
         *,
         workspace_id: str,
-        source_review_batch_id: str,
-        source_review_item_id: str,
+        source_mission_commit_id: str,
     ) -> SimpleNamespace | None:
         for record in self.tasks.values():
-            if (
-                record.workspace_id == workspace_id
-                and record.source_review_batch_id == source_review_batch_id
-                and record.source_review_item_id == source_review_item_id
-                and record.deleted_at is None
-            ):
+            if record.workspace_id == workspace_id and record.source_mission_commit_id == source_mission_commit_id and record.deleted_at is None:
                 return record
         return None
 
@@ -155,12 +130,7 @@ class FakeRoomsRepository:
         created_by: str,
     ) -> SimpleNamespace | None:
         for record in self.tasks.values():
-            if (
-                record.workspace_id == workspace_id
-                and record.title == title
-                and record.created_by == created_by
-                and record.deleted_at is None
-            ):
+            if record.workspace_id == workspace_id and record.title == title and record.created_by == created_by and record.deleted_at is None:
                 return record
         return None
 
@@ -197,12 +167,8 @@ def test_room_models_are_registered_on_shared_metadata() -> None:
 async def test_decision_set_supersedes_previous_active_value() -> None:
     service, repository, session = _service()
 
-    old = await service.set_decision(
-        DecisionSetCommand(workspace_id="ws-1", key="citation_style", value="MLA", extracted_by="user")
-    )
-    new = await service.set_decision(
-        DecisionSetCommand(workspace_id="ws-1", key="citation_style", value="APA", extracted_by="user")
-    )
+    old = await service.set_decision(DecisionSetCommand(workspace_id="ws-1", key="citation_style", value="MLA", extracted_by="user"))
+    new = await service.set_decision(DecisionSetCommand(workspace_id="ws-1", key="citation_style", value="APA", extracted_by="user"))
     active = await service.list_active_decisions("ws-1")
 
     assert repository.decisions[old.id].superseded_by == new.id
@@ -218,7 +184,7 @@ async def test_decision_set_supersedes_previous_active_value() -> None:
 
 
 @pytest.mark.asyncio
-async def test_task_create_with_review_trace() -> None:
+async def test_task_create_with_mission_commit_trace() -> None:
     service, _, _ = _service()
 
     task = await service.create_workspace_task(
@@ -226,16 +192,17 @@ async def test_task_create_with_review_trace() -> None:
             workspace_id="ws-1",
             title="Check appendix",
             created_by="user",
-            source_review_batch_id="batch-1",
-            source_review_item_id="item-1",
+            source_mission_id="mission-1",
+            source_mission_item_seq=7,
+            source_mission_commit_id="commit-1",
         )
     )
 
-    assert task.source_review_item_id == "item-1"
+    assert task.source_mission_commit_id == "commit-1"
 
 
 @pytest.mark.asyncio
-async def test_decision_set_replays_execution_unit_provenance_key() -> None:
+async def test_decision_set_replays_mission_commit_provenance_key() -> None:
     service, repository, session = _service()
 
     first = await service.set_decision(
@@ -243,7 +210,7 @@ async def test_decision_set_replays_execution_unit_provenance_key() -> None:
             workspace_id="ws-1",
             key="method",
             value="DID",
-            extracted_by="execution:exec-1:unit:unit-1",
+            extracted_by="mission:mission-1:commit:commit-1",
         )
     )
     replay = await service.set_decision(
@@ -251,7 +218,7 @@ async def test_decision_set_replays_execution_unit_provenance_key() -> None:
             workspace_id="ws-1",
             key="method",
             value="DID",
-            extracted_by="execution:exec-1:unit:unit-1",
+            extracted_by="mission:mission-1:commit:commit-1",
         )
     )
 
@@ -261,47 +228,24 @@ async def test_decision_set_replays_execution_unit_provenance_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_workspace_task_create_replays_execution_unit_provenance_key() -> None:
+async def test_workspace_task_create_replays_mission_commit_provenance_key() -> None:
     service, repository, session = _service()
 
     first = await service.create_workspace_task(
         WorkspaceTaskCreateCommand(
             workspace_id="ws-1",
             title="Verify dataset",
-            created_by="execution:exec-1:unit:unit-1",
+            created_by="mission:mission-1:commit:commit-1",
         )
     )
     replay = await service.create_workspace_task(
         WorkspaceTaskCreateCommand(
             workspace_id="ws-1",
             title="Verify dataset",
-            created_by="execution:exec-1:unit:unit-1",
+            created_by="mission:mission-1:commit:commit-1",
         )
     )
 
     assert replay.id == first.id
     assert len(repository.tasks) == 1
     assert session.commit_count == 1
-
-
-@pytest.mark.asyncio
-async def test_apply_review_item_materializes_room_payload() -> None:
-    service, repository, _ = _service()
-
-    result = await service.apply_review_item(
-        ReviewItemProjection(
-            id="review-item-1",
-            batch_id="review-batch-1",
-            workspace_id="ws-1",
-            item_kind="room_write",
-            target_domain="rooms",
-            target_kind="decision",
-            status="accepted",
-            title="Decision",
-            payload_json={"key": "method", "value": "DID", "confidence": 0.8},
-        )
-    )
-
-    assert result["room"] == "decisions"
-    assert repository.decisions[result["record_id"]].source_review_batch_id == "review-batch-1"
-    assert repository.decisions[result["record_id"]].source_review_item_id == "review-item-1"

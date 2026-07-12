@@ -66,6 +66,21 @@ class SourceImportService:
         return source_to_projection(record)
 
     async def import_source(self, command: SourceImportCommand) -> SourceImportProjection:
+        if command.ingest_mission_commit_id:
+            replay = await self.context.repository.get_source_by_mission_commit(
+                command.ingest_mission_commit_id
+            )
+            if replay is not None:
+                if replay.workspace_id != command.workspace_id:
+                    raise ValueError("mission_commit_source_workspace_mismatch")
+                return SourceImportProjection(
+                    source=source_to_projection(replay),
+                    created=False,
+                    external_ids=await self.list_source_external_ids(
+                        workspace_id=command.workspace_id,
+                        source_id=str(replay.id),
+                    ),
+                )
         normalized_title = command.normalized_title or command.title.strip().lower()
         record = await self._find_import_source(command, normalized_title=normalized_title)
         created = record is None
@@ -321,7 +336,7 @@ class SourceImportService:
             "abstract",
             "citation_count",
             "ingest_label",
-            "ingest_execution_id",
+            "ingest_mission_id",
             "verified_at",
             "bibtex_entry_type",
             "read_status",
@@ -336,12 +351,7 @@ class SourceImportService:
                 **dict(values["bibtex_fields_json"] or {}),
             }
         if values.get("tags_json"):
-            record.tags_json = list(
-                dict.fromkeys(
-                    list(getattr(record, "tags_json", None) or [])
-                    + [str(item) for item in values["tags_json"] or []]
-                )
-            )
+            record.tags_json = list(dict.fromkeys(list(getattr(record, "tags_json", None) or []) + [str(item) for item in values["tags_json"] or []]))
         incoming_status = str(values.get("library_status") or "")
         if incoming_status and incoming_status != "candidate":
             record.library_status = incoming_status

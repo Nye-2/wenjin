@@ -66,10 +66,7 @@ def _normalize_upload_relative_path(filename: str | None, base_path: str | None)
     normalized_base = str(base_path or "").replace("\\", "/").strip().strip("/")
     if not normalized_base:
         return normalize_relative_path(normalized_name)
-    if (
-        normalized_name == normalized_base
-        or normalized_name.startswith(f"{normalized_base}/")
-    ):
+    if normalized_name == normalized_base or normalized_name.startswith(f"{normalized_base}/"):
         merged = normalized_name
     else:
         merged = f"{normalized_base}/{normalized_name}"
@@ -101,10 +98,7 @@ async def _read_upload_bytes_with_limit(
         if total_size > max_size_bytes:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail=(
-                    f"{error_label} too large. Maximum size is "
-                    f"{max_size_bytes // (1024 * 1024)}MB"
-                ),
+                detail=(f"{error_label} too large. Maximum size is {max_size_bytes // (1024 * 1024)}MB"),
             )
         chunks.append(chunk)
     return b"".join(chunks)
@@ -173,7 +167,7 @@ def _collect_archive_upload_payload(
                 if path == root_prefix:
                     continue
                 if path.startswith(prefix):
-                    next_path = path[len(prefix):]
+                    next_path = path[len(prefix) :]
                 else:
                     next_path = path
                 if not next_path:
@@ -485,11 +479,7 @@ def _build_rewrite_candidate(
         resolved_selection_start=int(rewrite_result["resolved_selection_start"]),
         resolved_selection_end=int(rewrite_result["resolved_selection_end"]),
     )
-    proposed_content = (
-        str(source_content)[:target_start]
-        + rewritten_text
-        + str(source_content)[target_end:]
-    )
+    proposed_content = str(source_content)[:target_start] + rewritten_text + str(source_content)[target_end:]
     updated_anchor = build_feedback_anchor(
         proposed_content,
         target_start,

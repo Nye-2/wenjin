@@ -1,6 +1,4 @@
-"""Agent contracts package — TaskBrief and TaskReport schemas."""
-
-from .task_brief import TaskBrief
+"""Structured research output contracts used by quality evaluation."""
 from .task_report import (
     DecisionData,
     DecisionOutput,
@@ -19,7 +17,6 @@ from .task_report import (
 )
 
 __all__ = [
-    "TaskBrief",
     "TaskReport",
     "ResultOutput",
     "ResultOutputBase",

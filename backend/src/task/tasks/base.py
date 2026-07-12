@@ -12,7 +12,6 @@ from celery import Task, shared_task
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.conversation import (
-    ConversationMessageCreatePayload,
     ConversationMessagesRebuildPayload,
     ConversationThreadUpdatePayload,
 )
@@ -22,18 +21,6 @@ from src.task.registry import (
 )
 
 logger = logging.getLogger(__name__)
-_LAST_MESSAGE_PREVIEW_LIMIT = 120
-
-
-def _truncate_message_preview(content: str | None, limit: int = _LAST_MESSAGE_PREVIEW_LIMIT) -> str | None:
-    normalized = " ".join((content or "").split())
-    if not normalized:
-        return None
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 3].rstrip() + "..."
-
-
 def _conversation_message_to_bridge(message: Any) -> dict[str, Any]:
     timestamp = getattr(message, "timestamp", None)
     result: dict[str, Any] = {
@@ -59,112 +46,6 @@ async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
-
-
-def _resolve_thread_skill(
-    payload: Mapping[str, object],
-    task_type: str,
-) -> tuple[str, str | None]:
-    skill_id = payload.get("skill_id")
-    if isinstance(skill_id, str) and skill_id.strip():
-        skill_name = payload.get("skill_name")
-        normalized_skill_name = skill_name.strip() if isinstance(skill_name, str) and skill_name.strip() else None
-        return skill_id.strip(), normalized_skill_name
-
-    feature_id = payload.get("feature_id")
-    if isinstance(feature_id, str) and feature_id.strip():
-        return feature_id.strip(), None
-    return task_type, None
-
-
-async def _append_task_thread_message(
-    *,
-    dataservice: AsyncDataServiceClient,
-    task_id: str,
-    task_type: str,
-    payload: dict[str, Any],
-    result: dict[str, Any] | None = None,
-    error: str | None = None,
-) -> None:
-    """Best-effort task result write-back into the originating thread."""
-    if task_type in {DOCUMENT_PREPROCESS_TASK, REFERENCE_PREPROCESS_TASK}:
-        return
-
-    thread_id = str(payload.get("thread_id") or "").strip()
-    if not thread_id:
-        return
-
-    feature_id = str(payload.get("feature_id") or task_type).strip()
-    if not feature_id:
-        return
-
-    try:
-        from src.application.presenters.agent_result_card import (
-            build_completion_result_card,
-            build_failure_result_card,
-        )
-        from src.services.thread_events import publish_thread_updated
-
-        thread = await dataservice.get_conversation_thread(thread_id)
-        if thread is None:
-            return
-
-        if error:
-            reply = build_failure_result_card(
-                feature_id=feature_id,
-                task_id=task_id,
-                run_id=str(payload.get("run_id") or task_id),
-                execution_id=str(payload.get("execution_id") or "") or None,
-                payload=payload,
-                error=error,
-                failed_phase=str(payload.get("failed_phase") or "") or None,
-                duration_ms=int(payload.get("duration_ms") or 0),
-                subagents_count=int(payload.get("subagents_count") or 0),
-                tokens_total=int(payload.get("tokens_total") or 0),
-            )
-        else:
-            completion_payload = dict(payload)
-            completion_payload.setdefault("workspace_id", getattr(thread, "workspace_id", None))
-            reply = build_completion_result_card(
-                feature_id=feature_id,
-                task_id=task_id,
-                run_id=str(payload.get("run_id") or task_id),
-                execution_id=str(payload.get("execution_id") or "") or None,
-                payload=completion_payload,
-                result=result or {},
-                duration_ms=int(payload.get("duration_ms") or 0),
-                subagents_count=int(payload.get("subagents_count") or 0),
-                tokens_total=int(payload.get("tokens_total") or 0),
-            )
-
-        persisted = await dataservice.append_conversation_message(
-            thread_id,
-            ConversationMessageCreatePayload(
-                thread_id=thread_id,
-                user_id=str(thread.user_id),
-                workspace_id=thread.workspace_id,
-                role="assistant",
-                content=reply.content,
-                sequence_index=max(int(thread.message_count or 0), 0),
-                timestamp=datetime.now(UTC),
-                blocks=reply.blocks or [],
-                metadata=reply.metadata or {},
-            ),
-        )
-        if persisted is not None:
-            thread.message_count = int(persisted.sequence_index) + 1
-        else:
-            thread.message_count = int(thread.message_count or 0) + 1
-        thread.last_message_role = "assistant"
-        thread.last_message_preview = _truncate_message_preview(reply.content)
-        thread.updated_at = persisted.timestamp if persisted is not None else datetime.now(UTC)
-        await publish_thread_updated(thread)
-    except Exception:
-        logger.warning(
-            "Failed to append task result to thread %s",
-            thread_id,
-            exc_info=True,
-        )
 
 
 async def _sync_document_preprocess_attachment_state(
@@ -434,9 +315,8 @@ async def _execute_task_async(
         task_id,
         workspace_id=str(payload.get("workspace_id") or "") or None,
         thread_id=str(payload.get("thread_id") or "") or None,
-        execution_id=str(payload.get("execution_id") or "") or None,
+        mission_id=str(payload.get("mission_id") or "") or None,
         task_type=task_type,
-        feature_id=str(payload.get("feature_id") or "") or None,
         worker_id=celery_task.request.hostname,
     )
 
@@ -452,36 +332,8 @@ async def _execute_task_async(
             # Prometheus metrics
             track_task_start()
 
-            # Track agent status in Redis
-            thread_id = payload.get("thread_id")
-            workspace_id = str(payload.get("workspace_id") or "") or None
-            thread_skill, thread_skill_name = _resolve_thread_skill(payload, task_type)
-            if thread_id:
-                from src.services.thread_events import set_thread_status
-
-                await set_thread_status(
-                    workspace_id,
-                    str(thread_id),
-                    status="running",
-                    skill=thread_skill,
-                    skill_name=thread_skill_name,
-                    subagent_count=0,
-                )
-
             # Dispatch to task-specific handler
             result = await _dispatch_task(task_type, payload, progress)
-
-            if thread_id:
-                from src.services.thread_events import set_thread_status
-
-                await set_thread_status(
-                    workspace_id,
-                    str(thread_id),
-                    status="completed",
-                    skill=thread_skill,
-                    skill_name=thread_skill_name,
-                    subagent_count=0,
-                )
 
             track_task_end(task_type, time.perf_counter() - _task_start_time)
 
@@ -511,14 +363,6 @@ async def _execute_task_async(
                 progress=100,
                 current_step="complete",
             )
-            await _append_task_thread_message(
-                dataservice=dataservice,
-                task_id=task_id,
-                task_type=task_type,
-                payload=payload,
-                result=result,
-            )
-
             return result
 
         except Exception as e:
@@ -554,20 +398,6 @@ async def _execute_task_async(
                         task_id,
                         credit_transaction_id,
                     )
-            thread_id = payload.get("thread_id")
-            workspace_id = str(payload.get("workspace_id") or "") or None
-            if thread_id:
-                from src.services.thread_events import set_thread_status
-
-                await set_thread_status(
-                    workspace_id,
-                    str(thread_id),
-                    status="failed",
-                    skill=thread_skill,
-                    skill_name=thread_skill_name,
-                    subagent_count=0,
-                )
-
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))
             await _sync_document_preprocess_attachment_state(
@@ -586,13 +416,6 @@ async def _execute_task_async(
                 payload=payload,
                 status="failed",
                 message=str(e),
-                error=str(e),
-            )
-            await _append_task_thread_message(
-                dataservice=dataservice,
-                task_id=task_id,
-                task_type=task_type,
-                payload=payload,
                 error=str(e),
             )
             raise

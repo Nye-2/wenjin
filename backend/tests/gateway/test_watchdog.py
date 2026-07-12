@@ -45,4 +45,3 @@ async def test_run_event_loop_watchdog_triggers_callback_on_consecutive_breaches
     lag_seconds, consecutive = triggered[0]
     assert lag_seconds > 0.5
     assert consecutive == 2
-

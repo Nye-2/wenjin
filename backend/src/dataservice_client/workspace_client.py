@@ -7,8 +7,6 @@ from typing import Any
 from src.dataservice_client.contracts.rooms import (
     DecisionPayload,
     DecisionSetPayload,
-    RoomCandidateApplyPayload,
-    RoomCandidatePayload,
     WorkspaceTaskCreatePayload,
     WorkspaceTaskPayload,
     WorkspaceTaskUpdatePayload,
@@ -174,21 +172,6 @@ class WorkspaceDataServiceClientMixin:
         payload = await self._request("DELETE", f"/internal/v1/rooms/workspaces/{workspace_id}/tasks/{task_id}")
         data = payload.get("data")
         return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def stage_and_apply_room_candidates(
-        self,
-        *,
-        workspace_id: str,
-        execution_id: str,
-        candidates: list[RoomCandidatePayload],
-    ) -> RoomCandidateApplyPayload:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/rooms/workspaces/{workspace_id}/candidate-apply",
-            params={"execution_id": execution_id},
-            json=[candidate.model_dump(mode="json") for candidate in candidates],
-        )
-        return RoomCandidateApplyPayload.model_validate(payload["data"])
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

@@ -61,22 +61,6 @@ from src.dataservice_client.contracts.prism import (
     PrismSurfacePayload,
     PrismWorkspaceFileUpsertPayload,
 )
-from src.dataservice_client.contracts.prism_review import (
-    PrismFileChangeAppliedPayload,
-    PrismFileChangeClearPayload,
-    PrismFileChangeRejectedPayload,
-    PrismFileChangeUpsertPayload,
-)
-from src.dataservice_client.contracts.review import (
-    ReviewBatchCreatePayload,
-    ReviewBatchDetailPayload,
-    ReviewBatchPayload,
-    ReviewItemDecisionPayload,
-    ReviewItemDeletePayload,
-    ReviewItemPatchPayload,
-    ReviewItemPayload,
-    ReviewItemTransitionPayload,
-)
 from src.dataservice_client.contracts.task import (
     TaskRecordCompletedPayload,
     TaskRecordCreateGuardedPayload,
@@ -95,7 +79,7 @@ from src.dataservice_client.contracts.workspace_memory import (
 )
 from src.dataservice_client.credit_client import CreditDataServiceClientMixin
 from src.dataservice_client.errors import DataServiceClientError
-from src.dataservice_client.execution_client import ExecutionDataServiceClientMixin
+from src.dataservice_client.mission_client import MissionDataServiceClient
 from src.dataservice_client.model_catalog_client import ModelCatalogDataServiceClientMixin
 from src.dataservice_client.pricing_client import PricingDataServiceClientMixin
 from src.dataservice_client.sandbox_client import SandboxDataServiceClientMixin
@@ -128,7 +112,6 @@ def _clean_request_params(params: Any) -> Any:
 
 
 class AsyncDataServiceClient(
-    ExecutionDataServiceClientMixin,
     SourceDataServiceClientMixin,
     CreditDataServiceClientMixin,
     CatalogDataServiceClientMixin,
@@ -155,6 +138,7 @@ class AsyncDataServiceClient(
             transport=transport,
             trust_env=False,
         )
+        self.missions = MissionDataServiceClient(self._request)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -428,8 +412,6 @@ class AsyncDataServiceClient(
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ) -> list[TaskRecordPayload]:
         payload = await self._request(
             "GET",
@@ -439,8 +421,6 @@ class AsyncDataServiceClient(
                 "task_type": task_type,
                 "limit": limit,
                 "workspace_id": workspace_id,
-                "feature_id": feature_id,
-                "action": action,
             },
         )
         return [TaskRecordPayload.model_validate(item) for item in payload["data"]]
@@ -497,86 +477,6 @@ class AsyncDataServiceClient(
         )
         data = payload.get("data")
         return TaskRecordPayload.model_validate(data) if data is not None else None
-
-    async def find_prism_file_change(
-        self,
-        *,
-        workspace_id: str,
-        latex_project_id: str,
-        logical_key: str,
-        statuses: list[str] | None = None,
-        limit: int = 1000,
-    ) -> ReviewItemPayload | None:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/prism-review/file-changes/find",
-            params={
-                "workspace_id": workspace_id,
-                "latex_project_id": latex_project_id,
-                "logical_key": logical_key,
-                "statuses": statuses,
-                "limit": limit,
-            },
-        )
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
-
-    async def upsert_pending_prism_file_change(
-        self,
-        command: PrismFileChangeUpsertPayload,
-    ) -> ReviewItemPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/prism-review/file-changes/upsert",
-            json=command.model_dump(mode="json"),
-        )
-        return ReviewItemPayload.model_validate(payload["data"])
-
-    async def clear_pending_prism_file_change(
-        self,
-        command: PrismFileChangeClearPayload,
-    ) -> bool:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/prism-review/file-changes/clear-pending",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def mark_prism_file_change_applied(
-        self,
-        item_id: str,
-        command: PrismFileChangeAppliedPayload,
-    ) -> ReviewItemPayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/prism-review/items/{item_id}/applied",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
-
-    async def mark_prism_file_change_rejected(
-        self,
-        item_id: str,
-        command: PrismFileChangeRejectedPayload,
-    ) -> ReviewItemPayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/prism-review/items/{item_id}/rejected",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
-
-    async def mark_prism_file_change_reverted(
-        self,
-        item_id: str,
-    ) -> ReviewItemPayload | None:
-        payload = await self._request("POST", f"/internal/v1/prism-review/items/{item_id}/reverted")
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
 
     async def create_account_user(
         self,
@@ -823,120 +723,6 @@ class AsyncDataServiceClient(
         payload = await self._request("POST", f"/internal/v1/conversations/threads/{thread_id}/lock")
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("locked")) if isinstance(data, dict) else False
-
-    async def create_review_batch(self, command: ReviewBatchCreatePayload) -> ReviewBatchDetailPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/review/batches",
-            json=command.model_dump(mode="json"),
-        )
-        return ReviewBatchDetailPayload.model_validate(payload["data"])
-
-    async def list_review_batches(
-        self,
-        *,
-        workspace_id: str | None = None,
-        execution_id: str | None = None,
-        status: list[str] | None = None,
-        limit: int = 50,
-    ) -> list[ReviewBatchPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/review/batches",
-            params={
-                "workspace_id": workspace_id,
-                "execution_id": execution_id,
-                "status": status,
-                "limit": limit,
-            },
-        )
-        return [ReviewBatchPayload.model_validate(item) for item in payload["data"]]
-
-    async def get_review_batch(self, batch_id: str) -> ReviewBatchDetailPayload | None:
-        payload = await self._request("GET", f"/internal/v1/review/batches/{batch_id}")
-        data = payload.get("data")
-        return ReviewBatchDetailPayload.model_validate(data) if data is not None else None
-
-    async def get_review_item(self, item_id: str) -> ReviewItemPayload | None:
-        payload = await self._request("GET", f"/internal/v1/review/items/{item_id}")
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
-
-    async def list_review_items(
-        self,
-        *,
-        workspace_id: str | None = None,
-        execution_id: str | None = None,
-        target_domain: str | None = None,
-        target_kind: str | None = None,
-        status: list[str] | None = None,
-        limit: int = 50,
-    ) -> list[ReviewItemPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/review/items",
-            params={
-                "workspace_id": workspace_id,
-                "execution_id": execution_id,
-                "target_domain": target_domain,
-                "target_kind": target_kind,
-                "status": status,
-                "limit": limit,
-            },
-        )
-        return [ReviewItemPayload.model_validate(item) for item in payload["data"]]
-
-    async def patch_review_item(
-        self,
-        item_id: str,
-        command: ReviewItemPatchPayload,
-    ) -> ReviewItemPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/review/items/{item_id}",
-            json=command.model_dump(mode="json", exclude_none=True),
-        )
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
-
-    async def set_review_item_decision(
-        self,
-        item_id: str,
-        command: ReviewItemDecisionPayload,
-    ) -> ReviewItemPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/review/items/{item_id}/decision",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
-
-    async def transition_review_item(
-        self,
-        item_id: str,
-        command: ReviewItemTransitionPayload,
-    ) -> ReviewItemPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/review/items/{item_id}/transition",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return ReviewItemPayload.model_validate(data) if data is not None else None
-
-    async def delete_review_item(
-        self,
-        item_id: str,
-        command: ReviewItemDeletePayload,
-    ) -> bool:
-        payload = await self._request(
-            "DELETE",
-            f"/internal/v1/review/items/{item_id}",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data") or {}
-        return bool(data.get("deleted"))
 
     async def register_asset(self, command: WorkspaceAssetCreatePayload) -> WorkspaceAssetPayload:
         payload = await self._request(

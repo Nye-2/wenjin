@@ -28,15 +28,11 @@ class CreditRepository:
         self.session = session
 
     async def list_grant_rules(self) -> list[CreditGrantRule]:
-        result = await self.session.execute(
-            select(CreditGrantRule).order_by(CreditGrantRule.created_at)
-        )
+        result = await self.session.execute(select(CreditGrantRule).order_by(CreditGrantRule.created_at))
         return list(result.scalars().all())
 
     async def get_grant_rule(self, rule_id: str) -> CreditGrantRule | None:
-        result = await self.session.execute(
-            select(CreditGrantRule).where(CreditGrantRule.id == rule_id)
-        )
+        result = await self.session.execute(select(CreditGrantRule).where(CreditGrantRule.id == rule_id))
         return result.scalars().first()
 
     def create_grant_rule(self, values: dict[str, Any]) -> CreditGrantRule:
@@ -64,16 +60,12 @@ class CreditRepository:
         rule_type: CreditGrantRuleType,
     ) -> list[CreditGrantRule]:
         result = await self.session.execute(
-            select(CreditGrantRule)
-            .where(CreditGrantRule.rule_type == rule_type)
-            .where(CreditGrantRule.enabled == True)  # noqa: E712
+            select(CreditGrantRule).where(CreditGrantRule.rule_type == rule_type).where(CreditGrantRule.enabled == True)  # noqa: E712
         )
         return list(result.scalars().all())
 
     async def get_user_for_update(self, user_id: str) -> User | None:
-        result = await self.session.execute(
-            select(User).where(User.id == user_id).with_for_update()
-        )
+        result = await self.session.execute(select(User).where(User.id == user_id).with_for_update())
         return result.scalar_one_or_none()
 
     async def list_users_for_periodic_credit_filter(
@@ -106,11 +98,7 @@ class CreditRepository:
         self,
         reservation_id: str,
     ) -> CreditReservation | None:
-        result = await self.session.execute(
-            select(CreditReservation)
-            .where(CreditReservation.id == reservation_id)
-            .with_for_update()
-        )
+        result = await self.session.execute(select(CreditReservation).where(CreditReservation.id == reservation_id).with_for_update())
         return result.scalar_one_or_none()
 
     async def find_reservation_by_idempotency_key(
@@ -163,24 +151,8 @@ class CreditRepository:
             ).where(User.credits < 0)
         )
         overdraft = overdraft_result.one()
-        manual_deductions = int(
-            (
-                await self.session.execute(
-                    select(func.coalesce(func.sum(func.abs(CreditTransaction.amount)), 0)).where(
-                        CreditTransaction.transaction_type == CreditTransactionType.ADMIN_DEDUCT
-                    )
-                )
-            ).scalar()
-            or 0
-        )
-        tx_total = int(
-            (
-                await self.session.execute(
-                    select(func.count()).select_from(CreditTransaction)
-                )
-            ).scalar()
-            or 0
-        )
+        manual_deductions = int((await self.session.execute(select(func.coalesce(func.sum(func.abs(CreditTransaction.amount)), 0)).where(CreditTransaction.transaction_type == CreditTransactionType.ADMIN_DEDUCT))).scalar() or 0)
+        tx_total = int((await self.session.execute(select(func.count()).select_from(CreditTransaction))).scalar() or 0)
         return {
             "total_issued": int(totals.issued),
             "total_spent": int(totals.spent),
@@ -210,9 +182,7 @@ class CreditRepository:
         since: Any,
         granularity: str,
     ) -> list[Any]:
-        bucket_col = func.date_trunc(granularity, CreditTransaction.created_at).label(
-            "bucket"
-        )
+        bucket_col = func.date_trunc(granularity, CreditTransaction.created_at).label("bucket")
         ttype_col = CreditTransaction.transaction_type
         result = await self.session.execute(
             select(
@@ -252,12 +222,7 @@ class CreditRepository:
             base_query = base_query.where(CreditTransaction.transaction_type == transaction_type)
         count_query = select(func.count()).select_from(base_query.subquery())
         total = int((await self.session.execute(count_query)).scalar() or 0)
-        result = await self.session.execute(
-            base_query
-            .order_by(desc(CreditTransaction.created_at))
-            .offset(offset)
-            .limit(limit)
-        )
+        result = await self.session.execute(base_query.order_by(desc(CreditTransaction.created_at)).offset(offset).limit(limit))
         return list(result.scalars().all()), total
 
     async def list_token_accounting_transactions(
@@ -289,8 +254,7 @@ class CreditRepository:
             select(CreditTransaction).where(
                 CreditTransaction.user_id == user_id,
                 CreditTransaction.transaction_type == CreditTransactionType.REFUND,
-                CreditTransaction.tx_metadata["original_transaction_id"].as_string()
-                == original_transaction_id,
+                CreditTransaction.tx_metadata["original_transaction_id"].as_string() == original_transaction_id,
             )
         )
         return result.scalar_one_or_none()
@@ -307,8 +271,7 @@ class CreditRepository:
             .where(
                 CreditTransaction.user_id == user_id,
                 CreditTransaction.transaction_type == transaction_type,
-                CreditTransaction.tx_metadata["idempotency_key"].as_string()
-                == idempotency_key,
+                CreditTransaction.tx_metadata["idempotency_key"].as_string() == idempotency_key,
             )
             .order_by(CreditTransaction.created_at)
         )
@@ -339,17 +302,11 @@ class CreditRepository:
         return list(result.scalars().all())
 
     async def get_redeem_code(self, code_id: str) -> CreditRedeemCode | None:
-        result = await self.session.execute(
-            select(CreditRedeemCode).where(CreditRedeemCode.id == code_id)
-        )
+        result = await self.session.execute(select(CreditRedeemCode).where(CreditRedeemCode.id == code_id))
         return result.scalars().first()
 
     async def get_redeem_code_for_update(self, code: str) -> CreditRedeemCode | None:
-        result = await self.session.execute(
-            select(CreditRedeemCode)
-            .where(CreditRedeemCode.code == code)
-            .with_for_update()
-        )
+        result = await self.session.execute(select(CreditRedeemCode).where(CreditRedeemCode.code == code).with_for_update())
         return result.scalars().first()
 
     async def count_redemptions_for_user(
@@ -358,12 +315,7 @@ class CreditRepository:
         code_id: str,
         user_id: str,
     ) -> int:
-        result = await self.session.execute(
-            select(func.count())
-            .select_from(CreditRedemption)
-            .where(CreditRedemption.code_id == code_id)
-            .where(CreditRedemption.user_id == user_id)
-        )
+        result = await self.session.execute(select(func.count()).select_from(CreditRedemption).where(CreditRedemption.code_id == code_id).where(CreditRedemption.user_id == user_id))
         return int(result.scalar_one())
 
     def create_redemption(self, values: dict[str, Any]) -> CreditRedemption:
@@ -377,9 +329,7 @@ class CreditRepository:
         return referral
 
     async def get_referral_by_referee(self, referee_user_id: str) -> Referral | None:
-        result = await self.session.execute(
-            select(Referral).where(Referral.referee_user_id == referee_user_id)
-        )
+        result = await self.session.execute(select(Referral).where(Referral.referee_user_id == referee_user_id))
         return result.scalars().first()
 
 

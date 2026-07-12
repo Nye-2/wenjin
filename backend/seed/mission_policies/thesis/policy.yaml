@@ -1,0 +1,70 @@
+schema_version: mission_policy.v1
+id: thesis_research
+version: 1
+workspace_type: thesis
+enabled: true
+visibility: route_hint
+display:
+  name: 学位论文研究任务
+  description: 按学校要求推进选题、文献框架、方法与章节写作
+routing:
+  when_to_use:
+    - 用户需要推进本科或硕士学位论文的研究与写作。
+    - 任务需要承接学校规范、已有章节、数据与长期修改状态。
+  not_for:
+    - 仅解释知识点或修改一句话。
+    - SCI 投稿、数学建模、专利、软著或项目申报任务。
+  positive_examples:
+    - 帮我把这个选题发展成可执行的硕士论文方案。
+    - 基于学校模板和已有文献规划论文结构。
+    - 检查并重写这章，让论证和引用更扎实。
+  negative_examples:
+    - 解释一下结构方程模型。
+    - 把这句话改得正式一点。
+    - 帮我写专利权利要求。
+mission:
+  objective: Produce a school-compliant, evidence-grounded and coherent thesis at the requested stage.
+  target_outcomes: [thesis_scope, chapter_evidence_map, methodology, thesis_draft]
+  hard_constraints:
+    - School and degree constraints are explicit inputs, never guessed.
+    - Every chapter claim retains evidence responsibility.
+    - Structural and citation-bearing changes require review.
+  forbidden_outcomes: [invented_school_rule, fabricated_citation, unsupported_chapter, direct_workspace_write]
+minimum_context:
+  thesis_topic:
+    requirement: required
+    ask: 你的论文主题或当前研究问题是什么？
+  school_requirements:
+    requirement: optional
+  existing_draft:
+    requirement: optional
+stage_contract_refs:
+  - {contract_id: thesis_research.scope, schema_version: stage_acceptance_contract.v1, sha256: 4f0654db15a2b55dbc8e9cd793a9a341d66e1a2f9b5070adad875c7dcc87ab6c}
+  - {contract_id: thesis_research.literature_framework, schema_version: stage_acceptance_contract.v1, sha256: 66c262305328ff06bfe5727c10e8629958a53276cd78df4d4876179161c89c32}
+  - {contract_id: thesis_research.method_design, schema_version: stage_acceptance_contract.v1, sha256: 5fa419b86aa195f34a7b296ad1abcca205a3d75216f63ac23aac6b0201775fbb}
+  - {contract_id: thesis_research.chapter_writing, schema_version: stage_acceptance_contract.v1, sha256: 26ecddb8d9a81fb040e5a0b766da9385f9bd9d8459dba4296981b88303adb73d}
+tool_policy:
+  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, draft_stage]
+  denied_tools: [room_direct_write, unrestricted_shell]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, experiment-analyst, manuscript-writer, citation-auditor, quality-critic]
+review_policy:
+  default_mode: balanced_default
+  allowed_modes: [review_all, balanced_default, auto_draft]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+sandbox_policy_ref: {policy_id: sandbox.research, version: 1}
+examples:
+  - example_id: thesis.chapter.excellent.v1
+    input_summary: 在学校规范和证据地图约束下完成一个论证闭合的章节
+    expected_characteristics: [章节问题明确, 论断均有来源, 与全文主线一致, 修改可逐项复核]
+anti_examples:
+  - description: 按目录批量生成流畅但没有证据责任的章节。
+    failure_reason: 内容无法验证，也无法证明对论文主问题的贡献。
+completion_contract:
+  default_target: research_plan
+  target_stage_sets:
+    research_plan: [scope, literature_framework, method_design]
+    chapter_draft: [scope, literature_framework, method_design, chapter_writing]
+  terminal_outputs: [research_brief, chapter_evidence_map, methodology_plan, thesis_draft]
+  allow_safe_partial_outputs: true
+delivery_profile_refs:
+  - {profile_id: thesis_school_template, version: 1}

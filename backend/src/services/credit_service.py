@@ -18,11 +18,11 @@ from src.dataservice_client.provider import dataservice_client
 from src.services.billing_policy import (
     OperationBillingPolicy,
     TokenBillingPolicy,
-    calculate_capability_estimate,
+    calculate_mission_estimate,
     calculate_model_usage_credits,
     calculate_sandbox_estimate,
     calculate_token_billing_charge,
-    get_feature_token_billing_policy,
+    get_mission_token_billing_policy,
     get_sandbox_operation_billing_policy,
     get_thread_token_billing_policy,
 )
@@ -98,8 +98,8 @@ class ThreadCreditConsumption:
 
 
 @dataclass(slots=True)
-class FeatureCreditConsumption:
-    """Result of settling a completed feature task against token usage."""
+class MissionCreditConsumption:
+    """Result of settling completed Mission work against token usage."""
 
     token_usage: dict[str, int]
     free_tokens_applied: int
@@ -114,7 +114,7 @@ class FeatureCreditConsumption:
     def as_metadata(self) -> dict[str, Any]:
         """Return persisted billing metadata for task results."""
         return {
-            "type": "feature_token_billing",
+            "type": "mission_token_billing",
             "token_usage": dict(self.token_usage),
             "free_tokens_applied": self.free_tokens_applied,
             "billable_tokens": self.billable_tokens,
@@ -173,9 +173,9 @@ class CreditService:
         return get_thread_token_billing_policy()
 
     @staticmethod
-    def get_feature_billing_policy() -> TokenBillingPolicy:
-        """Return the configured workspace feature token billing policy."""
-        return get_feature_token_billing_policy()
+    def get_mission_billing_policy() -> TokenBillingPolicy:
+        """Return the configured Mission token billing policy."""
+        return get_mission_token_billing_policy()
 
     @staticmethod
     def get_sandbox_billing_policy() -> OperationBillingPolicy:
@@ -261,13 +261,13 @@ class CreditService:
                 consume_type=CreditTransactionType.THREAD_TOKEN_CONSUME.value,
             )
 
-    async def get_consumed_feature_tokens(self, user_id: str) -> int:
-        """Return successfully settled historical feature-task tokens for a user."""
+    async def get_consumed_mission_tokens(self, user_id: str) -> int:
+        """Return successfully settled historical Mission tokens for a user."""
         async with self._client() as client:
             return await client.get_credit_consumed_tokens(
                 user_id=user_id,
                 consume_type=CreditTransactionType.WORKFLOW_CONSUME.value,
-                metadata_type="feature_token_billing",
+                metadata_type="mission_token_billing",
             )
 
     async def can_start_thread_turn(self, user_id: str) -> bool:
@@ -292,24 +292,24 @@ class CreditService:
 
         return await self.get_spendable_balance(user_id) > 0
 
-    async def can_start_feature_task(self, user_id: str) -> bool:
-        """Return whether the user can enqueue a billable feature task.
+    async def can_start_mission(self, user_id: str) -> bool:
+        """Return whether the user can start a billable Mission.
 
-        Feature tasks are settled from measured token usage after successful
+        Missions are settled from measured token usage after successful
         execution, so this is an admission-control gate rather than a
         reservation. It prevents zero/negative-balance users from starting new
-        Compute work once the configured feature free-token quota is exhausted.
+        work once the configured Mission free-token quota is exhausted.
         """
-        policy = self.get_feature_billing_policy()
+        policy = self.get_mission_billing_policy()
         billing_policy = await self._resolve_model_billing_policy(
-            surface="feature",
+            surface="mission",
             model_name=None,
             base_token_policy=policy,
         )
         if not billing_policy.enabled:
             return True
 
-        consumed_tokens = await self.get_consumed_feature_tokens(user_id)
+        consumed_tokens = await self.get_consumed_mission_tokens(user_id)
         if consumed_tokens < billing_policy.free_tokens:
             return True
 
@@ -580,7 +580,6 @@ class CreditService:
                         credits_charged=credits_to_charge,
                         free_tokens_applied=free_token_charge.free_tokens_applied,
                     ),
-                    feature_id="thread",
                     workspace_id=workspace_id,
                     task_id=None,
                     metadata=tx_metadata,
@@ -622,30 +621,30 @@ class CreditService:
             charged=recorded_charge > 0,
         )
 
-    async def consume_for_feature_usage(
+    async def consume_for_mission_usage(
         self,
         *,
         user_id: str,
-        feature_id: str,
+        mission_policy_id: str,
+        mission_id: str,
         token_usage: TokenUsage | dict[str, int],
         workspace_id: str | None = None,
-        task_id: str | None = None,
         description: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> FeatureCreditConsumption:
-        """Consume credits for a completed feature task based on token usage."""
-        policy = self.get_feature_billing_policy()
+    ) -> MissionCreditConsumption:
+        """Consume credits for completed Mission work based on token usage."""
+        policy = self.get_mission_billing_policy()
         model_name = None
         if metadata and metadata.get("model_name"):
             model_name = str(metadata["model_name"])
         billing_policy = await self._resolve_model_billing_policy(
-            surface="feature",
+            surface="mission",
             model_name=model_name,
             base_token_policy=policy,
         )
         normalized_usage = self._normalize_usage_dict(token_usage)
         total_tokens = normalized_usage["total_tokens"]
-        historical_tokens_before = await self.get_consumed_feature_tokens(user_id)
+        historical_tokens_before = await self.get_consumed_mission_tokens(user_id)
         free_token_charge = calculate_token_billing_charge(
             policy=TokenBillingPolicy(
                 enabled=billing_policy.enabled,
@@ -661,7 +660,7 @@ class CreditService:
                 model_policy=billing_policy.model_policy,
                 global_policy=billing_policy.global_policy,
                 token_usage=normalized_usage,
-                surface="feature",
+                surface="mission",
                 billable_tokens=free_token_charge.billable_tokens,
             )
             credits_to_charge = model_charge.credits_to_charge
@@ -674,7 +673,7 @@ class CreditService:
         historical_tokens_after = free_token_charge.historical_tokens_after
 
         if not billing_policy.enabled or total_tokens <= 0:
-            return FeatureCreditConsumption(
+            return MissionCreditConsumption(
                 token_usage=normalized_usage,
                 free_tokens_applied=0,
                 billable_tokens=0,
@@ -687,7 +686,7 @@ class CreditService:
             )
 
         tx_metadata = {
-            "type": "feature_token_billing",
+            "type": "mission_token_billing",
             "token_usage": normalized_usage,
             "policy": billing_policy.policy_metadata,
             "historical_tokens_before": historical_tokens_before,
@@ -700,8 +699,7 @@ class CreditService:
             tx_metadata["pricing_breakdown"] = pricing_breakdown
         if metadata:
             tx_metadata.update(metadata)
-        if task_id:
-            tx_metadata["idempotency_key"] = f"feature_token_billing:{task_id}"
+        tx_metadata["idempotency_key"] = f"mission_token_billing:{mission_id}"
 
         async with self._client() as client:
             tx, balance_before = await client.record_credit_consumption(
@@ -709,15 +707,16 @@ class CreditService:
                     user_id=user_id,
                     transaction_type=CreditTransactionType.WORKFLOW_CONSUME.value,
                     amount=credits_to_charge,
-                    description=description or self._build_feature_token_description(
-                        feature_id=feature_id,
+                    description=description or self._build_mission_token_description(
+                        mission_policy_id=mission_policy_id,
                         total_tokens=total_tokens,
                         credits_charged=credits_to_charge,
                         free_tokens_applied=free_token_charge.free_tokens_applied,
                     ),
-                    feature_id=feature_id,
+                    mission_policy_id=mission_policy_id,
+                    mission_id=mission_id,
                     workspace_id=workspace_id,
-                    task_id=task_id,
+                    task_id=None,
                     metadata=tx_metadata,
                 )
             )
@@ -728,7 +727,7 @@ class CreditService:
             recorded_metadata.get("token_usage", normalized_usage)
         )
         recorded_charge = self._transaction_charge(tx, credits_to_charge)
-        return FeatureCreditConsumption(
+        return MissionCreditConsumption(
             token_usage=recorded_usage,
             free_tokens_applied=self._metadata_int(
                 recorded_metadata,
@@ -756,27 +755,27 @@ class CreditService:
             charged=recorded_charge > 0,
         )
 
-    async def preview_feature_usage_charge(
+    async def preview_mission_usage_charge(
         self,
         *,
         user_id: str,
-        feature_id: str,
+        mission_policy_id: str,
         token_usage: TokenUsage | dict[str, int] | None,
         metadata: dict[str, Any] | None = None,
-    ) -> FeatureCreditConsumption:
-        """Calculate feature usage credits without writing a ledger transaction."""
-        policy = self.get_feature_billing_policy()
+    ) -> MissionCreditConsumption:
+        """Calculate Mission usage credits without writing a ledger transaction."""
+        policy = self.get_mission_billing_policy()
         model_name = None
         if metadata and metadata.get("model_name"):
             model_name = str(metadata["model_name"])
         billing_policy = await self._resolve_model_billing_policy(
-            surface="feature",
+            surface="mission",
             model_name=model_name,
             base_token_policy=policy,
         )
         normalized_usage = self._normalize_usage_dict(token_usage or {})
         total_tokens = normalized_usage["total_tokens"]
-        historical_tokens_before = await self.get_consumed_feature_tokens(user_id)
+        historical_tokens_before = await self.get_consumed_mission_tokens(user_id)
         free_token_charge = calculate_token_billing_charge(
             policy=TokenBillingPolicy(
                 enabled=billing_policy.enabled,
@@ -792,7 +791,7 @@ class CreditService:
                 model_policy=billing_policy.model_policy,
                 global_policy=billing_policy.global_policy,
                 token_usage=normalized_usage,
-                surface="feature",
+                surface="mission",
                 billable_tokens=free_token_charge.billable_tokens,
             )
             credits_to_charge = model_charge.credits_to_charge
@@ -800,7 +799,7 @@ class CreditService:
         else:
             credits_to_charge = free_token_charge.credits_to_charge
             billable_tokens = free_token_charge.billable_tokens
-        return FeatureCreditConsumption(
+        return MissionCreditConsumption(
             token_usage=normalized_usage,
             free_tokens_applied=free_token_charge.free_tokens_applied,
             billable_tokens=billable_tokens,
@@ -812,20 +811,20 @@ class CreditService:
             charged=credits_to_charge > 0,
         )
 
-    async def estimate_feature_reservation_credits(
+    async def estimate_mission_reservation_credits(
         self,
         *,
-        feature_id: str,
+        mission_policy_id: str,
         workspace_type: str | None = None,
     ) -> int:
-        """Return max reservation credits for a capability policy."""
-        policy = await self._resolve_capability_pricing_policy(
-            feature_id=feature_id,
+        """Return max reservation credits for a Mission pricing policy."""
+        policy = await self._resolve_mission_pricing_policy(
+            mission_policy_id=mission_policy_id,
             workspace_type=workspace_type,
         )
         if policy is not None:
-            return calculate_capability_estimate(policy).max_charge_credits
-        return calculate_capability_estimate(
+            return calculate_mission_estimate(policy).max_charge_credits
+        return calculate_mission_estimate(
             {
                 "base_fee_credits": 0,
                 "estimate_min_credits": 10,
@@ -834,10 +833,10 @@ class CreditService:
             }
         ).max_charge_credits
 
-    async def _resolve_capability_pricing_policy(
+    async def _resolve_mission_pricing_policy(
         self,
         *,
-        feature_id: str,
+        mission_policy_id: str,
         workspace_type: str | None,
     ) -> Any | None:
         async with self._client() as client:
@@ -845,24 +844,24 @@ class CreditService:
                 return None
             try:
                 policies = await client.list_pricing_policies(
-                    policy_kind="capability",
+                    policy_kind="mission",
                     enabled_only=True,
                 )
             except Exception:
                 return None
-        normalized_feature = str(feature_id or "").strip()
+        normalized_policy_id = str(mission_policy_id or "").strip()
         normalized_workspace = str(workspace_type or "").strip()
         workspace_default = None
         global_default = None
         for policy in policies:
             config = self._pricing_policy_config(policy)
-            policy_feature = str(config.get("capability_id") or "").strip()
+            policy_mission = str(config.get("mission_policy_id") or "").strip()
             policy_workspace = str(config.get("workspace_type") or "").strip()
-            if policy_feature == normalized_feature:
+            if policy_mission == normalized_policy_id:
                 if not policy_workspace or policy_workspace == normalized_workspace:
                     return policy
                 continue
-            if policy_feature:
+            if policy_mission:
                 continue
             if policy_workspace == normalized_workspace and workspace_default is None:
                 workspace_default = policy
@@ -876,9 +875,9 @@ class CreditService:
         *,
         user_id: str,
         operation: str,
+        mission_id: str,
+        mission_item_seq: int,
         workspace_id: str | None = None,
-        task_id: str | None = None,
-        node_id: str | None = None,
         description: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> SandboxOperationCreditConsumption:
@@ -901,18 +900,13 @@ class CreditService:
             "credits_charged": credits_to_charge,
             "policy": policy.as_dict(),
         }
-        if node_id:
-            tx_metadata["node_id"] = node_id
+        tx_metadata["mission_id"] = mission_id
+        tx_metadata["mission_item_seq"] = mission_item_seq
         if metadata:
             tx_metadata.update(metadata)
-        if task_id and node_id:
-            tx_metadata["idempotency_key"] = (
-                f"sandbox_operation_billing:{task_id}:{node_id}:{normalized_operation}"
-            )
-        elif task_id:
-            tx_metadata["idempotency_key"] = (
-                f"sandbox_operation_billing:{task_id}:{normalized_operation}"
-            )
+        tx_metadata["idempotency_key"] = (
+            f"sandbox_operation_billing:{mission_id}:{mission_item_seq}:{normalized_operation}"
+        )
 
         async with self._client() as client:
             tx, balance_before = await client.record_credit_consumption(
@@ -924,9 +918,10 @@ class CreditService:
                         operation=normalized_operation,
                         credits_charged=credits_to_charge,
                     ),
-                    feature_id=f"sandbox.{normalized_operation}",
+                    mission_id=mission_id,
+                    operation_key=f"sandbox.{normalized_operation}",
                     workspace_id=workspace_id,
-                    task_id=task_id,
+                    task_id=None,
                     metadata=tx_metadata,
                 )
             )
@@ -942,53 +937,53 @@ class CreditService:
             charged=recorded_charge > 0,
         )
 
-    async def reserve_for_feature_execution(
+    async def reserve_for_mission(
         self,
         *,
         user_id: str,
         workspace_id: str | None,
-        execution_id: str,
+        mission_id: str,
         estimated_credits: int,
         expires_at: Any | None = None,
         idempotency_key: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Any:
         """Reserve credits before launching a long-running feature execution."""
-        key = idempotency_key or f"feature_execution:{execution_id}"
+        key = idempotency_key or f"mission:{mission_id}"
         async with self._client() as client:
             return await client.create_credit_reservation(
                 CreditReservationCreatePayload(
                     user_id=user_id,
-                    scope="feature_execution",
+                    scope="mission",
                     reserved_credits=max(int(estimated_credits or 0), 0),
                     idempotency_key=key,
                     workspace_id=workspace_id,
-                    execution_id=execution_id,
+                    mission_id=mission_id,
                     metadata=dict(metadata or {}),
                     expires_at=expires_at,
                 )
             )
 
-    async def settle_feature_reservation(
+    async def settle_mission_reservation(
         self,
         *,
         reservation_id: str,
         settled_credits: int,
-        feature_id: str,
-        task_id: str | None = None,
+        mission_policy_id: str,
+        mission_id: str,
         description: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> tuple[Any, Any | None]:
-        """Settle a feature execution reservation into the credit ledger."""
+        """Settle a Mission reservation into the credit ledger."""
         async with self._client() as client:
             return await client.settle_credit_reservation(
                 reservation_id,
                 CreditReservationSettlePayload(
                     settled_credits=max(int(settled_credits or 0), 0),
-                    description=description or f"{feature_id} 任务结算",
+                    description=description or f"{mission_policy_id} 任务结算",
                     transaction_type=CreditTransactionType.WORKFLOW_CONSUME.value,
-                    feature_id=feature_id,
-                    task_id=task_id,
+                    mission_policy_id=mission_policy_id,
+                    mission_id=mission_id,
                     metadata=dict(metadata or {}),
                 ),
             )
@@ -998,8 +993,8 @@ class CreditService:
         *,
         user_id: str,
         workspace_id: str | None,
-        execution_id: str,
-        node_id: str,
+        mission_id: str,
+        mission_item_seq: int,
         operation: str,
         estimated_credits: int,
         expires_at: Any | None = None,
@@ -1009,7 +1004,7 @@ class CreditService:
         """Reserve credits before acquiring sandbox compute resources."""
         normalized_operation = self._normalize_sandbox_operation(operation)
         key = idempotency_key or (
-            f"sandbox_operation:{execution_id}:{node_id}:{normalized_operation}"
+            f"sandbox_operation:{mission_id}:{mission_item_seq}:{normalized_operation}"
         )
         async with self._client() as client:
             return await client.create_credit_reservation(
@@ -1019,8 +1014,8 @@ class CreditService:
                     reserved_credits=max(int(estimated_credits or 0), 0),
                     idempotency_key=key,
                     workspace_id=workspace_id,
-                    execution_id=execution_id,
-                    node_id=node_id,
+                    mission_id=mission_id,
+                    mission_item_seq=mission_item_seq,
                     metadata={"operation": normalized_operation, **dict(metadata or {})},
                     expires_at=expires_at,
                 )
@@ -1077,7 +1072,7 @@ class CreditService:
         reservation_id: str,
         settled_credits: int,
         operation: str,
-        task_id: str | None = None,
+        mission_id: str,
         description: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> tuple[Any, Any | None]:
@@ -1093,8 +1088,8 @@ class CreditService:
                         credits_charged=max(int(settled_credits or 0), 0),
                     ),
                     transaction_type=CreditTransactionType.WORKFLOW_CONSUME.value,
-                    feature_id=f"sandbox.{normalized_operation}",
-                    task_id=task_id,
+                    mission_id=mission_id,
+                    operation_key=f"sandbox.{normalized_operation}",
                     metadata={"operation": normalized_operation, **dict(metadata or {})},
                 ),
             )
@@ -1227,19 +1222,19 @@ class CreditService:
         except ValueError as exc:
             raise ValueError(f"Unsupported transaction type: {transaction_type}") from exc
 
-    def _build_feature_token_description(
+    def _build_mission_token_description(
         self,
         *,
-        feature_id: str,
+        mission_policy_id: str,
         total_tokens: int,
         credits_charged: int,
         free_tokens_applied: int,
     ) -> str:
         if credits_charged <= 0:
             if free_tokens_applied > 0:
-                return f"{feature_id} 用量记录（免费额度内）"
-            return f"{feature_id} 用量记录"
-        return f"{feature_id} 扣费 {credits_charged} 积分"
+                return f"{mission_policy_id} 用量记录（免费额度内）"
+            return f"{mission_policy_id} 用量记录"
+        return f"{mission_policy_id} 扣费 {credits_charged} 积分"
 
     def _build_thread_description(
         self,
@@ -1289,7 +1284,9 @@ class CreditService:
             "amount": int(tx.amount),
             "balance_after": int(tx.balance_after),
             "description": tx.description,
-            "feature_id": tx.feature_id,
+            "mission_policy_id": tx.mission_policy_id,
+            "mission_id": tx.mission_id,
+            "operation_key": tx.operation_key,
             "workspace_id": tx.workspace_id,
             "task_id": tx.task_id,
             "admin_id": tx.admin_id,
@@ -1316,9 +1313,9 @@ class CreditService:
             "model_name",
             "source",
             "workspace_type",
-            "execution_id",
+            "mission_id",
             "user_message_id",
-            "node_id",
+            "mission_item_seq",
         ):
             value = metadata.get(key)
             if value is not None:

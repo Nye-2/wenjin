@@ -1,0 +1,25 @@
+schema_version: worker_skill.v1
+id: claim-strategist
+version: 1
+enabled: true
+role_hint: Patent feature and claim-scope strategist
+instructions:
+  - Separate essential, optional and fallback technical features using inventor-confirmed disclosure.
+  - Compare proposed scope against prior art feature by feature.
+  - Map every claim feature to disclosure and enablement support.
+  - Flag legal uncertainty and missing inventor facts; never invent a feature to improve scope.
+allowed_tool_groups: [workspace_read]
+input_contract: {type: object}
+output_contract:
+  type: object
+  required: [summary, evidence_refs, artifact_refs, warnings]
+  properties:
+    summary: {type: string}
+    evidence_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, items: {type: string}}
+    warnings: {type: array, items: {type: string}}
+    claim_strategy: {type: object}
+quality_focus: [disclosure_support, prior_art_distance, fallback_scope, non_fabrication]
+examples:
+  - task: Build a layered claim strategy from disclosure and prior art.
+    strong_output_characteristics: [essential-feature boundary, dependent fallbacks, support refs]

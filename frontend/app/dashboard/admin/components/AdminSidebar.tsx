@@ -6,13 +6,11 @@ import {
   BarChart3,
   Bot,
   Coins,
-  Layers,
   LayoutDashboard,
   ScrollText,
   Settings,
   ShieldCheck,
   Users,
-  Wrench,
 } from "lucide-react";
 
 const TOP: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -33,8 +31,6 @@ const CREDIT_GROUP = {
 
 const BUSINESS: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { href: "/dashboard/admin/models", label: "模型管理", icon: Bot },
-  { href: "/dashboard/admin/capabilities", label: "Capability", icon: Layers },
-  { href: "/dashboard/admin/skills", label: "Skill", icon: Wrench },
   { href: "/dashboard/admin/analytics", label: "数据分析", icon: BarChart3 },
 ];
 

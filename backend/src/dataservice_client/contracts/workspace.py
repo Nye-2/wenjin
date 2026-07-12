@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.contracts.change_set import DEFAULT_WRITE_MODE, WriteMode, normalize_write_mode
+from src.contracts.review_policy import DEFAULT_REVIEW_MODE, ReviewMode, normalize_review_mode
 
 WORKSPACE_TYPES = ("thesis", "sci", "proposal", "software_copyright", "math_modeling", "patent")
 THREAD_COCKPIT_DEFAULT_TYPES = set(WORKSPACE_TYPES)
@@ -37,9 +37,9 @@ def with_rollout_defaults(
     return base
 
 
-def with_write_mode_default(settings_json: dict[str, Any] | None) -> dict[str, Any]:
+def with_review_mode_default(settings_json: dict[str, Any] | None) -> dict[str, Any]:
     base = dict(settings_json or {})
-    base["write_mode"] = normalize_write_mode(base.get("write_mode"))
+    base["review_mode"] = normalize_review_mode(base.get("review_mode"))
     return base
 
 
@@ -47,7 +47,7 @@ def with_workspace_settings_defaults(
     workspace_type: object,
     settings_json: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    return with_write_mode_default(with_rollout_defaults(workspace_type, settings_json))
+    return with_review_mode_default(with_rollout_defaults(workspace_type, settings_json))
 
 
 class WorkspacePayload(BaseModel):
@@ -112,41 +112,41 @@ class WorkspaceSettingsPayload(BaseModel):
     thinking_enabled: bool = True
     sandbox_provider: str = "local"
     auto_compact_threshold: float = 0.8
-    capability_overrides: dict[str, Any] = Field(default_factory=dict)
     settings_json: dict[str, Any] = Field(default_factory=dict)
-    write_mode: WriteMode = DEFAULT_WRITE_MODE
+    review_mode: ReviewMode = DEFAULT_REVIEW_MODE
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
     @model_validator(mode="after")
-    def _sync_write_mode_from_settings_json(self) -> WorkspaceSettingsPayload:
+    def _sync_review_mode_from_settings_json(self) -> WorkspaceSettingsPayload:
         settings_json = dict(self.settings_json or {})
-        mode = normalize_write_mode(settings_json.get("write_mode", self.write_mode))
-        settings_json["write_mode"] = mode
+        mode = normalize_review_mode(settings_json.get("review_mode", self.review_mode))
+        settings_json["review_mode"] = mode
         self.settings_json = settings_json
-        self.write_mode = mode
+        self.review_mode = mode
         return self
 
 
 class WorkspaceSettingsUpdatePayload(BaseModel):
     """Mutable workspace settings update payload."""
 
+    model_config = ConfigDict(extra="forbid")
+
     default_model: str | None = Field(default=None, max_length=100)
     thinking_enabled: bool | None = None
     sandbox_provider: str | None = Field(default=None, max_length=50)
     auto_compact_threshold: float | None = None
-    capability_overrides: dict[str, Any] | None = None
     settings_json: dict[str, Any] | None = None
-    write_mode: WriteMode | None = None
+    review_mode: ReviewMode | None = None
     metadata_json: dict[str, Any] | None = None
 
-    @field_validator("write_mode", mode="before")
+    @field_validator("review_mode", mode="before")
     @classmethod
-    def _normalize_write_mode(cls, value: Any) -> WriteMode | None:
+    def _normalize_review_mode(cls, value: Any) -> ReviewMode | None:
         if value is None:
             return None
-        return normalize_write_mode(value)
+        return normalize_review_mode(value)
 
 
 class WorkspaceStatsPayload(BaseModel):

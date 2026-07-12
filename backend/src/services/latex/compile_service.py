@@ -17,7 +17,7 @@ from uuid import uuid4
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.latex import LatexCompileHistoryCreatePayload
 from src.dataservice_client.provider import dataservice_client
-from src.execution.docker.client import DockerClient, DockerExecutionError
+from src.services.latex.docker_client import DockerClient, DockerExecutionError
 
 from .engine_config import (
     get_default_latex_engine,

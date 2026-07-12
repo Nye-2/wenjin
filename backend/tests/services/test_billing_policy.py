@@ -1,7 +1,7 @@
 """Tests for the billing policy SSOT."""
 
 from src.services.billing_policy import (
-    BILLABLE_FEATURE_TASK_TYPES,
+    BILLABLE_MISSION_TASK_TYPES,
     OperationBillingPolicy,
     TokenBillingPolicy,
     calculate_model_usage_credits,
@@ -14,13 +14,13 @@ from src.services.billing_policy import (
 )
 
 
-def test_billable_feature_task_types_contains_canonical_execution_task() -> None:
-    assert BILLABLE_FEATURE_TASK_TYPES == frozenset({"execution"})
+def test_billable_mission_task_types_contains_canonical_mission_task() -> None:
+    assert BILLABLE_MISSION_TASK_TYPES == frozenset({"mission"})
 
 
-def test_legacy_feature_ids_are_not_billable_task_types() -> None:
-    assert "deep_research" not in BILLABLE_FEATURE_TASK_TYPES
-    assert "literature_search" not in BILLABLE_FEATURE_TASK_TYPES
+def test_legacy_mission_policy_ids_are_not_billable_task_types() -> None:
+    assert "deep_research" not in BILLABLE_MISSION_TASK_TYPES
+    assert "literature_search" not in BILLABLE_MISSION_TASK_TYPES
 
 
 def test_calculate_token_billing_charge_applies_free_quota() -> None:
@@ -80,17 +80,17 @@ def test_calculate_model_usage_credits_applies_chat_minimum() -> None:
     assert charge.credits_to_charge == 3
 
 
-def test_calculate_model_usage_credits_applies_feature_minimum() -> None:
+def test_calculate_model_usage_credits_applies_mission_minimum() -> None:
     charge = calculate_model_usage_credits(
         model_policy={
             "input_weight": 0.3,
             "output_weight": 1,
             "credits_per_1k_weighted_tokens": 6,
-            "min_feature_model_credits": 10,
+            "min_mission_model_credits": 10,
         },
         global_policy={"credits_per_cny": 10, "usd_to_cny": 7.3},
         token_usage={"input_tokens": 1, "output_tokens": 0, "total_tokens": 1},
-        surface="feature",
+        surface="mission",
     )
 
     assert charge.weighted_credits == 1
@@ -149,24 +149,24 @@ def test_get_workflow_costs_exposes_token_policies_only() -> None:
 
     assert set(costs) == {
         "thread_token_billing",
-        "feature_token_billing",
+        "mission_token_billing",
         "sandbox_operation_billing",
     }
     assert costs["thread_token_billing"]["tokens_per_credit"] > 0
-    assert costs["feature_token_billing"]["tokens_per_credit"] > 0
+    assert costs["mission_token_billing"]["tokens_per_credit"] > 0
     assert costs["sandbox_operation_billing"]["run_python_credits"] > 0
 
 
 def test_get_public_workflow_costs_hides_token_policy_details() -> None:
     costs = get_public_workflow_costs()
 
-    assert set(costs) == {"thread", "feature", "sandbox_run_python"}
+    assert set(costs) == {"thread", "mission", "sandbox_run_python"}
     assert costs["thread"] == {
         "enabled": True,
         "unit": "credits",
         "pricing": "usage_based",
     }
-    assert costs["feature"] == {
+    assert costs["mission"] == {
         "enabled": True,
         "unit": "credits",
         "pricing": "usage_based",
@@ -174,7 +174,7 @@ def test_get_public_workflow_costs_hides_token_policy_details() -> None:
     assert costs["sandbox_run_python"]["unit"] == "credits"
     assert costs["sandbox_run_python"]["credits"] == 1
     assert "tokens_per_credit" not in costs["thread"]
-    assert "free_tokens" not in costs["feature"]
+    assert "free_tokens" not in costs["mission"]
 
 
 def test_sandbox_operation_policy_uses_fixed_credit_unit() -> None:

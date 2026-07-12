@@ -39,10 +39,8 @@ class TaskRecordProjection(BaseModel):
     user_id: str
     task_type: str
     workspace_id: str | None = None
-    feature_id: str | None = None
     thread_id: str | None = None
-    execution_id: str | None = None
-    action: str | None = None
+    mission_id: str | None = None
     status: str
     priority: int
     payload: dict[str, Any] = Field(default_factory=dict)

@@ -40,7 +40,7 @@ async def wenjin_exception_handler(request: Request, exc: WenjinException) -> JS
                 "code": exc.code,
                 "message": exc.message,
             }
-        }
+        },
     )
 
 
@@ -68,7 +68,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
                 "message": "Invalid request data",
                 "details": exc.errors(),
             }
-        }
+        },
     )
 
 
@@ -135,6 +135,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 
     try:
         import sentry_sdk
+
         sentry_sdk.capture_exception(exc)
     except Exception:
         pass
@@ -146,7 +147,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
                 "code": "INTERNAL_ERROR",
                 "message": "An unexpected error occurred",
             }
-        }
+        },
     )
 
 

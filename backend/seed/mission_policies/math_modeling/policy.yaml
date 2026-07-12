@@ -1,0 +1,73 @@
+schema_version: mission_policy.v1
+id: math_modeling_solution
+version: 1
+workspace_type: math_modeling
+enabled: true
+visibility: route_hint
+display:
+  name: 数学建模求解任务
+  description: 读取赛题和数据，逐问建模、求解、验收后整合论文
+routing:
+  when_to_use:
+    - 用户提供数学建模赛题、题面截图、PDF、数据附件或问题文本。
+    - 任务需要逐问建模、脚本求解、稳健性分析、图表和竞赛论文。
+  not_for:
+    - 仅解释一个公式、算法或数学概念。
+    - SCI、学位论文、申报、软著或专利任务。
+  positive_examples:
+    - 我上传了数模赛题 PDF 和数据，请逐问完成。
+    - 先把第一问模型和验证做扎实，再继续第二问。
+    - 基于可复现脚本生成图表并整合成国赛论文。
+  negative_examples:
+    - 解释一下线性规划。
+    - 帮我算一道普通微积分题。
+    - 不看题目和数据，直接生成一篇数模论文。
+mission:
+  objective: Produce reproducible, sequentially validated solutions and a reviewable modeling paper.
+  target_outcomes: [problem_brief, validated_question_solutions, figures_tables, modeling_paper]
+  hard_constraints:
+    - A later question cannot start until the previous question's validation stage passes.
+    - Computed results require scripts, input refs, parameters, manifests and robustness checks.
+    - Figures and conclusions must trace to computed data; generated data imagery is forbidden.
+  forbidden_outcomes: [fabricated_data, skipped_question_gate, non_reproducible_result, misleading_figure, direct_workspace_write]
+minimum_context:
+  problem_statement:
+    requirement: required
+    ask: 请先上传或粘贴完整赛题题面；如果有数据附件也一起提供。
+  data_assets:
+    requirement: optional
+  competition_rules:
+    requirement: optional
+stage_contract_refs:
+  - {contract_id: math_modeling_solution.problem_understanding, schema_version: stage_acceptance_contract.v1, sha256: a587477f3440995f9c23e3d0e8f3d41c4617c38d182b2dcd29c4eaa06f51fa67}
+  - {contract_id: math_modeling_solution.question_model, schema_version: stage_acceptance_contract.v1, sha256: 28ada771fc6b89a58a213fa4ed268913c0dbe7b4e77f6a169a90e8041e84fc12}
+  - {contract_id: math_modeling_solution.question_solution_validation, schema_version: stage_acceptance_contract.v1, sha256: 7d92f646f3231e83a7eaf7894464853e259ba42e60d0d78f9e5cecb12d120e6e}
+  - {contract_id: math_modeling_solution.paper_integration, schema_version: stage_acceptance_contract.v1, sha256: 766c6cb2974704333f941e26dea2f4487abd84554d84f68412f7bd2f30773ee2}
+tool_policy:
+  allowed_tool_groups: [workspace_read, sandbox_compute, artifact_render, source_import, draft_stage]
+  denied_tools: [room_direct_write, unrestricted_shell, synthetic_data_figure]
+allowed_worker_skills: [task-scope-planner, methodology-designer, experiment-analyst, reproducibility-auditor, figure-table-engineer, manuscript-writer, compliance-reviewer, quality-critic]
+review_policy:
+  default_mode: balanced_default
+  allowed_modes: [review_all, balanced_default, auto_draft]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+sandbox_policy_ref: {policy_id: sandbox.math_modeling, version: 1}
+examples:
+  - example_id: math_modeling.question_solution.excellent.v1
+    input_summary: 针对单个赛题问题给出可复现、可解释且经过稳健性验证的完整解答
+    expected_characteristics:
+      - 变量假设和方程定义完整
+      - 脚本数据参数与结果可追溯
+      - 误差敏感性和图表共同支持结论
+anti_examples:
+  - description: 第一问只有一个数字和解释性文字，就直接开始第二问。
+    failure_reason: 缺少模型、脚本、稳健性和图表证据，逐问门未通过。
+completion_contract:
+  default_target: full_paper
+  target_stage_sets:
+    validated_questions: [problem_understanding, question_model, question_solution_validation]
+    full_paper: [problem_understanding, question_model, question_solution_validation, paper_integration]
+  terminal_outputs: [modeling_problem_brief, question_solution, math_modeling_paper]
+  allow_safe_partial_outputs: true
+delivery_profile_refs:
+  - {profile_id: math_modeling_cumcm2026, version: 1}

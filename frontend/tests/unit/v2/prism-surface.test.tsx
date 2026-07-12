@@ -429,8 +429,8 @@ describe("workspace prism surface", () => {
         {
           id: "run-1",
           workspace_id: "ws-1",
-          execution_id: "exec-1",
-          capability_id: "idea_to_thesis_manuscript",
+          mission_id: "mission-1",
+          mission_policy_id: "thesis",
           title: "Intro drafting",
           summary: "Generated manuscript update",
           status: "completed",

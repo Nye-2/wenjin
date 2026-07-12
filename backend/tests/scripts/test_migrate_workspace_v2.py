@@ -358,7 +358,7 @@ class TestCommitCreatesRecords:
             venue="Science",
             doi="10.1234/test",
             citation_key="alpha2024",
-            source_type="semantic_scholar",
+            source_type="model_web_search",
         )
         ref2 = _WorkspaceReference(
             workspace_id=ws.id,

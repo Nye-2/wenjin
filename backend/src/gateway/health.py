@@ -13,11 +13,14 @@ from src.academic.cache.redis_client import redis_client
 from src.config import get_extensions_config, settings
 from src.config.app_config import celery_settings, get_prometheus_settings
 from src.dataservice_client.provider import dataservice_client
-from src.execution.capabilities import execution_type_readiness
-from src.execution.types import ExecutionType
 from src.mcp import peek_mcp_manager
+from src.sandbox.preflight import run_sandbox_preflight
+from src.services.mission_catalog_readiness import evaluate_mission_catalog_readiness
+from src.services.model_catalog_cache import (
+    get_default_runtime_model_id,
+    get_runtime_model_config,
+)
 from src.task import celery_app
-from src.thesis.execution import get_execution_service
 
 logger = logging.getLogger(__name__)
 _READINESS_DEPENDENCY_TIMEOUT_SECONDS = 3.0
@@ -40,6 +43,26 @@ async def check_dataservice() -> dict[str, Any]:
         }
     except Exception as exc:
         return {"status": "unhealthy", "service": "dataservice", "error": str(exc)}
+
+
+async def check_mission_catalog() -> dict[str, Any]:
+    """Require an enabled, cross-referenced policy catalog for every workspace type."""
+    try:
+        async with dataservice_client() as client:
+            policies = await client.list_mission_policies(enabled_only=True)
+            skills = await client.list_worker_skills(enabled_only=True)
+        try:
+            model_id = get_default_runtime_model_id()
+            model = get_runtime_model_config(model_id)
+        except ValueError:
+            model = None
+        return evaluate_mission_catalog_readiness(
+            policies,
+            skills,
+            mission_model=model,
+        )
+    except Exception as exc:
+        return {"status": "unhealthy", "error": str(exc)}
 
 
 async def check_redis() -> dict[str, Any]:
@@ -168,47 +191,23 @@ async def check_mcp() -> dict[str, Any]:
         }
 
 
-async def check_execution() -> dict[str, Any]:
-    """Verify execution infrastructure and core providers."""
+async def check_sandbox() -> dict[str, Any]:
+    """Verify the operation sandbox required by Mission tools."""
     try:
-        service = get_execution_service()
-        health = await service.health_check()
-        docker_health = health.get("docker", {})
-        docker_ready = bool(docker_health.get("healthy"))
-
-        capability_checks: dict[str, dict[str, Any]] = {}
-        for execution_type in (
-            ExecutionType.LATEX_COMPILE,
-            ExecutionType.PYTHON_PLOT,
-            ExecutionType.MERMAID_DIAGRAM,
-            ExecutionType.AI_IMAGE,
-        ):
-            ready, reason = execution_type_readiness(service, execution_type)
-            capability_checks[execution_type.value] = {
-                "ready": ready,
-                "reason": reason,
-            }
-
-        core_ready = docker_ready and all(
-            capability_checks[execution_type.value]["ready"]
-            for execution_type in (
-                ExecutionType.LATEX_COMPILE,
-                ExecutionType.PYTHON_PLOT,
-                ExecutionType.MERMAID_DIAGRAM,
-            )
-        )
+        report = await run_sandbox_preflight(release_gate=False)
         return {
-            "status": "healthy" if core_ready else "unhealthy",
-            "docker": docker_health,
-            "capabilities": capability_checks,
+            "status": "healthy" if report.operational_ready else "unhealthy",
+            "provider": report.provider,
+            "checks": [check.model_dump(mode="json") for check in report.checks],
         }
     except Exception as exc:
-        logger.warning("Execution readiness check failed: %s", exc, exc_info=True)
+        logger.warning("Sandbox readiness check failed: %s", exc, exc_info=True)
         return {"status": "unhealthy", "error": str(exc)}
 
 
 async def build_readiness_report() -> dict[str, Any]:
     """Build aggregate readiness report for dependency-aware health checks."""
+
     async def _run_check_with_timeout(
         name: str,
         checker: Callable[[], Awaitable[dict[str, Any]]],
@@ -237,34 +236,34 @@ async def build_readiness_report() -> dict[str, Any]:
             )
             return {"status": "unhealthy", "error": str(exc)}
 
-    dataservice, redis, task_backend, mcp, execution = await asyncio.gather(
+    dataservice, mission_catalog, redis, task_backend, mcp, sandbox = await asyncio.gather(
         _run_check_with_timeout("dataservice", check_dataservice),
+        _run_check_with_timeout("mission_catalog", check_mission_catalog),
         _run_check_with_timeout("redis", check_redis),
         _run_check_with_timeout("task_backend", check_task_backend),
         _run_check_with_timeout("mcp", check_mcp),
-        _run_check_with_timeout("execution", check_execution),
+        _run_check_with_timeout("sandbox", check_sandbox),
     )
     checks = {
         "dataservice": dataservice,
+        "mission_catalog": mission_catalog,
         "redis": redis,
         "task_backend": task_backend,
         "mcp": mcp,
-        "execution": execution,
+        "sandbox": sandbox,
     }
-    required_dependencies = ["dataservice", "redis", "task_backend", "execution"]
+    required_dependencies = [
+        "dataservice",
+        "mission_catalog",
+        "redis",
+        "task_backend",
+        "sandbox",
+    ]
     if settings.mcp_required_for_readiness:
         required_dependencies.append("mcp")
 
-    required_failures = [
-        name
-        for name in required_dependencies
-        if checks.get(name, {}).get("status") != "healthy"
-    ]
-    optional_degradations = [
-        name
-        for name, report in checks.items()
-        if name not in required_dependencies and report.get("status") != "healthy"
-    ]
+    required_failures = [name for name in required_dependencies if checks.get(name, {}).get("status") != "healthy"]
+    optional_degradations = [name for name, report in checks.items() if name not in required_dependencies and report.get("status") != "healthy"]
 
     if required_failures:
         overall = "unhealthy"

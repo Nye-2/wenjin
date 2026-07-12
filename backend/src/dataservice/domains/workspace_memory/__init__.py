@@ -1,2 +1,1 @@
 """Hidden workspace memory domain."""
-

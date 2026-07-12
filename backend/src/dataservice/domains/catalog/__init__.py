@@ -1,16 +1,6 @@
-"""DataService catalog domain."""
+"""Mission policy catalog domain."""
 
-from .contracts import CapabilityDefinitionRecord, CapabilitySkillRecord, SeedLoadResult
-from .models import CapabilityDefinition, CapabilitySeedRevision
-from .seed_loader import DataServiceCatalogSeedLoader
-from .service import DataServiceCatalogService
+from .repository import MissionCatalogRepository
+from .service import MissionCatalogService
 
-__all__ = [
-    "CapabilityDefinition",
-    "CapabilityDefinitionRecord",
-    "CapabilitySeedRevision",
-    "CapabilitySkillRecord",
-    "DataServiceCatalogSeedLoader",
-    "DataServiceCatalogService",
-    "SeedLoadResult",
-]
+__all__ = ["MissionCatalogRepository", "MissionCatalogService"]

@@ -9,8 +9,8 @@ from src.agents.harness.research_prism_eval import (
 
 def _report(review_items: list[dict]) -> TaskReport:
     return TaskReport(
-        execution_id="exec-prism-eval",
-        capability_id="sci_research_eval",
+        mission_id="exec-prism-eval",
+        skill_id="sci_research_eval",
         status="completed",
         duration_seconds=1,
         narrative="done",

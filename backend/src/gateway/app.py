@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     # Initialize Sentry (must be before anything else)
     from src.observability.sentry import init_sentry
+
     init_sentry()
 
     # Initialize structured logging
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Connect Redis
     from src.academic.cache.redis_client import redis_client
+
     await redis_client.connect()
     await redis_client.connect_stream()
 
@@ -53,30 +55,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             exc_info=True,
         )
 
-    # Initialize run runtime singletons.
-    from src.runtime.runs import RunManager
+    # Initialize short-lived ChatTurnRun transport singletons.
+    from src.runtime.chat_turns import ChatTurnRunManager
     from src.runtime.stream_bridge import RedisStreamBridge
 
     if not redis_settings.enabled:
-        raise RuntimeError("Gateway run runtime requires REDIS_ENABLED=true")
+        raise RuntimeError("Gateway ChatTurnRun transport requires REDIS_ENABLED=true")
     if not celery_settings.enabled:
-        raise RuntimeError("Gateway run runtime requires CELERY_ENABLED=true")
+        raise RuntimeError("Gateway ChatTurnRun transport requires CELERY_ENABLED=true")
 
-    app.state.run_manager = RunManager(
+    app.state.chat_turn_run_manager = ChatTurnRunManager(
         redis_backend=redis_client.client,
-        run_ttl_seconds=settings.runtime_run_ttl_seconds,
+        chat_turn_ttl_seconds=settings.runtime_run_ttl_seconds,
     )
-    await app.state.run_manager.hydrate_recent_runs(
-        limit=settings.runtime_run_recovery_limit
-    )
-    app.state.stream_bridge = RedisStreamBridge(
+    await app.state.chat_turn_run_manager.hydrate_recent(limit=settings.runtime_run_recovery_limit)
+    app.state.chat_turn_stream_bridge = RedisStreamBridge(
         redis_client.stream_client,
         queue_maxsize=512,
-        stream_ttl_seconds=settings.runtime_run_ttl_seconds,
+        stream_ttl_seconds=min(3600, settings.runtime_run_ttl_seconds),
+        key_prefix="runtime:chat_turns:stream",
     )
     logger.info(
-        "Runtime run subsystem configured with Redis persistence "
-        "(recovery_limit=%s ttl=%ss)",
+        "ChatTurnRun transport configured with Redis TTL state (recovery_limit=%s ttl=%ss)",
         settings.runtime_run_recovery_limit,
         settings.runtime_run_ttl_seconds,
     )
@@ -84,10 +84,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Detect severe event-loop blocking and force process restart to recover.
     # Skip in test environment to avoid destabilizing deterministic tests.
-    if (
-        settings.gateway_event_loop_watchdog_enabled
-        and settings.environment.lower() != "test"
-    ):
+    if settings.gateway_event_loop_watchdog_enabled and settings.environment.lower() != "test":
         from src.gateway.watchdog import run_event_loop_watchdog
 
         app.state.event_loop_watchdog_task = asyncio.create_task(
@@ -124,7 +121,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await shutdown_mcp_runtime()
     except Exception as exc:
         logger.warning("MCP runtime shutdown skipped: %s", exc, exc_info=True)
-    stream_bridge = getattr(app.state, "stream_bridge", None)
+    stream_bridge = getattr(app.state, "chat_turn_stream_bridge", None)
     if stream_bridge is not None:
         try:
             await stream_bridge.close()
@@ -198,25 +195,21 @@ async def readiness_check() -> Any:
         return JSONResponse(status_code=503, content=report)
     return report
 
+
 # Include routers (imported after app creation to avoid circular imports)
 from .routers import (  # noqa: E402
     admin_analytics,
-    admin_capabilities,
     admin_credit_rules,
     admin_models,
     admin_pricing,
     admin_redeem_codes,
-    admin_skills,
     artifacts,
     auth,
-    capabilities,
-    compute,
     credits_redeem,
     dashboard,
-    execution_commit,
-    executions,
     latex,
     mcp,
+    missions,
     models,
     references,
     runs,
@@ -230,24 +223,19 @@ from .routers import (  # noqa: E402
 
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(threads.router, prefix="/api", tags=["threads"])
-app.include_router(thread_runs.router, prefix="/api", tags=["runs"])
-app.include_router(runs.router, prefix="/api", tags=["runs"])
+app.include_router(thread_runs.router, prefix="/api", tags=["chat_turns"])
+app.include_router(runs.router, prefix="/api", tags=["chat_turns"])
+app.include_router(missions.router, prefix="/api", tags=["missions"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
-app.include_router(compute.router, prefix="/api", tags=["compute"])
 app.include_router(latex.router, prefix="/api", tags=["latex"])
 app.include_router(templates.router, prefix="/api", tags=["templates"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(references.router, prefix="/api", tags=["references"])
 app.include_router(mcp.router, prefix="/api", tags=["mcp"])
-app.include_router(executions.router, prefix="/api", tags=["executions"])
-app.include_router(execution_commit.router, tags=["executions"])
 app.include_router(workspace_rooms.router, prefix="/api", tags=["workspace_rooms"])
-app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
-app.include_router(admin_capabilities.router, prefix="/api", tags=["admin", "capabilities"])
-app.include_router(admin_skills.router, prefix="/api", tags=["admin", "skills"])
 app.include_router(admin_models.router, prefix="/api", tags=["admin", "models"])
 app.include_router(admin_pricing.router, prefix="/api", tags=["admin", "pricing"])
 app.include_router(admin_pricing.policies_router, prefix="/api", tags=["admin", "pricing"])
@@ -259,4 +247,5 @@ app.include_router(credits_redeem.router, prefix="/api", tags=["credits"])
 # Dev-only test hooks for Playwright e2e. Explicit opt-in only and never mounted in production.
 if settings.e2e_test_hooks_enabled and settings.environment.lower() != "production":
     from .routers import dev_test_hooks  # noqa: E402
+
     app.include_router(dev_test_hooks.router)

@@ -21,7 +21,7 @@ describe("WorkspaceChrome", () => {
         workspaceTypeLabel="SCI论文"
         activeSurface="workbench"
         pendingReviewCount={2}
-        activeRunCount={1}
+        missionStatus="running"
         onOpenHub={() => undefined}
       />,
     );
@@ -59,7 +59,7 @@ describe("WorkspaceChrome", () => {
           workspaceTypeLabel="SCI论文"
           activeSurface="workbench"
           pendingReviewCount={0}
-          activeRunCount={0}
+          missionStatus={null}
           onOpenHub={() => undefined}
         />
       </WenjinThemeProvider>,
@@ -76,5 +76,22 @@ describe("WorkspaceChrome", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("distinguishes a mission waiting for the user from active research", () => {
+    render(
+      <WorkspaceChrome
+        workspaceId="ws-waiting"
+        workspaceName="Waiting Mission"
+        workspaceTypeLabel="软著"
+        activeSurface="workbench"
+        pendingReviewCount={1}
+        missionStatus="waiting"
+        onOpenHub={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("等待回应")).toBeInTheDocument();
+    expect(screen.queryByText("运行中")).not.toBeInTheDocument();
   });
 });

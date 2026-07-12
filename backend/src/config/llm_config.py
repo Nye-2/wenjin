@@ -4,8 +4,8 @@ This module parses model configurations from environment variables
 (LLM_MODELS, LLM_IMAGE_MODELS) and provides access functions.
 
 Configuration format (.env file):
-    LLM_MODELS=[{"id":"deepseek-v4-flash","model":"deepseek-v4-flash","api_key":"sk-xxx","base_url":"https://api.deepseek.com"}]
-    LLM_IMAGE_MODELS=[{"id":"kling-v2-1","model":"kling-v2-1","api_key":"sk-xxx","base_url":"https://api.klingai.com/v1"}]
+    LLM_MODELS=[{"id":"gpt-5.5","model":"gpt-5.5","api_key":"sk-xxx","base_url":"https://api.example/v1","generation_api":"chat_completions"}]
+    LLM_IMAGE_MODELS=[{"id":"image-model","model":"image-model","api_key":"sk-xxx","base_url":"https://images.example/v1"}]
 
 Required fields: id, model, api_key, base_url
 """
@@ -20,6 +20,13 @@ from typing import Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.models.capability_profile import (
+    CapabilityProfileAssessment,
+    GenerationAPI,
+    ModelCapabilityProbeEvidence,
+    ModelCapabilityProfile,
+    unverified_capability_assessment,
+)
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
     get_default_runtime_model_id,
@@ -78,7 +85,7 @@ class LLMSettings:
 
 
 _env_loaded = False
-_converted_model_cache_snapshot_id: int | None = None
+_converted_model_cache_snapshot: object | None = None
 _converted_model_cache: tuple[dict[str, "ModelConfig"], dict[str, "ModelConfig"]] | None = None
 _invalid_explicit_default_model_id: str | None = None
 
@@ -109,7 +116,7 @@ class ModelConfig(BaseModel):
     Each model must have independent api_key and base_url.
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     # Required fields
     id: str = Field(..., description="Unique model identifier (used by frontend)")
@@ -122,24 +129,19 @@ class ModelConfig(BaseModel):
     description: str = Field(default="", description="Model description", alias="desc")
     temperature: float = Field(default=0.7, description="Default temperature", alias="temp")
     max_tokens: int = Field(default=32768, description="Maximum output tokens")
-    supports_streaming: bool = Field(default=True, description="Supports streaming output")
-    supports_tools: bool = Field(default=False, description="Supports tool/function calling")
-    supports_thinking: bool = Field(default=False, description="Supports visible thinking/reasoning traces")
-    supports_json_mode: bool = Field(default=True, description="Supports JSON response format")
-    supports_json_schema: bool = Field(default=False, description="Supports JSON schema response format")
-    supports_vision: bool = Field(default=False, description="Supports image/vision inputs")
-    supports_reasoning_effort: bool = Field(
-        default=False,
-        description="Supports configurable reasoning effort",
+    timeout_seconds: float | None = None
+    max_retries: int | None = None
+    generation_api: GenerationAPI | None = Field(
+        default=None,
+        description="Verified language generation API; image models leave this unset",
     )
+    capability_profile: ModelCapabilityProfile | None = None
+    capability_probe: ModelCapabilityProbeEvidence | None = None
     default_headers: dict[str, str] = Field(
         default_factory=dict,
         description="Custom HTTP headers for API requests (e.g. {'api-key': 'xxx'})",
     )
     pricing_policy_id: str | None = Field(default=None, description="Bound model_usage pricing policy id/key")
-
-    model_config = ConfigDict(populate_by_name=True)
-
 
 def _parse_model_from_json(data: dict[str, Any]) -> ModelConfig | None:
     """
@@ -159,24 +161,22 @@ def _parse_model_from_json(data: dict[str, Any]) -> ModelConfig | None:
         return None
 
     try:
-        return ModelConfig(  # type: ignore[call-arg]
-            id=data["id"],
-            model=data["model"],
-            api_key=data["api_key"],
-            base_url=data["base_url"],
-            name=data.get("name", data.get("id", "")),
-            description=data.get("desc", data.get("description", "")),
-            temperature=data.get("temp", data.get("temperature", 0.7)),
-            max_tokens=data.get("max_tokens", 32768),
-            supports_streaming=data.get("supports_streaming", True),
-            supports_tools=data.get("supports_tools", False),
-            supports_thinking=data.get("supports_thinking", False),
-            supports_json_mode=data.get("supports_json_mode", True),
-            supports_json_schema=data.get("supports_json_schema", False),
-            supports_vision=data.get("supports_vision", False),
-            supports_reasoning_effort=data.get("supports_reasoning_effort", False),
-            default_headers=data.get("default_headers", {}),
-        )
+        catalog_only_fields = {
+            "category",
+            "enabled",
+            "is_default",
+            "pricing_policy_key",
+            "provider",
+            "provider_name",
+            "trust_level",
+        }
+        payload = {
+            key: value
+            for key, value in data.items()
+            if key not in catalog_only_fields
+        }
+        payload.setdefault("name", data.get("id", ""))
+        return ModelConfig.model_validate(payload)
     except Exception as e:
         logger.warning("Failed to parse model config: %s. Skipping.", e)
         return None
@@ -242,13 +242,12 @@ def _get_cached_models() -> tuple[
     Returns:
         Tuple of (llm_models, image_models)
     """
-    global _converted_model_cache, _converted_model_cache_snapshot_id
+    global _converted_model_cache, _converted_model_cache_snapshot
 
     snapshot = get_model_catalog_snapshot()
-    snapshot_id = id(snapshot)
     if (
         _converted_model_cache is not None
-        and _converted_model_cache_snapshot_id == snapshot_id
+        and _converted_model_cache_snapshot is snapshot
     ):
         return _converted_model_cache
 
@@ -260,7 +259,7 @@ def _get_cached_models() -> tuple[
         model.id: _runtime_to_model_config(model)
         for model in snapshot.models(category="image")
     }
-    _converted_model_cache_snapshot_id = snapshot_id
+    _converted_model_cache_snapshot = snapshot
     _converted_model_cache = (llm_models, image_models)
     return _converted_model_cache
 
@@ -278,7 +277,7 @@ def reload_models() -> tuple[
     Returns:
         Tuple of (llm_models, image_models)
     """
-    global _converted_model_cache, _converted_model_cache_snapshot_id
+    global _converted_model_cache, _converted_model_cache_snapshot
     global _invalid_explicit_default_model_id
 
     _invalid_explicit_default_model_id = None
@@ -286,7 +285,7 @@ def reload_models() -> tuple[
     explicit_default = os.environ.get("LLM_DEFAULT_MODEL", "").strip()
     if explicit_default and explicit_default not in llm_models and explicit_default not in image_models:
         _invalid_explicit_default_model_id = explicit_default
-        _converted_model_cache_snapshot_id = None
+        _converted_model_cache_snapshot = None
         _converted_model_cache = None
         reset_model_catalog_cache()
         return {}, {}
@@ -302,7 +301,7 @@ def reload_models() -> tuple[
         for model in image_models.values()
     )
     install_model_catalog_snapshot(all_models)
-    _converted_model_cache_snapshot_id = None
+    _converted_model_cache_snapshot = None
     _converted_model_cache = None
 
     return _get_cached_models()
@@ -369,10 +368,9 @@ def get_model_full_config(model_id: str) -> dict[str, Any]:
             - model: str
             - temperature: float
             - max_tokens: int
-            - supports_streaming: bool
-            - supports_tools: bool
-            - supports_json_mode: bool
-            - supports_json_schema: bool
+            - generation_api: str | None
+            - capability_profile: object
+            - capability_probe: object
 
     Raises:
         ValueError: If model is not found.
@@ -388,13 +386,11 @@ def get_model_full_config(model_id: str) -> dict[str, Any]:
         "model": model_config.model,
         "temperature": model_config.temperature,
         "max_tokens": model_config.max_tokens,
-        "supports_streaming": model_config.supports_streaming,
-        "supports_tools": model_config.supports_tools,
-        "supports_thinking": model_config.supports_thinking,
-        "supports_json_mode": model_config.supports_json_mode,
-        "supports_json_schema": model_config.supports_json_schema,
-        "supports_vision": model_config.supports_vision,
-        "supports_reasoning_effort": model_config.supports_reasoning_effort,
+        "timeout_seconds": model_config.timeout_seconds,
+        "max_retries": model_config.max_retries,
+        "generation_api": model_config.generation_api,
+        "capability_profile": model_config.capability_profile,
+        "capability_probe": model_config.capability_probe,
         "default_headers": dict(model_config.default_headers or {}),
     }
 
@@ -450,19 +446,18 @@ def _runtime_to_model_config(model: RuntimeModelConfig) -> ModelConfig:
         name=model.name,
         temperature=model.temperature,
         max_tokens=model.max_tokens,
-        supports_streaming=model.supports_streaming,
-        supports_tools=model.supports_tools,
-        supports_thinking=model.supports_thinking,
-        supports_json_mode=model.supports_json_mode,
-        supports_json_schema=model.supports_json_schema,
-        supports_vision=model.supports_vision,
-        supports_reasoning_effort=model.supports_reasoning_effort,
+        timeout_seconds=model.timeout_seconds,
+        max_retries=model.max_retries,
+        generation_api=model.generation_api,
+        capability_profile=model.capability_profile,
+        capability_probe=model.capability_probe,
         default_headers=model.default_headers,
         pricing_policy_id=model.pricing_policy_id,
     )
 
 
 def _model_config_to_runtime(model: ModelConfig, *, category: str, is_default: bool) -> RuntimeModelConfig:
+    assessment = _model_config_assessment(model)
     return RuntimeModelConfig(
         id=model.id,
         name=model.name or model.id,
@@ -471,17 +466,33 @@ def _model_config_to_runtime(model: ModelConfig, *, category: str, is_default: b
         model=model.model,
         api_key=model.api_key,
         base_url=model.base_url,
+        generation_api=model.generation_api,
         max_tokens=model.max_tokens,
         temperature=model.temperature,
-        supports_streaming=model.supports_streaming,
-        supports_tools=model.supports_tools,
-        supports_thinking=model.supports_thinking,
-        supports_json_mode=model.supports_json_mode,
-        supports_json_schema=model.supports_json_schema,
-        supports_vision=model.supports_vision,
-        supports_reasoning_effort=model.supports_reasoning_effort,
+        timeout_seconds=model.timeout_seconds,
+        max_retries=model.max_retries,
+        capability_profile=assessment.profile,
+        capability_probe=assessment.evidence,
+        capability_probe_hash=assessment.profile.probe_hash,
+        capability_observed_at=assessment.profile.observed_at,
         default_headers=dict(model.default_headers or {}),
         pricing_policy_id=model.pricing_policy_id,
         is_default=is_default,
         config_version=1,
+    )
+
+
+def _model_config_assessment(model: ModelConfig) -> CapabilityProfileAssessment:
+    if model.capability_profile is not None and model.capability_probe is not None:
+        return CapabilityProfileAssessment(
+            profile=model.capability_profile,
+            evidence=model.capability_probe,
+        )
+    if model.capability_profile is not None or model.capability_probe is not None:
+        raise ValueError("capability_profile and capability_probe must be configured together")
+    return unverified_capability_assessment(
+        model_id=model.id,
+        model_name=model.model,
+        base_url=model.base_url,
+        generation_api=model.generation_api,
     )

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { useEffect, useState, useCallback } from "react";
 import {
   listLibraryItems,
   deleteLibraryItem,
@@ -11,10 +10,7 @@ import {
 } from "@/lib/api/v2/library";
 import {
   buildLibraryRoomPreview,
-  buildWorkspaceResultPreviewsFromOutputs,
 } from "@/lib/workspace-result-preview";
-import { extractTaskOutputs } from "@/lib/workbench-result-outputs";
-import { useExecutionStore } from "@/stores/execution-store";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
 
@@ -43,24 +39,9 @@ export function LibraryDrawer({
   const [detail, setDetail] = useState<LibraryItemDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const executionRecords = useExecutionStore(
-    useShallow((state) => Array.from(state.executions.values())),
-  );
   const refreshCounter = useRoomRefreshStore(
     (state) => state.countersByWorkspace[workspaceId]?.library ?? 0,
   );
-  const pendingLibraryCandidates = useMemo(() => {
-    const candidates = executionRecords
-      .filter((record) => record.workspace_id === workspaceId)
-      .flatMap((record) =>
-        buildWorkspaceResultPreviewsFromOutputs(extractTaskOutputs(record.result)),
-      )
-      .filter(
-        (preview) =>
-          preview.kind === "library_item" && preview.source === "staged_output",
-      );
-    return Array.from(new Map(candidates.map((item) => [item.id, item])).values());
-  }, [executionRecords, workspaceId]);
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -304,18 +285,7 @@ export function LibraryDrawer({
               }}
               data-testid="drawer-empty"
             >
-              {search ? (
-                "没有匹配的文献资料"
-              ) : pendingLibraryCandidates.length > 0 ? (
-                <div style={{ display: "grid", gap: 10, justifyItems: "center" }}>
-                  <div>资料库暂时为空</div>
-                  <div style={{ maxWidth: 220, lineHeight: 1.55 }}>
-                    右侧工作台还有 {pendingLibraryCandidates.length} 篇待复核文献，保存后会进入这里。
-                  </div>
-                </div>
-              ) : (
-                "资料库暂无文献"
-              )}
+              {search ? "没有匹配的文献资料" : "资料库暂无文献"}
             </div>
           )}
 

@@ -1,22 +1,13 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type WorkbenchTab = "overview" | "spec" | "run" | "evidence" | "review";
-
 interface WorkbenchLayoutState {
   splitRatio: number;
   isWorkbenchFullscreen: boolean;
-  activeWorkbenchTab: WorkbenchTab;
-  selectedRunId: string | null;
-  selectedNodeId: string | null;
   setSplitRatio: (ratio: number) => void;
   resetSplitRatio: () => void;
   setWorkbenchFullscreen: (fullscreen: boolean) => void;
   toggleWorkbenchFullscreen: () => void;
-  setActiveWorkbenchTab: (tab: WorkbenchTab) => void;
-  setAutoWorkbenchTab: (tab: WorkbenchTab) => void;
-  selectRun: (runId: string | null) => void;
-  selectNode: (nodeId: string | null) => void;
   reset: () => void;
 }
 
@@ -36,9 +27,6 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
     (set) => ({
       splitRatio: DEFAULT_SPLIT_RATIO,
       isWorkbenchFullscreen: false,
-      activeWorkbenchTab: "overview",
-      selectedRunId: null,
-      selectedNodeId: null,
 
       setSplitRatio(ratio) {
         set({ splitRatio: clampSplitRatio(ratio) });
@@ -58,29 +46,10 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
         }));
       },
 
-      setActiveWorkbenchTab(tab) {
-        set({ activeWorkbenchTab: tab });
-      },
-
-      setAutoWorkbenchTab(tab) {
-        set({ activeWorkbenchTab: tab });
-      },
-
-      selectRun(runId) {
-        set({ selectedRunId: runId });
-      },
-
-      selectNode(nodeId) {
-        set({ selectedNodeId: nodeId });
-      },
-
       reset() {
         set({
           splitRatio: DEFAULT_SPLIT_RATIO,
           isWorkbenchFullscreen: false,
-          activeWorkbenchTab: "overview",
-          selectedRunId: null,
-          selectedNodeId: null,
         });
       },
     }),
@@ -90,9 +59,6 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
       partialize: (state) => ({
         splitRatio: state.splitRatio,
         isWorkbenchFullscreen: state.isWorkbenchFullscreen,
-        activeWorkbenchTab: state.activeWorkbenchTab,
-        selectedRunId: state.selectedRunId,
-        selectedNodeId: state.selectedNodeId,
       }),
       merge: (persisted, current) => {
         const persistedState =
@@ -109,31 +75,8 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
             typeof persistedState.isWorkbenchFullscreen === "boolean"
               ? persistedState.isWorkbenchFullscreen
               : current.isWorkbenchFullscreen,
-          activeWorkbenchTab: isWorkbenchTab(persistedState.activeWorkbenchTab)
-            ? persistedState.activeWorkbenchTab
-            : current.activeWorkbenchTab,
-          selectedRunId:
-            typeof persistedState.selectedRunId === "string" ||
-            persistedState.selectedRunId === null
-              ? persistedState.selectedRunId
-              : current.selectedRunId,
-          selectedNodeId:
-            typeof persistedState.selectedNodeId === "string" ||
-            persistedState.selectedNodeId === null
-              ? persistedState.selectedNodeId
-              : current.selectedNodeId,
         };
       },
     },
   ),
 );
-
-function isWorkbenchTab(value: unknown): value is WorkbenchTab {
-  return (
-    value === "overview" ||
-    value === "spec" ||
-    value === "run" ||
-    value === "evidence" ||
-    value === "review"
-  );
-}

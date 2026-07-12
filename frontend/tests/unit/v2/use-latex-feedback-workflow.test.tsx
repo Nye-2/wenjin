@@ -148,11 +148,8 @@ describe("useLatexFeedbackWorkflow", () => {
     expect(params.instruction).toBe("这篇文章 AI 味太浓了");
   });
 
-  it("clears document optimization pending status when launch does not return an execution", async () => {
-    const sendChatMessage = vi.fn().mockResolvedValue({
-      status: "failed",
-      toolResult: { detail: "未能生成全文修改，请稍后重试。" },
-    });
+  it("clears document optimization pending status when chat does not start a mission", async () => {
+    const sendChatMessage = vi.fn().mockResolvedValue(undefined);
     const { result, setFeedbackStatus, setFeedbackError } = renderWorkflow({
       sendChatMessage,
     });
@@ -164,7 +161,9 @@ describe("useLatexFeedbackWorkflow", () => {
       await result.current.actions.launchDocumentOptimization();
     });
 
-    expect(setFeedbackError).toHaveBeenCalledWith("未能生成全文修改，请稍后重试。");
+    expect(setFeedbackError).toHaveBeenCalledWith(
+      "未能启动全文修改；请在对话中补充修改目标后重试。",
+    );
     expect(setFeedbackStatus).toHaveBeenLastCalledWith("");
   });
 });

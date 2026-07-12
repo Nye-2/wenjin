@@ -1,0 +1,26 @@
+schema_version: worker_skill.v1
+id: experiment-analyst
+version: 1
+enabled: true
+role_hint: Experiment, computation and statistical analysis specialist
+instructions:
+  - Define data, splits, preprocessing, leakage controls, baselines, metrics and ablations before execution.
+  - Run computation only through allowed sandbox tools and retain inputs, parameters and manifests.
+  - Report uncertainty, robustness, negative results and failed attempts.
+  - Keep interpretation within the evidence produced by the experiment.
+  - Return content-addressed artifacts and receipts; never fabricate missing measurements.
+allowed_tool_groups: [sandbox_compute, artifact_render, workspace_read]
+input_contract: {type: object}
+output_contract:
+  type: object
+  required: [summary, evidence_refs, artifact_refs, warnings]
+  properties:
+    summary: {type: string}
+    evidence_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, items: {type: string}}
+    warnings: {type: array, items: {type: string}}
+    statistics: {type: array, items: {type: object}}
+quality_focus: [data_leakage, baseline_strength, statistical_robustness, result_interpretation]
+examples:
+  - task: Plan and execute a comparison experiment.
+    strong_output_characteristics: [reproducible manifest, justified metrics, uncertainty, ablation evidence]

@@ -25,10 +25,11 @@ type MockOptions = {
   workspaceName?: string;
   workspaceType?: string;
   models?: Array<Record<string, unknown>>;
-  capabilities?: Array<Record<string, unknown>>;
-  executions?: Array<Record<string, unknown>>;
   libraryItems?: Array<Record<string, unknown>>;
-  runRecords?: Array<Record<string, unknown>>;
+  missions?: Array<Record<string, unknown>>;
+  missionViews?: Record<string, Record<string, unknown>>;
+  missionItems?: Record<string, Array<Record<string, unknown>>>;
+  missionEventBodies?: string[];
   prismReview?: {
     projectId?: string;
     logicalKey?: string;
@@ -44,19 +45,7 @@ type MockOptions = {
   runStreamBody?: string;
   runStreamBodies?: string[];
   onRunStream?: (payload: Record<string, unknown>) => void;
-  onCommit?: (payload: Record<string, unknown>) => void;
-  commitResponse?: unknown;
 };
-
-const COMMIT_ROOMS = [
-  "prism",
-  "library",
-  "memory",
-  "decisions",
-  "tasks",
-  "sandbox",
-  "settings",
-] as const;
 
 function json(body: unknown) {
   return {
@@ -66,54 +55,6 @@ function json(body: unknown) {
   };
 }
 
-function recordValue(value: unknown): Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function completeCommitTargets(value: unknown): Record<string, unknown[]> {
-  const raw = recordValue(value);
-  return Object.fromEntries(
-    COMMIT_ROOMS.map((room) => [room, Array.isArray(raw[room]) ? raw[room] : []]),
-  );
-}
-
-function completeCommitCounts(value: unknown): Record<string, number> {
-  const raw = recordValue(value);
-  return Object.fromEntries(
-    COMMIT_ROOMS.map((room) => [room, typeof raw[room] === "number" ? raw[room] : 0]),
-  );
-}
-
-function responseWithCommitState(response: unknown, requestPayload: Record<string, unknown>) {
-  const raw = recordValue(response);
-  if (raw.commit_state) {
-    return raw;
-  }
-  const roomTargets = completeCommitTargets(raw.room_targets);
-  const counts = completeCommitCounts(raw.committed);
-  const acceptedFromTargets = Object.values(roomTargets)
-    .flat()
-    .map((target) => recordValue(target).output_id)
-    .filter((value): value is string => typeof value === "string" && value.length > 0);
-  const acceptedFromPayload = Array.isArray(requestPayload.accepted_ids)
-    ? requestPayload.accepted_ids.filter(
-        (value): value is string => typeof value === "string" && value.length > 0,
-      )
-    : [];
-  return {
-    ...raw,
-    commit_state: {
-      status: "committed",
-      accepted_ids: acceptedFromPayload.length ? acceptedFromPayload : acceptedFromTargets,
-      rejected_ids: [],
-      counts,
-      room_targets: roomTargets,
-      committed_at: "2026-05-19T00:00:11Z",
-    },
-  };
-}
 
 export function buildEventStreamBody(
   frames: Array<{ event: string; data: unknown }>,
@@ -138,15 +79,6 @@ export async function installWorkspaceRouteMocks(
   const workspaceId = options.workspaceId ?? "ws-1";
   const workspaceName = options.workspaceName ?? "Mock Workspace";
   const workspaceType = options.workspaceType ?? "sci";
-  const capabilities = options.capabilities ?? [
-    {
-      id: "paper_analysis",
-      name: "论文分析",
-      description: "分析论文内容与价值",
-      display_name: "论文分析",
-      ui_meta: { icon: "microscope" },
-    },
-  ];
   const models = options.models ?? [
     {
       name: "gpt-5.5",
@@ -154,27 +86,22 @@ export async function installWorkspaceRouteMocks(
       category: "chat",
       provider: "openai-compatible",
       max_tokens: 128000,
-      supports_tools: true,
-      supports_thinking: true,
-      supports_reasoning_effort: true,
-      supports_vision: true,
+      generation_api: "chat_completions",
+      capability_profile_version: "2026-07-11",
+      strict_tool_calls: true,
+      streaming: true,
+      reasoning_efforts: ["low", "medium", "high", "xhigh"],
+      vision: true,
+      native_web_search: false,
       is_default: true,
-    },
-    {
-      name: "gpt-5.3-codex-spark",
-      display_name: "GPT-5.3 Codex Spark",
-      category: "chat",
-      provider: "openai-compatible",
-      max_tokens: 32000,
-      supports_tools: true,
-      supports_thinking: true,
-      supports_reasoning_effort: true,
-      supports_vision: false,
-      is_default: false,
     },
   ];
   const libraryItems = options.libraryItems ?? [];
-  const runRecords = options.runRecords ?? [];
+  const missions = options.missions ?? [];
+  const missionViews = structuredClone(options.missionViews ?? {});
+  const missionItems = options.missionItems ?? {};
+  const missionEventBodies = options.missionEventBodies ?? [""];
+  let missionEventCallCount = 0;
   const thread = options.thread ?? { id: "thread-1", messages: [] };
   let runStreamCallCount = 0;
   const prismReview = options.prismReview;
@@ -296,7 +223,7 @@ export async function installWorkspaceRouteMocks(
 
   await page.route("**/api/**", async (route: Route) => {
     const request = route.request();
-    const { pathname, searchParams } = new URL(request.url());
+    const { pathname } = new URL(request.url());
 
     if (pathname === "/api/models") {
       await route.fulfill(json({ models }));
@@ -311,28 +238,6 @@ export async function installWorkspaceRouteMocks(
           type: workspaceType,
           created_at: "2026-05-18T00:00:00Z",
           updated_at: "2026-05-18T00:00:00Z",
-        }),
-      );
-      return;
-    }
-
-    if (pathname === `/api/workspaces/${workspaceId}/capabilities`) {
-      await route.fulfill(json({ features: capabilities }));
-      return;
-    }
-
-    if (pathname === "/api/capabilities") {
-      await route.fulfill(
-        json({
-          items:
-            searchParams.get("workspace_type") === workspaceType
-              ? capabilities.map((item) => ({
-                  id: item.id,
-                  display_name: item.display_name ?? item.name,
-                  description: item.description ?? "",
-                  ui_meta: item.ui_meta ?? {},
-                }))
-              : [],
         }),
       );
       return;
@@ -383,21 +288,109 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
-    if (
-      pathname === `/api/workspaces/${workspaceId}/runs` &&
-      request.method() === "GET"
-    ) {
-      await route.fulfill(json({ items: runRecords, count: runRecords.length }));
+    if (pathname === `/api/workspaces/${workspaceId}/missions`) {
+      await route.fulfill(json({ items: missions, next_cursor: null }));
       return;
     }
 
-    if (pathname === "/api/executions" && request.method() === "GET") {
-      await route.fulfill(
-        json({
-          items: options.executions ?? [],
-          count: options.executions?.length ?? 0,
-        }),
+    if (pathname === `/api/workspaces/${workspaceId}/missions/events`) {
+      const body =
+        missionEventBodies[
+          Math.min(missionEventCallCount, missionEventBodies.length - 1)
+        ] ?? "";
+      missionEventCallCount += 1;
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body });
+      return;
+    }
+
+    const missionReviewMatch = pathname.match(
+      /^\/api\/missions\/([^/]+)\/review-decisions$/,
+    );
+    if (missionReviewMatch && request.method() === "POST") {
+      const id = decodeURIComponent(missionReviewMatch[1]);
+      const current = missionViews[id];
+      if (!current) {
+        await route.fulfill({ status: 404, body: "Mission not found" });
+        return;
+      }
+      const payload = request.postDataJSON() as {
+        decisions?: Array<{ review_item_id: string; action: string }>;
+      };
+      const decisions = new Map(
+        (payload.decisions ?? []).map((decision) => [
+          decision.review_item_id,
+          decision.action,
+        ]),
       );
+      const reviewItems = Array.isArray(current.review_items)
+        ? (current.review_items as Array<Record<string, unknown>>)
+        : [];
+      for (const item of reviewItems) {
+        const action = decisions.get(String(item.review_item_id));
+        if (action) item.status = action === "accept" ? "accepted" : action;
+      }
+      const reviewSummary = (current.review_summary ?? {}) as Record<string, unknown>;
+      reviewSummary.pending = reviewItems.filter((item) => item.status === "pending").length;
+      reviewSummary.accepted = reviewItems.filter((item) => item.status === "accepted").length;
+      reviewSummary.needs_more_evidence = reviewItems.filter(
+        (item) => item.status === "needs_more_evidence",
+      ).length;
+      await route.fulfill(json({ ok: true }));
+      return;
+    }
+
+    const missionCommitMatch = pathname.match(
+      /^\/api\/missions\/([^/]+)\/commits$/,
+    );
+    if (missionCommitMatch && request.method() === "POST") {
+      const id = decodeURIComponent(missionCommitMatch[1]);
+      const current = missionViews[id];
+      if (!current) {
+        await route.fulfill({ status: 404, body: "Mission not found" });
+        return;
+      }
+      const payload = request.postDataJSON() as { review_item_ids?: string[] };
+      const selected = new Set(payload.review_item_ids ?? []);
+      const reviewItems = Array.isArray(current?.review_items)
+        ? (current.review_items as Array<Record<string, unknown>>)
+        : [];
+      for (const item of reviewItems) {
+        if (selected.has(String(item.review_item_id))) item.status = "committed";
+      }
+      current.commits = [...selected].map((reviewItemId) => ({
+        review_item_id: reviewItemId,
+        status: "committed",
+      }));
+      const reviewSummary = (current.review_summary ?? {}) as Record<string, unknown>;
+      reviewSummary.accepted = reviewItems.filter((item) => item.status === "accepted").length;
+      reviewSummary.committed = reviewItems.filter((item) => item.status === "committed").length;
+      const commitSummary = (current.commit_summary ?? {}) as Record<string, unknown>;
+      commitSummary.committed = selected.size;
+      await route.fulfill(json({ ok: true }));
+      return;
+    }
+
+    const missionActionMatch = pathname.match(/^\/api\/missions\/([^/]+)\/actions$/);
+    if (missionActionMatch && request.method() === "POST") {
+      const id = decodeURIComponent(missionActionMatch[1]);
+      const payload = request.postDataJSON() as { review_mode?: string };
+      const mission = missionViews[id]?.mission as Record<string, unknown> | undefined;
+      if (mission && payload.review_mode) mission.review_mode = payload.review_mode;
+      await route.fulfill(json({ ok: true }));
+      return;
+    }
+
+    const missionItemMatch = pathname.match(/^\/api\/missions\/([^/]+)\/items$/);
+    if (missionItemMatch) {
+      const id = decodeURIComponent(missionItemMatch[1]);
+      await route.fulfill(json({ items: missionItems[id] ?? [], next_cursor: null }));
+      return;
+    }
+
+    const missionMatch = pathname.match(/^\/api\/missions\/([^/]+)$/);
+    if (missionMatch) {
+      const id = decodeURIComponent(missionMatch[1]);
+      await route.fulfill(json(missionViews[id] ?? {}));
       return;
     }
 
@@ -524,7 +517,7 @@ export async function installWorkspaceRouteMocks(
             content_inline: prismFile.content,
             content_asset_id: null,
             content_hash: file.content_hash,
-            created_by: "execution:ex-1",
+            created_by: "mission:mission-1",
             created_at: "2026-05-19T00:00:00Z",
             updated_at: "2026-05-19T00:00:00Z",
           },
@@ -704,18 +697,6 @@ export async function installWorkspaceRouteMocks(
           scope: "file",
           reason: "user_manual_protect",
         }),
-      );
-      return;
-    }
-
-    const commitMatch = pathname.match(/^\/api\/executions\/[^/]+\/commit$/);
-    if (commitMatch && request.method() === "POST") {
-      const payload = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
-      if (options.onCommit) {
-        options.onCommit(payload);
-      }
-      await route.fulfill(
-        json(responseWithCommitState(options.commitResponse ?? { ok: true }, payload)),
       );
       return;
     }

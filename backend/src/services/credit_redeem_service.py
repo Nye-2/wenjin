@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.catalog import AdminLogCreatePayload
+from src.dataservice_client.contracts.audit import AuditLogCreatePayload
 from src.dataservice_client.contracts.credit import CreditRedeemCodeCreatePayload, CreditRedeemPayload
 from src.dataservice_client.errors import DataServiceClientError
 from src.dataservice_client.provider import dataservice_client
@@ -47,12 +47,12 @@ class CreditRedeemService:
         details: dict[str, object],
     ) -> None:
         async with self._client() as client:
-            await client.record_catalog_admin_log(
-                AdminLogCreatePayload(
+            await client.create_audit_log(
+                AuditLogCreatePayload(
                     action=action,
-                    admin_id=admin_id,
-                    target_user_id=None,
-                    details=dict(details),
+                    user_id=admin_id,
+                    target_type="credit_redeem",
+                    payload=dict(details),
                 )
             )
 
@@ -144,8 +144,6 @@ class CreditRedeemService:
         """Redeem through DataService's atomic credit endpoint."""
         try:
             async with self._client() as client:
-                return await client.redeem_credit_code(
-                    CreditRedeemPayload(code=code, user_id=user_id)
-                )
+                return await client.redeem_credit_code(CreditRedeemPayload(code=code, user_id=user_id))
         except (ValueError, DataServiceClientError) as exc:
             raise RedeemError(str(exc)) from exc

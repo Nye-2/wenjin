@@ -1,0 +1,129 @@
+schema_version: stage_acceptance_contract.v1
+contract_id: math_modeling_solution.problem_understanding
+version: 1
+mission_policy_id: math_modeling_solution
+workspace_type: math_modeling
+stage_id: problem_understanding
+stage_goal: Parse the full problem, data assets, ordered questions and judging constraints.
+minimum_criteria:
+  - criterion_id: question_inventory
+    description: Every question, requested output and dependency is enumerated.
+  - criterion_id: data_inventory
+    description: Files, fields, units, missingness and data limitations are explicit.
+  - criterion_id: assumptions_boundary
+    description: Initial assumptions are separated from given facts.
+required_artifacts: [{kind: modeling_problem_brief}]
+failure_modes: [unreadable_problem, missing_question, hidden_assumption]
+reviewer_roles: [problem_parser_reviewer]
+allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+advance_condition: Questions, data, dependencies and assumptions are fully parsed.
+stop_condition: The problem statement or essential data remains unreadable.
+anti_examples:
+  - Modeling starts before all questions and data units are identified.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: math_modeling_solution.question_model
+version: 1
+mission_policy_id: math_modeling_solution
+workspace_type: math_modeling
+stage_id: question_model
+stage_goal: Define one question's variables, assumptions, model and validation plan.
+minimum_criteria:
+  - criterion_id: variables_equations
+    description: Variables, units, equations, objective and constraints are defined.
+  - criterion_id: method_fit
+    description: The chosen model fits this question and available data.
+  - criterion_id: upstream_use
+    description: Validated upstream outputs and limitations are used when this question depends on them.
+  - criterion_id: validation_plan
+    description: Accuracy, robustness and interpretation checks are specified.
+required_artifacts: [{kind: question_model_spec}]
+failure_modes: [undefined_variable, unjustified_model, ignored_upstream_result, no_validation]
+reviewer_roles: [modeling_method_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [problem_understanding]
+instantiation:
+  mode: per_item
+  source_context_key: problem_questions
+  instance_id_template: question_{index}_model
+  previous_item_prerequisite_templates: ["question_{index}_solution_validation"]
+advance_condition: The current question's model and validation plan pass.
+stop_condition: No feasible model can answer the current question with available data.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: math_modeling_solution.question_solution_validation
+version: 1
+mission_policy_id: math_modeling_solution
+workspace_type: math_modeling
+stage_id: question_solution_validation
+stage_goal: Validate one question's computation, interpretation, robustness and visual evidence.
+minimum_criteria:
+  - criterion_id: reproducible_computation
+    description: Script, inputs, parameters, environment and outputs are reproducible.
+    required_evidence_surfaces: [experiment_reproducibility]
+  - criterion_id: result_validity
+    description: Results include error, sensitivity or robustness checks.
+    required_evidence_surfaces: [statistical_robustness]
+  - criterion_id: explanation_figures
+    description: Explanation and figures or tables faithfully represent computed data.
+    required_evidence_surfaces: [figure_data_consistency]
+required_evidence_surfaces: [experiment_reproducibility, statistical_robustness, figure_data_consistency]
+required_artifacts:
+  - kind: question_solution
+    requires_manifest: true
+failure_modes: [non_reproducible_result, unchecked_error, misleading_figure]
+reviewer_roles: [model_validation_reviewer, reproducibility_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 5
+no_progress_limit: 2
+recommended_model_effort: xhigh
+instantiation:
+  mode: per_item
+  source_context_key: problem_questions
+  instance_id_template: question_{index}_solution_validation
+  same_item_prerequisite_templates: ["question_{index}_model"]
+advance_condition: The current question's computation, robustness, explanation and visuals all pass.
+stop_condition: The current question cannot be validated within the attempt or compute budget.
+exemplar_refs:
+  - ref_id: math_modeling.question_solution.excellent.v1
+    sha256: 8d724421789af5ee2d1a1ad6612ee0a1a2cfbcd7e32380ff0d318c50833656b3
+require_exemplar_comparison: true
+anti_examples:
+  - A numerical answer without script, validation or interpretation is accepted as complete.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: math_modeling_solution.paper_integration
+version: 1
+mission_policy_id: math_modeling_solution
+workspace_type: math_modeling
+stage_id: paper_integration
+stage_goal: Integrate every validated question result into a reproducible competition paper.
+minimum_criteria:
+  - criterion_id: cross_question_consistency
+    description: Assumptions, symbols, data and dependencies are consistent across questions.
+  - criterion_id: claim_result_alignment
+    description: Conclusions do not exceed validated computations.
+    required_evidence_surfaces: [claim_evidence_alignment]
+  - criterion_id: figure_table_alignment
+    description: Every figure and table traces to scripts and data.
+    required_evidence_surfaces: [figure_data_consistency]
+  - criterion_id: disclosure_and_review
+    description: AI-use disclosure and reviewable document changes are present.
+    required_evidence_surfaces: [ai_use_disclosure, review_packet_completeness]
+required_evidence_surfaces: [writing, claim_evidence_alignment, figure_data_consistency, ai_use_disclosure, review_packet_completeness]
+required_artifacts: [{kind: math_modeling_paper}]
+failure_modes: [cross_question_mismatch, overstated_conclusion, unverifiable_figure, missing_disclosure]
+reviewer_roles: [paper_integration_reviewer, reproducibility_reviewer]
+allowed_actions_if_failed: [revise_existing, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 5
+no_progress_limit: 2
+recommended_model_effort: xhigh
+all_item_prerequisite_templates: ["question_{index}_solution_validation"]
+advance_condition: All question instances pass and integrate consistently with reproducible figures and disclosure.
+stop_condition: Any parsed question remains unvalidated or the paper contains unsupported results.

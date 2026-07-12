@@ -28,6 +28,7 @@ async def correlation_middleware(request: Request, call_next: Callable[[Request]
 
     try:
         import sentry_sdk
+
         sentry_sdk.set_tag("correlation_id", correlation_id)
     except Exception:
         pass

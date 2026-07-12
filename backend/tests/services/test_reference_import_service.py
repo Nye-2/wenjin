@@ -5,16 +5,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.services.references.service import SourceLibraryImportService
+from src.dataservice_client.contracts.source import ReferenceSourceType
+from src.services.references.service import (
+    SourceLibraryImportService,
+    _reference_source_type_for_search_source,
+)
 
 
 def test_artifact_reference_candidates_ignore_unverified_reference_suggestions() -> None:
     content = {
         "verified_papers": [
-            {"title": "Verified", "external_id": "ss-1", "source": "semantic_scholar"}
-        ],
-        "semantic_scholar_results": [
-            {"title": "Also verified", "external_id": "ss-2", "source": "semantic_scholar"}
+            {"title": "Verified", "external_id": "https://example.edu/a", "source": "model_web_search"}
         ],
         "references": [
             {"title": "LLM suggestion without source"}
@@ -23,7 +24,14 @@ def test_artifact_reference_candidates_ignore_unverified_reference_suggestions()
 
     candidates = SourceLibraryImportService._iter_artifact_reference_candidates(content)
 
-    assert [item["title"] for item in candidates] == ["Verified", "Also verified"]
+    assert [item["title"] for item in candidates] == ["Verified"]
+
+
+def test_model_web_search_maps_to_reference_source_type() -> None:
+    assert (
+        _reference_source_type_for_search_source("model_web_search")
+        == ReferenceSourceType.PAPER
+    )
 
 
 @pytest.mark.asyncio
@@ -44,7 +52,8 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
         citation_count=None,
         ingest_kind="upload",
         ingest_label="PDF upload",
-        ingest_execution_id=None,
+        ingest_mission_id=None,
+        ingest_mission_commit_id=None,
         verified_at=None,
         library_status="included",
         evidence_level="uploaded_fulltext",

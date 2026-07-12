@@ -20,10 +20,18 @@ describe("model api wrappers", () => {
       data: {
         items: [
           {
-            name: "gpt-5.3-codex-spark",
-            display_name: "GPT 5.3 Spark",
+            name: "gpt-5.5",
+            display_name: "GPT-5.5",
             provider: "openai",
             category: "llm",
+            max_tokens: 128000,
+            generation_api: "chat_completions",
+            capability_profile_version: "2026-07-11",
+            strict_tool_calls: true,
+            streaming: true,
+            reasoning_efforts: ["low", "medium", "high", "xhigh"],
+            vision: false,
+            native_web_search: false,
             is_default: true,
           },
         ],
@@ -33,10 +41,20 @@ describe("model api wrappers", () => {
     await expect(listModels("chat")).resolves.toEqual({
       models: [
         {
-          name: "gpt-5.3-codex-spark",
-          display_name: "GPT 5.3 Spark",
+          name: "gpt-5.5",
+          display_name: "GPT-5.5",
           provider: "openai",
           category: "llm",
+          max_tokens: 128000,
+          generation_api: "chat_completions",
+          capability_profile_version: "2026-07-11",
+          capability_profile: {
+            strict_tool_calls: true,
+            streaming: true,
+            reasoning_efforts: ["low", "medium", "high", "xhigh"],
+            vision: false,
+            native_web_search: false,
+          },
           is_default: true,
         },
       ],

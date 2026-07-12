@@ -1,8 +1,7 @@
-"""LaTeX file and folder endpoints."""
+"""User-owned LaTeX file operations; agent writes use MissionCommitRuntime."""
 
 from __future__ import annotations
 
-import hmac
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,22 +9,9 @@ from fastapi.responses import FileResponse, Response
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.prism import PrismProtectedScopeUpsertPayload
-from src.dataservice_client.contracts.prism_review import (
-    PrismFileChangeAppliedPayload,
-    PrismFileChangeRejectedPayload,
-)
-from src.dataservice_client.contracts.review import ReviewItemPayload
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.contracts.latex import (
     LatexCreateFolderRequest,
-    LatexFileChangeActionRequest,
-    LatexFileChangeApplyRequest,
-    LatexFileChangeApplyResponse,
-    LatexFileChangeDiscardResponse,
-    LatexFileChangePreviewResponse,
-    LatexFileChangeRevertRequest,
-    LatexFileChangeRevertResponse,
-    LatexFileChangeUndoPayload,
     LatexFileContentResponse,
     LatexFileItem,
     LatexFileOrderRequest,
@@ -36,75 +22,22 @@ from src.gateway.contracts.latex import (
     LatexWriteFileRequest,
 )
 from src.gateway.deps.core import get_dataservice_client
-from src.gateway.routers.latex_helpers import (
-    _compute_file_change_revert_signature,
-    _compute_file_change_signature,
-    _not_found,
-    _pending_content_from_change,
-    _preview_file_change_payload,
-    _read_project_metadata,
-    _record_latex_reference_usage,
-)
+from src.gateway.routers.latex_helpers import _not_found
 from src.services.latex import LatexProjectService
-from src.services.latex.rewrite_diff import compute_content_hash
 
 router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 
-PENDING_PRISM_FILE_CHANGE_STATUSES = ("pending", "accepted")
-APPLIED_PRISM_FILE_CHANGE_STATUSES = ("applied",)
 
-
-def _json_object(value: object) -> dict[str, object]:
-    return dict(value) if isinstance(value, dict) else {}
-
-
-def _project_workspace_id(project: object) -> str:
-    workspace_id = str(getattr(project, "workspace_id", "") or "").strip()
-    if not workspace_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace-owned Prism project is required",
-        )
-    return workspace_id
-
-
-def _review_item_payload(item: object) -> dict[str, object]:
-    return {
-        **_json_object(getattr(item, "payload_json", None)),
-        **_json_object(getattr(item, "preview_payload", None)),
-        **_json_object(getattr(item, "preview_json", None)),
-        **_json_object(getattr(item, "result_json", None)),
-    }
-
-
-def _review_item_path(item: object, payload: dict[str, object]) -> str:
-    target_ref = _json_object(getattr(item, "target_ref_json", None))
-    return str(
-        target_ref.get("file_path")
-        or target_ref.get("path")
-        or getattr(item, "target_file_path", None)
-        or payload.get("path")
-        or "",
-    ).strip()
-
-
-async def _get_prism_file_change_or_404(
-    dataservice: AsyncDataServiceClient,
-    project: object,
+async def _owned_project(
+    project_id: str,
     *,
-    logical_key: str,
-    statuses: tuple[str, ...],
-    not_found_detail: str = "File change not found",
-) -> ReviewItemPayload:
-    review_item = await dataservice.find_prism_file_change(
-        workspace_id=_project_workspace_id(project),
-        latex_project_id=str(project.id),
-        logical_key=logical_key,
-        statuses=list(statuses),
-    )
-    if review_item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=not_found_detail)
-    return review_item
+    user_id: str,
+    dataservice: AsyncDataServiceClient,
+):
+    project = await LatexProjectService(dataservice=dataservice).get_owned(project_id, user_id)
+    if project is None:
+        raise _not_found()
+    return project
 
 
 @router.get("/projects/{project_id}/tree", response_model=LatexTreeResponse)
@@ -114,17 +47,17 @@ async def get_project_tree(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexTreeResponse:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
-    items = [
-        LatexFileItem(
-            path=item["path"],
-            type=cast(Literal["file", "dir"], item["type"]),
-        )
-        for item in service.build_tree(project)
-    ]
-    return LatexTreeResponse(items=items, file_order=dict(project.file_order or {}))
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
+    return LatexTreeResponse(
+        items=[
+            LatexFileItem(
+                path=item["path"],
+                type=cast(Literal["file", "dir"], item["type"]),
+            )
+            for item in service.build_tree(project)
+        ],
+        file_order=dict(project.file_order or {}),
+    )
 
 
 @router.get("/projects/{project_id}/file", response_model=LatexFileContentResponse)
@@ -135,16 +68,13 @@ async def read_project_file(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileContentResponse:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     try:
-        content = service.read_text_file(project, path)
+        return LatexFileContentResponse(content=service.read_text_file(project, path))
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return LatexFileContentResponse(content=content)
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.put("/projects/{project_id}/file")
@@ -155,13 +85,11 @@ async def write_project_file(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     try:
         await service.write_text_file(project, request.path, request.content)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return {"ok": True}
 
 
@@ -173,317 +101,9 @@ async def save_project_file_order(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     await service.update_file_order(project, request.folder, request.order)
     return {"ok": True}
-
-
-@router.post(
-    "/projects/{project_id}/file-changes/preview",
-    response_model=LatexFileChangePreviewResponse,
-)
-async def preview_project_file_change(
-    project_id: str,
-    request: LatexFileChangeActionRequest,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> LatexFileChangePreviewResponse:
-    service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
-
-    review_item = await _get_prism_file_change_or_404(
-        dataservice,
-        project,
-        logical_key=request.logical_key,
-        statuses=PENDING_PRISM_FILE_CHANGE_STATUSES,
-    )
-    change = _review_item_payload(review_item)
-    path = _review_item_path(review_item, change)
-    if not path:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
-    pending_content = _pending_content_from_change(change)
-    try:
-        current_content = service.read_text_file(project, path)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    return _preview_file_change_payload(
-        logical_key=request.logical_key,
-        path=path,
-        reason=str(review_item.summary or change.get("reason") or "feature_proposal"),
-        current_content=current_content,
-        pending_content=pending_content,
-    )
-
-
-@router.post(
-    "/projects/{project_id}/file-changes/apply",
-    response_model=LatexFileChangeApplyResponse,
-)
-async def apply_project_file_change(
-    project_id: str,
-    request: LatexFileChangeApplyRequest,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> LatexFileChangeApplyResponse:
-    service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
-
-    review_item = await _get_prism_file_change_or_404(
-        dataservice,
-        project,
-        logical_key=request.logical_key,
-        statuses=PENDING_PRISM_FILE_CHANGE_STATUSES,
-    )
-    change = _review_item_payload(review_item)
-    path = _review_item_path(review_item, change)
-    if not path:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
-    pending_content = _pending_content_from_change(change)
-
-    try:
-        current_content = service.read_text_file(project, path)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    current_hash = compute_content_hash(current_content)
-    pending_hash = compute_content_hash(pending_content)
-    expected_signature = _compute_file_change_signature(
-        logical_key=request.logical_key,
-        path=path,
-        current_hash=current_hash,
-        pending_hash=pending_hash,
-    )
-    if not hmac.compare_digest(expected_signature, request.change_signature):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "invalid_file_change_signature",
-                "message": "File change preview is stale. Re-generate preview before applying.",
-                "current_hash": current_hash,
-            },
-        )
-
-    try:
-        await service.write_text_file(project, path, pending_content)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-
-    applied_hash = compute_content_hash(pending_content)
-    llm_config, metadata = _read_project_metadata(project)
-    metadata["managed_files"][request.logical_key] = {
-        "path": path,
-        "content_hash": applied_hash,
-        "protected": False,
-    }
-
-    previous_hash = compute_content_hash(current_content)
-    revert_signature = _compute_file_change_revert_signature(
-        logical_key=request.logical_key,
-        path=path,
-        previous_hash=previous_hash,
-        applied_hash=applied_hash,
-    )
-    llm_config["metadata"] = metadata
-    await service.update_llm_config(project, llm_config)
-    await dataservice.mark_prism_file_change_applied(
-        review_item.id,
-        PrismFileChangeAppliedPayload(
-            previous_content=current_content,
-            previous_hash=previous_hash,
-            applied_hash=applied_hash,
-            revert_signature=revert_signature,
-        ),
-    )
-    await _record_latex_reference_usage(
-        dataservice,
-        workspace_id=str(llm_config.get("workspace_id") or ""),
-        latex_project_id=str(project.id),
-        path=path,
-        content=pending_content,
-    )
-
-    undo = LatexFileChangeUndoPayload(
-        logical_key=request.logical_key,
-        path=path,
-        previous_hash=previous_hash,
-        applied_hash=applied_hash,
-        revert_signature=revert_signature,
-    )
-    return LatexFileChangeApplyResponse(
-        ok=True,
-        applied=True,
-        logical_key=request.logical_key,
-        path=path,
-        file_hash=applied_hash,
-        undo=undo,
-    )
-
-
-@router.post(
-    "/projects/{project_id}/file-changes/discard",
-    response_model=LatexFileChangeDiscardResponse,
-)
-async def discard_project_file_change(
-    project_id: str,
-    request: LatexFileChangeActionRequest,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> LatexFileChangeDiscardResponse:
-    service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
-
-    review_item = await _get_prism_file_change_or_404(
-        dataservice,
-        project,
-        logical_key=request.logical_key,
-        statuses=PENDING_PRISM_FILE_CHANGE_STATUSES,
-    )
-    change = _review_item_payload(review_item)
-    path = _review_item_path(review_item, change)
-    if not path:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
-
-    try:
-        current_content = service.read_text_file(project, path)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    llm_config, metadata = _read_project_metadata(project)
-    metadata["managed_files"][request.logical_key] = {
-        "path": path,
-        "content_hash": compute_content_hash(current_content),
-        "protected": True,
-    }
-    llm_config["metadata"] = metadata
-    await service.update_llm_config(project, llm_config)
-    await dataservice.mark_prism_file_change_rejected(
-        review_item.id,
-        PrismFileChangeRejectedPayload(reason="user_protected"),
-    )
-    protected = await dataservice.upsert_latex_prism_protected_scope(
-        PrismProtectedScopeUpsertPayload(
-            workspace_id=_project_workspace_id(project),
-            latex_project_id=str(project.id),
-            file_path=path,
-            section_key=request.logical_key,
-            scope="section",
-            reason="user_protected",
-            source="review_reject",
-        )
-    )
-    if protected is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Workspace Prism project is not available for protection",
-        )
-    return LatexFileChangeDiscardResponse(
-        ok=True,
-        discarded=True,
-        logical_key=request.logical_key,
-        path=path,
-    )
-
-
-@router.post(
-    "/projects/{project_id}/file-changes/revert",
-    response_model=LatexFileChangeRevertResponse,
-)
-async def revert_project_file_change(
-    project_id: str,
-    request: LatexFileChangeRevertRequest,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> LatexFileChangeRevertResponse:
-    service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
-
-    review_item = await _get_prism_file_change_or_404(
-        dataservice,
-        project,
-        logical_key=request.logical_key,
-        statuses=APPLIED_PRISM_FILE_CHANGE_STATUSES,
-        not_found_detail="Applied file change not found",
-    )
-    applied = _review_item_payload(review_item)
-
-    path = str(applied.get("path") or "").strip()
-    previous_content = applied.get("previous_content")
-    previous_hash = str(applied.get("previous_hash") or "")
-    applied_hash = str(applied.get("applied_hash") or "")
-    if not path or not isinstance(previous_content, str) or not previous_hash or not applied_hash:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Applied file change is incomplete")
-
-    expected_signature = _compute_file_change_revert_signature(
-        logical_key=request.logical_key,
-        path=path,
-        previous_hash=previous_hash,
-        applied_hash=applied_hash,
-    )
-    if not hmac.compare_digest(expected_signature, request.revert_signature):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "invalid_file_change_revert_signature",
-                "message": "Invalid file change revert signature.",
-            },
-        )
-
-    try:
-        current_content = service.read_text_file(project, path)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    current_hash = compute_content_hash(current_content)
-    if current_hash != applied_hash:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "file_change_revert_hash_mismatch",
-                "message": "File changed after applying this change; cannot auto-revert.",
-                "current_hash": current_hash,
-            },
-        )
-
-    try:
-        await service.write_text_file(project, path, previous_content)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-
-    llm_config, metadata = _read_project_metadata(project)
-    metadata["managed_files"][request.logical_key] = {
-        "path": path,
-        "content_hash": previous_hash,
-        "protected": True,
-    }
-    llm_config["metadata"] = metadata
-    await service.update_llm_config(project, llm_config)
-    await dataservice.mark_prism_file_change_reverted(review_item.id)
-    return LatexFileChangeRevertResponse(
-        ok=True,
-        reverted=True,
-        logical_key=request.logical_key,
-        path=path,
-        file_hash=previous_hash,
-    )
 
 
 @router.post(
@@ -497,24 +117,19 @@ async def protect_project_section(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProtectedSectionResponse:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
-
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     workspace_id = str(getattr(project, "workspace_id", "") or "").strip()
     if not workspace_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Protected sections require a workspace-owned Prism project",
         )
-
     try:
         service.read_text_file(project, request.path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     section_key = str(request.section_key or "").strip()
     reason = request.reason or "user_manual_protect"
     protected = await dataservice.upsert_latex_prism_protected_scope(
@@ -529,10 +144,7 @@ async def protect_project_section(
         )
     )
     if protected is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Workspace Prism project is not available for protection",
-        )
+        raise HTTPException(status_code=409, detail="Workspace Prism project is unavailable")
     return LatexProtectedSectionResponse(
         ok=True,
         protected=True,
@@ -551,13 +163,11 @@ async def create_project_folder(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     try:
         path = await service.create_folder(project, request.path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return {"ok": True, "path": path}
 
 
@@ -569,21 +179,15 @@ async def rename_project_path(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     try:
-        path = await service.rename_path(
-            project,
-            from_path=request.from_path,
-            to_path=request.to_path,
-        )
+        path = await service.rename_path(project, from_path=request.from_path, to_path=request.to_path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except FileExistsError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"ok": True, "path": path}
 
 
@@ -595,15 +199,13 @@ async def delete_project_path(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     try:
         await service.delete_path(project, path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True, "path": path}
 
 
@@ -615,13 +217,11 @@ async def read_project_blob(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> Response:
     service = LatexProjectService(dataservice=dataservice)
-    project = await service.get_owned(project_id, str(current_user.id))
-    if project is None:
-        raise _not_found()
+    project = await _owned_project(project_id, user_id=str(current_user.id), dataservice=dataservice)
     try:
         blob_file, media_type = service.resolve_blob_file(project, path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return FileResponse(path=blob_file, media_type=media_type)

@@ -29,8 +29,8 @@ def test_can_start_thread_turn_uses_dataservice_spendable_balance_projection() -
     assert "with_for_update" not in source
 
 
-def test_can_start_feature_task_uses_dataservice_spendable_balance_projection() -> None:
-    source = inspect.getsource(CreditService.can_start_feature_task)
+def test_can_start_mission_uses_dataservice_spendable_balance_projection() -> None:
+    source = inspect.getsource(CreditService.can_start_mission)
     calls = _call_attrs(source)
 
     assert "get_spendable_balance" in calls

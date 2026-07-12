@@ -1,21 +1,21 @@
 """Gateway service helpers."""
 
-from .run_http import (
-    await_run_task,
-    build_run_stream_headers,
-    cancel_run_with_http_response,
-    get_run_or_404,
-    stream_run_response,
+from .chat_turn_http import (
+    await_chat_turn_task,
+    build_chat_turn_stream_headers,
+    cancel_chat_turn_with_http_response,
+    get_chat_turn_or_404,
+    stream_chat_turn_response,
 )
-from .run_lifecycle import format_sse, launch_thread_run, sse_consumer
+from .chat_turn_lifecycle import format_sse, launch_chat_turn, sse_consumer
 
 __all__ = [
-    "await_run_task",
-    "build_run_stream_headers",
-    "cancel_run_with_http_response",
+    "await_chat_turn_task",
+    "build_chat_turn_stream_headers",
+    "cancel_chat_turn_with_http_response",
     "format_sse",
-    "get_run_or_404",
-    "launch_thread_run",
+    "get_chat_turn_or_404",
+    "launch_chat_turn",
     "sse_consumer",
-    "stream_run_response",
+    "stream_chat_turn_response",
 ]

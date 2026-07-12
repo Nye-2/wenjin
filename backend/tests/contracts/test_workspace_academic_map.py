@@ -15,7 +15,7 @@ def test_academic_workspace_map_carries_bounded_research_assets() -> None:
                     "title": "Federated Fine-tuning of Large Language Models",
                     "year": 2025,
                     "tags": ["FedLLM"],
-                    "quality_flags": ["semantic_scholar_verified"],
+                    "quality_flags": ["model_web_search_verified"],
                 }
             ],
             "citation_risks": ["1 source missing DOI"],

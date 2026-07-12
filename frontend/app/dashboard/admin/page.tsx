@@ -113,7 +113,7 @@ export default function AdminOverviewPage() {
       {tokenUsage ? (
         <section className="route-card rounded-2xl border p-5 mb-6">
           <h2 className="text-lg font-semibold text-[var(--wjn-text)]">Token 用量观测</h2>
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
               <div className="text-xs text-[var(--wjn-text-muted)]">主线对话</div>
               <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
@@ -121,15 +121,6 @@ export default function AdminOverviewPage() {
               </div>
               <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
                 结算 {tokenUsage.thread.transactions} 笔 / 用户 {tokenUsage.thread.users}
-              </div>
-            </div>
-            <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
-              <div className="text-xs text-[var(--wjn-text-muted)]">功能执行（task）</div>
-              <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
-                {tokenUsage.feature_tasks.total_tokens.toLocaleString()}
-              </div>
-              <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
-                记录 {tokenUsage.feature_tasks.records_with_usage}/{tokenUsage.feature_tasks.records}
               </div>
             </div>
             <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">

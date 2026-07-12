@@ -1,7 +1,6 @@
 """Workspaces router for workspace management API endpoints."""
 
 import hashlib
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -14,7 +13,6 @@ from src.dataservice_client.contracts.prism import (
 )
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import (
-    get_dashboard_service,
     get_dataservice_client,
     get_workspace_activity_service,
     get_workspace_service,
@@ -22,16 +20,13 @@ from src.gateway.deps import (
 )
 from src.gateway.routers.workspaces_contracts import (
     CreateWorkspaceRequest,
-    ResolveCapabilityActionRequest,
-    ResolveCapabilityActionResponse,
     UpdateWorkspaceRequest,
     WorkspaceActivityResponse,
-    WorkspaceExecutionsResponse,
+    WorkspacePrismEnsureResponse,
     WorkspacePrismFileContentResponse,
     WorkspacePrismFileSaveRequest,
     WorkspacePrismFileUpsertRequest,
     WorkspacePrismFileWriteResponse,
-    WorkspacePrismEnsureResponse,
     WorkspacePrismSurfaceResponse,
     WorkspaceResponse,
     WorkspacesListResponse,
@@ -46,10 +41,6 @@ from src.gateway.routers.workspaces_serializers import (
     workspace_activity_to_response,
     workspace_to_response,
 )
-from src.services.dashboard_service import DashboardService
-from src.services.execution_service import serialize_execution_record
-from src.services.feature_action_resolution_service import resolve_feature_action_state
-from src.services.prism_review_projection import prism_review_item_projection
 from src.services.workspace_activity_service import WorkspaceActivityService
 from src.services.workspace_prism_service import WorkspacePrismService
 from src.services.workspace_summary_service import WorkspaceSummaryService
@@ -113,9 +104,7 @@ async def list_workspaces(
         List of workspaces for the user
     """
     workspaces = await workspace_service.list_by_user(str(current_user.id))
-    return WorkspacesListResponse(
-        workspaces=[workspace_to_response(w) for w in workspaces]
-    )
+    return WorkspacesListResponse(workspaces=[workspace_to_response(w) for w in workspaces])
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -372,137 +361,6 @@ async def delete_workspace(
     return {"success": True}
 
 
-@router.get("/{workspace_id}/dashboard")
-async def get_workspace_dashboard(
-    workspace_id: str,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    dashboard_service: DashboardService = Depends(get_dashboard_service),
-) -> dict[str, Any]:
-    """Get workspace dashboard overview.
-
-    Args:
-        workspace_id: Workspace ID
-        workspace_service: Workspace service instance
-        dashboard_service: Dashboard service instance
-
-    Returns:
-        Dashboard with module statuses and recent artifacts
-
-    Raises:
-        HTTPException: If workspace not found
-    """
-    workspace = await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-    try:
-        workspace_type = workspace_type_value(workspace)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return await dashboard_service.get_dashboard(
-        workspace_id,
-        workspace_type=workspace_type,
-    )
-
-
-@router.post(
-    "/{workspace_id}/capabilities/{capability_id}/resolve-action",
-    response_model=ResolveCapabilityActionResponse,
-)
-async def resolve_workspace_capability_action(
-    workspace_id: str,
-    capability_id: str,
-    request: ResolveCapabilityActionRequest,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> ResolveCapabilityActionResponse:
-    """Resolve canonical follow-up / rerun action state for a capability card."""
-    workspace = await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-    try:
-        workspace_type = workspace_type_value(workspace)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    capability = await dataservice.get_catalog_capability(
-        capability_id=capability_id,
-        workspace_type=workspace_type,
-    )
-    if capability is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Capability '{capability_id}' not found for workspace type '{workspace_type}'",
-        )
-
-    from src.academic.services.artifact_service import ArtifactService
-
-    artifacts = await ArtifactService(dataservice=dataservice).list_by_workspace(
-        workspace_id=workspace_id,
-        limit=200,
-        offset=0,
-    )
-    payload = resolve_feature_action_state(
-        feature_id=capability_id,
-        workspace=workspace,
-        artifacts=artifacts,
-        orchestration_params=request.orchestration_params,
-        explicit_source_artifact_id=request.source_artifact_id,
-        follow_up_prompt=(capability.ui_meta or {}).get("follow_up_prompt") or "",
-    )
-    return ResolveCapabilityActionResponse(**payload)
-
-
-@router.get("/{workspace_id}/capabilities")
-async def list_workspace_capabilities(
-    workspace_id: str,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> dict[str, Any]:
-    """List enabled capability cards for a workspace."""
-    workspace = await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-    try:
-        workspace_type = workspace_type_value(workspace)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    capabilities = await dataservice.list_catalog_capabilities(
-        workspace_type=workspace_type,
-        enabled_only=True,
-    )
-    features = []
-    for capability in sorted(
-        capabilities,
-        key=lambda item: int(item.ui_meta.get("order", 0) or 0),
-    ):
-        ui_meta = dict(capability.ui_meta or {})
-        if capability.tier == "hidden" or ui_meta.get("entry_tier") == "hidden":
-            continue
-        stages = ui_meta.get("stages")
-        features.append(
-            {
-                "id": capability.id,
-                "name": capability.display_name or capability.id,
-                "description": capability.description or capability.intent_description,
-                "icon": str(ui_meta.get("icon") or ""),
-                "color": ui_meta.get("color"),
-                "stages": stages if isinstance(stages, list) else [],
-                "followUpPrompt": ui_meta.get("follow_up_prompt"),
-                "defaultSkillId": capability.runtime.get("default_skill_id"),
-            }
-        )
-    return {"features": features}
-
-
 @router.get("/{workspace_id}/summary", response_model=WorkspaceSummaryResponse)
 async def get_workspace_summary(
     workspace_id: str,
@@ -551,48 +409,6 @@ async def get_workspace_activity(
     return WorkspaceActivityResponse(
         items=[workspace_activity_to_response(item) for item in activity["items"]],
         count=int(activity.get("count", 0)),
-    )
-
-
-@router.get(
-    "/{workspace_id}/executions",
-    response_model=WorkspaceExecutionsResponse,
-)
-async def list_workspace_executions(
-    workspace_id: str,
-    limit: int = 20,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> WorkspaceExecutionsResponse:
-    """List execution records for a workspace."""
-    await get_owned_workspace(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-
-    items = await dataservice.list_executions(
-        workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        limit=limit,
-    )
-    serialized_items = []
-    for item in items:
-        serialized = serialize_execution_record(item)
-        review_items = await dataservice.list_review_items(
-            workspace_id=workspace_id,
-            execution_id=str(item.id),
-            target_domain="prism",
-        )
-        serialized["review_items"] = [
-            prism_review_item_projection(review_item, execution_id=str(item.id))
-            for review_item in review_items
-        ]
-        serialized_items.append(serialized)
-    return WorkspaceExecutionsResponse(
-        items=serialized_items,
-        count=len(items),
     )
 
 

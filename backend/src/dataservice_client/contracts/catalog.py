@@ -1,119 +1,80 @@
-"""Catalog contracts returned by DataService client methods."""
+"""Wire contracts for MissionPolicy and WorkerSkill catalog."""
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from src.contracts.mission_policy import MissionPolicy, WorkerSkill
 
 
-class CapabilityDefinitionPayload(BaseModel):
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class MissionPolicyPayload(_Strict):
     id: str
     workspace_type: str
-    schema_version: str = "capability.v2"
-    enabled: bool = True
-    tier: str = "primary"
-    entry_surface: str = "workbench"
-    display_name: str
-    description: str = ""
-    intent_description: str = ""
-    trigger_phrases: list[str] = Field(default_factory=list)
-    required_decisions: list[dict[str, Any]] = Field(default_factory=list)
-    brief_schema: dict[str, Any] = Field(default_factory=dict)
-    graph_template: dict[str, Any] = Field(default_factory=dict)
-    ui_meta: dict[str, Any] = Field(default_factory=dict)
-    runtime: dict[str, Any] = Field(default_factory=dict)
-    dashboard_meta: dict[str, Any] = Field(default_factory=dict)
-    definition_json: dict[str, Any] = Field(default_factory=dict)
-    notes: str | None = None
-    checksum: str | None = None
-    source_path: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-
-
-class CapabilitySkillPayload(BaseModel):
-    id: str
-    schema_version: str = "capability_skill.v2"
-    enabled: bool = True
-    display_name: str
-    description: str = ""
-    worker_type: str
-    subagent_type: str
-    prompt: str = ""
-    allowed_tools: list[str] = Field(default_factory=list)
-    resources: list[str] = Field(default_factory=list)
-    config: dict[str, Any] = Field(default_factory=dict)
-    skill_json: dict[str, Any] = Field(default_factory=dict)
-    checksum: str | None = None
-    source_path: str | None = None
-
-
-class AgentTemplatePayload(BaseModel):
-    id: str
-    schema_version: str = "agent_template.v1"
-    enabled: bool = True
-    display_role: str
-    category: str
-    description: str = ""
-    persona_prompt: str = ""
-    default_skills: list[str] = Field(default_factory=list)
-    tool_affinity: dict[str, Any] = Field(default_factory=dict)
-    risk_profile: dict[str, Any] = Field(default_factory=dict)
-    output_contracts: list[str] = Field(default_factory=list)
-    quality_expectations: list[str] = Field(default_factory=list)
-    runtime_defaults: dict[str, Any] = Field(default_factory=dict)
-    expert_profile: dict[str, Any] = Field(default_factory=dict)
-    template_json: dict[str, Any] = Field(default_factory=dict)
-    checksum: str | None = None
-    source_path: str | None = None
-
-
-class CatalogUpsertPayload(BaseModel):
-    data: dict[str, Any] = Field(default_factory=dict)
-    checksum: str | None = None
-    source_path: str | None = None
-
-
-class CatalogEnabledPayload(BaseModel):
+    schema_version: str
     enabled: bool
+    policy_json: dict[str, Any]
+    content_hash: str = Field(min_length=64, max_length=64)
+    source_path: str | None = None
+
+    @model_validator(mode="after")
+    def validate_canonical_policy(self) -> MissionPolicyPayload:
+        raw = dict(self.policy_json)
+        raw.pop("resolved_stage_contracts", None)
+        embedded_hash = str(raw.pop("content_hash", "") or "")
+        policy = MissionPolicy.model_validate(raw)
+        if policy.id != self.id or policy.workspace_type != self.workspace_type or policy.schema_version != self.schema_version or policy.enabled != self.enabled:
+            raise ValueError("MissionPolicy payload index fields do not match policy_json")
+        if embedded_hash != self.content_hash or policy.immutable_ref().sha256 != self.content_hash:
+            raise ValueError("MissionPolicy payload content_hash is inconsistent")
+        return self
+
+    def to_contract(self) -> MissionPolicy:
+        raw = dict(self.policy_json)
+        raw.pop("resolved_stage_contracts", None)
+        raw.pop("content_hash", None)
+        return MissionPolicy.model_validate(raw)
 
 
-class CatalogSeedItemPayload(BaseModel):
-    data: dict[str, Any] = Field(default_factory=dict)
-    checksum: str
-    source_path: str
+class WorkerSkillPayload(_Strict):
+    id: str
+    schema_version: str
+    enabled: bool
+    skill_json: dict[str, Any]
+    content_hash: str = Field(min_length=64, max_length=64)
+    source_path: str | None = None
+
+    @model_validator(mode="after")
+    def validate_canonical_skill(self) -> WorkerSkillPayload:
+        raw = dict(self.skill_json)
+        embedded_hash = str(raw.pop("content_hash", "") or "")
+        skill = WorkerSkill.model_validate(raw)
+        if skill.id != self.id or skill.schema_version != self.schema_version or skill.enabled != self.enabled:
+            raise ValueError("WorkerSkill payload index fields do not match skill_json")
+        if embedded_hash != self.content_hash or skill.immutable_ref().sha256 != self.content_hash:
+            raise ValueError("WorkerSkill payload content_hash is inconsistent")
+        return self
+
+    def to_contract(self) -> WorkerSkill:
+        raw = dict(self.skill_json)
+        raw.pop("content_hash", None)
+        return WorkerSkill.model_validate(raw)
 
 
-class CatalogSeedLoadPayload(BaseModel):
-    seed_root: str
+class CatalogSeedItemPayload(_Strict):
+    data: dict[str, Any]
+    source_path: str | None = None
+
+
+class CatalogSeedLoadPayload(_Strict):
     overwrite: bool = False
     items: list[CatalogSeedItemPayload] = Field(default_factory=list)
 
 
-class CatalogSeedLoadResultPayload(BaseModel):
+class CatalogSeedLoadResultPayload(_Strict):
     loaded: int
-    skipped: bool = False
-    checksum: str | None = None
-
-
-class AdminLogCreatePayload(BaseModel):
-    action: str
-    admin_id: str
-    target_user_id: str | None = None
-    details: dict[str, Any] = Field(default_factory=dict)
-    target_type: str = "user"
-    ip_address: str | None = None
-
-
-class AdminLogPayload(BaseModel):
-    id: str | None = None
-    action: str
-    target_type: str = "user"
-    target_user_id: str | None = None
-    details: dict[str, Any] = Field(default_factory=dict)
-    ip_address: str | None = None
-    created_at: datetime | None = None
-    admin: dict[str, Any] = Field(default_factory=dict)
-    target_user: dict[str, Any] | None = None

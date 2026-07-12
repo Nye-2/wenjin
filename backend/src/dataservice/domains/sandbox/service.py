@@ -8,8 +8,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.common.errors import DataServiceNotFoundError, DataServiceValidationError
-from src.dataservice.domains.review.contracts import ReviewBatchCreateCommand, ReviewItemCreateCommand
-from src.dataservice.domains.review.service import DataServiceReviewService
 from src.dataservice.domains.sandbox.contracts import (
     SandboxArtifactCreateCommand,
     SandboxArtifactProjection,
@@ -51,7 +49,6 @@ class SandboxDataDomainService:
         self.session = session
         self.autocommit = autocommit
         self.repository = SandboxRepository(session)
-        self.review_service = DataServiceReviewService(session, autocommit=False)
 
     async def create_environment(
         self,
@@ -187,8 +184,8 @@ class SandboxDataDomainService:
             {
                 "workspace_id": command.workspace_id,
                 "sandbox_environment_id": command.sandbox_environment_id,
-                "execution_id": command.execution_id,
-                "execution_node_id": command.execution_node_id,
+                "mission_id": command.mission_id,
+                "mission_item_seq": command.mission_item_seq,
                 "operation": command.operation,
                 "billable": command.billable,
                 "language": command.language,
@@ -225,7 +222,7 @@ class SandboxDataDomainService:
                 )
             existing.sandbox_environment_id = command.sandbox_environment_id
             existing.holder_job_id = command.holder_job_id
-            existing.holder_execution_id = command.holder_execution_id
+            existing.holder_mission_id = command.holder_mission_id
             existing.lease_token = command.lease_token
             existing.expires_at = expires_at
             existing.metadata_json = metadata_json
@@ -238,7 +235,7 @@ class SandboxDataDomainService:
                 "workspace_id": command.workspace_id,
                 "sandbox_environment_id": command.sandbox_environment_id,
                 "holder_job_id": command.holder_job_id,
-                "holder_execution_id": command.holder_execution_id,
+                "holder_mission_id": command.holder_mission_id,
                 "lease_token": command.lease_token,
                 "expires_at": expires_at,
                 "metadata_json": metadata_json,
@@ -295,7 +292,7 @@ class SandboxDataDomainService:
         *,
         workspace_id: str,
         sandbox_environment_id: str | None = None,
-        execution_id: str | None = None,
+        mission_id: str | None = None,
         status: str | None = None,
         limit: int = 50,
     ) -> list[SandboxJobProjection]:
@@ -304,7 +301,7 @@ class SandboxDataDomainService:
             for record in await self.repository.list_jobs(
                 workspace_id=workspace_id,
                 sandbox_environment_id=sandbox_environment_id,
-                execution_id=execution_id,
+                mission_id=mission_id,
                 status=status,
                 limit=limit,
             )
@@ -348,59 +345,6 @@ class SandboxDataDomainService:
                 "metadata_json": metadata_json,
             }
         )
-        review_metadata = _sandbox_artifact_review_metadata(metadata_json)
-        review_reproducibility = _sandbox_artifact_review_reproducibility(
-            reproducibility_json,
-            content_hash=command.content_hash,
-        )
-        review = await self.review_service.create_batch(
-            ReviewBatchCreateCommand(
-                workspace_id=command.workspace_id,
-                execution_id=job.execution_id,
-                source_type="sandbox_job",
-                source_id=job.id,
-                review_kind="sandbox_artifact",
-                title=f"Review sandbox artifact: {command.artifact_kind}",
-                summary=command.path,
-                payload_json={"sandbox_job_id": job.id, "sandbox_environment_id": job.sandbox_environment_id},
-                items=[
-                    ReviewItemCreateCommand(
-                        source_item_id=artifact.id,
-                        item_kind="sandbox_artifact",
-                        target_domain="sandbox",
-                        target_kind="sandbox_artifact",
-                        target_ref_json={
-                            "sandbox_artifact_id": artifact.id,
-                            "workspace_asset_id": command.workspace_asset_id,
-                        },
-                        title=f"Accept sandbox artifact: {command.artifact_kind}",
-                        summary=command.path,
-                        payload_json={
-                            "sandbox_artifact_id": artifact.id,
-                            "workspace_asset_id": command.workspace_asset_id,
-                            "artifact_kind": command.artifact_kind,
-                            "path": command.path,
-                            **review_metadata,
-                            **({"reproducibility": review_reproducibility} if review_reproducibility else {}),
-                        },
-                        preview_json={
-                            "path": command.path,
-                            "mime_type": command.mime_type,
-                            "content_hash": command.content_hash,
-                            **review_metadata,
-                        },
-                        provenance_json={
-                            "source_kind": "sandbox_job",
-                            "source_id": job.id,
-                            "execution_id": job.execution_id,
-                            **_sandbox_artifact_review_provenance(review_reproducibility),
-                        },
-                    )
-                ],
-            )
-        )
-        artifact.review_batch_id = review.batch.id
-        artifact.review_item_id = review.items[0].id if review.items else None
         await self._finish()
         return artifact_to_projection(artifact)
 
@@ -408,17 +352,17 @@ class SandboxDataDomainService:
         self,
         artifact_id: str,
         *,
-        review_item_id: str | None = None,
+        mission_commit_id: str,
     ) -> SandboxArtifactProjection | None:
         record = await self.repository.get_artifact(artifact_id)
         if record is None:
             return None
-        if review_item_id is not None and record.review_item_id not in (None, review_item_id):
+        if record.mission_commit_id not in (None, mission_commit_id):
             raise DataServiceValidationError(
-                "Review item does not match sandbox artifact",
-                detail={"artifact_id": artifact_id, "review_item_id": review_item_id},
+                "Mission commit does not match sandbox artifact",
+                detail={"artifact_id": artifact_id, "mission_commit_id": mission_commit_id},
             )
-        record.review_item_id = review_item_id or record.review_item_id
+        record.mission_commit_id = mission_commit_id
         record.materialization_status = "applied"
         record.updated_at = datetime.now(UTC)
         await self._finish()
@@ -454,12 +398,7 @@ def _workspace_sandbox_id(workspace_id: str) -> str:
 
 
 def _sandbox_artifact_review_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key in ("title", "description", "notes")
-        for value in (_nonempty_metadata_value(metadata.get(key)),)
-        if value is not None
-    }
+    return {key: value for key in ("title", "description", "notes") for value in (_nonempty_metadata_value(metadata.get(key)),) if value is not None}
 
 
 def _sandbox_artifact_review_reproducibility(

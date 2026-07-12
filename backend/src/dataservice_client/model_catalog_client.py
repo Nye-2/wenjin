@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.dataservice_client.contracts.model_catalog import (
+    ModelCapabilityAssessmentPayload,
     ModelCatalogCreatePayload,
     ModelCatalogHealthPayload,
     ModelCatalogPayload,
@@ -44,6 +45,17 @@ class ModelCatalogDataServiceClientMixin:
         data = payload.get("data")
         return ModelCatalogPayload.model_validate(data) if data is not None else None
 
+    async def get_model_catalog_runtime_model(
+        self,
+        model_id: str,
+    ) -> ModelRuntimeConfigPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/model-catalog/models/{model_id}/runtime",
+        )
+        data = payload.get("data")
+        return ModelRuntimeConfigPayload.model_validate(data) if data is not None else None
+
     async def create_model_catalog_model(self, command: ModelCatalogCreatePayload) -> ModelCatalogPayload:
         payload = await self._request(
             "POST",
@@ -82,6 +94,19 @@ class ModelCatalogDataServiceClientMixin:
         payload = await self._request(
             "POST",
             f"/internal/v1/model-catalog/models/{model_id}/health",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ModelCatalogPayload.model_validate(data) if data is not None else None
+
+    async def update_model_capability_assessment(
+        self,
+        model_id: str,
+        command: ModelCapabilityAssessmentPayload,
+    ) -> ModelCatalogPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/model-catalog/models/{model_id}/capability-assessment",
             json=command.model_dump(mode="json"),
         )
         data = payload.get("data")

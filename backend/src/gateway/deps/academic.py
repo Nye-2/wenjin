@@ -57,4 +57,5 @@ async def get_template_service(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TemplateService:
     from src.services.template_service import TemplateService
+
     return TemplateService(dataservice=dataservice)

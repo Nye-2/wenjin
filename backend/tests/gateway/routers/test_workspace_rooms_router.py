@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -53,8 +52,6 @@ def _make_dataservice() -> MagicMock:
     dataservice.list_room_decisions = AsyncMock(return_value=[])
     dataservice.set_room_decision = AsyncMock()
     dataservice.delete_room_decision = AsyncMock(return_value=False)
-    dataservice.list_executions = AsyncMock(return_value=[])
-    dataservice.get_execution = AsyncMock(return_value=None)
     dataservice.list_room_tasks = AsyncMock(return_value=[])
     dataservice.create_room_task = AsyncMock()
     dataservice.update_room_task = AsyncMock(return_value=None)
@@ -202,79 +199,10 @@ class TestRemovedRooms:
         assert client.post(f"/workspaces/{WS_ID}/memory", json={}).status_code == 404
 
 
-class TestRunsRoom:
-    def test_list_runs_happy(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.list_executions.return_value = [
-            _fake_row(
-                id="exec-1",
-                display_name="文献定位与创新点",
-                workspace_id=WS_ID,
-                thread_id="thread-1",
-                feature_id="sci_literature_positioning",
-                execution_type="feature",
-                status="completed",
-                progress=100,
-                started_at=None,
-                created_at=datetime.fromisoformat("2026-05-22T09:08:55+00:00"),
-                completed_at=datetime.fromisoformat("2026-05-22T09:09:39+00:00"),
-                result_summary="完成 文献定位与创新点，共执行 3 个节点。",
-                message=None,
-                error=None,
-                result={
-                    "task_report": {
-                        "token_usage": {"input_tokens": 10, "output_tokens": 5},
-                        "review_items": [
-                            {
-                                "id": "review-1",
-                                "kind": "prism_file_change",
-                                "target": {"kind": "prism_file_change"},
-                            }
-                        ],
-                    }
-                },
-            )
-        ]
-
-        resp = client.get(f"/workspaces/{WS_ID}/runs")
-
-        assert resp.status_code == 200
-        assert resp.json()["items"] == [
-            {
-                "id": "exec-1",
-                "workspace_id": WS_ID,
-                "thread_id": "thread-1",
-                "capability_id": "sci_literature_positioning",
-                "capability_name": "文献定位与创新点",
-                "status": "completed",
-                "started_at": "2026-05-22T09:08:55+00:00",
-                "completed_at": "2026-05-22T09:09:39+00:00",
-                "summary": "完成 文献定位与创新点，共执行 3 个节点。",
-                "token_usage": {"input": 10, "output": 5},
-                "progress": 100,
-                "primary_surface": "prism",
-                "review_items_count": 1,
-                "has_prism_changes": True,
-                "failure_category": None,
-                "failure_message": None,
-            }
-        ]
-
-    def test_get_run_not_found(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.get_execution.return_value = None
-
-        resp = client.get(f"/workspaces/{WS_ID}/runs/nonexistent")
-
-        assert resp.status_code == 404
-
-
 class TestTasksRoom:
     def test_list_tasks_happy(self) -> None:
         _app, client, dataservice = _make_app()
-        dataservice.list_room_tasks.return_value = [
-            _fake_row(id="task-1", workspace_id=WS_ID, title="Do X", status="pending")
-        ]
+        dataservice.list_room_tasks.return_value = [_fake_row(id="task-1", workspace_id=WS_ID, title="Do X", status="pending")]
 
         resp = client.get(f"/workspaces/{WS_ID}/tasks")
 
@@ -325,54 +253,54 @@ class TestSettingsRoom:
 
         assert resp.status_code == 404
 
-    def test_put_settings_accepts_write_mode(self) -> None:
+    def test_put_settings_accepts_review_mode(self) -> None:
         _app, client, dataservice = _make_app()
         dataservice.update_workspace_settings.return_value = _fake_row(
             workspace_id=WS_ID,
-            write_mode="strict_review",
-            settings_json={"write_mode": "strict_review", "language": "zh"},
+            review_mode="review_all",
+            settings_json={"review_mode": "review_all", "language": "zh"},
         )
 
-        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": "strict_review"})
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"review_mode": "review_all"})
 
         assert resp.status_code == 200
-        assert resp.json()["write_mode"] == "strict_review"
+        assert resp.json()["review_mode"] == "review_all"
         payload = dataservice.update_workspace_settings.await_args.args[1]
-        assert payload.write_mode == "strict_review"
+        assert payload.review_mode == "review_all"
 
-    def test_put_settings_trims_write_mode(self) -> None:
+    def test_put_settings_trims_review_mode(self) -> None:
         _app, client, dataservice = _make_app()
         dataservice.update_workspace_settings.return_value = _fake_row(
             workspace_id=WS_ID,
-            write_mode="ask_workspace_write",
-            settings_json={"write_mode": "ask_workspace_write"},
+            review_mode="auto_draft",
+            settings_json={"review_mode": "auto_draft"},
         )
 
-        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": " ask_workspace_write "})
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"review_mode": " auto_draft "})
 
         assert resp.status_code == 200
         payload = dataservice.update_workspace_settings.await_args.args[1]
-        assert payload.write_mode == "ask_workspace_write"
+        assert payload.review_mode == "auto_draft"
 
-    def test_put_settings_write_mode_null_is_omitted(self) -> None:
+    def test_put_settings_review_mode_null_is_omitted(self) -> None:
         _app, client, dataservice = _make_app()
         dataservice.update_workspace_settings.return_value = _fake_row(
             workspace_id=WS_ID,
-            write_mode="strict_review",
-            settings_json={"write_mode": "strict_review"},
+            review_mode="review_all",
+            settings_json={"review_mode": "review_all"},
         )
 
-        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": None})
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"review_mode": None})
 
         assert resp.status_code == 200
         payload = dataservice.update_workspace_settings.await_args.args[1]
-        assert "write_mode" not in payload.model_fields_set
-        assert payload.write_mode is None
+        assert "review_mode" not in payload.model_fields_set
+        assert payload.review_mode is None
 
-    def test_put_settings_rejects_invalid_write_mode(self) -> None:
+    def test_put_settings_rejects_invalid_review_mode(self) -> None:
         _app, client, dataservice = _make_app()
 
-        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"write_mode": "manual_review"})
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"review_mode": "manual_review"})
 
         assert resp.status_code == 422
         dataservice.update_workspace_settings.assert_not_awaited()

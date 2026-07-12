@@ -91,7 +91,7 @@ def serialize_reference_projection(source: SourceProjection) -> dict[str, object
         "citation_count": source.citation_count,
         "source_type": source.ingest_kind,
         "source_label": source.ingest_label,
-        "source_run_id": source.ingest_execution_id,
+        "source_run_id": source.ingest_mission_id,
         "source_artifact_id": None,
         "verified_at": source.verified_at.isoformat() if source.verified_at else None,
         "library_status": source.library_status,

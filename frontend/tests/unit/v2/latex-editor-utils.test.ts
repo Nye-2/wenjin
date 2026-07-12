@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import type { ExecutionRecord } from "@/lib/api/types";
 import {
   buildFeedbackAnchor,
   parsePdfAnchor,
@@ -18,34 +17,6 @@ import {
   rewriteProfileLabel,
   riskLevelLabel,
 } from "@/components/latex/latex-editor/rewriteDisplay";
-import {
-  jobStatusFromExecution,
-  prismExecutionNodeLabel,
-  prismJobStatusLabel,
-} from "@/components/latex/latex-editor/prismOptimizationJobs";
-
-function makeExecution(status: ExecutionRecord["status"], reviewItems: unknown[] = []): ExecutionRecord {
-  return {
-    id: `exec-${status}`,
-    user_id: "user-1",
-    workspace_id: "ws-1",
-    execution_type: "capability",
-    feature_id: "prism_selection_optimize",
-    status,
-    params: {},
-    node_states: {},
-    artifact_ids: [],
-    next_actions: [],
-    child_execution_ids: [],
-    progress: status === "completed" ? 100 : 20,
-    created_at: "2026-05-31T00:00:00Z",
-    updated_at: "2026-05-31T00:00:00Z",
-    started_at: "2026-05-31T00:00:00Z",
-    completed_at: status === "completed" ? "2026-05-31T00:01:00Z" : null,
-    result: null,
-    review_items: reviewItems as ExecutionRecord["review_items"],
-  };
-}
 
 describe("latex editor pure helpers", () => {
   it("classifies editor languages and preview file kinds", () => {
@@ -119,12 +90,4 @@ describe("latex editor pure helpers", () => {
     expect(isWhitespaceOnlyDiffOp({ old_text: "a b", new_text: "ab" })).toBe(true);
   });
 
-  it("maps Prism optimization execution status to compact UI labels", () => {
-    expect(jobStatusFromExecution(makeExecution("running"))).toBe("running");
-    expect(jobStatusFromExecution(makeExecution("completed"))).toBe("completed");
-    expect(jobStatusFromExecution(makeExecution("failed_partial", [{}]))).toBe("completed");
-    expect(jobStatusFromExecution(makeExecution("failed_partial"))).toBe("failed");
-    expect(prismJobStatusLabel("advisory")).toBe("需要稍后重试");
-    expect(prismExecutionNodeLabel("completed")).toBe("完成");
-  });
 });

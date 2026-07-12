@@ -5,7 +5,7 @@ The router itself is disabled at registration time in src.gateway.app.
 
 Endpoints:
 - POST /__test__/llm/queue   — enqueue AgentMessage payloads for the next
-  parse_with_fallback() call(s). The queue is process-local; if the agent
+  scripted WorkspaceAgent response call(s). The queue is process-local; if the agent
   workers run in a separate process, this won't reach them.
 - POST /__test__/llm/clear   — drain the queue.
 - POST /__test__/workspaces  — mint a fresh workspace + first thread for the
@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.chat_agent.blocks import AgentMessage
+from src.agents.workspace_agent.blocks import AgentMessage
 from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.academic import get_workspace_service
 from src.gateway.deps.core import get_dataservice_client
@@ -60,7 +60,7 @@ async def clear_llm() -> None:
 def pop_next() -> AgentMessage | None:
     """Pop the next scripted AgentMessage, or return None if empty.
 
-    Called from src.agents.chat_agent.structured_output.parse_with_fallback
+    Read only by explicit development test wiring.
     when E2E_TEST_HOOKS_ENABLED=true and settings.environment != "production".
     """
     return _queue.popleft() if _queue else None

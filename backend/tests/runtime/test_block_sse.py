@@ -19,7 +19,7 @@ import pytest
 
 from src.application.handlers.thread_turn_handler import ThreadStreamDelta
 from src.application.results import PreparedThreadTurn, ThreadTurnRequest
-from src.runtime.runs import RunManager, run_thread_turn
+from src.runtime.chat_turns import ChatTurnRunManager, run_chat_turn
 from src.runtime.stream_bridge import END_SENTINEL, MemoryStreamBridge
 
 
@@ -77,7 +77,7 @@ async def _collect(bridge: MemoryStreamBridge, run_id: str) -> list[tuple[str, A
 
 @pytest.mark.asyncio
 async def test_emits_one_block_event_per_block_with_shared_message_id():
-    manager = RunManager()
+    manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
     record = await manager.create_or_reject("thread-1")
 
@@ -87,8 +87,8 @@ async def test_emits_one_block_event_per_block_with_shared_message_id():
     ]
     handler = _Handler(_StreamRunWithBlocks(blocks=blocks))
 
-    with patch("src.runtime.runs.worker.set_thread_status", new=AsyncMock()):
-        await run_thread_turn(
+    with patch("src.runtime.chat_turns.worker.set_thread_status", new=AsyncMock()):
+        await run_chat_turn(
             bridge, manager, record,
             handler=handler,  # type: ignore[arg-type]
             request=_request(),
@@ -107,13 +107,13 @@ async def test_emits_one_block_event_per_block_with_shared_message_id():
 
 @pytest.mark.asyncio
 async def test_no_legacy_assistant_message_event_emitted():
-    manager = RunManager()
+    manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
     record = await manager.create_or_reject("thread-1")
     handler = _Handler(_StreamRunWithBlocks(blocks=[{"kind": "text", "content": "hi"}]))
 
-    with patch("src.runtime.runs.worker.set_thread_status", new=AsyncMock()):
-        await run_thread_turn(
+    with patch("src.runtime.chat_turns.worker.set_thread_status", new=AsyncMock()):
+        await run_chat_turn(
             bridge, manager, record,
             handler=handler,  # type: ignore[arg-type]
             request=_request(),
@@ -127,13 +127,13 @@ async def test_no_legacy_assistant_message_event_emitted():
 @pytest.mark.asyncio
 async def test_missing_blocks_coerces_content_to_text_block():
     """Defensive: legacy free-text replies get wrapped as a single TextBlock."""
-    manager = RunManager()
+    manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
     record = await manager.create_or_reject("thread-1")
     handler = _Handler(_StreamRunWithBlocks(blocks=[], content="hello"))
 
-    with patch("src.runtime.runs.worker.set_thread_status", new=AsyncMock()):
-        await run_thread_turn(
+    with patch("src.runtime.chat_turns.worker.set_thread_status", new=AsyncMock()):
+        await run_chat_turn(
             bridge, manager, record,
             handler=handler,  # type: ignore[arg-type]
             request=_request(),
@@ -149,13 +149,13 @@ async def test_missing_blocks_coerces_content_to_text_block():
 @pytest.mark.asyncio
 async def test_empty_blocks_and_empty_content_emits_no_blocks():
     """Edge case: nothing to emit. No spurious empty TextBlock."""
-    manager = RunManager()
+    manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
     record = await manager.create_or_reject("thread-1")
     handler = _Handler(_StreamRunWithBlocks(blocks=[], content=""))
 
-    with patch("src.runtime.runs.worker.set_thread_status", new=AsyncMock()):
-        await run_thread_turn(
+    with patch("src.runtime.chat_turns.worker.set_thread_status", new=AsyncMock()):
+        await run_chat_turn(
             bridge, manager, record,
             handler=handler,  # type: ignore[arg-type]
             request=_request(),

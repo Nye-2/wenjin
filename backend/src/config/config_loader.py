@@ -5,35 +5,21 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.reflection.resolvers import resolve_env_variables
-
-
-class ModelConfig(BaseModel):
-    """LLM model configuration."""
-    name: str
-    use: str  # e.g., "langchain_openai:ChatOpenAI"
-    model: str
-    api_key: str = ""
-    base_url: str = ""
-    max_tokens: int = 4096
-    temperature: float = 0.7
-    supports_thinking: bool = False
-    supports_vision: bool = False
-    tags: list[str] = Field(default_factory=list)
 
 
 class ToolConfig(BaseModel):
     """Tool configuration."""
     name: str = ""
-    use: str  # e.g., "src.tools.builtins.references:search_reference_text_units_tool"
+    use: str  # import path for a non-Mission integration hook
     group: str = ""
 
     def model_post_init(self, __context: object) -> None:
         """Derive name from ``use`` path when not explicitly set."""
         if not self.name and self.use:
-            # "src.tools.builtins.references:search_reference_text_units_tool" → "search_reference_text_units_tool"
+            # "package.module:tool" -> "tool"
             self.name = self.use.rsplit(":", 1)[-1] if ":" in self.use else self.use
 
 
@@ -41,24 +27,6 @@ class ToolGroupConfig(BaseModel):
     """Tool group configuration."""
     name: str = ""
     description: str = ""
-
-
-class SubagentTypeConfig(BaseModel):
-    """Subagent type configuration."""
-    description: str = ""
-    system_prompt: str = ""
-    allowed_tools: list[str] = Field(default_factory=list)
-    disallowed_tools: list[str] = Field(default_factory=list)
-    max_turns: int = 10
-    timeout: int = 900  # 15 min default
-    model_name: str | None = None
-
-
-class SubagentsConfig(BaseModel):
-    """Subagent system configuration."""
-    enabled: bool = False
-    max_concurrent: int = 3
-    types: dict[str, SubagentTypeConfig] = Field(default_factory=dict)
 
 
 class MemoryConfig(BaseModel):
@@ -146,8 +114,8 @@ class ThreadBillingConfig(BaseModel):
     max_overdraft_credits: int = 100
 
 
-class FeatureBillingConfig(BaseModel):
-    """Workspace feature token billing configuration."""
+class MissionBillingConfig(BaseModel):
+    """Mission token billing configuration."""
 
     enabled: bool = True
     free_tokens: int = 0
@@ -167,14 +135,14 @@ class BillingConfig(BaseModel):
     """Billing configuration."""
 
     thread: ThreadBillingConfig = Field(default_factory=ThreadBillingConfig)
-    feature: FeatureBillingConfig = Field(default_factory=FeatureBillingConfig)
+    mission: MissionBillingConfig = Field(default_factory=MissionBillingConfig)
     sandbox: SandboxBillingConfig = Field(default_factory=SandboxBillingConfig)
 
 
 class AppConfig(BaseModel):
     """Unified application configuration loaded from config.yaml."""
-    models: list[ModelConfig] = Field(default_factory=list)
-    default_model: str = "default"
+    model_config = ConfigDict(extra="forbid")
+
     tools: list[ToolConfig] = Field(default_factory=list)
     tool_groups: list[ToolGroupConfig] = Field(default_factory=list)
 
@@ -185,7 +153,6 @@ class AppConfig(BaseModel):
         if isinstance(v, dict):
             return [{"name": k, **(val if isinstance(val, dict) else {})} for k, val in v.items()]
         return v  # type: ignore[return-value]
-    subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     middlewares: MiddlewaresConfig = Field(default_factory=MiddlewaresConfig)
@@ -193,13 +160,6 @@ class AppConfig(BaseModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
     billing: BillingConfig = Field(default_factory=BillingConfig)
-
-    def get_model_config(self, name: str) -> ModelConfig | None:
-        """Find a model by name."""
-        for m in self.models:
-            if m.name == name:
-                return m
-        return None
 
     def get_tool_config(self, name: str) -> ToolConfig | None:
         """Find a tool by name."""
@@ -215,7 +175,7 @@ def _resolve_config_path(config_path: str | None = None) -> Path | None:
         p = Path(config_path)
         return p if p.exists() else None
 
-    env_path = os.getenv("GUANLAN_CONFIG_PATH")
+    env_path = os.getenv("WENJIN_CONFIG_PATH")
     if env_path:
         p = Path(env_path)
         if p.exists():

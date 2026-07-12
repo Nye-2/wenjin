@@ -78,13 +78,7 @@ class DataServiceCreditService:
 
     async def get_thread_token_usage_summary(self) -> dict[str, int]:
         transactions = await self.repository.list_thread_token_transactions()
-        refunded_ids = {
-            str(tx.tx_metadata.get("original_transaction_id"))
-            for tx in transactions
-            if tx.transaction_type == CreditTransactionType.REFUND
-            and isinstance(tx.tx_metadata, dict)
-            and tx.tx_metadata.get("original_transaction_id")
-        }
+        refunded_ids = {str(tx.tx_metadata.get("original_transaction_id")) for tx in transactions if tx.transaction_type == CreditTransactionType.REFUND and isinstance(tx.tx_metadata, dict) and tx.tx_metadata.get("original_transaction_id")}
 
         total_tokens = 0
         transaction_count = 0
@@ -150,9 +144,7 @@ class DataServiceCreditService:
                 "total_spent": summary["total_spent"],
                 "current_pool": summary["in_circulation"],
             },
-            "credit_series": [
-                series_by_bucket[key] for key in sorted(series_by_bucket)
-            ],
+            "credit_series": [series_by_bucket[key] for key in sorted(series_by_bucket)],
         }
 
     async def get_credit_history(
@@ -181,12 +173,7 @@ class DataServiceCreditService:
             user_id=user_id,
             consume_type=consume_type,
         )
-        refunded_ids = {
-            str(tx.tx_metadata.get("original_transaction_id"))
-            for tx in transactions
-            if tx.transaction_type == CreditTransactionType.REFUND
-            and tx.tx_metadata.get("original_transaction_id")
-        }
+        refunded_ids = {str(tx.tx_metadata.get("original_transaction_id")) for tx in transactions if tx.transaction_type == CreditTransactionType.REFUND and tx.tx_metadata.get("original_transaction_id")}
 
         total = 0
         for tx in transactions:
@@ -195,9 +182,7 @@ class DataServiceCreditService:
             if str(tx.id) in refunded_ids:
                 continue
             metadata = tx.tx_metadata or {}
-            if metadata_type is not None and (
-                not isinstance(metadata, dict) or metadata.get("type") != metadata_type
-            ):
+            if metadata_type is not None and (not isinstance(metadata, dict) or metadata.get("type") != metadata_type):
                 continue
             token_usage = metadata.get("token_usage") if isinstance(metadata, dict) else {}
             if isinstance(token_usage, dict):
@@ -270,9 +255,7 @@ class DataServiceCreditService:
         return await self.repository.get_active_grant_rule(rule_type)
 
     async def list_enabled_periodic_grant_rules(self) -> list[Any]:
-        return await self.repository.list_enabled_grant_rules(
-            CreditGrantRuleType.PERIODIC
-        )
+        return await self.repository.list_enabled_grant_rules(CreditGrantRuleType.PERIODIC)
 
     async def apply_registration_bonus_from_rule(self, *, user_id: str, rule: Any) -> Any:
         user = await self.repository.get_user_for_update(user_id)
@@ -348,7 +331,7 @@ class DataServiceCreditService:
             summary["users_granted"] += await self.apply_periodic_grant_rule(
                 rule=rule,
                 now=effective_now,
-                )
+            )
             summary["rules_fired"] += 1
         return summary
 
@@ -360,8 +343,8 @@ class DataServiceCreditService:
         reserved_credits: int,
         idempotency_key: str,
         workspace_id: str | None = None,
-        execution_id: str | None = None,
-        node_id: str | None = None,
+        mission_id: str | None = None,
+        mission_item_seq: int | None = None,
         expires_at: datetime | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Any:
@@ -393,8 +376,8 @@ class DataServiceCreditService:
             {
                 "user_id": user_id,
                 "workspace_id": workspace_id,
-                "execution_id": execution_id,
-                "node_id": node_id,
+                "mission_id": mission_id,
+                "mission_item_seq": mission_item_seq,
                 "scope": normalized_scope,
                 "status": CreditReservationStatus.RESERVED,
                 "reserved_credits": normalized_reserved,
@@ -414,8 +397,9 @@ class DataServiceCreditService:
         settled_credits: int,
         description: str,
         transaction_type: CreditTransactionType = CreditTransactionType.WORKFLOW_CONSUME,
-        feature_id: str | None = None,
-        task_id: str | None = None,
+        mission_policy_id: str | None = None,
+        mission_id: str | None = None,
+        operation_key: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> tuple[Any, Any | None]:
         """Finalize a reservation into a normal credit transaction."""
@@ -423,11 +407,7 @@ class DataServiceCreditService:
         if reservation is None:
             raise ValueError("Credit reservation not found")
         if reservation.status != CreditReservationStatus.RESERVED:
-            tx = (
-                await self.repository.get_credit_transaction(reservation.transaction_id)
-                if reservation.transaction_id
-                else None
-            )
+            tx = await self.repository.get_credit_transaction(reservation.transaction_id) if reservation.transaction_id else None
             return reservation, tx
 
         user = await self.repository.get_user_for_update(reservation.user_id)
@@ -458,9 +438,11 @@ class DataServiceCreditService:
                 "amount": -credits_to_charge,
                 "balance_after": user.credits,
                 "description": description,
-                "feature_id": feature_id,
+                "mission_policy_id": mission_policy_id,
+                "mission_id": mission_id or reservation.mission_id,
+                "operation_key": operation_key,
                 "workspace_id": reservation.workspace_id,
-                "task_id": task_id or reservation.execution_id,
+                "task_id": None,
                 "tx_metadata": tx_metadata,
             }
         )
@@ -522,8 +504,7 @@ class DataServiceCreditService:
         if user is None:
             raise ValueError("User not found")
         user.reserved_credits = max(
-            int(getattr(user, "reserved_credits", 0) or 0)
-            - max(int(reservation.reserved_credits or 0), 0),
+            int(getattr(user, "reserved_credits", 0) or 0) - max(int(reservation.reserved_credits or 0), 0),
             0,
         )
         reservation.status = status
@@ -541,7 +522,9 @@ class DataServiceCreditService:
         transaction_type: CreditTransactionType,
         amount: int,
         description: str,
-        feature_id: str | None = None,
+        mission_policy_id: str | None = None,
+        mission_id: str | None = None,
+        operation_key: str | None = None,
         workspace_id: str | None = None,
         task_id: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -578,7 +561,9 @@ class DataServiceCreditService:
                 "amount": -credits_to_charge,
                 "balance_after": user.credits,
                 "description": description,
-                "feature_id": feature_id,
+                "mission_policy_id": mission_policy_id,
+                "mission_id": mission_id,
+                "operation_key": operation_key,
                 "workspace_id": workspace_id,
                 "task_id": task_id,
                 "tx_metadata": dict(metadata or {}),
@@ -614,14 +599,10 @@ class DataServiceCreditService:
         if existing_refund is not None:
             return None
 
-        original_metadata = (
-            original_tx.tx_metadata
-            if isinstance(original_tx.tx_metadata, dict)
-            else {}
-        )
+        original_metadata = original_tx.tx_metadata if isinstance(original_tx.tx_metadata, dict) else {}
         is_token_usage_transaction = (
             original_tx.transaction_type == CreditTransactionType.THREAD_TOKEN_CONSUME
-            or original_metadata.get("type") == "feature_token_billing"
+            or original_metadata.get("type") == "mission_token_billing"
         )
         refund_amount = abs(int(original_tx.amount))
         if refund_amount <= 0 and not is_token_usage_transaction:
@@ -641,7 +622,9 @@ class DataServiceCreditService:
                 "amount": refund_amount,
                 "balance_after": user.credits,
                 "description": reason,
-                "feature_id": original_tx.feature_id,
+                "mission_policy_id": original_tx.mission_policy_id,
+                "mission_id": original_tx.mission_id,
+                "operation_key": original_tx.operation_key,
                 "workspace_id": original_tx.workspace_id,
                 "task_id": task_id or original_tx.task_id,
                 "tx_metadata": {
@@ -817,9 +800,7 @@ class DataServiceCreditService:
         referral = await self.repository.get_referral_by_referee(referee_user_id)
         if referral is None:
             return None
-        rule = await self.repository.get_active_grant_rule(
-            CreditGrantRuleType.REFERRAL_REFERRED
-        )
+        rule = await self.repository.get_active_grant_rule(CreditGrantRuleType.REFERRAL_REFERRED)
         if rule is None:
             return None
         config = rule.config if isinstance(rule.config, dict) else {}
@@ -840,9 +821,7 @@ class DataServiceCreditService:
         if referral.referee_first_task_at is not None:
             return None
         referral.referee_first_task_at = datetime.now(UTC)
-        rule = await self.repository.get_active_grant_rule(
-            CreditGrantRuleType.REFERRAL_REFERRER
-        )
+        rule = await self.repository.get_active_grant_rule(CreditGrantRuleType.REFERRAL_REFERRER)
         if rule is None:
             await self._finish(referral)
             return None

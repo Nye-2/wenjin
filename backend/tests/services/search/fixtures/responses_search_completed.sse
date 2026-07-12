@@ -1,0 +1,5 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_search_1","status":"in_progress"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_search_1","status":"completed","output":[{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","query":"federated LoRA","sources":[{"url":"https://example.edu/paper","title":"Federated LoRA"}]}},{"type":"message","content":[{"type":"output_text","text":"Federated LoRA is studied.","annotations":[{"type":"url_citation","url":"https://example.edu/paper","title":"Federated LoRA","start_index":0,"end_index":14}]}]}]}}

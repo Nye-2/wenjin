@@ -6,18 +6,14 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from src.models.capability_profile import GenerationAPI
+
 from ..base import Base, TimestampMixin, UUIDMixin
-
-
-class ModelProviderProtocol(StrEnum):
-    """Supported model provider protocols."""
-
-    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 class ModelCategory(StrEnum):
@@ -50,19 +46,22 @@ class ModelCatalogEntry(Base, UUIDMixin, TimestampMixin):
         Index("ix_model_catalog_enabled_category", "enabled", "category"),
         Index("ix_model_catalog_default_category", "is_default", "category"),
         Index("ix_model_catalog_health_status", "health_status"),
+        CheckConstraint(
+            "(category = 'image' AND generation_api IS NULL) OR "
+            "(category = 'llm' AND generation_api IS NOT NULL)",
+            name="ck_model_catalog_generation_api_category",
+        ),
     )
 
     model_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    provider_protocol: Mapped[ModelProviderProtocol] = mapped_column(
+    generation_api: Mapped[GenerationAPI | None] = mapped_column(
         SQLEnum(
-            ModelProviderProtocol,
+            GenerationAPI,
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
-            name="model_provider_protocol",
+            name="model_generation_api",
         ),
-        nullable=False,
-        default=ModelProviderProtocol.OPENAI_COMPATIBLE,
-        server_default=ModelProviderProtocol.OPENAI_COMPATIBLE.value,
+        nullable=True,
     )
     provider_name: Mapped[str] = mapped_column(String(100), nullable=False, default="Custom", server_default="Custom")
     category: Mapped[ModelCategory] = mapped_column(
@@ -82,12 +81,20 @@ class ModelCatalogEntry(Base, UUIDMixin, TimestampMixin):
     api_key_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    supports_streaming: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    supports_tools: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    supports_json_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    supports_json_schema: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    supports_vision: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    supports_reasoning_effort: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    capability_profile_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    capability_probe_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    capability_probe_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    capability_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=4096, server_default="4096")
     temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.7, server_default="0.7")
     timeout_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)

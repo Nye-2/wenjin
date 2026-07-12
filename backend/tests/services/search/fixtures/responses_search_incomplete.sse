@@ -1,0 +1,2 @@
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0}

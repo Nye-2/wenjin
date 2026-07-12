@@ -162,7 +162,6 @@ class ThreadState(AgentState):
         - discipline_norms: Discipline-specific norms (was _discipline_norms)
         - current_skill: Currently executing skill name
         - cited_references: reference ID list with dedup reducer
-        - subagent_tasks: Subagent task tracking
     """
 
     # Shared base fields
@@ -189,17 +188,8 @@ class ThreadState(AgentState):
     template_context: NotRequired[dict[str, Any] | None]
     current_skill: NotRequired[str | None]
 
-    # Capability/skill catalog preloaded by CapabilitySkillPreloadMiddleware
-    available_capabilities: NotRequired[list[dict[str, Any]] | None]
-    available_skills: NotRequired[list[dict[str, Any]] | None]
-    mission_prompt_context: NotRequired[str | None]
-
     # Citation tracking with deduplication reducer
     cited_references: Annotated[list[str], merge_cited_references]
-
-    # Subagent tracking
-    subagent_tasks: NotRequired[dict[str, Any] | None]
-
 
 def create_thread_state(
     initial: Mapping[str, Any] | None = None,

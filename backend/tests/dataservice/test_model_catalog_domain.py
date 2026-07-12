@@ -22,6 +22,11 @@ from src.dataservice.domains.model_catalog.security import (
     validate_model_base_url,
 )
 from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
+from src.models.capability_profile import (
+    GenerationAPI,
+    gpt55_release_assessment,
+    unverified_capability_assessment,
+)
 
 
 class _FakeSession:
@@ -126,7 +131,7 @@ def _model_payload(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model_id": "deepseek-v3",
         "display_name": "DeepSeek V3",
-        "provider_protocol": "openai_compatible",
+        "generation_api": "chat_completions",
         "provider_name": "QnAIGC",
         "category": "llm",
         "model_name": "deepseek/deepseek-v3",
@@ -134,9 +139,6 @@ def _model_payload(**overrides: Any) -> dict[str, Any]:
         "api_key": "sk-live-1234abcd",
         "enabled": True,
         "is_default": True,
-        "supports_streaming": True,
-        "supports_tools": True,
-        "supports_vision": False,
         "pricing_policy_id": "model-standard",
         "default_headers": {"X-Provider": "qnaigc"},
     }
@@ -186,6 +188,13 @@ def test_load_model_secret_key_rejects_missing_or_short_key() -> None:
         load_model_secret_key(env={})
     with pytest.raises(ModelCatalogSecurityError, match="32 bytes"):
         load_model_secret_key(env={"MODEL_SECRET_KEY": "short"})
+
+
+def test_load_model_secret_key_rejects_all_zero_placeholder() -> None:
+    placeholder = "base64:" + base64.urlsafe_b64encode(bytes(32)).decode("ascii")
+
+    with pytest.raises(ModelCatalogSecurityError, match="all-zero placeholder"):
+        load_model_secret_key(env={"MODEL_SECRET_KEY": placeholder})
 
 
 def test_redact_api_key_keeps_only_tail() -> None:
@@ -245,6 +254,94 @@ async def test_create_model_encrypts_key_and_returns_redacted_record() -> None:
 
 
 @pytest.mark.asyncio
+async def test_removed_capability_switches_are_rejected() -> None:
+    service, _repository, _session = _model_catalog_service()
+
+    with pytest.raises(DataServiceValidationError, match="unsupported model catalog fields"):
+        await service.create_model(_model_payload(supports_tools=True))
+
+
+@pytest.mark.asyncio
+async def test_endpoint_change_invalidates_capability_assessment() -> None:
+    service, _repository, _session = _model_catalog_service()
+    created = await service.create_model(_model_payload())
+
+    updated = await service.update_model(
+        "deepseek-v3",
+        {"base_url": "https://changed.example.com/v1"},
+    )
+
+    assert updated is not None
+    assert updated.capability_profile.protocol_conformance is False
+    assert updated.capability_probe_hash != created.capability_probe_hash
+    assert updated.health_status == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_probe_assessment_must_match_exact_current_endpoint() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(
+        _model_payload(
+            model_id="gpt-5.5",
+            display_name="GPT-5.5",
+            model_name="gpt-5.5",
+            provider_name="OpenAI",
+            base_url="https://api.nainai.love/v1",
+        )
+    )
+    assessment = gpt55_release_assessment()
+
+    record = await service.update_capability_assessment(
+        "gpt-5.5",
+        profile=assessment.profile,
+        evidence=assessment.evidence,
+    )
+
+    assert record is not None
+    assert record.health_status == "healthy"
+    assert record.capability_profile.has_strict_tools() is True
+
+    await service.update_model(
+        "gpt-5.5",
+        {"base_url": "https://changed.example.com/v1"},
+    )
+    with pytest.raises(DataServiceValidationError, match="does not match"):
+        await service.update_capability_assessment(
+            "gpt-5.5",
+            profile=assessment.profile,
+            evidence=assessment.evidence,
+        )
+
+
+@pytest.mark.asyncio
+async def test_probe_assessment_rejects_profile_from_different_evidence() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(
+        _model_payload(
+            model_id="gpt-5.5",
+            display_name="GPT-5.5",
+            model_name="gpt-5.5",
+            provider_name="OpenAI",
+            base_url="https://api.nainai.love/v1",
+        )
+    )
+    verified = gpt55_release_assessment()
+    unverified = unverified_capability_assessment(
+        model_id="gpt-5.5",
+        model_name="gpt-5.5",
+        base_url="https://api.nainai.love/v1",
+        generation_api=GenerationAPI.CHAT_COMPLETIONS,
+    )
+
+    with pytest.raises(DataServiceValidationError, match="not derived"):
+        await service.update_capability_assessment(
+            "gpt-5.5",
+            profile=verified.profile,
+            evidence=unverified.evidence,
+        )
+
+
+@pytest.mark.asyncio
 async def test_enabled_model_requires_enabled_model_usage_pricing_policy() -> None:
     service, _repository, _session = _model_catalog_service()
 
@@ -266,6 +363,11 @@ async def test_disabled_model_can_be_saved_without_pricing_policy_until_enabled(
 
     assert record.enabled is False
     assert record.pricing_policy_id is None
+
+    runtime = await service.get_runtime_model(record.model_id)
+    assert runtime is not None
+    assert runtime.model_id == record.model_id
+    assert runtime.api_key == "sk-live-1234abcd"
 
 
 @pytest.mark.asyncio
@@ -320,6 +422,7 @@ async def test_image_model_category_is_supported() -> None:
             model_id="image-gen",
             model_name="image-gen-v1",
             category="image",
+            generation_api=None,
             is_default=False,
         )
     )

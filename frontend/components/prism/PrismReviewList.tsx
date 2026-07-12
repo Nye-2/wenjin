@@ -69,7 +69,7 @@ export function fileChangeToPrismReviewItem(
     status?: string | null;
     title?: string | null;
     source_type?: string | null;
-    source_execution_id?: string | null;
+    source_mission_id?: string | null;
     source_task_id?: string | null;
     target_kind?: string | null;
     applied_at?: string | null;
@@ -86,7 +86,7 @@ export function fileChangeToPrismReviewItem(
     summary: change.reason || null,
     source: {
       type: change.source_type || null,
-      execution_id: change.source_execution_id || null,
+      mission_id: change.source_mission_id || null,
       task_id: change.source_task_id || null,
     },
     target: {

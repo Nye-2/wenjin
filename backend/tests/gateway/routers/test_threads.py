@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.gateway.routers import threads
-from src.runtime.runs import RunManager, RunStatus
+from src.runtime.chat_turns import ChatTurnRunManager, ChatTurnRunStatus
 
 
 @dataclass
@@ -51,11 +51,7 @@ class _FakeThreadService:
         workspace_id: str | None = None,
         limit: int = 20,
     ) -> list[_FakeThread]:
-        items = [
-            thread
-            for thread in self._threads.values()
-            if thread.user_id == user_id and (workspace_id is None or thread.workspace_id == workspace_id)
-        ]
+        items = [thread for thread in self._threads.values() if thread.user_id == user_id and (workspace_id is None or thread.workspace_id == workspace_id)]
         items.sort(key=lambda item: item.updated_at, reverse=True)
         return items[:limit]
 
@@ -63,7 +59,7 @@ class _FakeThreadService:
         return list(self._canonical_messages.get(thread.id, []))
 
 
-def _create_client(service: _FakeThreadService, run_manager: RunManager) -> TestClient:
+def _create_client(service: _FakeThreadService, run_manager: ChatTurnRunManager) -> TestClient:
     app = FastAPI()
 
     async def _override_user():
@@ -79,7 +75,7 @@ def _create_client(service: _FakeThreadService, run_manager: RunManager) -> Test
 
     app.dependency_overrides[threads.get_current_user] = _override_user
     app.dependency_overrides[threads.get_thread_service] = _override_service
-    app.dependency_overrides[threads.get_run_manager] = _override_run_manager
+    app.dependency_overrides[threads.get_chat_turn_run_manager] = _override_run_manager
     app.include_router(threads.router)
     return TestClient(app)
 
@@ -106,12 +102,12 @@ def test_search_threads_filters_by_metadata_and_status():
             messages=[{"role": "user", "content": "world"}],
         )
     )
-    run_manager = RunManager()
+    run_manager = ChatTurnRunManager()
     client = _create_client(service, run_manager)
 
     async def _mark_busy() -> None:
         run = await run_manager.create_or_reject("thread-1")
-        await run_manager.set_status(run.run_id, RunStatus.running)
+        await run_manager.set_status(run.run_id, ChatTurnRunStatus.running)
 
     import asyncio
 
@@ -151,12 +147,12 @@ def test_get_thread_state_contains_values_and_active_tasks():
             {"role": "assistant", "content": "canonical hi"},
         ],
     )
-    run_manager = RunManager()
+    run_manager = ChatTurnRunManager()
     client = _create_client(service, run_manager)
 
     async def _mark_busy() -> None:
         run = await run_manager.create_or_reject("thread-1")
-        await run_manager.set_status(run.run_id, RunStatus.running)
+        await run_manager.set_status(run.run_id, ChatTurnRunStatus.running)
 
     import asyncio
 
@@ -187,7 +183,7 @@ def test_get_thread_history_returns_synthetic_checkpoint_entry():
         )
     )
     service.set_canonical_messages("thread-1", [{"role": "user", "content": "canonical hello"}])
-    client = _create_client(service, RunManager())
+    client = _create_client(service, ChatTurnRunManager())
 
     response = client.post("/threads/thread-1/history", json={})
     assert response.status_code == 200

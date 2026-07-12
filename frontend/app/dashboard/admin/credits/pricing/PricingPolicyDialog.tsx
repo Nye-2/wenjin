@@ -41,7 +41,7 @@ const DEFAULT_CONFIG = {
     reasoning_weight: 1,
     credits_per_1k_weighted_tokens: 6,
     min_chat_credits: 3,
-    min_feature_model_credits: 10,
+    min_mission_model_credits: 10,
     cost_guard_multiplier: 20,
     raw_cost: {
       input_usd_per_1m: 0,
@@ -57,7 +57,7 @@ const DEFAULT_CONFIG = {
     usd_to_cny: 7.3,
     target_margin_floor: 0.9,
   },
-  capability: {
+  mission: {
     estimate_min_credits: 10,
     estimate_max_credits: 100,
     max_charge_credits: 100,
@@ -177,7 +177,7 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
               <SelectContent>
                 <SelectItem value="global_credit">全局积分</SelectItem>
                 <SelectItem value="model_usage">模型消耗</SelectItem>
-                <SelectItem value="capability">能力执行</SelectItem>
+                <SelectItem value="mission">研究任务</SelectItem>
                 <SelectItem value="tool">工具调用</SelectItem>
                 <SelectItem value="sandbox">实验环境</SelectItem>
               </SelectContent>

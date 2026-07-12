@@ -240,9 +240,7 @@ class LatexFeedbackRewriteRequest(BaseModel):
     scope: LatexRewriteScope = "section"
     model_id: str | None = None
     file_content: str | None = None
-    candidate_count: int | None = Field(
-        default=None, ge=1, le=_MAX_REWRITE_CANDIDATES
-    )
+    candidate_count: int | None = Field(default=None, ge=1, le=_MAX_REWRITE_CANDIDATES)
     apply: bool = False
 
     @model_validator(mode="after")

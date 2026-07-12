@@ -15,8 +15,8 @@
 - `current/documentation-map.md`：当前文档总导航
 - `current/architecture.md`：唯一当前架构总览
 - `current/workspace-current-state.md`：workspace / thread / execution / Workbench / Prism 当前行为
-- `current/frontend-feature-plugin-contract.md`：前后端 feature / thread / execution 契约
-- `current/workspace-feature-catalog.md`：workspace type / capability / skill / expert template 当前目录
+- `current/frontend-mission-contract.md`：前后端 Mission / thread / review 契约
+- `current/workspace-mission-catalog.md`：MissionPolicy / WorkerSkill 当前目录
 - `current/workspace-reference-library.md`：Reference Library 与 citation 当前事实源
 - `current/wenjin-research-navigation-uiux.md`：科研工作台 UI/UX 与视觉系统事实源
 - `current/deployment-runbook.md`：Docker Compose-only 部署运行手册
@@ -30,7 +30,7 @@
 2. `docs/current/documentation-map.md`
 3. `docs/current/architecture.md`
 4. `docs/current/workspace-current-state.md`
-5. `docs/current/frontend-feature-plugin-contract.md`
+5. `docs/current/frontend-mission-contract.md`
 6. 需要时再看 `docs/current/` 下对应专题
 
 ## 治理规则

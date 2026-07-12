@@ -42,7 +42,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
       eyebrow: "Pricing",
       title: "清晰的 credits 定价，按科研任务实际使用结算。",
       subtitle:
-        "Wenjin 用 credits 承载模型调用、文献检索、capability 执行和实验环境运行消耗。余额、规则和流水统一回到账户后台查看。",
+        "Wenjin 用 credits 承载模型调用、文献检索、Mission 执行和实验环境运行消耗。余额、规则和流水统一回到账户后台查看。",
       badge: "当前阶段采用 credits 积分结算",
       account: "查看积分后台",
       start: "进入工作台",
@@ -54,7 +54,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
         price: "按实际使用折算积分",
       },
       {
-        title: "Capability 执行",
+        title: "Mission 执行",
         body: "覆盖文献定位、全文写作、审稿回复、实验结果包等长链路任务。",
         price: "按运行节点和模型消耗结算",
       },
@@ -81,7 +81,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
       eyebrow: "Pricing",
       title: "Transparent credits pricing for research work.",
       subtitle:
-        "Wenjin uses credits for model calls, literature search, capability execution, and experiment-environment runs. Balance, rules, and history live in the account dashboard.",
+        "Wenjin uses credits for model calls, literature search, Mission runs, and experiment-environment runs. Balance, rules, and history live in the account dashboard.",
       badge: "Credits-based billing",
       account: "Open credits dashboard",
       start: "Enter Workbench",
@@ -93,7 +93,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
         price: "Calculated by actual usage",
       },
       {
-        title: "Capability runs",
+        title: "Mission runs",
         body: "Long-running tasks such as literature positioning, manuscript writing, reviewer response, and experiment packs.",
         price: "Charged by run nodes and model usage",
       },

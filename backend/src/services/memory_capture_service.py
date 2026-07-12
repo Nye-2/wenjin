@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+
 from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
 
 logger = logging.getLogger(__name__)

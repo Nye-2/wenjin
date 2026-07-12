@@ -10,8 +10,8 @@ from pydantic import ValidationError
 
 from src.database.models.pricing_policy import PricingPolicyKind
 from src.dataservice.domains.pricing.contracts import (
-    CapabilityPricingPolicyConfig,
     GlobalCreditPolicyConfig,
+    MissionPricingPolicyConfig,
     ModelUsagePolicyConfig,
     PricingPolicyCreateCommand,
     PricingPolicyUpdateCommand,
@@ -163,9 +163,9 @@ def test_model_usage_policy_rejects_legacy_schema_fields() -> None:
         ModelUsagePolicyConfig(tokens_per_credit=1000)
 
 
-def test_capability_policy_requires_max_charge_not_below_estimate() -> None:
+def test_mission_policy_requires_max_charge_not_below_estimate() -> None:
     with pytest.raises(ValidationError):
-        CapabilityPricingPolicyConfig(estimate_max_credits=20, max_charge_credits=10)
+        MissionPricingPolicyConfig(estimate_max_credits=20, max_charge_credits=10)
 
 
 def test_sandbox_policy_requires_at_least_one_tier() -> None:
@@ -289,7 +289,7 @@ async def test_pricing_policy_seed_loader_creates_default_billing_facts_once() -
     assert set(repository.rows) == {
         "default-global-credit",
         "default-model-usage",
-        "default-capability",
+        "default-mission",
         "default-tool",
         "default-sandbox",
     }

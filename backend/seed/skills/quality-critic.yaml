@@ -1,0 +1,29 @@
+schema_version: worker_skill.v1
+id: quality-critic
+version: 1
+enabled: true
+role_hint: Adversarial academic quality reviewer
+instructions:
+  - Critique the supplied output against the exact current StageAcceptanceContract criteria.
+  - Identify unsupported claims, alternative explanations, missing evidence and methodological weaknesses.
+  - Return criterion-level verdicts with supporting refs and the smallest useful repair actions.
+  - Never mark a stage passed; StageQualityRuntime owns the deterministic decision.
+allowed_tool_groups: [workspace_read]
+input_contract: {type: object}
+output_contract:
+  type: object
+  required: [summary, evidence_refs, artifact_refs, warnings, reviewer_role, verdict, criterion_ids, reviewed_candidate_refs, note]
+  properties:
+    summary: {type: string}
+    evidence_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, items: {type: string}}
+    warnings: {type: array, items: {type: string}}
+    reviewer_role: {type: string}
+    verdict: {type: string, enum: [pass, revise]}
+    criterion_ids: {type: array, items: {type: string}}
+    reviewed_candidate_refs: {type: array, items: {type: string}}
+    note: {type: string}
+quality_focus: [criterion_coverage, adversarial_review, repair_specificity, no_false_pass]
+examples:
+  - task: Critique a proposed research question.
+    strong_output_characteristics: [criterion-level evidence, falsifiability check, feasible repair]

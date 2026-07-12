@@ -1,0 +1,102 @@
+schema_version: stage_acceptance_contract.v1
+contract_id: software_copyright_application.materials_inventory
+version: 1
+mission_policy_id: software_copyright_application
+workspace_type: software_copyright
+stage_id: materials_inventory
+stage_goal: Verify software identity, ownership, version and available source or screenshots.
+minimum_criteria:
+  - criterion_id: software_identity
+    description: Name, version, completion date, environment and purpose are explicit.
+  - criterion_id: ownership_boundary
+    description: Applicant, authorship and third-party boundaries are explicit.
+  - criterion_id: evidence_inventory
+    description: Code, screenshots, manuals and missing materials are enumerated without fabrication.
+required_artifacts: [{kind: software_evidence_inventory}]
+failure_modes: [ownership_unclear, missing_core_material]
+reviewer_roles: [software_material_reviewer]
+allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+advance_condition: Identity, ownership and source-material inventory pass.
+stop_condition: Ownership or software identity cannot be established.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: software_copyright_application.architecture_description
+version: 1
+mission_policy_id: software_copyright_application
+workspace_type: software_copyright
+stage_id: architecture_description
+stage_goal: Describe actual software structure, functions, data flow and operating environment.
+minimum_criteria:
+  - criterion_id: source_structure_alignment
+    description: Modules and functions trace to supplied code or user evidence.
+    required_evidence_surfaces: [source_provenance]
+  - criterion_id: diagram_consistency
+    description: Architecture and flow diagrams match the described system.
+    required_evidence_surfaces: [drawing_consistency]
+required_evidence_surfaces: [source_provenance, drawing_consistency]
+required_artifacts: [{kind: software_architecture_pack}]
+failure_modes: [invented_module, inconsistent_diagram]
+reviewer_roles: [software_architecture_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: high
+prerequisite_stage_ids: [materials_inventory]
+advance_condition: Every described module and diagram is grounded in supplied evidence.
+stop_condition: Core structure cannot be verified from available materials.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: software_copyright_application.evidence_alignment
+version: 1
+mission_policy_id: software_copyright_application
+workspace_type: software_copyright
+stage_id: evidence_alignment
+stage_goal: Align screenshots, code excerpts and functional descriptions without inventing evidence.
+minimum_criteria:
+  - criterion_id: screenshot_provenance
+    description: Screenshots identify origin, version and represented function.
+    required_evidence_surfaces: [screenshot_provenance]
+  - criterion_id: non_fabrication
+    description: All application facts trace to user material or verified artifacts.
+    required_evidence_surfaces: [non_fabrication_evidence]
+required_evidence_surfaces: [screenshot_provenance, non_fabrication_evidence]
+required_artifacts: [{kind: software_evidence_map}]
+failure_modes: [fabricated_screenshot, unsupported_feature]
+reviewer_roles: [software_evidence_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+prerequisite_stage_ids: [architecture_description]
+advance_condition: Screenshot, code and feature evidence align without unsupported facts.
+stop_condition: Required evidence remains missing or contradictory.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: software_copyright_application.application_pack
+version: 1
+mission_policy_id: software_copyright_application
+workspace_type: software_copyright
+stage_id: application_pack
+stage_goal: Produce a complete, internally consistent and reviewable registration package.
+minimum_criteria:
+  - criterion_id: document_consistency
+    description: Names, versions, dates, functions and ownership are consistent across files.
+  - criterion_id: required_sections
+    description: Required manual and application sections are present.
+  - criterion_id: reviewability
+    description: Every generated document and structural change is previewable.
+    required_evidence_surfaces: [review_packet_completeness]
+required_evidence_surfaces: [writing, review_packet_completeness, non_fabrication_evidence]
+required_artifacts: [{kind: software_copyright_pack}]
+failure_modes: [cross_file_mismatch, missing_section, unreviewable_output]
+reviewer_roles: [software_compliance_reviewer]
+allowed_actions_if_failed: [revise_existing, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: high
+prerequisite_stage_ids: [evidence_alignment]
+advance_condition: Completeness, consistency, provenance and reviewability all pass.
+stop_condition: A required legal or ownership fact cannot be confirmed.

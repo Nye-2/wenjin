@@ -47,18 +47,16 @@ class ProgressTracker:
         *,
         workspace_id: str | None = None,
         thread_id: str | None = None,
-        execution_id: str | None = None,
+        mission_id: str | None = None,
         task_type: str | None = None,
-        feature_id: str | None = None,
         worker_id: str | None = None,
     ) -> None:
         self._redis = redis_client
         self._task_id = task_id
         self._workspace_id = workspace_id
         self._thread_id = thread_id
-        self._execution_id = execution_id
+        self._mission_id = mission_id
         self._task_type = task_type
-        self._feature_id = feature_id
         self._worker_id = worker_id
 
     def _task_key(self) -> str:
@@ -81,8 +79,6 @@ class ProgressTracker:
             return None
 
         payload: dict[str, object] = {}
-        if self._feature_id:
-            payload["feature_id"] = self._feature_id
         if self._thread_id:
             payload["thread_id"] = self._thread_id
 
@@ -138,7 +134,7 @@ class ProgressTracker:
     ) -> None:
         """Publish progress event to Pub/Sub subscribers.
 
-        Redis pub/sub and the execution stream remain the primary channels.
+        Redis pub/sub and workspace events are the primary channels.
         """
         ts = now or datetime.now(UTC).isoformat()
         event_payload = {
@@ -164,13 +160,12 @@ class ProgressTracker:
             {
                 "task": {
                     "task_id": self._task_id,
-                    "execution_id": self._execution_id,
+                    "mission_id": self._mission_id,
                     "task_type": self._task_type,
                     "status": status,
                     "progress": progress,
                     "message": message,
                     "current_step": current_step,
-                    "feature_id": self._feature_id,
                     "thread_id": self._thread_id,
                     "metadata": metadata,
                 }

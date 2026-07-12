@@ -23,6 +23,9 @@ class _FakeModelCatalogService:
         self.created.append((dict(data), admin_id))
         return SimpleNamespace(**data)
 
+    async def update_capability_assessment(self, model_id: str, *, profile, evidence):
+        return SimpleNamespace(model_id=model_id, profile=profile, evidence=evidence)
+
 
 @pytest.mark.asyncio
 async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None:
@@ -37,8 +40,9 @@ async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None
                     "model": "deepseek-chat",
                     "api_key": "sk-test-123456",
                     "base_url": "https://api.example.com/v1",
-                    "supports_tools": True,
-                    "supports_thinking": True,
+                    "generation_api": "chat_completions",
+                    "provider_name": "OpenAI",
+                    "trust_level": "custom",
                     "pricing_policy_id": "deepseek-chat-policy",
                 }
             ]
@@ -68,8 +72,9 @@ async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None
     assert llm_seed["display_name"] == "DeepSeek Chat"
     assert llm_seed["category"] == "llm"
     assert llm_seed["is_default"] is True
-    assert llm_seed["supports_tools"] is True
-    assert llm_seed["supports_reasoning_effort"] is True
+    assert llm_seed["generation_api"] == "chat_completions"
+    assert llm_seed["provider_name"] == "OpenAI"
+    assert "supports_tools" not in llm_seed
     assert llm_seed["pricing_policy_id"] == "deepseek-chat-policy"
     image_seed, _admin_id = service.created[1]
     assert image_seed["category"] == "image"
@@ -88,6 +93,7 @@ async def test_model_catalog_seed_loader_binds_enabled_env_models_to_default_pri
                     "model": "mimo-v2",
                     "api_key": "sk-test-123456",
                     "base_url": "https://api.example.com/v1",
+                    "generation_api": "chat_completions",
                 }
             ]
         ),
@@ -127,6 +133,7 @@ async def test_model_catalog_seed_loader_does_not_overwrite_existing_catalog() -
                     "model": "new-model",
                     "api_key": "sk-test-123456",
                     "base_url": "https://api.example.com/v1",
+                    "generation_api": "chat_completions",
                 }
             ]
         )
@@ -138,4 +145,42 @@ async def test_model_catalog_seed_loader_does_not_overwrite_existing_catalog() -
     ).load_seeds_if_empty()
 
     assert loaded == 0
+    assert service.created == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source, message",
+    [
+        ({"LLM_MODELS": "{"}, "LLM_MODELS must contain valid JSON"),
+        ({"LLM_MODELS": json.dumps({"id": "not-a-list"})}, "LLM_MODELS must be a JSON list"),
+        ({"LLM_MODELS": json.dumps(["not-an-object"])}, "LLM_MODELS entries must be objects"),
+        (
+            {
+                "LLM_MODELS": json.dumps(
+                    [
+                        {
+                            "id": "broken",
+                            "model": "broken",
+                            "base_url": "https://api.example.com/v1",
+                        }
+                    ]
+                )
+            },
+            "invalid llm model catalog seed 'broken'",
+        ),
+    ],
+)
+async def test_model_catalog_seed_loader_rejects_invalid_seed_config(
+    source: dict[str, str],
+    message: str,
+) -> None:
+    service = _FakeModelCatalogService()
+
+    with pytest.raises(ValueError, match=message):
+        await DataServiceModelCatalogSeedLoader(
+            service,  # type: ignore[arg-type]
+            source=source,
+        ).load_seeds_if_empty()
+
     assert service.created == []

@@ -10,7 +10,7 @@ import {
 describe("credit-display", () => {
   it("renders public billing costs without token policy details", () => {
     expect(formatCreditCostLabel("thread")).toBe("主线对话");
-    expect(formatCreditCostLabel("feature")).toBe("功能任务");
+    expect(formatCreditCostLabel("mission")).toBe("研究任务");
     expect(formatCreditCostLabel("sandbox_run_python")).toBe("实验环境 Python");
     expect(
       renderCostValue({
@@ -58,10 +58,10 @@ describe("credit-display", () => {
       type: "workflow_consume",
       amount: -2,
       balance_after: 8,
-      description: "功能任务扣费 2 积分",
-      feature_id: "draft",
+      description: "研究任务扣费 2 积分",
+      mission_policy_id: "draft",
       metadata: {
-        type: "feature_token_billing",
+        type: "mission_token_billing",
         token_usage: {
           total_tokens: 15000,
         },

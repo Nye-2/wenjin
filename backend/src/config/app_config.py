@@ -1,6 +1,7 @@
 """Application configuration using Pydantic Settings."""
 
 import logging
+import os
 import sys
 import warnings
 from functools import lru_cache
@@ -52,6 +53,11 @@ class JWTSettings(BaseSettings):
     @model_validator(mode="after")
     def validate_secret_key(self) -> "JWTSettings":
         """Validate that the JWT secret key is not the default value in production."""
+        is_placeholder = self.secret_key == "change-me-in-production" or self.secret_key.startswith("replace-with-")
+        if os.getenv("ENVIRONMENT", "development").strip().lower() == "production" and (
+            is_placeholder or len(self.secret_key) < 32
+        ):
+            raise ValueError("JWT_SECRET_KEY must be a non-placeholder secret of at least 32 characters in production")
         if self.secret_key == "change-me-in-production":
             warnings.warn(
                 "JWT_SECRET_KEY is using the default value 'change-me-in-production'. "
@@ -278,23 +284,10 @@ class AppConfig(BaseSettings):
         alias="CORS_ORIGINS",
     )
 
-    # API Keys (fallback for simple setups)
-    openai_api_key: str | None = None
-
     @property
     def cors_origins(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
-    anthropic_api_key: str | None = None
-    deepseek_api_key: str | None = None
-    semantic_scholar_api_key: str | None = None
-    semantic_scholar_rate_limit_delay: float = Field(
-        default=1.0,
-        alias="SEMANTIC_SCHOLAR_RATE_LIMIT_DELAY",
-        ge=0.0,
-        le=60.0,
-        description="Minimum delay between Semantic Scholar API requests in seconds",
-    )
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/wenjin"
@@ -479,7 +472,7 @@ def get_image_vlm_settings() -> ImageVLMSettings:
     return ImageVLMSettings()
 
 
-# Convenience instances (backward compatible)
+# Process-wide settings instances.
 settings = get_settings()
 jwt_settings = get_jwt_settings()
 redis_settings = get_redis_settings()

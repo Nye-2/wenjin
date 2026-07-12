@@ -1,0 +1,71 @@
+schema_version: mission_policy.v1
+id: software_copyright_application
+version: 1
+workspace_type: software_copyright
+enabled: true
+visibility: route_hint
+display:
+  name: 软件著作权材料任务
+  description: 基于真实代码、截图与权属信息生成一致的软著申请材料
+routing:
+  when_to_use:
+    - 用户需要准备软件著作权申请、说明书、代码材料或证据检查。
+    - 任务需要从代码和截图中提取真实结构并形成申请包。
+  not_for:
+    - 普通软件开发问答或不涉及登记材料的代码解释。
+    - 论文、申报、数模或专利任务。
+  positive_examples:
+    - 根据这个项目整理软著申请材料。
+    - 检查说明书、截图和代码功能是否一致。
+    - 生成可复核的软件架构与操作说明。
+  negative_examples:
+    - 这个 Python 报错怎么修？
+    - 帮我写一篇 SCI 论文。
+    - 生成一套虚构的软件截图。
+mission:
+  objective: Produce a non-fabricated, internally consistent and reviewable software copyright package.
+  target_outcomes: [evidence_inventory, architecture_pack, evidence_map, application_pack]
+  hard_constraints:
+    - Software identity, ownership, code and screenshots come from user or verified artifacts.
+    - Generated diagrams and descriptions must match supplied software.
+    - Application documents remain reviewable before save.
+  forbidden_outcomes: [fabricated_screenshot, fabricated_module, invented_ownership, direct_workspace_write]
+minimum_context:
+  software_materials:
+    requirement: required
+    ask: 请先提供软件名称、版本和可核验的代码、截图或说明材料。
+  ownership_information:
+    requirement: optional
+  target_template:
+    requirement: optional
+stage_contract_refs:
+  - {contract_id: software_copyright_application.materials_inventory, schema_version: stage_acceptance_contract.v1, sha256: d6a726306cbb06715bdb1cdcd1b9e380884955245af77f99b686534ce5916e6d}
+  - {contract_id: software_copyright_application.architecture_description, schema_version: stage_acceptance_contract.v1, sha256: cf5047eda2b1eb03efa6270a733df400b5d26ce5b87d9cfb0e6d18d2f6843e49}
+  - {contract_id: software_copyright_application.evidence_alignment, schema_version: stage_acceptance_contract.v1, sha256: 7bbfdb0063293fa618013f78a8864e9e64526adec7ad1b0917e0b45762776426}
+  - {contract_id: software_copyright_application.application_pack, schema_version: stage_acceptance_contract.v1, sha256: 49536421ef735e09de394464b131189b90741f628c93e1495d05736963414362}
+tool_policy:
+  allowed_tool_groups: [workspace_read, source_code_read, sandbox_compute, artifact_render, draft_stage]
+  denied_tools: [room_direct_write, unrestricted_shell, synthetic_screenshot_generation]
+allowed_worker_skills: [task-scope-planner, software-documenter, figure-table-engineer, compliance-reviewer, quality-critic]
+review_policy:
+  default_mode: balanced_default
+  allowed_modes: [review_all, balanced_default, auto_draft]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+sandbox_policy_ref: {policy_id: sandbox.software_evidence, version: 1}
+examples:
+  - example_id: software_copyright.pack.excellent.v1
+    input_summary: 从真实代码结构、运行截图和权属事实形成一致申请包
+    expected_characteristics: [功能可追溯到代码, 截图有版本来源, 文档字段跨文件一致, 未知事实明确待用户确认]
+anti_examples:
+  - description: 为了补齐材料而虚构模块、功能、截图或开发日期。
+    failure_reason: 破坏申请材料真实性和证据链。
+completion_contract:
+  default_target: full_application
+  target_stage_sets:
+    architecture_pack: [materials_inventory, architecture_description]
+    evidence_pack: [materials_inventory, architecture_description, evidence_alignment]
+    full_application: [materials_inventory, architecture_description, evidence_alignment, application_pack]
+  terminal_outputs: [software_evidence_inventory, software_architecture_pack, software_evidence_map, software_copyright_pack]
+  allow_safe_partial_outputs: true
+delivery_profile_refs:
+  - {profile_id: software_copyright_cn_application, version: 1}

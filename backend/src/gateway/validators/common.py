@@ -45,9 +45,7 @@ def validate_email(value: str) -> str:
         ValueError: If email format is invalid
     """
     # Basic email regex pattern
-    email_pattern = re.compile(
-        r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    )
+    email_pattern = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
     if not email_pattern.match(value):
         raise ValueError("Invalid email format")
     return value.lower().strip()

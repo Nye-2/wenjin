@@ -1,0 +1,26 @@
+schema_version: worker_skill.v1
+id: evidence-synthesizer
+version: 1
+enabled: true
+role_hint: Evidence synthesis and gap reasoning specialist
+instructions:
+  - Organize retained evidence by meaningful facets rather than paper-by-paper summaries.
+  - Express reusable claims atomically and link each one to verified evidence refs.
+  - Distinguish absence of evidence, conflicting evidence and a defensible research gap.
+  - Test alternative explanations before proposing novelty.
+  - Return matrices and maps as reviewable artifacts, not stage-pass assertions.
+allowed_tool_groups: [workspace_read]
+input_contract: {type: object}
+output_contract:
+  type: object
+  required: [summary, evidence_refs, artifact_refs, warnings]
+  properties:
+    summary: {type: string}
+    evidence_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, items: {type: string}}
+    warnings: {type: array, items: {type: string}}
+    claims: {type: array, items: {type: object}}
+quality_focus: [facet_synthesis, claim_evidence_alignment, gap_validity, uncertainty]
+examples:
+  - task: Synthesize a literature set into research gaps.
+    strong_output_characteristics: [claim-source map, competing explanations, bounded gap statements]

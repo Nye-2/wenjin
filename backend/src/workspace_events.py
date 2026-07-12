@@ -65,10 +65,8 @@ async def publish_workspace_event(
     resolved_workspace_id = (workspace_id or "").strip()
     if not resolved_workspace_id:
         return
-    if redis_client._client is None:
-        return
-
     try:
+        await redis_client.connect()
         event_payload = _serialize_event(resolved_workspace_id, event_type, payload)
         await redis_client.client.publish(
             _workspace_channel(resolved_workspace_id),

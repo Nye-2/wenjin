@@ -21,11 +21,17 @@ def _service() -> CreditRedeemService:
 
 def _to_dict(code) -> dict[str, Any]:
     return {
-        "id": code.id, "code": code.code, "amount": code.amount,
-        "max_uses": code.max_uses, "use_count": code.use_count,
-        "per_user_limit": code.per_user_limit, "expires_at": code.expires_at,
-        "valid_from": code.valid_from, "enabled": code.enabled,
-        "batch_id": code.batch_id, "description": code.description,
+        "id": code.id,
+        "code": code.code,
+        "amount": code.amount,
+        "max_uses": code.max_uses,
+        "use_count": code.use_count,
+        "per_user_limit": code.per_user_limit,
+        "expires_at": code.expires_at,
+        "valid_from": code.valid_from,
+        "enabled": code.enabled,
+        "batch_id": code.batch_id,
+        "description": code.description,
         "created_at": code.created_at,
     }
 
@@ -41,8 +47,11 @@ async def list_codes(
     _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     codes = await service.list_by_filter(
-        batch_id=batch_id, enabled=enabled, keyword=keyword,
-        limit=page_size, offset=(page - 1) * page_size,
+        batch_id=batch_id,
+        enabled=enabled,
+        keyword=keyword,
+        limit=page_size,
+        offset=(page - 1) * page_size,
     )
     return {"items": [_to_dict(c) for c in codes], "page": page}
 
@@ -97,11 +106,16 @@ async def export_csv(
     writer = csv.writer(buf)
     writer.writerow(["code", "amount", "expires_at", "max_uses", "per_user_limit", "batch_id"])
     for c in codes:
-        writer.writerow([
-            c.code, c.amount,
-            c.expires_at.isoformat() if c.expires_at else "",
-            c.max_uses, c.per_user_limit, c.batch_id or "",
-        ])
+        writer.writerow(
+            [
+                c.code,
+                c.amount,
+                c.expires_at.isoformat() if c.expires_at else "",
+                c.max_uses,
+                c.per_user_limit,
+                c.batch_id or "",
+            ]
+        )
     return Response(
         content=buf.getvalue().encode("utf-8-sig"),
         media_type="text/csv",

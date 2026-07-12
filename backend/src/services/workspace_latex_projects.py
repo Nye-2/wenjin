@@ -10,10 +10,6 @@ from typing import Any
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.latex import LatexProjectAttachWorkspacePayload
-from src.dataservice_client.contracts.prism_review import (
-    PrismFileChangeClearPayload,
-    PrismFileChangeUpsertPayload,
-)
 from src.dataservice_client.provider import dataservice_client
 from src.services.latex import LatexProjectService
 
@@ -185,14 +181,6 @@ class WorkspaceLatexProjectService:
             current_content = None
 
         if current_content == content:
-            async with self._client() as client:
-                await client.clear_pending_prism_file_change(
-                    PrismFileChangeClearPayload(
-                        workspace_id=workspace_id,
-                        latex_project_id=str(project.id),
-                        logical_key=logical_key,
-                    )
-                )
             managed_files[logical_key] = {
                 "path": relative_path,
                 "content_hash": self._content_hash(content),
@@ -206,14 +194,6 @@ class WorkspaceLatexProjectService:
 
         if current_content is None or allow_existing_write:
             await self.project_service.write_text_file(project, relative_path, content)
-            async with self._client() as client:
-                await client.clear_pending_prism_file_change(
-                    PrismFileChangeClearPayload(
-                        workspace_id=workspace_id,
-                        latex_project_id=str(project.id),
-                        logical_key=logical_key,
-                    )
-                )
             managed_files[logical_key] = {
                 "path": relative_path,
                 "content_hash": self._content_hash(content),
@@ -221,37 +201,13 @@ class WorkspaceLatexProjectService:
             }
             return
 
-        current_matches_record = False
-        if isinstance(record, dict) and current_content is not None:
-            recorded_hash = str(record.get("content_hash") or "")
-            recorded_path = str(record.get("path") or "")
-            current_matches_record = (
-                recorded_path == relative_path
-                and recorded_hash == self._content_hash(current_content)
-            )
-
-        hashes = self._file_change_hashes(
-            pending_content=content,
-            current_content=current_content,
-        )
-        async with self._client() as client:
-            await client.upsert_pending_prism_file_change(
-                PrismFileChangeUpsertPayload(
-                    workspace_id=workspace_id,
-                    latex_project_id=str(project.id),
-                    logical_key=logical_key,
-                    path=relative_path,
-                    reason=self._proposal_reason(
-                        record,
-                        current_matches_record=current_matches_record,
-                    ),
-                    pending_content=content,
-                    pending_hash=str(hashes["pending_hash"]),
-                    current_hash=(
-                        str(hashes["current_hash"]) if hashes.get("current_hash") else None
-                    ),
-                )
-            )
+        # Existing user-authored files are never overwritten here. Mission writes
+        # enter through ReviewCommitRuntime, which owns previews and decisions.
+        managed_files[logical_key] = {
+            "path": relative_path,
+            "content_hash": self._content_hash(current_content),
+            "protected": True,
+        }
 
     async def sync_project(
         self,

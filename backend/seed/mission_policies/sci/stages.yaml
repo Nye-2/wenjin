@@ -1,0 +1,216 @@
+schema_version: stage_acceptance_contract.v1
+contract_id: sci_research.scope_topic
+version: 1
+mission_policy_id: sci_research
+workspace_type: sci
+stage_id: scope_topic
+stage_goal: Freeze a bounded, feasible research scope and intended deliverable.
+minimum_criteria:
+  - criterion_id: problem_boundary
+    description: The object, setting, population or data boundary is explicit.
+  - criterion_id: target_outcome
+    description: The requested research outcome and stopping point are explicit.
+  - criterion_id: feasibility_bounds
+    description: Available data, tools, time and known constraints are recorded.
+excellent_criteria:
+  - criterion_id: falsifiable_scope
+    description: The scope already suggests a falsifiable question.
+required_artifacts:
+  - kind: research_brief
+failure_modes: [topic_too_broad, missing_materials, infeasible_scope]
+reviewer_roles: [research_scope_reviewer]
+allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+advance_condition: All minimum scope criteria and the research brief are present.
+stop_condition: Required user material is unavailable or repeated revisions do not narrow the scope.
+anti_examples:
+  - A broad topic label is treated as a complete research question.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: sci_research.literature_positioning
+version: 1
+mission_policy_id: sci_research
+workspace_type: sci
+stage_id: literature_positioning
+stage_goal: Establish a source-grounded literature map, gap and contribution neighborhood.
+minimum_criteria:
+  - criterion_id: source_coverage
+    description: Retained sources cover the main method, application and competing approach facets.
+    required_evidence_surfaces: [literature, citation_strength]
+  - criterion_id: relevance_screening
+    description: Included and excluded sources have explicit relevance reasons.
+    required_evidence_surfaces: [paper_relevance]
+  - criterion_id: gap_support
+    description: Every proposed gap is linked to verified sources and uncertainty is explicit.
+    required_evidence_surfaces: [claim_evidence_alignment]
+excellent_criteria:
+  - criterion_id: competing_explanations
+    description: The synthesis tests whether each gap is truly absent rather than terminological.
+required_evidence_surfaces: [literature, citation_strength, paper_relevance, claim_evidence_alignment]
+required_artifacts:
+  - kind: literature_matrix
+  - kind: gap_map
+failure_modes: [source_gap, weak_relevance, fabricated_citation, unsupported_gap]
+reviewer_roles: [evidence_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [scope_topic]
+advance_condition: The literature matrix and gap map satisfy every source and claim requirement.
+stop_condition: Native search or required source material remains unavailable after bounded repair attempts.
+anti_examples:
+  - A plausible-sounding gap is accepted without a claim-to-source map.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: sci_research.research_question
+version: 1
+mission_policy_id: sci_research
+workspace_type: sci
+stage_id: research_question
+stage_goal: Produce a narrow, falsifiable and empirically feasible research question.
+minimum_criteria:
+  - criterion_id: narrow_question
+    description: Variables, setting, comparison and intended outcome are bounded.
+  - criterion_id: real_gap
+    description: The question directly addresses a verified literature gap.
+    required_evidence_surfaces: [claim_evidence_alignment]
+  - criterion_id: feasible_path
+    description: A concrete data, method and evaluation path can test the question.
+  - criterion_id: claim_evidence_plan
+    description: Intended contribution claims identify the evidence needed to support them.
+    required_evidence_surfaces: [claim_evidence_alignment]
+excellent_criteria:
+  - criterion_id: novelty_feasibility_balance
+    description: Novelty is ambitious without exceeding available data and compute.
+required_evidence_surfaces: [claim_evidence_alignment]
+required_artifacts:
+  - kind: research_question_brief
+failure_modes: [question_too_broad, novelty_only_by_wording, infeasible_validation]
+reviewer_roles: [research_question_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [literature_positioning]
+advance_condition: The question, gap, feasibility and evidence plan all pass reviewer critique.
+stop_condition: No feasible question survives evidence review within the attempt budget.
+exemplar_refs:
+  - ref_id: sci.research_question.excellent.v1
+    sha256: 5f5f7486e671a752a81266475aca132051ea055f29ed0ef1cec62575c54ae8c5
+require_exemplar_comparison: true
+anti_examples:
+  - Combining two fashionable techniques is called a contribution without a falsifiable gap.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: sci_research.method_design
+version: 1
+mission_policy_id: sci_research
+workspace_type: sci
+stage_id: method_design
+stage_goal: Specify a logically complete method that can be implemented and audited.
+minimum_criteria:
+  - criterion_id: inputs_variables_outputs
+    description: Inputs, variables, outputs and optimization targets are defined.
+  - criterion_id: mechanism_logic
+    description: Each method component has a reason and maps to the research question.
+    required_evidence_surfaces: [claim_evidence_alignment]
+  - criterion_id: assumptions_risks
+    description: Assumptions, failure conditions and threats to validity are explicit.
+  - criterion_id: implementation_path
+    description: The design has enough detail for an independent implementation.
+excellent_criteria:
+  - criterion_id: minimal_method
+    description: Every component earns its complexity through an identified hypothesis or ablation.
+required_evidence_surfaces: [claim_evidence_alignment]
+required_artifacts:
+  - kind: methodology_plan
+failure_modes: [method_handwave, hidden_assumption, unnecessary_complexity]
+reviewer_roles: [methodology_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [research_question]
+advance_condition: The method is complete, motivated and independently implementable.
+stop_condition: Critical method details remain unknowable or infeasible after bounded revision.
+anti_examples:
+  - Method names replace equations, algorithms, assumptions and implementation detail.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: sci_research.experiment_design
+version: 1
+mission_policy_id: sci_research
+workspace_type: sci
+stage_id: experiment_design
+stage_goal: Define a reproducible experiment that can validate or falsify the contribution.
+minimum_criteria:
+  - criterion_id: datasets_splits
+    description: Datasets, sampling, splits, preprocessing and leakage controls are defined.
+  - criterion_id: baselines_metrics
+    description: Competitive baselines and decision-relevant metrics are justified.
+    required_evidence_surfaces: [claim_evidence_alignment]
+  - criterion_id: ablation_robustness
+    description: Ablations, sensitivity checks and failure cases isolate the contribution.
+    required_evidence_surfaces: [statistical_robustness]
+  - criterion_id: reproducibility_plan
+    description: Seeds, environment, scripts, parameters and artifact capture are specified.
+    required_evidence_surfaces: [experiment_reproducibility]
+excellent_criteria:
+  - criterion_id: decision_power
+    description: Expected outcomes clearly distinguish the proposed mechanism from alternatives.
+required_evidence_surfaces: [claim_evidence_alignment, statistical_robustness, experiment_reproducibility]
+required_artifacts:
+  - kind: experiment_plan
+    requires_manifest: true
+failure_modes: [data_leakage, weak_baseline, metric_mismatch, irreproducible_plan]
+reviewer_roles: [experiment_reviewer, reproducibility_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [method_design]
+advance_condition: Dataset, comparison, metric, ablation, statistics and reproducibility criteria pass.
+stop_condition: The research question cannot be tested with available data or resources.
+anti_examples:
+  - A single accuracy score against a weak baseline is treated as sufficient validation.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: sci_research.writing_or_revision
+version: 1
+mission_policy_id: sci_research
+workspace_type: sci
+stage_id: writing_or_revision
+stage_goal: Produce coherent manuscript changes whose claims, citations and results remain reviewable.
+minimum_criteria:
+  - criterion_id: argument_chain
+    description: Problem, gap, method, evidence and contribution form a consistent argument.
+    required_evidence_surfaces: [argument_chain]
+  - criterion_id: claim_source_binding
+    description: Every citation-bearing or result claim links to verified evidence or an artifact.
+    required_evidence_surfaces: [citation_strength, claim_evidence_alignment]
+  - criterion_id: semantic_preservation
+    description: Revisions preserve intended meaning and protected structure.
+    required_evidence_surfaces: [writing_semantic_preservation, protected_section_safety]
+  - criterion_id: reviewable_change
+    description: The complete change is previewable and represented by atomic review candidates.
+    required_evidence_surfaces: [review_packet_completeness]
+excellent_criteria:
+  - criterion_id: concise_academic_style
+    description: The manuscript is precise, appropriately cautious and structurally economical.
+required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, argument_chain, writing_semantic_preservation, protected_section_safety, review_packet_completeness]
+required_artifacts:
+  - kind: manuscript_draft
+failure_modes: [unsupported_claim, citation_mismatch, semantic_drift, unreviewable_change]
+reviewer_roles: [manuscript_reviewer, evidence_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 5
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [experiment_design]
+advance_condition: All hard writing, evidence and reviewability criteria pass.
+stop_condition: Unsupported claims or unsafe structural edits remain after the repair budget.
+anti_examples:
+  - Fluent prose hides missing evidence, uncertain results or an unpreviewable structural rewrite.

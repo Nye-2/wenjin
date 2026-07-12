@@ -73,14 +73,14 @@ class SandboxDataService:
         *,
         workspace_id: str,
         sandbox_environment_id: str | None = None,
-        execution_id: str | None = None,
+        mission_id: str | None = None,
         status: str | None = None,
         limit: int = 50,
     ) -> list[SandboxJobProjection]:
         return await self._domain.list_jobs(
             workspace_id=workspace_id,
             sandbox_environment_id=sandbox_environment_id,
-            execution_id=execution_id,
+            mission_id=mission_id,
             status=status,
             limit=limit,
         )

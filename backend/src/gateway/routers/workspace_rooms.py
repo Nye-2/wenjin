@@ -3,8 +3,8 @@
 All endpoints live under /workspaces/{ws_id}/<room> and enforce workspace
 ownership via ``_assert_workspace_owner``.
 
-Rooms covered (spec §5.3):
-  library | decisions | runs | tasks | settings
+Rooms covered:
+  library | decisions | tasks | settings
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.contracts.change_set import WriteMode, normalize_write_mode
+from src.contracts.review_policy import ReviewMode, normalize_review_mode
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.rooms import (
     DecisionSetPayload,
@@ -99,7 +99,7 @@ class WorkspaceTaskCreateRequest(BaseModel):
     description: str | None = None
     status: str = "pending"
     priority: int = 0
-    related_execution_ids: list[str] = []
+    related_mission_ids: list[str] = []
     created_by: str = "user"
 
 
@@ -108,27 +108,28 @@ class WorkspaceTaskUpdateRequest(BaseModel):
     description: str | None = None
     status: str | None = None
     priority: int | None = None
-    related_execution_ids: list[str] | None = None
+    related_mission_ids: list[str] | None = None
 
 
 # ── Settings ─────────────────────────────────────────────────────────────────
 
 
 class WorkspaceSettingsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     default_model: str | None = None
     thinking_enabled: bool | None = None
     sandbox_provider: str | None = None
     auto_compact_threshold: float | None = None
-    capability_overrides: dict[str, Any] | None = None
-    write_mode: WriteMode | None = None
+    review_mode: ReviewMode | None = None
     metadata_json: dict[str, Any] | None = None
 
-    @field_validator("write_mode", mode="before")
+    @field_validator("review_mode", mode="before")
     @classmethod
-    def _normalize_write_mode(cls, value: Any) -> WriteMode | None:
+    def _normalize_review_mode(cls, value: Any) -> ReviewMode | None:
         if value is None:
             return None
-        return normalize_write_mode(value)
+        return normalize_review_mode(value)
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +140,7 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
 def _row_to_dict(row: Any) -> dict[str, Any]:
     """Best-effort ORM row → plain dict serialisation."""
     if hasattr(row, "__dict__"):
-        return {
-            k: v
-            for k, v in row.__dict__.items()
-            if not k.startswith("_")
-        }
+        return {k: v for k, v in row.__dict__.items() if not k.startswith("_")}
     return dict(row)
 
 
@@ -153,108 +150,11 @@ def _library_item_to_dict(row: Any) -> dict[str, Any]:
     authors = data.get("authors")
     if not isinstance(authors, list):
         authors = data.get("authors_json") if isinstance(data.get("authors_json"), list) else []
-    added_by = (
-        data.get("added_by")
-        or data.get("source_label")
-        or data.get("ingest_label")
-        or data.get("source_type")
-        or data.get("ingest_kind")
-        or "library"
-    )
+    added_by = data.get("added_by") or data.get("source_label") or data.get("ingest_label") or data.get("source_type") or data.get("ingest_kind") or "library"
     return {
         **data,
         "authors": authors,
         "added_by": added_by,
-    }
-
-
-def _execution_to_run_dict(row: Any) -> dict[str, Any]:
-    """Project an execution record into the workspace Runs room contract."""
-    result = getattr(row, "result", None) or {}
-    task_report = result.get("task_report") if isinstance(result, dict) else None
-    if not isinstance(task_report, dict):
-        task_report = {}
-
-    raw_usage = task_report.get("token_usage")
-    token_usage = None
-    if isinstance(raw_usage, dict):
-        token_usage = {
-            "input": int(raw_usage.get("input") or raw_usage.get("input_tokens") or 0),
-            "output": int(raw_usage.get("output") or raw_usage.get("output_tokens") or 0),
-        }
-
-    raw_review_items = task_report.get("review_items")
-    review_items = raw_review_items if isinstance(raw_review_items, list) else []
-    review_items_count = sum(
-        1
-        for item in review_items
-        if isinstance(item, dict)
-        and (
-            item.get("kind") == "prism_file_change"
-            or item.get("target_domain") == "prism"
-            or (
-                isinstance(item.get("target"), dict)
-                and item["target"].get("kind") == "prism_file_change"
-            )
-        )
-    )
-    raw_errors = task_report.get("errors")
-    errors = raw_errors if isinstance(raw_errors, list) else []
-    first_error = next((item for item in errors if isinstance(item, dict)), None)
-    failure_message = (
-        getattr(row, "last_error", None)
-        or getattr(row, "error", None)
-        or (first_error.get("error") if first_error else None)
-    )
-    status_value = getattr(row, "status", "running")
-    failure_category = None
-    if status_value in {"failed", "failed_partial"}:
-        lower_error = str(failure_message or "").lower()
-        if "queue" in lower_error or "celery" in lower_error or "dispatch" in lower_error:
-            failure_category = "queue_failed"
-        elif "writeback" in lower_error or "write back" in lower_error:
-            failure_category = "writeback_failed"
-        elif status_value == "failed_partial":
-            failure_category = "node_failed"
-        else:
-            failure_category = "unknown"
-
-    started_at = getattr(row, "started_at", None) or getattr(row, "created_at", None)
-    completed_at = getattr(row, "completed_at", None)
-    feature_id = getattr(row, "feature_id", None)
-
-    return {
-        "id": str(getattr(row, "id", "")),
-        "workspace_id": getattr(row, "workspace_id", None),
-        "thread_id": getattr(row, "thread_id", None),
-        "capability_id": feature_id,
-        "capability_name": (
-            getattr(row, "display_name", None)
-            or feature_id
-            or getattr(row, "execution_type", None)
-            or "Execution"
-        ),
-        "status": status_value,
-        "started_at": started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at or ""),
-        "completed_at": (
-            completed_at.isoformat()
-            if hasattr(completed_at, "isoformat")
-            else (str(completed_at) if completed_at else None)
-        ),
-        "summary": (
-            getattr(row, "result_summary", None)
-            or task_report.get("narrative")
-            or getattr(row, "message", None)
-            or getattr(row, "error", None)
-            or ""
-        ),
-        "token_usage": token_usage,
-        "progress": getattr(row, "progress", None),
-        "primary_surface": "prism" if review_items_count > 0 else "rooms",
-        "review_items_count": review_items_count,
-        "has_prism_changes": review_items_count > 0,
-        "failure_category": failure_category,
-        "failure_message": failure_message,
     }
 
 
@@ -413,39 +313,6 @@ async def delete_decision(
 
 
 # ===========================================================================
-# RUNS (read-only history) endpoints
-# ===========================================================================
-
-
-@router.get("/{ws_id}/runs")
-async def list_runs(
-    ws_id: str,
-    limit: int = Query(50, ge=1, le=200),
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> dict[str, Any]:
-    await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    runs = await dataservice.list_executions(workspace_id=ws_id, limit=limit)
-    return {"items": [_execution_to_run_dict(r) for r in runs], "count": len(runs)}
-
-
-@router.get("/{ws_id}/runs/{run_id}")
-async def get_run(
-    ws_id: str,
-    run_id: str,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> dict[str, Any]:
-    await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    run = await dataservice.get_execution(run_id)
-    if run is None or run.workspace_id != ws_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    return _execution_to_run_dict(run)
-
-
-# ===========================================================================
 # TASKS endpoints
 # ===========================================================================
 
@@ -472,9 +339,7 @@ async def create_workspace_task(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    task = await dataservice.create_room_task(
-        WorkspaceTaskCreatePayload(workspace_id=ws_id, **body.model_dump())
-    )
+    task = await dataservice.create_room_task(WorkspaceTaskCreatePayload(workspace_id=ws_id, **body.model_dump()))
     return _row_to_dict(task)
 
 

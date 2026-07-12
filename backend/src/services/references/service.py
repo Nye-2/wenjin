@@ -76,24 +76,13 @@ def _coerce_enum_value(enum_cls: type[Any], value: Any, field_name: str) -> str:
 
 
 def _reference_source_type_for_search_source(source: str) -> ReferenceSourceType:
-    normalized = str(source or "").strip()
-    if normalized == "semantic_scholar":
-        return ReferenceSourceType.SEMANTIC_SCHOLAR
-    if normalized == "web_search":
-        return ReferenceSourceType.WEB_SEARCH
-    if normalized == "curated_academic":
-        return ReferenceSourceType.CURATED_ACADEMIC
-    return ReferenceSourceType.DEEP_SEARCH
+    del source
+    return ReferenceSourceType.PAPER
 
 
 def _reference_source_label_for_search_source(source: str) -> str:
     normalized = str(source or "").strip()
-    labels = {
-        "semantic_scholar": "Semantic Scholar",
-        "web_search": "Web search",
-        "curated_academic": "Curated academic corpus",
-    }
-    return labels.get(normalized, "Literature search")
+    return "Model-native web search" if normalized else "Literature search"
 
 
 def _serialize_datetime(value: Any) -> str | None:
@@ -189,7 +178,8 @@ def _source_import_command(
         citation_count=safe_int(citation_count),
         ingest_kind=_enum_value(source_type),
         ingest_label=source_label,
-        ingest_execution_id=source_run_id or source_artifact_id,
+        ingest_mission_id=source_run_id,
+        ingest_mission_commit_id=source_artifact_id,
         verified_at=verified_at if hasattr(verified_at, "isoformat") else utc_now() if verified_at else None,
         library_status=_enum_value(library_status),
         evidence_level=_enum_value(evidence_level),
@@ -223,8 +213,8 @@ def _serialize_source_reference(source: Any) -> dict[str, Any]:
         "citation_count": source.citation_count,
         "source_type": source.ingest_kind,
         "source_label": source.ingest_label,
-        "source_run_id": source.ingest_execution_id,
-        "source_artifact_id": source.ingest_execution_id,
+        "source_run_id": source.ingest_mission_id,
+        "source_artifact_id": source.ingest_mission_commit_id,
         "verified_at": verified_at.isoformat() if verified_at else None,
         "library_status": source.library_status,
         "evidence_level": source.evidence_level,
@@ -335,72 +325,6 @@ class SourceLibraryImportService:
                 created_count += 1 if result.created else 0
                 imported.append(_serialize_source_reference(result.source))
 
-        return {"imported": len(imported), "created": created_count, "items": imported}
-
-    async def import_deep_search_artifact(
-        self,
-        *,
-        workspace_id: str,
-        artifact_ids: Sequence[str],
-    ) -> dict[str, Any]:
-        if not artifact_ids:
-            return {"imported": 0, "created": 0, "items": []}
-        async with _managed_dataservice_client(self._dataservice) as client:
-            artifacts = [
-                artifact
-                for artifact_id in artifact_ids
-                if (
-                    artifact := await client.get_workspace_artifact(str(artifact_id))
-                )
-                is not None
-                and str(artifact.workspace_id) == workspace_id
-            ]
-        candidates: list[dict[str, Any]] = []
-        for artifact in artifacts:
-            content = artifact.content if isinstance(artifact.content, dict) else {}
-            for paper in self._iter_artifact_reference_candidates(content):
-                paper = dict(paper)
-                paper.setdefault("source_artifact_id", str(artifact.id))
-                candidates.append(paper)
-
-        imported: list[dict[str, Any]] = []
-        created_count = 0
-        async with _managed_dataservice_client(self._dataservice) as client:
-            for candidate in candidates:
-                title = str(candidate.get("title") or "").strip()
-                if not title:
-                    continue
-                result = await client.import_source(
-                    _source_import_command(
-                        workspace_id=workspace_id,
-                        title=title,
-                        authors=candidate.get("authors"),
-                        year=candidate.get("year"),
-                        venue=candidate.get("venue"),
-                        doi=candidate.get("doi"),
-                        url=candidate.get("url"),
-                        abstract=candidate.get("abstract") or candidate.get("summary"),
-                        citation_count=candidate.get("citations_count") or candidate.get("citation_count"),
-                        source_type=ReferenceSourceType.DEEP_SEARCH,
-                        source_label="Deep search",
-                        source_artifact_id=str(candidate.get("source_artifact_id") or ""),
-                        library_status=ReferenceLibraryStatus.CANDIDATE,
-                        evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED
-                        if candidate.get("external_id") or candidate.get("doi")
-                        else ReferenceEvidenceLevel.METADATA_ONLY,
-                        external_ids=[
-                            {
-                                "source": str(candidate.get("source") or "deep_search"),
-                                "external_id": str(candidate.get("external_id") or ""),
-                                "url": candidate.get("url"),
-                            }
-                        ]
-                        if candidate.get("external_id")
-                        else [],
-                    )
-                )
-                created_count += 1 if result.created else 0
-                imported.append(_serialize_source_reference(result.source))
         return {"imported": len(imported), "created": created_count, "items": imported}
 
     async def import_bibtex(self, *, workspace_id: str, content: str) -> dict[str, Any]:
@@ -614,7 +538,7 @@ class SourceLibraryImportService:
     @staticmethod
     def _iter_artifact_reference_candidates(content: dict[str, Any]) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
-        for key in ("verified_papers", "semantic_scholar_results"):
+        for key in ("verified_papers",):
             values = content.get(key)
             if isinstance(values, list):
                 candidates.extend(item for item in values if isinstance(item, dict))

@@ -28,9 +28,7 @@ class SandboxRepository:
         return record
 
     async def get_environment(self, environment_id: str) -> SandboxEnvironmentRecord | None:
-        result = await self.session.execute(
-            select(SandboxEnvironmentRecord).where(SandboxEnvironmentRecord.id == environment_id)
-        )
+        result = await self.session.execute(select(SandboxEnvironmentRecord).where(SandboxEnvironmentRecord.id == environment_id))
         return result.scalar_one_or_none()
 
     async def get_active_environment(self, workspace_id: str) -> SandboxEnvironmentRecord | None:
@@ -66,12 +64,7 @@ class SandboxRepository:
         state: str | None = None,
         limit: int = 50,
     ) -> list[SandboxEnvironmentRecord]:
-        query = (
-            select(SandboxEnvironmentRecord)
-            .where(SandboxEnvironmentRecord.workspace_id == workspace_id)
-            .order_by(SandboxEnvironmentRecord.updated_at.desc())
-            .limit(limit)
-        )
+        query = select(SandboxEnvironmentRecord).where(SandboxEnvironmentRecord.workspace_id == workspace_id).order_by(SandboxEnvironmentRecord.updated_at.desc()).limit(limit)
         if state is not None:
             query = query.where(SandboxEnvironmentRecord.state == state)
         result = await self.session.execute(query)
@@ -83,9 +76,7 @@ class SandboxRepository:
         return record
 
     async def get_job(self, job_id: str) -> SandboxJobRecord | None:
-        result = await self.session.execute(
-            select(SandboxJobRecord).where(SandboxJobRecord.id == job_id)
-        )
+        result = await self.session.execute(select(SandboxJobRecord).where(SandboxJobRecord.id == job_id))
         return result.scalar_one_or_none()
 
     async def list_jobs(
@@ -93,20 +84,15 @@ class SandboxRepository:
         *,
         workspace_id: str,
         sandbox_environment_id: str | None = None,
-        execution_id: str | None = None,
+        mission_id: str | None = None,
         status: str | None = None,
         limit: int = 50,
     ) -> list[SandboxJobRecord]:
-        query = (
-            select(SandboxJobRecord)
-            .where(SandboxJobRecord.workspace_id == workspace_id)
-            .order_by(SandboxJobRecord.created_at.desc())
-            .limit(limit)
-        )
+        query = select(SandboxJobRecord).where(SandboxJobRecord.workspace_id == workspace_id).order_by(SandboxJobRecord.created_at.desc()).limit(limit)
         if sandbox_environment_id is not None:
             query = query.where(SandboxJobRecord.sandbox_environment_id == sandbox_environment_id)
-        if execution_id is not None:
-            query = query.where(SandboxJobRecord.execution_id == execution_id)
+        if mission_id is not None:
+            query = query.where(SandboxJobRecord.mission_id == mission_id)
         if status is not None:
             query = query.where(SandboxJobRecord.status == status)
         result = await self.session.execute(query)
@@ -123,20 +109,14 @@ class SandboxRepository:
         return record
 
     async def get_lease_for_update(self, workspace_id: str) -> SandboxLeaseRecord | None:
-        result = await self.session.execute(
-            select(SandboxLeaseRecord)
-            .where(SandboxLeaseRecord.workspace_id == workspace_id)
-            .with_for_update()
-        )
+        result = await self.session.execute(select(SandboxLeaseRecord).where(SandboxLeaseRecord.workspace_id == workspace_id).with_for_update())
         return result.scalar_one_or_none()
 
     async def delete_lease(self, record: SandboxLeaseRecord) -> None:
         await self.session.delete(record)
 
     async def get_artifact(self, artifact_id: str) -> SandboxArtifactRecord | None:
-        result = await self.session.execute(
-            select(SandboxArtifactRecord).where(SandboxArtifactRecord.id == artifact_id)
-        )
+        result = await self.session.execute(select(SandboxArtifactRecord).where(SandboxArtifactRecord.id == artifact_id))
         return result.scalar_one_or_none()
 
     async def list_artifacts(
@@ -147,12 +127,7 @@ class SandboxRepository:
         materialization_status: str | None = None,
         limit: int = 50,
     ) -> list[SandboxArtifactRecord]:
-        query = (
-            select(SandboxArtifactRecord)
-            .where(SandboxArtifactRecord.workspace_id == workspace_id)
-            .order_by(SandboxArtifactRecord.created_at.desc())
-            .limit(limit)
-        )
+        query = select(SandboxArtifactRecord).where(SandboxArtifactRecord.workspace_id == workspace_id).order_by(SandboxArtifactRecord.created_at.desc()).limit(limit)
         if sandbox_job_id is not None:
             query = query.where(SandboxArtifactRecord.sandbox_job_id == sandbox_job_id)
         if materialization_status is not None:

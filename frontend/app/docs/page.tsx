@@ -62,7 +62,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Agent Team",
         title: "左侧对话理解意图，右侧研究团队推进执行",
         body:
-          "用户在左侧描述任务；问津在右侧按 capability 召集团队成员、分配技能，并把过程投射成可确认工作面。",
+          "用户在左侧描述任务；问津依据 MissionPolicy 组织任务、分配 WorkerSkill，并把过程投射成可确认工作面。",
       },
       {
         label: "Confirm",
@@ -79,7 +79,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       items: [
         "Workspace 持久层：Library、Prism 文件、Decisions、Run History、实验环境、Tasks、Settings，以及后台隐藏维护的一份 workspace memory。",
         "7 种消息 block：text、thinking、status_line、question_card、result_card、tool_invocation、tool_result。",
-        "Capability 数据驱动：YAML seed + DB 配置，管理员可在后台调整。",
+        "MissionPolicy 与 WorkerSkill 由数据库目录统一管理，阶段契约和工具范围随任务固定。",
         "实验环境单 workspace 单实例，随任务复用，启动按积分计费。",
       ],
     },
@@ -94,7 +94,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         {
           index: "02",
           title: "让研究团队组织执行",
-          body: "问津从 capability 和团队模板中选择合适成员，推进检索、写作、实验或质量检查。",
+          body: "问津依据 MissionPolicy 选择合适的 WorkerSkill，推进检索、写作、实验或质量检查。",
         },
         {
           index: "03",
@@ -130,24 +130,24 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Agent Team",
         title: "Conversation frames intent. The research team runs work.",
         body:
-          "Users describe work on the left. Wenjin recruits team members through capabilities and projects execution into the right workbench.",
+          "Users describe work on the left. Wenjin organizes a Mission under a pinned policy and projects progress into the right workbench.",
       },
       {
         label: "Confirm",
         title: "Outputs are confirmed before commit",
         body:
-          "Execution results are staged as result cards. Users can accept all by default or select the exact items to commit.",
+          "Mission results are staged for review. Users can confirm ordinary items in batches while sensitive claims remain item-by-item.",
       },
     ],
     contract: {
       eyebrow: "Product contract",
       title: "Future expansion should return to one stable structure.",
       body:
-        "New team roles, prompts, and workflows should converge on the same product objects instead of creating scattered feature paths.",
+        "New team roles, prompts, and workflows should converge on the same product objects instead of creating parallel task paths.",
       items: [
         "Workspace persistence: Library, Prism files, Decisions, Run History, Experiment Environment, Tasks, Settings, plus one hidden workspace memory document.",
         "7 message blocks: text, thinking, status_line, question_card, result_card, tool_invocation, tool_result.",
-        "Data-driven capabilities: YAML seeds plus DB-backed runtime configuration.",
+        "MissionPolicy and WorkerSkill catalogs: database-owned policy, stage contracts, and bounded tool access.",
         "One experiment environment per workspace, reused across experiments, with startup billed in credits.",
       ],
     },
@@ -162,7 +162,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         {
           index: "02",
           title: "Let the research team organize execution",
-          body: "Wenjin selects the right capability and team members for retrieval, writing, experiment, or quality-check work.",
+          body: "Wenjin selects the MissionPolicy and WorkerSkills for retrieval, writing, experiment, or quality-check work.",
         },
         {
           index: "03",

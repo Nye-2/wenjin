@@ -10,11 +10,6 @@ import pytest
 
 from src.database.base import Base
 from src.dataservice.common.errors import DataServiceValidationError
-from src.dataservice.domains.review.contracts import (
-    ReviewBatchDetailProjection,
-    ReviewBatchProjection,
-    ReviewItemProjection,
-)
 from src.dataservice.domains.sandbox.contracts import (
     SandboxArtifactCreateCommand,
     SandboxEnvironmentCreateCommand,
@@ -30,7 +25,6 @@ from src.dataservice.domains.sandbox.models import (
     SandboxJobRecord,
 )
 from src.dataservice.domains.sandbox.policy import validate_python_job_contract
-from src.dataservice.domains.sandbox.review_handler import build_sandbox_artifact_review_handler
 from src.dataservice.domains.sandbox.service import SandboxDataDomainService
 
 
@@ -115,15 +109,15 @@ class FakeSandboxRepository:
         *,
         workspace_id: str,
         sandbox_environment_id: str | None = None,
-        execution_id: str | None = None,
+        mission_id: str | None = None,
         status: str | None = None,
         limit: int = 50,
     ) -> list[SimpleNamespace]:
         records = [record for record in self.jobs.values() if record.workspace_id == workspace_id]
         if sandbox_environment_id is not None:
             records = [record for record in records if record.sandbox_environment_id == sandbox_environment_id]
-        if execution_id is not None:
-            records = [record for record in records if record.execution_id == execution_id]
+        if mission_id is not None:
+            records = [record for record in records if record.mission_id == mission_id]
         if status is not None:
             records = [record for record in records if record.status == status]
         return records[:limit]
@@ -145,8 +139,7 @@ class FakeSandboxRepository:
         record = _record(
             {
                 "id": artifact_id,
-                "review_batch_id": None,
-                "review_item_id": None,
+                "mission_commit_id": None,
                 **values,
             }
         )
@@ -172,62 +165,12 @@ class FakeSandboxRepository:
         return records[:limit]
 
 
-class FakeReviewService:
-    def __init__(self) -> None:
-        self.created_commands: list[Any] = []
-
-    async def create_batch(self, command: Any) -> ReviewBatchDetailProjection:
-        self.created_commands.append(command)
-        return ReviewBatchDetailProjection(
-            batch=ReviewBatchProjection(
-                id="review-batch-1",
-                workspace_id=command.workspace_id,
-                execution_id=command.execution_id,
-                source_type=command.source_type,
-                source_id=command.source_id,
-                review_kind=command.review_kind,
-                status="pending",
-                title=command.title,
-                summary=command.summary,
-                schema_version="review_batch.v1",
-                item_count=len(command.items),
-                accepted_count=0,
-                rejected_count=0,
-                applied_count=0,
-                failed_count=0,
-                payload_json=command.payload_json,
-            ),
-            items=[
-                ReviewItemProjection(
-                    id="review-item-1",
-                    batch_id="review-batch-1",
-                    workspace_id=command.workspace_id,
-                    source_item_id=item.source_item_id,
-                    item_kind=item.item_kind,
-                    target_domain=item.target_domain,
-                    target_kind=item.target_kind,
-                    target_ref_json=item.target_ref_json,
-                    status="pending",
-                    title=item.title,
-                    summary=item.summary,
-                    payload_json=item.payload_json,
-                    preview_json=item.preview_json,
-                    provenance_json=item.provenance_json,
-                    sort_order=item.sort_order,
-                )
-                for item in command.items
-            ],
-        )
-
-
-def _service() -> tuple[SandboxDataDomainService, FakeSandboxRepository, FakeReviewService, FakeSession]:
+def _service() -> tuple[SandboxDataDomainService, FakeSandboxRepository, None, FakeSession]:
     session = FakeSession()
     service = SandboxDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
     repository = FakeSandboxRepository()
-    review_service = FakeReviewService()
     service.repository = repository  # type: ignore[assignment]
-    service.review_service = review_service  # type: ignore[assignment]
-    return service, repository, review_service, session
+    return service, repository, None, session
 
 
 def test_sandbox_models_are_registered_on_shared_metadata() -> None:
@@ -296,12 +239,8 @@ def test_run_python_contract_allows_workspace_venv_python() -> None:
 async def test_get_or_create_environment_uses_workspace_sandbox_identity() -> None:
     service, repository, _, _ = _service()
 
-    first = await service.get_or_create_environment(
-        SandboxEnvironmentCreateCommand(workspace_id="ws-1", created_by="lead-agent")
-    )
-    second = await service.get_or_create_environment(
-        SandboxEnvironmentCreateCommand(workspace_id="ws-1", created_by="lead-agent")
-    )
+    first = await service.get_or_create_environment(SandboxEnvironmentCreateCommand(workspace_id="ws-1", created_by="lead-agent"))
+    second = await service.get_or_create_environment(SandboxEnvironmentCreateCommand(workspace_id="ws-1", created_by="lead-agent"))
 
     assert first.id == second.id
     assert first.sandbox_id == "workspace-ws-1"
@@ -401,9 +340,7 @@ async def test_create_environment_rejects_second_active_workspace_environment() 
     await service.create_environment(SandboxEnvironmentCreateCommand(workspace_id="ws-1"))
 
     with pytest.raises(DataServiceValidationError, match="active sandbox environment already exists"):
-        await service.create_environment(
-            SandboxEnvironmentCreateCommand(workspace_id="ws-1", sandbox_id="another")
-        )
+        await service.create_environment(SandboxEnvironmentCreateCommand(workspace_id="ws-1", sandbox_id="another"))
 
 
 @pytest.mark.asyncio
@@ -436,7 +373,7 @@ async def test_sandbox_lease_blocks_other_active_holder_and_releases() -> None:
             workspace_id="ws-1",
             sandbox_environment_id="env-1",
             holder_job_id="job-1",
-            holder_execution_id="exec-1",
+            holder_mission_id="mission-1",
             lease_token="token-1",
             ttl_seconds=60,
         )
@@ -448,18 +385,14 @@ async def test_sandbox_lease_blocks_other_active_holder_and_releases() -> None:
                 workspace_id="ws-1",
                 sandbox_environment_id="env-1",
                 holder_job_id="job-2",
-                holder_execution_id="exec-2",
+                holder_mission_id="mission-2",
                 lease_token="token-2",
                 ttl_seconds=60,
             )
         )
 
-    renewed = await service.renew_lease(
-        SandboxLeaseRenewCommand(workspace_id="ws-1", lease_token="token-1", ttl_seconds=120)
-    )
-    released = await service.release_lease(
-        SandboxLeaseReleaseCommand(workspace_id="ws-1", lease_token="token-1")
-    )
+    renewed = await service.renew_lease(SandboxLeaseRenewCommand(workspace_id="ws-1", lease_token="token-1", ttl_seconds=120))
+    released = await service.release_lease(SandboxLeaseReleaseCommand(workspace_id="ws-1", lease_token="token-1"))
 
     assert lease.holder_job_id == "job-1"
     assert renewed is not None
@@ -469,8 +402,8 @@ async def test_sandbox_lease_blocks_other_active_holder_and_releases() -> None:
 
 
 @pytest.mark.asyncio
-async def test_environment_job_and_artifact_review_flow() -> None:
-    service, repository, review_service, session = _service()
+async def test_environment_job_and_artifact_mission_commit_flow() -> None:
+    service, repository, _, session = _service()
 
     environment = await service.create_environment(
         SandboxEnvironmentCreateCommand(
@@ -484,7 +417,7 @@ async def test_environment_job_and_artifact_review_flow() -> None:
         SandboxJobCreateCommand(
             workspace_id="ws-1",
             sandbox_environment_id=environment.id,
-            execution_id="exec-1",
+            mission_id="mission-1",
             command="python analysis.py",
             script_hash="sha256:script",
             input_hashes_json={"dataset.csv": "sha256:data"},
@@ -501,7 +434,7 @@ async def test_environment_job_and_artifact_review_flow() -> None:
             mime_type="image/png",
             content_hash="sha256:figure",
             reproducibility_json={
-                "source_execution_id": "exec-1",
+                "source_mission_id": "mission-1",
                 "source_task_id": "experiment_runner",
                 "sandbox_environment_id": environment.id,
                 "source_script": "/workspace/scripts/analysis.py",
@@ -520,81 +453,17 @@ async def test_environment_job_and_artifact_review_flow() -> None:
     assert job.language == "python"
     assert running is not None
     assert running.started_at is not None
-    assert artifact.review_batch_id == "review-batch-1"
-    assert artifact.review_item_id == "review-item-1"
+    assert artifact.mission_commit_id is None
     assert artifact.reproducibility_json["runtime_image"] == "python:3.13-slim"
     assert artifact.reproducibility_json["source_script"] == "/workspace/scripts/analysis.py"
     assert artifact.reproducibility_json["dataset_paths"] == ["/workspace/datasets/raw.csv"]
     assert listed[0].id == artifact.id
-    review_item = review_service.created_commands[0].items[0]
-    assert review_item.target_domain == "sandbox"
-    assert review_item.payload_json["title"] == "Experiment figure"
-    assert review_item.payload_json["description"] == "User-facing figure produced by the sandbox run."
-    assert review_item.payload_json["reproducibility"]["source_script"] == "/workspace/scripts/analysis.py"
-    assert review_item.payload_json["reproducibility"]["dataset_paths"] == ["/workspace/datasets/raw.csv"]
-    assert review_item.preview_json["title"] == "Experiment figure"
-    assert review_item.provenance_json["source_task_id"] == "experiment_runner"
-    assert review_item.provenance_json["source_script"] == "/workspace/scripts/analysis.py"
-    assert review_item.provenance_json["dataset_paths"] == ["/workspace/datasets/raw.csv"]
     assert repository.artifacts[artifact.id].materialization_status == "pending_review"
     assert session.commit_count == 4
 
 
 @pytest.mark.asyncio
-async def test_sandbox_artifact_review_flow_filters_unsafe_reproducibility_refs() -> None:
-    service, _, review_service, _ = _service()
-
-    environment = await service.create_environment(
-        SandboxEnvironmentCreateCommand(
-            workspace_id="ws-1",
-            sandbox_id="sandbox-ext-1",
-            provider="docker",
-            workspace_path="/workspace",
-        )
-    )
-    job = await service.create_job(
-        SandboxJobCreateCommand(
-            workspace_id="ws-1",
-            sandbox_environment_id=environment.id,
-            execution_id="exec-1",
-            command="python analysis.py",
-        )
-    )
-
-    await service.register_artifact(
-        SandboxArtifactCreateCommand(
-            workspace_id="ws-1",
-            sandbox_job_id=job.id,
-            workspace_asset_id="asset-1",
-            artifact_kind="table",
-            path="/workspace/outputs/result.csv",
-            mime_type="text/csv",
-            content_hash="sha256:result",
-            reproducibility_json={
-                "source_task_id": "experiment_runner",
-                "sandbox_environment_id": environment.id,
-                "source_script": "/workspace/main/paper.tex",
-                "dataset_paths": [
-                    "/workspace/datasets/raw.csv",
-                    "/workspace/.env",
-                    "/Users/ze/private.csv",
-                ],
-            },
-        )
-    )
-
-    review_item = review_service.created_commands[0].items[0]
-    reproducibility = review_item.payload_json["reproducibility"]
-    provenance = review_item.provenance_json
-
-    assert "source_script" not in reproducibility
-    assert reproducibility["dataset_paths"] == ["/workspace/datasets/raw.csv"]
-    assert "source_script" not in provenance
-    assert provenance["dataset_paths"] == ["/workspace/datasets/raw.csv"]
-
-
-@pytest.mark.asyncio
-async def test_sandbox_artifact_review_handler_marks_artifact_applied() -> None:
+async def test_sandbox_artifact_materialization_binds_one_mission_commit() -> None:
     service, repository, _, _ = _service()
     repository.create_environment(
         {
@@ -616,8 +485,8 @@ async def test_sandbox_artifact_review_handler_marks_artifact_applied() -> None:
         {
             "workspace_id": "ws-1",
             "sandbox_environment_id": "env-1",
-            "execution_id": "exec-1",
-            "execution_node_id": None,
+            "mission_id": "mission-1",
+            "mission_item_seq": None,
             "language": "python",
             "runtime_image": "python:3.13-slim",
             "command": "python analysis.py",
@@ -640,27 +509,16 @@ async def test_sandbox_artifact_review_handler_marks_artifact_applied() -> None:
             "mime_type": "text/csv",
             "content_hash": None,
             "reproducibility_json": {},
-            "review_batch_id": "batch-1",
-            "review_item_id": "review-item-1",
+            "mission_commit_id": None,
             "materialization_status": "pending_review",
             "metadata_json": {},
         }
     )
-    handler = build_sandbox_artifact_review_handler(service)
-
-    result = await handler(
-        ReviewItemProjection(
-            id="review-item-1",
-            batch_id="batch-1",
-            workspace_id="ws-1",
-            item_kind="sandbox_artifact",
-            target_domain="sandbox",
-            target_kind="sandbox_artifact",
-            target_ref_json={"sandbox_artifact_id": artifact.id},
-            status="accepted",
-            title="Accept table",
-        )
+    result = await service.mark_artifact_materialized(
+        artifact.id,
+        mission_commit_id="commit-1",
     )
 
-    assert result["applied"] is True
+    assert result is not None
+    assert result.mission_commit_id == "commit-1"
     assert repository.artifacts[artifact.id].materialization_status == "applied"

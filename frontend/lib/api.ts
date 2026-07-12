@@ -17,4 +17,3 @@ export * from "@/lib/api/models";
 export * from "@/lib/api/admin";
 export * from "@/lib/api/credits";
 export * from "@/lib/api/latex";
-export * from "@/lib/api/compute";

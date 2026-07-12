@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useEffect, useMemo, useState, memo, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   Check,
   ChevronDown,
@@ -13,7 +12,6 @@ import {
   listModels,
   type Model,
   type ReasoningEffort,
-  type WorkspaceCapability,
 } from "@/lib/api";
 import {
   buildContinueThreadBlockAction,
@@ -24,33 +22,25 @@ import {
   type Message,
   type SendMessageOptions,
 } from "@/stores/chat-store";
-import { useExecutionStore } from "@/stores/execution-store";
-import { useRunUiStore } from "@/stores/run-ui-store";
-import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
+import { useMissionUiStore } from "@/stores/mission-ui-store";
 import { MessageBlock } from "./MessageBlock";
 import { FileAttachButton } from "./FileAttachButton";
 import type {
   WorkspaceTypeConfig,
   WorkspaceWelcomeConfig,
 } from "@/lib/workspace-type-config";
-import {
-  buildWorkspaceThreadEntryMetadata,
-  buildWorkspaceThreadEntryPrompt,
-  parseWorkspaceThreadEntrySeed,
-  resolveWorkspaceThreadEntrySkill,
-} from "@/lib/workspace-thread-entry";
 
 interface ChatPanelProps {
   workspaceId: string;
   workspaceName?: string;
   typeConfig?: WorkspaceTypeConfig;
-  features?: WorkspaceCapability[];
   className?: string;
+  onMissionCreated?: (missionId: string) => void;
   "data-testid"?: string;
 }
 
 const REASONING_OPTIONS: Array<{
-  value: Exclude<ReasoningEffort, "minimal">;
+  value: ReasoningEffort;
   label: string;
 }> = [
   { value: "low", label: "低" },
@@ -109,11 +99,11 @@ function buildBlockIntentForwardingOptions(
 
 function withMissionRunContext(
   options: SendMessageOptions | undefined,
-  executionId: string | null | undefined,
+  missionId: string | null | undefined,
 ): SendMessageOptions | undefined {
-  const normalizedExecutionId =
-    typeof executionId === "string" ? executionId.trim() : "";
-  if (!normalizedExecutionId) {
+  const normalizedMissionId =
+    typeof missionId === "string" ? missionId.trim() : "";
+  if (!normalizedMissionId) {
     return options;
   }
 
@@ -128,49 +118,34 @@ function withMissionRunContext(
       : {};
 
   if (
-    typeof currentOrchestration.execution_id === "string" &&
-    currentOrchestration.execution_id.trim()
+    typeof currentOrchestration.mission_id === "string" &&
+    currentOrchestration.mission_id.trim()
   ) {
     return nextOptions;
   }
 
   metadata.orchestration = {
     ...currentOrchestration,
-    execution_id: normalizedExecutionId,
+    mission_id: normalizedMissionId,
     source: currentOrchestration.source ?? "mission_console",
   };
   nextOptions.metadata = metadata;
   return nextOptions;
 }
 
-function workspaceScopedMissionRunId(
-  executionId: string | null | undefined,
-  workspaceId: string,
-): string | null {
-  const normalizedExecutionId =
-    typeof executionId === "string" ? executionId.trim() : "";
-  if (!normalizedExecutionId) {
-    return null;
-  }
-  const record = useExecutionStore.getState().executions.get(normalizedExecutionId);
-  return record?.workspace_id === workspaceId ? normalizedExecutionId : null;
-}
-
 export function ChatPanel({
   workspaceId,
   workspaceName,
   typeConfig,
-  features,
   className,
+  onMissionCreated,
   "data-testid": testId,
 }: ChatPanelProps) {
-  const searchParams = useSearchParams();
   const messages = useChatStoreV2((s) => s.getWorkspaceMessages(workspaceId));
   const isSending = useChatStoreV2((s) => s.isSending);
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
   const setActiveWorkspace = useChatStoreV2((s) => s.setActiveWorkspace);
-  const focusedRunId = useRunUiStore((s) => s.focusedRunId);
-  const selectedRunId = useWorkbenchLayoutStore((s) => s.selectedRunId);
+  const focusedMissionId = useMissionUiStore((state) => state.focusedMissionId);
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -180,7 +155,7 @@ export function ChatPanel({
     "loading" | "ready" | "error"
   >("loading");
   const [reasoningEffort, setReasoningEffort] =
-    useState<ReasoningEffort>("medium");
+    useState<ReasoningEffort>("xhigh");
   const [historyHydration, setHistoryHydration] = useState<{
     workspaceId: string;
     hydrated: boolean;
@@ -194,41 +169,14 @@ export function ChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
-  const autoLaunchedSeedRef = useRef<string | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelSubmenuOpen, setModelSubmenuOpen] = useState(false);
-  const entrySeed = useMemo(
-    () => parseWorkspaceThreadEntrySeed(searchParams),
-    [searchParams],
-  );
-  const entrySeedSignature = useMemo(() => {
-    if (!entrySeed) {
-      return null;
-    }
-    return JSON.stringify({
-      workspaceId,
-      featureId: entrySeed.featureId,
-      skillId: entrySeed.skillId,
-      params: entrySeed.params,
-    });
-  }, [entrySeed, workspaceId]);
-  const entryFeature = useMemo(() => {
-    if (!entrySeed) {
-      return null;
-    }
-    return features?.find((candidate) => candidate.id === entrySeed.featureId) ?? null;
-  }, [entrySeed, features]);
-  const activeMissionRunId = useMemo(
-    () => workspaceScopedMissionRunId(focusedRunId || selectedRunId, workspaceId),
-    [focusedRunId, selectedRunId, workspaceId],
-  );
   const welcome = typeConfig?.welcome ?? null;
   const showWorkspaceWelcome =
     historyHydrated &&
     messages.length === 0 &&
     welcome !== null &&
-    !entrySeedSignature &&
-    activeMissionRunId === null;
+    focusedMissionId === null;
   const inputPlaceholder = useMemo(() => {
     if (isSending) {
       return "等待回复中...";
@@ -258,11 +206,12 @@ export function ChatPanel({
   const selectedModelOption = modelOptions.find(
     (model) => model.name === selectedModel,
   );
-  const selectedModelSupportsReasoning =
-    selectedModelOption?.supports_reasoning_effort === true;
+  const availableReasoningEfforts =
+    selectedModelOption?.capability_profile.reasoning_efforts ?? [];
+  const selectedModelSupportsReasoning = availableReasoningEfforts.length > 0;
   const selectedReasoningLabel =
     REASONING_OPTIONS.find((option) => option.value === reasoningEffort)?.label ??
-    "中";
+    "超高";
   const withSelectedModel = useCallback(
     (options?: SendMessageOptions): SendMessageOptions | undefined => {
       const model = selectedModel.trim();
@@ -285,9 +234,11 @@ export function ChatPanel({
       if (!intent.trim() || isSending) {
         return;
       }
-      void sendMessage(workspaceId, intent.trim(), [], withSelectedModel(options));
+      void sendMessage(workspaceId, intent.trim(), [], withMissionRunContext(withSelectedModel(options), focusedMissionId)).then((result) => {
+        if (result?.missionId) onMissionCreated?.(result.missionId);
+      });
     },
-    [isSending, sendMessage, withSelectedModel, workspaceId],
+    [focusedMissionId, isSending, onMissionCreated, sendMessage, withSelectedModel, workspaceId],
   );
   const handleWelcomePrompt = useCallback(
     (prompt: string) => {
@@ -402,55 +353,6 @@ export function ChatPanel({
     };
   }, [setActiveWorkspace, workspaceId]);
 
-  useEffect(() => {
-    if (
-      !historyHydrated ||
-      !entrySeed ||
-      isSending ||
-      messages.length > 0 ||
-      modelLoadState === "loading"
-    ) {
-      return;
-    }
-
-    const entryMode =
-      typeof entrySeed.params.entry === "string"
-        ? entrySeed.params.entry.trim().toLowerCase()
-        : "";
-    if (entryMode === "resume") {
-      return;
-    }
-
-    if (!entrySeedSignature || autoLaunchedSeedRef.current === entrySeedSignature) {
-      return;
-    }
-
-    autoLaunchedSeedRef.current = entrySeedSignature;
-    void sendMessage(
-      workspaceId,
-      buildWorkspaceThreadEntryPrompt({
-        seed: entrySeed,
-        feature: entryFeature,
-      }),
-      [],
-      withSelectedModel({
-        skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
-        metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
-      }),
-    );
-  }, [
-    entryFeature,
-    entrySeed,
-    entrySeedSignature,
-    historyHydrated,
-    isSending,
-    messages.length,
-    modelLoadState,
-    sendMessage,
-    withSelectedModel,
-    workspaceId,
-  ]);
-
   function handleSubmit() {
     const trimmed = inputValue.trim();
     if (!trimmed || isSending) return;
@@ -458,40 +360,17 @@ export function ChatPanel({
     const currentAttachments = [...attachments];
     setAttachments([]);
 
-    const entryMode =
-      typeof entrySeed?.params.entry === "string"
-        ? entrySeed.params.entry.trim().toLowerCase()
-        : "";
-    const shouldForwardResumeSeed =
-      entryMode === "resume" &&
-      !!entrySeed &&
-      !!entrySeedSignature &&
-      autoLaunchedSeedRef.current !== entrySeedSignature;
-
-    if (shouldForwardResumeSeed && entrySeedSignature) {
-      autoLaunchedSeedRef.current = entrySeedSignature;
-    }
-
-    const missionRunId = workspaceScopedMissionRunId(
-      focusedRunId || selectedRunId,
-      workspaceId,
-    );
     void sendMessage(
       workspaceId,
       trimmed,
       currentAttachments,
       withMissionRunContext(
-        withSelectedModel(
-          shouldForwardResumeSeed && entrySeed
-            ? {
-                skill: resolveWorkspaceThreadEntrySkill({ seed: entrySeed }),
-                metadata: buildWorkspaceThreadEntryMetadata({ seed: entrySeed }),
-              }
-            : undefined,
-        ),
-        missionRunId,
+        withSelectedModel(),
+        focusedMissionId,
       ),
-    );
+    ).then((result) => {
+      if (result?.missionId) onMissionCreated?.(result.missionId);
+    });
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -744,7 +623,9 @@ export function ChatPanel({
                     >
                       推理
                     </div>
-                    {REASONING_OPTIONS.map((option) => {
+                    {REASONING_OPTIONS.filter((option) =>
+                      availableReasoningEfforts.includes(option.value),
+                    ).map((option) => {
                       const active = reasoningEffort === option.value;
                       return (
                         <button

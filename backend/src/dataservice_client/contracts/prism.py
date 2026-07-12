@@ -20,7 +20,8 @@ class PrismPrimaryProjectPayload(BaseModel):
 
 class PrismFileVersionCreatePayload(BaseModel):
     file_id: str
-    review_item_id: str | None = None
+    mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
     content_inline: str | None = None
     content_asset_id: str | None = None
     content_hash: str
@@ -37,7 +38,8 @@ class PrismWorkspaceFileUpsertPayload(BaseModel):
     content_asset_id: str | None = None
     content_hash: str | None = None
     created_by: str = "system"
-    review_item_id: str | None = None
+    mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
 
 
 class PrismFileContentUpdatePayload(BaseModel):
@@ -45,7 +47,8 @@ class PrismFileContentUpdatePayload(BaseModel):
     content_asset_id: str | None = None
     content_hash: str
     created_by: str = "user"
-    review_item_id: str | None = None
+    mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
     expected_current_hash: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -117,7 +120,7 @@ class PrismFileVersionPayload(BaseModel):
     workspace_id: str
     file_id: str
     version_no: int
-    review_item_id: str | None = None
+    mission_review_item_id: str | None = None
     content_inline: str | None = None
     content_asset_id: str | None = None
     content_hash: str

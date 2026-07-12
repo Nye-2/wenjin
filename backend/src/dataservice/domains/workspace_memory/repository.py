@@ -31,10 +31,18 @@ class WorkspaceMemoryRepository:
         return record
 
     async def get_document(self, workspace_id: str) -> WorkspaceMemoryDocumentRecord | None:
+        result = await self.session.execute(select(WorkspaceMemoryDocumentRecord).where(WorkspaceMemoryDocumentRecord.workspace_id == workspace_id).limit(1))
+        return result.scalar_one_or_none()
+
+    async def get_revision_by_mission_commit(
+        self,
+        mission_commit_id: str,
+    ) -> WorkspaceMemoryRevisionRecord | None:
         result = await self.session.execute(
-            select(WorkspaceMemoryDocumentRecord)
-            .where(WorkspaceMemoryDocumentRecord.workspace_id == workspace_id)
-            .limit(1)
+            select(WorkspaceMemoryRevisionRecord).where(
+                WorkspaceMemoryRevisionRecord.source_mission_commit_id
+                == mission_commit_id
+            )
         )
         return result.scalar_one_or_none()
 
@@ -44,10 +52,5 @@ class WorkspaceMemoryRepository:
         workspace_id: str,
         limit: int = 20,
     ) -> list[WorkspaceMemoryRevisionRecord]:
-        result = await self.session.execute(
-            select(WorkspaceMemoryRevisionRecord)
-            .where(WorkspaceMemoryRevisionRecord.workspace_id == workspace_id)
-            .order_by(WorkspaceMemoryRevisionRecord.revision.desc())
-            .limit(limit)
-        )
+        result = await self.session.execute(select(WorkspaceMemoryRevisionRecord).where(WorkspaceMemoryRevisionRecord.workspace_id == workspace_id).order_by(WorkspaceMemoryRevisionRecord.revision.desc()).limit(limit))
         return list(result.scalars().all())

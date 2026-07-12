@@ -1,4 +1,4 @@
-"""Service to execute release gate checks and build launch readiness reports."""
+"""Execute strict Mission release-gate commands."""
 
 from __future__ import annotations
 
@@ -16,26 +16,21 @@ from src.quality.release_gate import evaluate_release_gate
 
 @dataclass(frozen=True)
 class ReleaseGateCommand:
-    """A single executable check command for release gate."""
-
     check_id: str
     command: tuple[str, ...]
     cwd: Path
 
 
 class ReleaseGateService:
-    """Run core/extended checks and return a release gate report."""
-
     def __init__(
         self,
         *,
         project_root: Path | None = None,
         backend_root: Path | None = None,
         timeout_seconds: int = 600,
-    ):
-        resolved_backend_root = backend_root or Path(__file__).resolve().parents[2]
-        self.backend_root = resolved_backend_root
-        self.project_root = project_root or resolved_backend_root.parent
+    ) -> None:
+        self.backend_root = backend_root or Path(__file__).resolve().parents[2]
+        self.project_root = project_root or self.backend_root.parent
         self.timeout_seconds = timeout_seconds
         self.uv_binary = self._resolve_uv_binary()
 
@@ -44,302 +39,126 @@ class ReleaseGateService:
 
     @staticmethod
     def _resolve_uv_binary() -> str:
-        configured = os.environ.get("UV_BINARY")
-        if configured:
+        if configured := os.environ.get("UV_BINARY"):
             return configured
-        from_path = shutil.which("uv")
-        if from_path:
+        if from_path := shutil.which("uv"):
             return from_path
-        local_uv = Path.home() / ".local" / "bin" / "uv"
-        if local_uv.exists():
-            return str(local_uv)
-        return "uv"
+        local = Path.home() / ".local" / "bin" / "uv"
+        return str(local) if local.exists() else "uv"
+
+    def _pytest(self, *paths: str) -> tuple[str, ...]:
+        return self._uv_command("run", "pytest", *paths, "-q")
 
     @property
     def core_commands(self) -> tuple[ReleaseGateCommand, ...]:
+        backend = self.backend_root
+        frontend = self.project_root / "frontend"
         return (
             ReleaseGateCommand(
-                check_id="executor_dual_mode",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/task/test_executor.py",
-                    "tests/task/test_service_executor.py",
-                    "-q",
+                "mission_store",
+                self._pytest(
+                    "tests/dataservice/test_mission_store.py",
+                    "tests/dataservice/test_mission_router.py",
+                    "tests/dataservice_client/test_mission_client.py",
+                    "tests/database/test_mission_models.py",
                 ),
-                cwd=self.backend_root,
+                backend,
             ),
             ReleaseGateCommand(
-                check_id="observability_sentry",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/observability/test_sentry.py",
-                    "-q",
+                "mission_runtime",
+                self._pytest(
+                    "tests/mission_runtime",
+                    "tests/task/test_mission_task.py",
                 ),
-                cwd=self.backend_root,
+                backend,
             ),
             ReleaseGateCommand(
-                check_id="observability_prometheus",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/observability/test_prometheus.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="agent_status_tracking",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/task/test_agent_status.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="task_metrics",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/task/test_task_metrics.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="semantic_scholar_reference_search",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/academic/literature/test_search_service.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="reference_upload_preprocess",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/gateway/routers/test_uploads.py",
-                    "tests/task/test_document_preprocess_handler.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="artifact_refresh_workflow",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/task/test_store.py::TestTaskStorePostgres::test_mark_task_completed_publishes_canonical_task_activity",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="artifact_followup_workflow",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/services/test_workspace_activity_service.py::test_task_activity_promotes_result_artifact_as_retry_seed",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="reference_writing_workflow",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/services/test_reference_writing_workflow_gate.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="prism_review_workflow",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/services/test_prism_review_workflow_gate.py",
-                    "tests/compute/test_projection_service.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="auth_email_workflow",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/services/test_auth_email_workflow_gate.py",
-                    "tests/gateway/routers/test_auth.py",
-                    "tests/services/test_email_service.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="change_set_writeback_gate",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/contracts/test_change_set.py",
-                    "tests/services/test_change_policy.py",
-                    "tests/services/test_change_set_service.py",
-                    "tests/services/test_change_set_review_service.py",
-                    "tests/services/test_execution_commit_service.py",
-                    "tests/gateway/routers/test_execution_commit_router.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="execution_commit_writeback_security",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/gateway/routers/test_execution_commit_router.py",
-                    "tests/services/test_execution_commit_service.py::test_commit_rejects_non_owner_before_room_writes",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="execution_resume_runtime_config",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/application/handlers/test_thread_turn_runtime_config.py",
-                    "tests/application/handlers/test_thread_turn_handler.py::TestThreadTurnHandlerCancellation::test_generate_thread_response_passes_execution_id_to_runtime",
-                    "tests/application/handlers/test_thread_turn_handler.py::TestThreadTurnHandlerCancellation::test_stream_thread_response_passes_execution_id_to_runtime",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="execution_ux_convergence",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/application/handlers/test_thread_turn_handler.py",
-                    "tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy",
-                    "tests/integration/test_chat_to_feature_launch.py",
-                    "tests/tools/test_launch_feature_tool.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="execution_worker_lease_gate",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/dataservice/test_execution_domain.py",
-                    "tests/dataservice/test_foundation.py::test_dataservice_client_claim_and_heartbeat_execution_lease",
-                    "tests/services/test_execution_service_node_state.py",
-                    "tests/task/test_execution_task.py",
-                    "tests/execution/test_engine.py",
-                    "tests/services/test_execution_cancel.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="native_harness_quality_gate",
-                command=self._uv_command(
-                    "run",
-                    "pytest",
-                    "tests/agents/harness/test_scheduler_and_python_tool.py",
-                    "tests/agents/harness/test_sandbox_file_tools.py",
-                    "tests/agents/harness/test_command_audit.py",
-                    "tests/agents/harness/test_policy_and_registry.py",
-                    "tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py",
-                    "tests/agents/harness/test_research_task_eval.py",
-                    "tests/agents/harness/test_langchain_adapter.py",
-                    "tests/agents/harness/test_context_assembly.py",
-                    "tests/unit/subagents/test_react.py",
-                    "tests/subagents/v2/test_registry.py",
-                    "tests/agents/lead_agent/v2/test_team_policy.py",
-                    "tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py",
-                    "tests/agents/lead_agent/v2/test_sandbox_runtime.py",
-                    "tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py",
-                    "tests/agents/lead_agent/v2/test_runtime.py::test_run_session_prism_review_items_satisfy_writing_evidence_eval",
-                    "tests/architecture/test_native_harness_boundaries.py",
-                    "tests/dataservice/test_sandbox_domain.py",
-                    "tests/sandbox/test_docker_provider.py",
-                    "tests/sandbox/test_workspace_layout.py",
-                    "tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py",
-                    "tests/agents/lead_agent/v2/test_citation_source_audit.py",
-                    "tests/agents/lead_agent/v2/test_team_quality_gates.py",
-                    "tests/services/test_workspace_prism_service.py::test_surface_projection_includes_review_provenance_and_protection",
-                    "tests/services/test_prism_review_projection.py",
-                    "tests/integration/test_harness_mock_sandbox_e2e.py",
-                    "-q",
-                ),
-                cwd=self.backend_root,
-            ),
-            ReleaseGateCommand(
-                check_id="model_catalog_pricing_gate",
-                command=self._uv_command(
+                "mission_catalog",
+                self._uv_command(
                     "run",
                     "python",
                     "-m",
-                    "src.quality.model_catalog_pricing_gate",
-                    "--json",
+                    "src.quality.mission_catalog_gate",
                 ),
-                cwd=self.backend_root,
+                backend,
             ),
             ReleaseGateCommand(
-                check_id="frontend_typescript_check",
-                command=("npm", "run", "typecheck"),
-                cwd=self.project_root / "frontend",
+                "workspace_agent",
+                self._pytest(
+                    "tests/agents/workspace_agent",
+                    "tests/application/handlers/test_workspace_agent_turn.py",
+                    "tests/gateway/routers/test_missions_contract.py",
+                ),
+                backend,
             ),
             ReleaseGateCommand(
-                check_id="frontend_lint",
-                command=("npm", "run", "lint"),
-                cwd=self.project_root / "frontend",
+                "subagent_runtime",
+                self._pytest(
+                    "tests/subagent_runtime",
+                    "tests/mission_runtime/test_subagent_composition.py",
+                ),
+                backend,
             ),
             ReleaseGateCommand(
-                check_id="frontend_review_changes_gate",
-                command=(
+                "tool_orchestrator",
+                self._pytest(
+                    "tests/tools/test_tool_orchestrator.py",
+                ),
+                backend,
+            ),
+            ReleaseGateCommand(
+                "model_capability",
+                self._pytest(
+                    "tests/models/test_capability_probe.py",
+                    "tests/services/test_model_catalog_cache.py",
+                    "tests/services/search/test_model_native_search.py",
+                ),
+                backend,
+            ),
+            ReleaseGateCommand(
+                "sandbox_security",
+                self._pytest(
+                    "tests/sandbox",
+                    "tests/agents/harness/test_sandbox_execution_tools.py",
+                ),
+                backend,
+            ),
+            ReleaseGateCommand(
+                "review_commit",
+                self._pytest(
+                    "tests/review_commit_runtime",
+                    "tests/permission_runtime",
+                ),
+                backend,
+            ),
+            ReleaseGateCommand(
+                "mission_cutover",
+                self._uv_command(
+                    "run",
+                    "python",
+                    "-m",
+                    "src.quality.mission_cutover_gate",
+                    "--project-root",
+                    str(self.project_root),
+                ),
+                backend,
+            ),
+            ReleaseGateCommand(
+                "frontend_mission",
+                (
                     "npx",
                     "vitest",
                     "run",
-                    "tests/unit/v2/CompletedView.test.tsx",
-                    "tests/unit/v2/ResultCard.test.tsx",
-                    "tests/unit/v2/ResultPreviewRenderer.test.tsx",
-                    "tests/unit/lib/workspace-result-preview.test.ts",
-                    "tests/unit/lib/execution-commit.test.ts",
-                    "tests/unit/v2/execution-run-view.test.ts",
-                    "tests/unit/v2/LiveWorkflowPanel.test.tsx",
-                    "tests/unit/v2/live-workflow-view-model.test.ts",
+                    "tests/unit/lib/mission-view.test.ts",
+                    "tests/unit/stores/mission-ui-store.test.ts",
+                    "tests/unit/v2/MissionConsole.test.tsx",
                 ),
-                cwd=self.project_root / "frontend",
+                frontend,
             ),
             ReleaseGateCommand(
-                check_id="frontend_execution_ux_unit_tests",
-                command=(
-                    "npx",
-                    "vitest",
-                    "run",
-                    "tests/unit/lib/execution-run-view.test.ts",
-                    "tests/unit/stores/chat-store.test.ts",
-                    "tests/unit/hooks/useWorkspaceEventStream.test.tsx",
-                    "tests/unit/v2/rooms/RunsDrawer.test.tsx",
-                    "tests/unit/v2/ExecutionCard.test.tsx",
-                    "tests/unit/v2/ChatPanel.test.tsx",
-                ),
-                cwd=self.project_root / "frontend",
-            ),
-            ReleaseGateCommand(
-                check_id="frontend_static_build",
-                command=("npm", "run", "build"),
-                cwd=self.project_root / "frontend",
+                "frontend_typecheck",
+                ("npm", "run", "typecheck"),
+                frontend,
             ),
         )
 
@@ -347,38 +166,33 @@ class ReleaseGateService:
     def extended_commands(self) -> tuple[ReleaseGateCommand, ...]:
         return (
             ReleaseGateCommand(
-                check_id="integration_tool_chain",
-                command=self._uv_command("run", "pytest", "tests/integration/test_tool_chain.py", "-q"),
-                cwd=self.backend_root,
+                "backend_full_suite",
+                self._pytest("tests"),
+                self.backend_root,
             ),
             ReleaseGateCommand(
-                check_id="mcp_runtime",
-                command=self._uv_command("run", "pytest", "tests/mcp", "-q"),
-                cwd=self.backend_root,
+                "frontend_build",
+                ("npm", "run", "build"),
+                self.project_root / "frontend",
             ),
             ReleaseGateCommand(
-                check_id="integration_http_client",
-                command=self._uv_command("run", "pytest", "tests/integration/test_http_client.py", "-q"),
-                cwd=self.backend_root,
+                "mission_browser_e2e",
+                (
+                    "npx",
+                    "playwright",
+                    "test",
+                    "tests/e2e/mission-console-main-chain.spec.ts",
+                ),
+                self.project_root / "frontend",
             ),
         )
 
     async def run(self, *, include_extended: bool = False) -> dict[str, Any]:
-        """Execute release checks and evaluate gate status."""
-
-        core_results, core_details = await asyncio.to_thread(
-            self._execute_checks,
-            self.core_commands,
-        )
-
+        core_results, core_details = await asyncio.to_thread(self._execute_checks, self.core_commands)
         extended_results: dict[str, bool] | None = None
         extended_details: dict[str, dict[str, Any]] = {}
         if include_extended:
-            extended_results, extended_details = await asyncio.to_thread(
-                self._execute_checks,
-                self.extended_commands,
-            )
-
+            extended_results, extended_details = await asyncio.to_thread(self._execute_checks, self.extended_commands)
         report = evaluate_release_gate(
             core_results=core_results,
             extended_results=extended_results,
@@ -399,13 +213,11 @@ class ReleaseGateService:
     ) -> tuple[dict[str, bool], dict[str, dict[str, Any]]]:
         results: dict[str, bool] = {}
         details: dict[str, dict[str, Any]] = {}
-
         for check in checks:
-            started_at = time.perf_counter()
+            started = time.perf_counter()
             return_code = -1
             output_tail = ""
             error: str | None = None
-
             try:
                 completed = subprocess.run(
                     list(check.command),
@@ -416,61 +228,41 @@ class ReleaseGateService:
                     check=False,
                 )
                 return_code = completed.returncode
-                output = self._join_process_output(completed.stdout, completed.stderr)
-                output_tail = self._tail_output(output)
-                success = completed.returncode == 0
+                output_tail = self._tail_output(self._join_process_output(completed.stdout, completed.stderr))
+                success = return_code == 0
             except subprocess.TimeoutExpired as exc:
-                output = self._join_process_output(exc.stdout, exc.stderr)
-                output_tail = self._tail_output(output)
+                output_tail = self._tail_output(self._join_process_output(exc.stdout, exc.stderr))
                 error = f"timeout after {self.timeout_seconds}s"
                 success = False
-            except FileNotFoundError as exc:
+            except (FileNotFoundError, OSError) as exc:
                 error = str(exc)
                 success = False
-            except Exception as exc:  # pragma: no cover - defensive
-                error = str(exc)
-                success = False
-
-            duration_seconds = round(time.perf_counter() - started_at, 3)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
             results[check.check_id] = success
             details[check.check_id] = {
-                "command": " ".join(check.command),
+                "command": list(check.command),
                 "cwd": str(check.cwd),
                 "return_code": return_code,
-                "duration_seconds": duration_seconds,
+                "duration_ms": elapsed_ms,
                 "output_tail": output_tail,
                 "error": error,
             }
-
         return results, details
 
     @staticmethod
-    def _normalize_process_output(value: str | bytes | None) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, bytes):
-            return value.decode("utf-8", errors="replace")
-        return value
+    def _join_process_output(stdout: Any, stderr: Any) -> str:
+        def decode(value: Any) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return str(value)
 
-    @classmethod
-    def _join_process_output(cls, stdout: str | bytes | None, stderr: str | bytes | None) -> str:
-        return "\n".join(
-            part
-            for part in [
-                cls._normalize_process_output(stdout),
-                cls._normalize_process_output(stderr),
-            ]
-            if part
-        ).strip()
+        return "\n".join(part for part in (decode(stdout).strip(), decode(stderr).strip()) if part)
 
     @staticmethod
-    def _tail_output(output: str, limit: int = 40) -> str:
-        if not output:
-            return ""
-        lines = output.splitlines()
-        if len(lines) <= limit:
-            return "\n".join(lines)
-        return "\n".join(lines[-limit:])
+    def _tail_output(output: str, *, line_limit: int = 80) -> str:
+        return "\n".join(output.splitlines()[-line_limit:])
 
     @staticmethod
     def _attach_runtime_details(
@@ -478,11 +270,7 @@ class ReleaseGateService:
         core_details: dict[str, dict[str, Any]],
         extended_details: dict[str, dict[str, Any]],
     ) -> None:
-        for check in report.get("core_gate", {}).get("checks", []):
-            detail = core_details.get(check["id"])
-            if detail:
-                check["runtime"] = detail
-        for check in report.get("extended_gate", {}).get("checks", []):
-            detail = extended_details.get(check["id"])
-            if detail:
-                check["runtime"] = detail
+        for item in report["core_gate"]["checks"]:
+            item["runtime"] = core_details.get(item["id"])
+        for item in report["extended_gate"]["checks"]:
+            item["runtime"] = extended_details.get(item["id"])

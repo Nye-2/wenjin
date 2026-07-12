@@ -30,6 +30,7 @@ from src.gateway.middleware.error_handler import (
 # Exception Classes Tests
 # ============================================================================ #
 
+
 class TestWenjinException:
     """Tests for WenjinException base class."""
 
@@ -176,6 +177,7 @@ class TestServiceUnavailableError:
 # Status Code Mapping Tests
 # ============================================================================ #
 
+
 class TestMapExceptionToStatus:
     """Tests for exception to status code mapping."""
 
@@ -224,6 +226,7 @@ class TestMapExceptionToStatus:
 # Exception Handler Tests
 # ============================================================================ #
 
+
 @pytest.fixture
 def mock_request():
     """Create a mock FastAPI request."""
@@ -246,6 +249,7 @@ class TestWenjinExceptionHandler:
         assert response.status_code == status.HTTP_404_NOT_FOUND
         # Parse the body content
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "NOT_FOUND"
         assert body["error"]["message"] == "User with id '123' not found"
@@ -259,6 +263,7 @@ class TestWenjinExceptionHandler:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "VALIDATION_ERROR"
 
@@ -271,6 +276,7 @@ class TestWenjinExceptionHandler:
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "AUTH_ERROR"
 
@@ -283,9 +289,7 @@ class TestValidationExceptionHandler:
         """Test handler returns 422 status code."""
         # Create a mock validation error
         exc = MagicMock(spec=RequestValidationError)
-        exc.errors = MagicMock(return_value=[
-            {"loc": ["body", "email"], "msg": "invalid email", "type": "value_error.email"}
-        ])
+        exc.errors = MagicMock(return_value=[{"loc": ["body", "email"], "msg": "invalid email", "type": "value_error.email"}])
 
         response = await validation_exception_handler(mock_request, exc)
 
@@ -294,15 +298,14 @@ class TestValidationExceptionHandler:
     @pytest.mark.asyncio
     async def test_includes_error_details(self, mock_request):
         """Test handler includes validation error details."""
-        error_details = [
-            {"loc": ["body", "title"], "msg": "field required", "type": "value_error.missing"}
-        ]
+        error_details = [{"loc": ["body", "title"], "msg": "field required", "type": "value_error.missing"}]
         exc = MagicMock(spec=RequestValidationError)
         exc.errors = MagicMock(return_value=error_details)
 
         response = await validation_exception_handler(mock_request, exc)
 
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "VALIDATION_ERROR"
         assert body["error"]["message"] == "Invalid request data"
@@ -321,6 +324,7 @@ class TestHTTPExceptionHandler:
 
         assert response.status_code == 404
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "NOT_FOUND"
         assert body["error"]["message"] == "Item not found"
@@ -334,6 +338,7 @@ class TestHTTPExceptionHandler:
 
         assert response.status_code == 401
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "UNAUTHORIZED"
 
@@ -360,6 +365,7 @@ class TestHTTPExceptionHandler:
 
         assert response.status_code == 500
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "INTERNAL_ERROR"
 
@@ -384,6 +390,7 @@ class TestGenericExceptionHandler:
         response = await generic_exception_handler(mock_request, exc)
 
         import json
+
         body = json.loads(response.body.decode())
         assert body["error"]["code"] == "INTERNAL_ERROR"
         assert body["error"]["message"] == "An unexpected error occurred"
@@ -392,6 +399,7 @@ class TestGenericExceptionHandler:
 # ============================================================================ #
 # Integration Tests with FastAPI
 # ============================================================================ #
+
 
 class TestRegisterErrorHandlers:
     """Tests for register_error_handlers function."""
@@ -524,6 +532,7 @@ class TestErrorHandlingIntegration:
         response = await generic_exception_handler(request, exc)
 
         import json
+
         body = json.loads(response.body.decode())
         assert response.status_code == 500
         assert body["error"]["code"] == "INTERNAL_ERROR"

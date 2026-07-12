@@ -552,7 +552,7 @@ export const useLatexStore = create<LatexState>((set, get) => ({
               status: "applied",
               title: pendingChange?.title ?? pendingChange?.path ?? null,
               source_type: pendingChange?.source_type ?? null,
-              source_execution_id: pendingChange?.source_execution_id ?? null,
+              source_mission_id: pendingChange?.source_mission_id ?? null,
               source_task_id: pendingChange?.source_task_id ?? null,
               previous_hash: applied.undo.previous_hash,
               applied_hash: applied.undo.applied_hash,

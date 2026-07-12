@@ -20,6 +20,7 @@ def _mock_user(*, is_superuser: bool) -> SimpleNamespace:
 
 def _create_client(*, is_superuser: bool = True) -> TestClient:
     app = FastAPI()
+
     async def override_get_current_user():
         return _mock_user(is_superuser=is_superuser)
 
@@ -126,9 +127,7 @@ def test_update_mcp_configuration_persists_and_refreshes_runtime(tmp_path, monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["mcp_servers"]["secure-http"]["type"] == "http"
-    assert payload["mcp_servers"]["secure-http"]["oauth"]["token_url"] == (
-        "https://auth.example.com/oauth/token"
-    )
+    assert payload["mcp_servers"]["secure-http"]["oauth"]["token_url"] == ("https://auth.example.com/oauth/token")
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["skills"]["deep-research"]["enabled"] is True

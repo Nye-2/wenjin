@@ -3,6 +3,7 @@
 from celery import Celery
 
 from src.config.task_config import task_settings
+from src.mission_runtime.contracts import MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS
 
 # Create Celery app
 celery_app = Celery(
@@ -32,12 +33,19 @@ celery_app.conf.update(
 
     # Result settings
     result_expires=task_settings.task_redis_ttl,
+    broker_transport_options={
+        "visibility_timeout": MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS,
+    },
+    result_backend_transport_options={
+        "visibility_timeout": MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS,
+    },
 
     # Task routing - route based on task type
     task_routes={
         "src.task.tasks.execute_task": {"queue": "default"},
-        "src.task.tasks.execute_run": {"queue": "long_running"},
-        "src.task.tasks.execute_execution": {"queue": "long_running"},
+        "src.task.tasks.process_chat_turn": {"queue": "default"},
+        "src.task.tasks.drive_mission": {"queue": "long_running"},
+        "src.task.tasks.reconcile_missions": {"queue": "default"},
         "src.task.tasks.capture_memory": {"queue": "memory"},
     },
 
@@ -78,5 +86,9 @@ celery_app.conf.beat_schedule = {
     "process-credit-grant-rules": {
         "task": "credit_periodic.process_credit_grant_rules",
         "schedule": 300.0,  # every 5 minutes
+    },
+    "reconcile-runnable-missions": {
+        "task": "src.task.tasks.reconcile_missions",
+        "schedule": 15.0,
     },
 }

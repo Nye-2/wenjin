@@ -31,7 +31,6 @@ def _make_rate_limited_app(requests_per_minute: int = 3, window_seconds: int = 6
 
 
 class TestRateLimiting:
-
     def test_requests_within_limit_succeed(self):
         app = _make_rate_limited_app(requests_per_minute=5)
         client = TestClient(app)

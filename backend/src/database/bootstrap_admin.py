@@ -14,15 +14,81 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import get_args
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+
+from src.contracts.mission_policy import MissionPolicy, WorkerSkill
+from src.contracts.stage_acceptance import StageAcceptanceContract, WorkspaceType
+from src.dataservice.domains.catalog.service import MissionCatalogService
+from src.services.mission_policy_loader import MissionPolicyLoader
+from src.services.skill_loader import SkillLoader
 
 # Default admin credentials
 DEFAULT_ADMIN_EMAIL = "admin@wenjin.ai"
 DEFAULT_ADMIN_PASSWORD = "admin123"
 DEFAULT_ADMIN_NAME = "Admin"
+_MISSION_CATALOG_BOOTSTRAP_LOCK = 8_461_904_271
+
+
+async def seed_mission_catalog(session: AsyncSession) -> tuple[int, int]:
+    """Synchronize and validate the canonical Mission catalog atomically."""
+    if session.bind is not None and session.bind.dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"),
+            {"lock_id": _MISSION_CATALOG_BOOTSTRAP_LOCK},
+        )
+
+    service = MissionCatalogService(session, autocommit=False)
+    loaded_skills = await SkillLoader().sync_with_service(service)
+    loaded_policies = await MissionPolicyLoader().sync_with_service(service)
+
+    skills = {row.id: row for row in await service.list_skills(enabled_only=True)}
+    for record in skills.values():
+        raw_skill = dict(record.skill_json)
+        embedded_hash = str(raw_skill.pop("content_hash", "") or "")
+        skill = WorkerSkill.model_validate(raw_skill)
+        if embedded_hash != record.content_hash or skill.immutable_ref().sha256 != record.content_hash:
+            raise RuntimeError(f"WorkerSkill hash drift: {record.id}")
+    policies = await service.list_policies(enabled_only=True)
+    by_workspace: dict[str, list[object]] = {}
+    for record in policies:
+        stored_policy = dict(record.policy_json)
+        raw_contracts = stored_policy.pop("resolved_stage_contracts", None)
+        embedded_hash = str(stored_policy.pop("content_hash", "") or "")
+        policy = MissionPolicy.model_validate(stored_policy)
+        if embedded_hash != record.content_hash or policy.immutable_ref().sha256 != record.content_hash:
+            raise RuntimeError(f"MissionPolicy hash drift: {record.id}")
+        if not isinstance(raw_contracts, list):
+            raise RuntimeError(f"MissionPolicy has no resolved stages: {record.id}")
+        contracts = [StageAcceptanceContract.model_validate(item) for item in raw_contracts]
+        expected_refs = {(item.contract_id, item.sha256) for item in policy.stage_contract_refs}
+        actual_refs = {
+            (item.contract_id, item.immutable_ref().sha256) for item in contracts
+        }
+        if expected_refs != actual_refs:
+            raise RuntimeError(f"MissionPolicy stage hash drift: {record.id}")
+        missing = set(policy.allowed_worker_skills) - skills.keys()
+        if missing:
+            raise RuntimeError(
+                f"MissionPolicy {record.id} references unavailable WorkerSkill(s): "
+                + ", ".join(sorted(missing))
+            )
+        by_workspace.setdefault(record.workspace_type, []).append(record)
+
+    required_workspace_types = set(get_args(WorkspaceType))
+    missing_workspaces = sorted(required_workspace_types - by_workspace.keys())
+    if missing_workspaces:
+        raise RuntimeError(
+            "Mission catalog has no enabled policy for workspace type(s): "
+            + ", ".join(missing_workspaces)
+        )
+    if not skills:
+        raise RuntimeError("Mission catalog has no enabled WorkerSkill")
+    await session.commit()
+    return loaded_skills, loaded_policies
 
 
 async def create_admin_user(
@@ -120,40 +186,12 @@ async def async_main() -> int:
             if loaded_models:
                 print(f"[bootstrap-admin] Seeded {loaded_models} model catalog record(s)")
 
-            # Seed skills before capabilities (capabilities reference skills)
-            try:
-                from src.services.skill_loader import SkillLoader
-
-                skill_loader = SkillLoader()
-                loaded_skills = await skill_loader.sync_seed_updates()
-                if loaded_skills:
-                    print(f"[bootstrap-admin] Synced {loaded_skills} skill seed record(s)")
-            except Exception as skill_exc:
-                print(f"[bootstrap-admin] WARN: skill seed failed: {skill_exc}")
-
-            # Seed recruitable agent templates before capabilities that reference them.
-            try:
-                from src.services.agent_template_loader import AgentTemplateLoader
-
-                template_loader = AgentTemplateLoader()
-                loaded_templates = await template_loader.sync_seed_updates()
-                if loaded_templates:
-                    print(
-                        f"[bootstrap-admin] Synced {loaded_templates} agent template seed record(s)"
-                    )
-            except Exception as template_exc:
-                print(f"[bootstrap-admin] WARN: agent template seed failed: {template_exc}")
-
-            # Sync seed-owned capabilities so existing deployments receive newly added capability YAMLs.
-            try:
-                from src.services.capability_loader import CapabilityLoader
-
-                loader = CapabilityLoader()
-                loaded = await loader.sync_seed_updates()
-                if loaded:
-                    print(f"[bootstrap-admin] Synced {loaded} capability seed record(s)")
-            except Exception as cap_exc:
-                print(f"[bootstrap-admin] WARN: capability seed failed: {cap_exc}")
+            loaded_skills, loaded_policies = await seed_mission_catalog(session)
+            print(
+                "[bootstrap-admin] Mission catalog ready: "
+                f"{loaded_skills} WorkerSkill update(s), "
+                f"{loaded_policies} MissionPolicy update(s)"
+            )
         return 0
     except Exception as e:
         print(f"[bootstrap-admin] ERROR: {e}")

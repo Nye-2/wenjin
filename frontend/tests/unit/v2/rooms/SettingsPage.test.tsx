@@ -29,8 +29,8 @@ function mockFetch(overrides?: Record<string, unknown>) {
     "/api/workspaces/ws-1/settings": {
       name: "Test Workspace",
       auto_compact_threshold: 0.8,
-      default_model: "gpt-5.3-codex-spark",
-      write_mode: "ask_workspace_write",
+      default_model: "gpt-5.5",
+      review_mode: "balanced_default",
     },
   };
   const responses = { ...defaults, ...overrides };
@@ -77,16 +77,6 @@ describe("SettingsPage", () => {
           supports_reasoning_effort: false,
           supports_vision: false,
           is_default: true,
-        },
-        {
-          name: "gpt-5.3-codex-spark",
-          display_name: "GPT-5.3 Codex Spark",
-          provider: "sub2api",
-          max_tokens: 32000,
-          supports_thinking: false,
-          supports_reasoning_effort: false,
-          supports_vision: false,
-          is_default: false,
         },
       ],
     });
@@ -194,17 +184,17 @@ describe("SettingsPage", () => {
 
     await screen.findByTestId("settings-name");
     expect(screen.getByTestId("settings-default-model")).toHaveValue(
-      "gpt-5.3-codex-spark",
+      "gpt-5.5",
     );
-    expect(screen.getByText("GPT-5.3 Codex Spark")).toBeInTheDocument();
-    expect(screen.getByTestId("write-mode-ask_workspace_write")).toHaveAttribute(
+    expect(screen.getByText("GPT-5.5 (Default)")).toBeInTheDocument();
+    expect(screen.getByTestId("review-mode-balanced_default")).toHaveAttribute(
       "aria-checked",
       "true",
     );
 
     const nameInput = screen.getByTestId("settings-name");
     fireEvent.change(nameInput, { target: { value: "My Workspace" } });
-    fireEvent.click(screen.getByTestId("write-mode-strict_review"));
+    fireEvent.click(screen.getByTestId("review-mode-review_all"));
 
     const saveButton = screen.getByTestId("settings-save");
     fireEvent.click(saveButton);
@@ -222,8 +212,8 @@ describe("SettingsPage", () => {
       body: JSON.stringify({
         name: "My Workspace",
         auto_compact_threshold: 0.8,
-        default_model: "gpt-5.3-codex-spark",
-        write_mode: "strict_review",
+        default_model: "gpt-5.5",
+        review_mode: "review_all",
       }),
     });
   });

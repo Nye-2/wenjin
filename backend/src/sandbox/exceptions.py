@@ -1,51 +1,37 @@
-"""Sandbox-specific exceptions."""
+"""Sandbox vNext exceptions safe for runtime normalization."""
 
 
 class SandboxError(Exception):
-    """Base exception for sandbox operations."""
-
-    pass
+    """Base exception for provider-neutral sandbox operations."""
 
 
-class SandboxNotFoundError(SandboxError):
-    """Raised when a sandbox cannot be found."""
+class SandboxPolicyError(SandboxError):
+    """The typed operation was denied before provider execution."""
 
-    def __init__(self, message: str, sandbox_id: str | None = None):
-        self.sandbox_id = sandbox_id
-        if sandbox_id:
-            message = f"{message} (sandbox_id={sandbox_id})"
+
+class SandboxPermissionRequired(SandboxPolicyError):
+    """MissionRuntime must resume the operation with a current permission."""
+
+
+class SandboxProviderError(SandboxError):
+    """The operation provider failed before or during execution."""
+
+    def __init__(self, message: str, *, effect_uncertain: bool = False) -> None:
         super().__init__(message)
+        self.effect_uncertain = effect_uncertain
 
 
-class SandboxRuntimeError(SandboxError):
-    """Raised when sandbox execution fails."""
-
-    def __init__(
-        self,
-        message: str,
-        command: str | None = None,
-        exit_code: int | None = None,
-    ):
-        self.command = command
-        self.exit_code = exit_code
-        details = message
-        if command:
-            details = f"{message} (command: {command})"
-        if exit_code is not None:
-            details = f"{details}, exit_code: {exit_code}"
-        super().__init__(details)
+class SandboxReceiptConflictError(SandboxError):
+    """A receipt transition conflicts with the claimed operation key."""
 
 
-class SandboxTimeoutError(SandboxRuntimeError):
-    """Raised when sandbox operation times out."""
+class SandboxOutputRefError(SandboxError):
+    """An opaque output reference is missing, expired, or invalid."""
 
-    def __init__(
-        self,
-        message: str,
-        timeout: int | None = None,
-        command: str | None = None,
-    ):
-        self.timeout = timeout
-        if timeout:
-            message = f"{message} (timeout: {timeout}s)"
-        super().__init__(message, command=command)
+
+class SandboxEnvironmentError(SandboxError):
+    """A content-addressed environment is missing or not sealed."""
+
+
+class SandboxMaterializationError(SandboxError):
+    """Staged output materialization may have partially changed public files."""

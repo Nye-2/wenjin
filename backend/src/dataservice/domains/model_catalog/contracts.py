@@ -5,16 +5,26 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.models.capability_profile import (
+    GenerationAPI,
+    ModelCapabilityProbeEvidence,
+    ModelCapabilityProfile,
+)
 
 
-class ModelCatalogRecord(BaseModel):
+class _StrictContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ModelCatalogRecord(_StrictContract):
     """Admin-safe model catalog projection."""
 
     id: str | None = None
     model_id: str
     display_name: str
-    provider_protocol: str
+    generation_api: GenerationAPI | None
     provider_name: str
     category: str
     model_name: str
@@ -22,12 +32,10 @@ class ModelCatalogRecord(BaseModel):
     api_key_redacted: str | None = None
     enabled: bool = True
     is_default: bool = False
-    supports_streaming: bool = True
-    supports_tools: bool = False
-    supports_json_mode: bool = True
-    supports_json_schema: bool = False
-    supports_vision: bool = False
-    supports_reasoning_effort: bool = False
+    capability_profile: ModelCapabilityProfile
+    capability_probe: ModelCapabilityProbeEvidence
+    capability_probe_hash: str
+    capability_observed_at: datetime
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout_seconds: float | None = None
@@ -45,24 +53,22 @@ class ModelCatalogRecord(BaseModel):
     updated_at: datetime | None = None
 
 
-class ModelRuntimeConfig(BaseModel):
+class ModelRuntimeConfig(_StrictContract):
     """Internal runtime model configuration with decrypted secret."""
 
     model_id: str
     display_name: str
-    provider_protocol: str
+    generation_api: GenerationAPI | None
     provider_name: str
     category: str
     model_name: str
     base_url: str
     api_key: str
     is_default: bool = False
-    supports_streaming: bool = True
-    supports_tools: bool = False
-    supports_json_mode: bool = True
-    supports_json_schema: bool = False
-    supports_vision: bool = False
-    supports_reasoning_effort: bool = False
+    capability_profile: ModelCapabilityProfile
+    capability_probe: ModelCapabilityProbeEvidence
+    capability_probe_hash: str
+    capability_observed_at: datetime
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout_seconds: float | None = None

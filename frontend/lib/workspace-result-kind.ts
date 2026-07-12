@@ -98,9 +98,9 @@ const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
     order: 58,
   },
   warning: {
-    label: "风险提示",
-    shortLabel: "风险",
-    groupLabel: "风险提示",
+    label: "复核提醒",
+    shortLabel: "提醒",
+    groupLabel: "复核提醒",
     accent: "#b45309",
     tint: "rgba(217, 119, 6, 0.1)",
     border: "rgba(217, 119, 6, 0.24)",

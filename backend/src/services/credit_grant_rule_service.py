@@ -11,7 +11,7 @@ from croniter import croniter
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.catalog import AdminLogCreatePayload
+from src.dataservice_client.contracts.audit import AuditLogCreatePayload
 from src.dataservice_client.contracts.credit import (
     CreditGrantRuleCreatePayload,
     CreditGrantRuleUpdatePayload,
@@ -103,12 +103,12 @@ class CreditGrantRuleService:
         details: dict[str, Any],
     ) -> None:
         async with self._client() as client:
-            await client.record_catalog_admin_log(
-                AdminLogCreatePayload(
+            await client.create_audit_log(
+                AuditLogCreatePayload(
                     action=action,
-                    admin_id=admin_id,
-                    target_user_id=None,
-                    details=details,
+                    user_id=admin_id,
+                    target_type="credit_grant_rule",
+                    payload=details,
                 )
             )
 
@@ -121,8 +121,14 @@ class CreditGrantRuleService:
             return await client.get_credit_grant_rule(rule_id)
 
     async def create(
-        self, *, name: str, rule_type: CreditGrantRuleType, amount: int,
-        config: dict[str, Any], description: str | None = None, admin_id: str,
+        self,
+        *,
+        name: str,
+        rule_type: CreditGrantRuleType,
+        amount: int,
+        config: dict[str, Any],
+        description: str | None = None,
+        admin_id: str,
     ) -> Any:
         if amount <= 0:
             raise ValueError("amount must be > 0")
@@ -151,8 +157,14 @@ class CreditGrantRuleService:
         return rule
 
     async def update(
-        self, *, rule_id: str, name: str, amount: int, config: dict[str, Any],
-        description: str | None, admin_id: str,
+        self,
+        *,
+        rule_id: str,
+        name: str,
+        amount: int,
+        config: dict[str, Any],
+        description: str | None,
+        admin_id: str,
     ) -> Any:
         rule = await self.get(rule_id)
         if rule is None:

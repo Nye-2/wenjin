@@ -13,6 +13,10 @@ from src.dataservice_client.contracts.credit import (
     CreditRefundPayload,
     CreditSummaryPayload,
 )
+from src.models.capability_profile import (
+    GenerationAPI,
+    unverified_capability_assessment,
+)
 from src.services.billing_policy import OperationBillingPolicy, TokenBillingPolicy
 from src.services.credit_service import CreditService
 from src.services.model_catalog_cache import install_model_catalog_snapshot, reset_model_catalog_cache
@@ -55,7 +59,7 @@ class FakeCreditClient:
                 amount=amount,
                 balance_after=balance_after,
                 description="seed tx",
-                feature_id="thread" if transaction_type == "thread_token_consume" else "deep_research",
+                mission_policy_id="thread" if transaction_type == "thread_token_consume" else "deep_research",
                 workspace_id=None,
                 task_id=None,
                 admin_id=None,
@@ -134,7 +138,9 @@ class FakeCreditClient:
             amount=-command.amount,
             balance_after=after,
             description=command.description,
-            feature_id=command.feature_id,
+            mission_policy_id=command.mission_policy_id,
+            mission_id=command.mission_id,
+            operation_key=command.operation_key,
             workspace_id=command.workspace_id,
             task_id=command.task_id,
             admin_id=None,
@@ -161,7 +167,9 @@ class FakeCreditClient:
             amount=refund_amount,
             balance_after=self.balances[command.user_id],
             description=command.reason,
-            feature_id=original.feature_id,
+            mission_policy_id=original.mission_policy_id,
+            mission_id=original.mission_id,
+            operation_key=original.operation_key,
             workspace_id=original.workspace_id,
             task_id=command.task_id,
             admin_id=None,
@@ -185,7 +193,9 @@ class FakeCreditClient:
             amount=command.amount,
             balance_after=after,
             description=command.description,
-            feature_id=None,
+            mission_policy_id=None,
+            mission_id=None,
+            operation_key=None,
             workspace_id=None,
             task_id=None,
             admin_id=command.admin_id,
@@ -215,8 +225,8 @@ class FakeCreditClient:
             id=f"reservation-{self._counter}",
             user_id=command.user_id,
             workspace_id=command.workspace_id,
-            execution_id=command.execution_id,
-            node_id=command.node_id,
+            mission_id=command.mission_id,
+            mission_item_seq=command.mission_item_seq,
             scope=command.scope,
             status="reserved",
             reserved_credits=command.reserved_credits,
@@ -248,9 +258,11 @@ class FakeCreditClient:
             amount=-charge,
             balance_after=self.balances[reservation.user_id],
             description=command.description,
-            feature_id=command.feature_id,
+            mission_policy_id=command.mission_policy_id,
+            mission_id=command.mission_id or reservation.mission_id,
+            operation_key=command.operation_key,
             workspace_id=reservation.workspace_id,
-            task_id=command.task_id,
+            task_id=None,
             admin_id=None,
             metadata={"reservation_id": reservation_id, **dict(command.metadata)},
             created_at=None,
@@ -292,7 +304,7 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
                 "output_weight": 1,
                 "credits_per_1k_weighted_tokens": 6,
                 "min_chat_credits": 3,
-                "min_feature_model_credits": 10,
+                "min_mission_model_credits": 10,
                 "max_overdraft_credits": 100,
             },
         )
@@ -307,11 +319,11 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
                 "output_weight": 2,
                 "credits_per_1k_weighted_tokens": 10,
                 "min_chat_credits": 7,
-                "min_feature_model_credits": 13,
+                "min_mission_model_credits": 13,
                 "max_overdraft_credits": 100,
             },
         )
-        self.capability_policies: list[SimpleNamespace] = []
+        self.mission_policies: list[SimpleNamespace] = []
 
     async def get_pricing_policy(self, policy_id_or_key: str):
         if policy_id_or_key in {"global-credit", self.global_policy.id}:
@@ -332,7 +344,7 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
             self.global_policy,
             self.model_policy,
             self.bound_model_policy,
-            *self.capability_policies,
+            *self.mission_policies,
         ]
         if policy_kind is not None:
             rows = [row for row in rows if row.policy_kind == policy_kind]
@@ -453,6 +465,12 @@ async def test_consume_for_thread_usage_prefers_runtime_model_bound_pricing_poli
     pricing_credit_service: CreditService,
 ) -> None:
     reset_model_catalog_cache()
+    assessment = unverified_capability_assessment(
+        model_id="deepseek-v3",
+        model_name="deepseek/deepseek-v3",
+        base_url="https://api.example.com/v1",
+        generation_api=GenerationAPI.CHAT_COMPLETIONS,
+    )
     install_model_catalog_snapshot(
         [
             SimpleNamespace(
@@ -464,14 +482,15 @@ async def test_consume_for_thread_usage_prefers_runtime_model_bound_pricing_poli
                 base_url="https://api.example.com/v1",
                 api_key="sk-live-1234abcd",
                 is_default=True,
-                supports_streaming=True,
-                supports_tools=False,
-                supports_json_mode=True,
-                supports_json_schema=False,
-                supports_vision=False,
-                supports_reasoning_effort=False,
+                generation_api=GenerationAPI.CHAT_COMPLETIONS,
+                capability_profile=assessment.profile,
+                capability_probe=assessment.evidence,
+                capability_probe_hash=assessment.profile.probe_hash,
+                capability_observed_at=assessment.profile.observed_at,
                 max_tokens=8192,
                 temperature=0.3,
+                timeout_seconds=None,
+                max_retries=None,
                 pricing_policy_id="deepseek-bound-policy",
                 config_version=1,
                 default_headers={},
@@ -518,17 +537,17 @@ async def test_consume_for_thread_usage_applies_pricing_policy_chat_minimum(
 
 
 @pytest.mark.asyncio
-async def test_consume_for_feature_usage_applies_pricing_policy_feature_minimum(
+async def test_consume_for_mission_usage_applies_pricing_policy_feature_minimum(
     pricing_credit_client: PricingAwareFakeCreditClient,
     pricing_credit_service: CreditService,
 ) -> None:
     pricing_credit_client.add_user(credits=20)
 
-    result = await pricing_credit_service.consume_for_feature_usage(
+    result = await pricing_credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"input_tokens": 1, "output_tokens": 0, "total_tokens": 1},
-        task_id="task-1",
+        mission_id="mission-1",
         metadata={"model_name": "gpt-4o"},
     )
 
@@ -537,34 +556,34 @@ async def test_consume_for_feature_usage_applies_pricing_policy_feature_minimum(
 
 
 @pytest.mark.asyncio
-async def test_estimate_feature_reservation_uses_matching_capability_policy(
+async def test_estimate_mission_reservation_uses_matching_mission_policy(
     pricing_credit_client: PricingAwareFakeCreditClient,
     pricing_credit_service: CreditService,
 ) -> None:
-    pricing_credit_client.capability_policies = [
+    pricing_credit_client.mission_policies = [
         SimpleNamespace(
-            id="other-capability-policy",
+            id="other-mission-policy",
             policy_key="other",
-            policy_kind="capability",
+            policy_kind="mission",
             enabled=True,
             version=1,
             config={
                 "workspace_type": "thesis",
-                "capability_id": "other_feature",
+                "mission_policy_id": "other_mission",
                 "estimate_min_credits": 10,
                 "estimate_max_credits": 900,
                 "max_charge_credits": 900,
             },
         ),
         SimpleNamespace(
-            id="target-capability-policy",
+            id="target-mission-policy",
             policy_key="target",
-            policy_kind="capability",
+            policy_kind="mission",
             enabled=True,
             version=1,
             config={
                 "workspace_type": "thesis",
-                "capability_id": "deep_research",
+                "mission_policy_id": "deep_research",
                 "estimate_min_credits": 10,
                 "estimate_max_credits": 120,
                 "max_charge_credits": 120,
@@ -572,8 +591,8 @@ async def test_estimate_feature_reservation_uses_matching_capability_policy(
         ),
     ]
 
-    estimate = await pricing_credit_service.estimate_feature_reservation_credits(
-        feature_id="deep_research",
+    estimate = await pricing_credit_service.estimate_mission_reservation_credits(
+        mission_policy_id="deep_research",
         workspace_type="thesis",
     )
 
@@ -581,20 +600,20 @@ async def test_estimate_feature_reservation_uses_matching_capability_policy(
 
 
 @pytest.mark.asyncio
-async def test_estimate_feature_reservation_does_not_fallback_to_unrelated_capability_policy(
+async def test_estimate_mission_reservation_does_not_fallback_to_unrelated_mission_policy(
     pricing_credit_client: PricingAwareFakeCreditClient,
     pricing_credit_service: CreditService,
 ) -> None:
-    pricing_credit_client.capability_policies = [
+    pricing_credit_client.mission_policies = [
         SimpleNamespace(
-            id="other-capability-policy",
+            id="other-mission-policy",
             policy_key="other",
-            policy_kind="capability",
+            policy_kind="mission",
             enabled=True,
             version=1,
             config={
                 "workspace_type": "thesis",
-                "capability_id": "other_feature",
+                "mission_policy_id": "other_mission",
                 "estimate_min_credits": 10,
                 "estimate_max_credits": 900,
                 "max_charge_credits": 900,
@@ -602,8 +621,8 @@ async def test_estimate_feature_reservation_does_not_fallback_to_unrelated_capab
         )
     ]
 
-    estimate = await pricing_credit_service.estimate_feature_reservation_credits(
-        feature_id="deep_research",
+    estimate = await pricing_credit_service.estimate_mission_reservation_credits(
+        mission_policy_id="deep_research",
         workspace_type="thesis",
     )
 
@@ -653,17 +672,17 @@ async def test_can_start_thread_turn_blocks_when_free_quota_exhausted_and_balanc
 
 
 @pytest.mark.asyncio
-async def test_can_start_feature_task_blocks_when_balance_empty(
+async def test_can_start_mission_blocks_when_balance_empty(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=0)
 
-    assert await credit_service.can_start_feature_task("user-1") is False
+    assert await credit_service.can_start_mission("user-1") is False
 
 
 @pytest.mark.asyncio
-async def test_can_start_feature_task_blocks_when_positive_balance_is_reserved(
+async def test_can_start_mission_blocks_when_positive_balance_is_reserved(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
@@ -675,14 +694,14 @@ async def test_can_start_feature_task_blocks_when_positive_balance_is_reserved(
         amount=0,
         total_tokens=100000,
         balance_after=10,
-        metadata_type="feature_token_billing",
+        metadata_type="mission_token_billing",
     )
 
-    assert await credit_service.can_start_feature_task("user-1") is False
+    assert await credit_service.can_start_mission("user-1") is False
 
 
 @pytest.mark.asyncio
-async def test_can_start_feature_task_allows_free_feature_quota(
+async def test_can_start_mission_allows_free_mission_quota(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
     monkeypatch: pytest.MonkeyPatch,
@@ -690,7 +709,7 @@ async def test_can_start_feature_task_allows_free_feature_quota(
     fake_credit_client.add_user(credits=0)
     monkeypatch.setattr(
         CreditService,
-        "get_feature_billing_policy",
+        "get_mission_billing_policy",
         staticmethod(
             lambda: TokenBillingPolicy(
                 enabled=True,
@@ -706,10 +725,10 @@ async def test_can_start_feature_task_allows_free_feature_quota(
         amount=0,
         total_tokens=5000,
         balance_after=0,
-        metadata_type="feature_token_billing",
+        metadata_type="mission_token_billing",
     )
 
-    assert await credit_service.can_start_feature_task("user-1") is True
+    assert await credit_service.can_start_mission("user-1") is True
 
 
 @pytest.mark.asyncio
@@ -744,8 +763,8 @@ async def test_consume_for_sandbox_operation_charges_fixed_credits(
         user_id="user-1",
         operation="run_python",
         workspace_id="ws-1",
-        task_id="exec-1",
-        node_id="phase__sandbox",
+        mission_id="mission-1",
+        mission_item_seq=7,
     )
 
     assert result.operation == "run_python"
@@ -756,18 +775,18 @@ async def test_consume_for_sandbox_operation_charges_fixed_credits(
 
     tx = next(tx for tx in fake_credit_client.transactions if tx.id == result.transaction_id)
     assert tx.transaction_type == "workflow_consume"
-    assert tx.feature_id == "sandbox.run_python"
+    assert tx.operation_key == "sandbox.run_python"
     assert tx.workspace_id == "ws-1"
-    assert tx.task_id == "exec-1"
+    assert tx.mission_id == "mission-1"
     assert tx.metadata["type"] == "sandbox_operation_billing"
     assert tx.metadata["operation"] == "run_python"
     assert tx.metadata["credits_charged"] == 1
     assert tx.metadata["policy"]["max_overdraft_credits"] == 100
-    assert tx.metadata["idempotency_key"] == "sandbox_operation_billing:exec-1:phase__sandbox:run_python"
+    assert tx.metadata["idempotency_key"] == "sandbox_operation_billing:mission-1:7:run_python"
 
 
 @pytest.mark.asyncio
-async def test_sandbox_operation_consumption_replays_by_execution_node_idempotency(
+async def test_sandbox_operation_consumption_replays_by_execution_mission_item_seqempotency(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
@@ -777,15 +796,15 @@ async def test_sandbox_operation_consumption_replays_by_execution_node_idempoten
         user_id="user-1",
         operation="run_python",
         workspace_id="ws-1",
-        task_id="exec-1",
-        node_id="phase__sandbox",
+        mission_id="mission-1",
+        mission_item_seq=7,
     )
     second = await credit_service.consume_for_sandbox_operation(
         user_id="user-1",
         operation="run_python",
         workspace_id="ws-1",
-        task_id="exec-1",
-        node_id="phase__sandbox",
+        mission_id="mission-1",
+        mission_item_seq=7,
     )
 
     workflow_transactions = [
@@ -821,8 +840,8 @@ async def test_sandbox_operation_billing_disabled_records_no_transaction(
     result = await credit_service.consume_for_sandbox_operation(
         user_id="user-1",
         operation="run_python",
-        task_id="exec-1",
-        node_id="phase__sandbox",
+        mission_id="mission-1",
+        mission_item_seq=7,
     )
 
     assert result.charged is False
@@ -836,17 +855,17 @@ async def test_user_credit_history_sanitizes_internal_token_metadata(
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=10)
-    await credit_service.consume_for_feature_usage(
+    await credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"total_tokens": 15000},
-        task_id="exec-1",
+        mission_id="mission-1",
     )
 
     items, total = await credit_service.get_history(user_id="user-1")
 
     assert total == 1
-    assert items[0]["metadata"]["type"] == "feature_token_billing"
+    assert items[0]["metadata"]["type"] == "mission_token_billing"
     assert items[0]["metadata"]["credits_charged"] == 2
     assert "token_usage" not in items[0]["metadata"]
     assert "billable_tokens" not in items[0]["metadata"]
@@ -950,18 +969,18 @@ async def test_thread_usage_consumption_preserves_idempotency_key(
 
 
 @pytest.mark.asyncio
-async def test_consume_for_feature_usage_charges_by_tokens(
+async def test_consume_for_mission_usage_charges_by_tokens(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=10)
 
-    result = await credit_service.consume_for_feature_usage(
+    result = await credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000},
         workspace_id="ws-1",
-        task_id="task-1",
+        mission_id="mission-1",
         metadata={"workspace_type": "thesis"},
     )
 
@@ -969,21 +988,21 @@ async def test_consume_for_feature_usage_charges_by_tokens(
     assert result.credits_charged == 2
     assert result.charged is True
     assert await credit_service.get_balance("user-1") == 8
-    assert await credit_service.get_consumed_feature_tokens("user-1") == 15000
+    assert await credit_service.get_consumed_mission_tokens("user-1") == 15000
 
 
 @pytest.mark.asyncio
-async def test_feature_usage_consumption_sends_overdraft_policy(
+async def test_mission_usage_consumption_sends_overdraft_policy(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=1)
 
-    result = await credit_service.consume_for_feature_usage(
+    result = await credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"total_tokens": 15000},
-        task_id="task-1",
+        mission_id="mission-1",
     )
 
     tx = next(tx for tx in fake_credit_client.transactions if tx.id == result.transaction_id)
@@ -991,23 +1010,23 @@ async def test_feature_usage_consumption_sends_overdraft_policy(
 
 
 @pytest.mark.asyncio
-async def test_feature_usage_consumption_replays_by_task_id_idempotency(
+async def test_mission_usage_consumption_replays_by_task_id_idempotency(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=10)
 
-    first = await credit_service.consume_for_feature_usage(
+    first = await credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"total_tokens": 15000},
-        task_id="exec-1",
+        mission_id="mission-1",
     )
-    second = await credit_service.consume_for_feature_usage(
+    second = await credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"total_tokens": 15000},
-        task_id="exec-1",
+        mission_id="mission-1",
     )
 
     workflow_transactions = [
@@ -1018,8 +1037,8 @@ async def test_feature_usage_consumption_replays_by_task_id_idempotency(
     assert second.historical_tokens_before == first.historical_tokens_before
     assert len(workflow_transactions) == 1
     assert await credit_service.get_balance("user-1") == 8
-    assert await credit_service.get_consumed_feature_tokens("user-1") == 15000
-    assert workflow_transactions[0].metadata["idempotency_key"] == "feature_token_billing:exec-1"
+    assert await credit_service.get_consumed_mission_tokens("user-1") == 15000
+    assert workflow_transactions[0].metadata["idempotency_key"] == "mission_token_billing:mission-1"
 
 
 @pytest.mark.asyncio
@@ -1028,28 +1047,28 @@ async def test_refund_consumption_releases_feature_tokens(
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=10)
-    result = await credit_service.consume_for_feature_usage(
+    result = await credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"total_tokens": 15000},
-        task_id="task-1",
+        mission_id="mission-1",
     )
 
     assert result.transaction_id is not None
     refund = await credit_service.refund_consumption(
         user_id="user-1",
         original_transaction_id=result.transaction_id,
-        reason="feature persist failed",
+        reason="mission persist failed",
     )
 
     assert refund is not None
     assert refund.amount == 2
     assert await credit_service.get_balance("user-1") == 10
-    assert await credit_service.get_consumed_feature_tokens("user-1") == 0
+    assert await credit_service.get_consumed_mission_tokens("user-1") == 0
 
 
 @pytest.mark.asyncio
-async def test_refund_consumption_releases_free_feature_tokens(
+async def test_refund_consumption_releases_free_mission_tokens(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
     monkeypatch: pytest.MonkeyPatch,
@@ -1057,7 +1076,7 @@ async def test_refund_consumption_releases_free_feature_tokens(
     fake_credit_client.add_user(credits=10)
     monkeypatch.setattr(
         CreditService,
-        "get_feature_billing_policy",
+        "get_mission_billing_policy",
         staticmethod(
             lambda: TokenBillingPolicy(
                 enabled=True,
@@ -1068,26 +1087,26 @@ async def test_refund_consumption_releases_free_feature_tokens(
         ),
     )
 
-    result = await credit_service.consume_for_feature_usage(
+    result = await credit_service.consume_for_mission_usage(
         user_id="user-1",
-        feature_id="deep_research",
+        mission_policy_id="deep_research",
         token_usage={"total_tokens": 5000},
-        task_id="task-1",
+        mission_id="mission-1",
     )
 
     assert result.transaction_id is not None
     assert result.credits_charged == 0
-    assert await credit_service.get_consumed_feature_tokens("user-1") == 5000
+    assert await credit_service.get_consumed_mission_tokens("user-1") == 5000
 
     refund = await credit_service.refund_consumption(
         user_id="user-1",
         original_transaction_id=result.transaction_id,
-        reason="feature persist failed",
+        reason="mission persist failed",
     )
 
     assert refund is not None
     assert refund.amount == 0
-    assert await credit_service.get_consumed_feature_tokens("user-1") == 0
+    assert await credit_service.get_consumed_mission_tokens("user-1") == 0
 
 
 @pytest.mark.asyncio
@@ -1111,18 +1130,18 @@ async def test_admin_deduct_keeps_direction_correct_for_negative_balances(
 
 
 @pytest.mark.asyncio
-async def test_reserve_for_feature_execution_delegates_to_dataservice(
+async def test_reserve_for_mission_delegates_to_dataservice(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=20)
 
-    reservation = await credit_service.reserve_for_feature_execution(
+    reservation = await credit_service.reserve_for_mission(
         user_id="user-1",
         workspace_id="ws-1",
-        execution_id="exec-1",
+        mission_id="mission-1",
         estimated_credits=12,
-        metadata={"feature_id": "deep_research"},
+        metadata={"policy_id": "sci"},
     )
 
     assert reservation.reserved_credits == 12
@@ -1132,23 +1151,23 @@ async def test_reserve_for_feature_execution_delegates_to_dataservice(
 
 
 @pytest.mark.asyncio
-async def test_settle_feature_reservation_charges_and_releases_remainder(
+async def test_settle_mission_reservation_charges_and_releases_remainder(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=20)
-    reservation = await credit_service.reserve_for_feature_execution(
+    reservation = await credit_service.reserve_for_mission(
         user_id="user-1",
         workspace_id="ws-1",
-        execution_id="exec-1",
+        mission_id="mission-1",
         estimated_credits=12,
     )
 
-    settled, tx = await credit_service.settle_feature_reservation(
+    settled, tx = await credit_service.settle_mission_reservation(
         reservation_id=reservation.id,
         settled_credits=8,
-        feature_id="deep_research",
-        task_id="exec-1",
+        mission_policy_id="deep_research",
+        mission_id="mission-1",
         metadata={"actual_credits": 8},
     )
 
@@ -1169,8 +1188,8 @@ async def test_release_reservation_delegates_to_dataservice(
     reservation = await credit_service.reserve_for_sandbox_operation(
         user_id="user-1",
         workspace_id="ws-1",
-        execution_id="exec-1",
-        node_id="node-1",
+        mission_id="mission-1",
+        mission_item_seq=1,
         operation="run_python",
         estimated_credits=5,
     )

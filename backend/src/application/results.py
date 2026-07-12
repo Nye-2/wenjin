@@ -1,33 +1,7 @@
 """Application-layer result objects."""
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
-
-
-@dataclass(frozen=True, slots=True)
-class FeatureTaskSubmission:
-    task_id: str
-    feature_id: str
-    message: str
-    reused_existing_task: bool = False
-    execution_id: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
-class FeatureExecutionAdvisory:
-    feature_id: str
-    code: str
-    message: str
-    context: dict[str, Any] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-FeatureExecutionOutcome = FeatureTaskSubmission | FeatureExecutionAdvisory
 
 
 @dataclass(frozen=True, slots=True)

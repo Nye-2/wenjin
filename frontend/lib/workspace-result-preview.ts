@@ -3,6 +3,12 @@ import {
   safeRuntimeText,
   safeStructuredFallback,
 } from "./runtime-payload-safety";
+import {
+  reviewIssueSummary,
+  reviewIssueTitle,
+  reviewPacketBadgeLabel as userFacingReviewPacketBadgeLabel,
+  reviewRiskLabel,
+} from "./review-copy";
 
 type PreviewMode =
   | "markdown"
@@ -445,8 +451,14 @@ export function buildWorkspaceResultPreviewsFromReviewPacket(
     });
     const source = readObject(item.source);
     const provenance = readObject(item.provenance);
-    const title = readString(item.title) ?? reviewPacketKindLabel(kind);
-    const summary = readString(item.summary);
+    const rawTitle = readString(item.title);
+    const rawSummary = readString(item.summary);
+    const title = reviewIssueTitle({
+      title: rawTitle,
+      summary: rawSummary,
+      fallback: reviewPacketKindLabel(kind),
+    });
+    const summary = reviewIssueSummary(rawSummary);
     const previewPath = firstWorkspaceImagePath(
       readString(preview?.path),
       ...readStringArray(item.artifact_refs).map((ref) => ref.replace(/^artifact:/, "")),
@@ -499,9 +511,10 @@ export function buildWorkspaceResultPreviewsFromReviewPacket(
         previewPath,
         previewText:
           diffText ??
-          readString(preview?.excerpt) ??
+          reviewIssueSummary(readString(preview?.excerpt)) ??
           summary ??
-          JSON.stringify(item, null, 2),
+          reviewIssueSummary(JSON.stringify(item, null, 2)) ??
+          "这项内容需要复核后再继续。",
         metadata,
         metadataLines,
         defaultChecked: item.default_checked !== false,
@@ -854,7 +867,7 @@ function reviewPacketKindLabel(kind: PreviewKind): string {
     case "prism_change":
       return "改稿";
     case "warning":
-      return "风险";
+      return "提醒";
     default:
       return documentKindLabel(kind);
   }
@@ -864,16 +877,10 @@ function reviewPacketBadgeLabel(
   kind: PreviewKind,
   reviewState: "supported" | "needs_confirmation" | "blocker",
 ): string {
-  if (reviewState === "blocker") {
-    return "阻断";
-  }
-  if (reviewState === "needs_confirmation") {
-    return "需确认";
-  }
-  if (kind === "warning") {
-    return "风险";
-  }
-  return reviewPacketKindLabel(kind);
+  return (
+    userFacingReviewPacketBadgeLabel(kind, reviewState) ||
+    reviewPacketKindLabel(kind)
+  );
 }
 
 function reviewPacketSupportState({
@@ -930,7 +937,7 @@ function buildReviewPacketMetadataLines(options: {
   return [
     `状态 ${reviewStateLabel(options.reviewState)}`,
     expert ? `专家 ${humanizeMetadataToken(expert)}` : null,
-    riskLevel ? `风险 ${riskLevel}` : null,
+    riskLevel ? `确认级别 ${reviewRiskLevelLabel(riskLevel)}` : null,
     options.claimRefs.length ? `论断 ${options.claimRefs.length}` : null,
     options.evidenceRefs.length ? `证据 ${options.evidenceRefs.length}` : null,
     options.artifactRefs.length ? `结果 ${options.artifactRefs.length}` : null,
@@ -939,9 +946,24 @@ function buildReviewPacketMetadataLines(options: {
 }
 
 function reviewStateLabel(value: "supported" | "needs_confirmation" | "blocker"): string {
-  if (value === "blocker") return "阻断";
+  if (value === "blocker") return "需补充";
   if (value === "needs_confirmation") return "需确认";
   return "已支持";
+}
+
+function reviewRiskLevelLabel(value: string): string {
+  if (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "critical"
+  ) {
+    return reviewRiskLabel(value);
+  }
+  if (value === "warning") {
+    return "需确认";
+  }
+  return value;
 }
 
 function humanizeMetadataToken(value: string): string {

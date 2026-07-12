@@ -1,21 +1,23 @@
-"""Tools module initialization."""
+"""Public tool helpers without import-time runtime assembly.
 
-from .builtins import (
-    ask_clarification_tool,
-    list_capabilities_tool,
-    list_reference_library_tool,
-    list_workspace_artifacts_tool,
-    present_files_tool,
-    read_reference_outline_node_tool,
-    search_reference_text_units_tool,
-)
+ToolOrchestrator is infrastructure and must be importable without loading the
+agent graph or every built-in tool. Built-ins remain lazily available to the
+few callers that import them from this package.
+"""
 
-__all__ = [
-    "ask_clarification_tool",
-    "present_files_tool",
-    "list_capabilities_tool",
-    "list_workspace_artifacts_tool",
-    "list_reference_library_tool",
-    "search_reference_text_units_tool",
-    "read_reference_outline_node_tool",
-]
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+_BUILTIN_EXPORTS = {"ask_clarification_tool", "present_files_tool"}
+
+__all__ = sorted(_BUILTIN_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _BUILTIN_EXPORTS:
+        raise AttributeError(name)
+    value = getattr(import_module("src.tools.builtins"), name)
+    globals()[name] = value
+    return value

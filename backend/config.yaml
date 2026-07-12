@@ -1,40 +1,5 @@
 # Wenjin Configuration
 
-models:
-  - name: gpt-4o
-    display_name: GPT-4o
-    use: langchain_openai:ChatOpenAI
-    model: gpt-4o
-    api_key: $OPENAI_API_KEY
-    max_tokens: 4096
-    supports_thinking: false
-    supports_vision: true
-
-  - name: claude-sonnet-4
-    display_name: Claude Sonnet 4
-    use: langchain_anthropic:ChatAnthropic
-    model: claude-sonnet-4-20250514
-    api_key: $ANTHROPIC_API_KEY
-    max_tokens: 4096
-    supports_thinking: true
-    supports_vision: true
-    when_thinking_enabled:
-      thinking:
-        type: enabled
-        budget_tokens: 10000
-      betas: ["interleaved-thinking-2025-05-14"]
-
-  - name: deepseek-v3
-    display_name: DeepSeek V3
-    use: langchain_openai:ChatOpenAI
-    model: deepseek-chat
-    api_key: $DEEPSEEK_API_KEY
-    max_tokens: 4096
-    supports_thinking: false
-    supports_vision: false
-
-default_model: gpt-4o
-
 tools:
   - use: src.tools.builtins.clarification:ask_clarification_tool
     group: interaction
@@ -71,41 +36,6 @@ middlewares:
     discipline_context: true
     citation_tracking: true
 
-subagents:
-  enabled: true
-  max_concurrent: 4
-  types:
-    scout:
-      description: "Literature search and evidence collection"
-      allowed_tools: [semantic_scholar_search, web_search, read_file]
-      max_turns: 10
-      timeout: 300
-    writer:
-      description: "Academic chapter writing"
-      allowed_tools: [read_file, write_file, semantic_scholar_search]
-      max_turns: 15
-      timeout: 600
-    synthesizer:
-      description: "Knowledge synthesis and insight generation"
-      allowed_tools: [read_file]
-      max_turns: 6
-    reviewer:
-      description: "Academic quality review"
-      allowed_tools: [read_file]
-      max_turns: 8
-    librarian:
-      description: "Citation management and literature integration"
-      allowed_tools: [semantic_scholar_search, read_file]
-      max_turns: 10
-    analyst:
-      description: "Data analysis and evaluation"
-      allowed_tools: [read_file, bash]
-      max_turns: 10
-    general:
-      description: "General-purpose assistant"
-      disallowed_tools: [task]
-      max_turns: 15
-
 memory:
   enabled: true
   debounce_seconds: 30
@@ -127,7 +57,7 @@ billing:
     free_tokens: 100000
     tokens_per_credit: 10000
     max_overdraft_credits: 100
-  feature:
+  mission:
     enabled: true
     free_tokens: 0
     tokens_per_credit: 10000

@@ -146,9 +146,7 @@ def test_admin_pricing_policy_crud_routes() -> None:
 def test_admin_pricing_routes_preserve_dataservice_client_status() -> None:
     app = FastAPI()
     app.include_router(admin_pricing.policies_router)
-    app.dependency_overrides[admin_pricing._service] = (
-        lambda: _FakeDataServiceErrorPricingService()
-    )
+    app.dependency_overrides[admin_pricing._service] = lambda: _FakeDataServiceErrorPricingService()
     app.dependency_overrides[get_current_admin] = lambda: _admin()
     client = TestClient(app, raise_server_exceptions=False)
 

@@ -79,15 +79,13 @@ from .routers import (  # noqa: E402
     catalog,
     conversation,
     credit,
-    execution,
     health,
     latex,
+    mission,
     model_catalog,
     pricing,
     prism,
-    prism_review,
     provenance,
-    review,
     rooms,
     sandbox,
     source,
@@ -103,15 +101,13 @@ app.include_router(audit.router)
 app.include_router(catalog.router)
 app.include_router(conversation.router)
 app.include_router(credit.router)
-app.include_router(execution.router)
 app.include_router(health.router)
 app.include_router(latex.router)
+app.include_router(mission.router)
 app.include_router(model_catalog.router)
 app.include_router(pricing.router)
 app.include_router(prism.router)
-app.include_router(prism_review.router)
 app.include_router(provenance.router)
-app.include_router(review.router)
 app.include_router(rooms.router)
 app.include_router(sandbox.router)
 app.include_router(source.router)

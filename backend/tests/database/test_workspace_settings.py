@@ -39,7 +39,6 @@ async def test_get_or_create_default(test_session):
     assert row.auto_compact_threshold == pytest.approx(0.8)
     assert row.sandbox_provider == "local"
     assert row.default_model is None
-    assert row.capability_overrides == {}
     assert row.metadata_json == {}
 
 

@@ -90,9 +90,6 @@ class _WorkspaceSettings(_Base):
     auto_compact_threshold: Mapped[float] = mapped_column(
         REAL, nullable=False, default=0.8,
     )
-    capability_overrides: Mapped[dict] = mapped_column(
-        JSON, nullable=False, default=dict,
-    )
     settings_json: Mapped[dict] = mapped_column(
         JSON, nullable=False, default=dict,
     )
@@ -257,43 +254,6 @@ class _WorkspaceTask(_Base):
     deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
-class _Capability(_Base):
-    """SQLite-compatible mirror of Capability (composite PK: id, workspace_type)."""
-
-    __tablename__ = "capabilities"
-
-    id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    workspace_type: Mapped[str] = mapped_column(String(50), primary_key=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    intent_description: Mapped[str] = mapped_column(Text, nullable=False)
-    trigger_phrases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    required_decisions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    brief_schema: Mapped[dict] = mapped_column(JSON, nullable=False)
-    graph_template: Mapped[dict] = mapped_column(JSON, nullable=False)
-    ui_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    runtime: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    dashboard_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class _CapabilitySkill(_Base):
-    """SQLite-compatible mirror of CapabilitySkill."""
-
-    __tablename__ = "capability_skills"
-
-    id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    subagent_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    allowed_tools: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    resources: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-
-
 class _AuditLog(_Base):
     """SQLite-compatible mirror of AuditLog."""
 
@@ -368,5 +328,3 @@ DbRunHistory = _RunHistory
 DbSandbox = _Sandbox
 DbWorkspaceTask = _WorkspaceTask
 DbAuditLog = _AuditLog
-DbCapability = _Capability
-DbCapabilitySkill = _CapabilitySkill

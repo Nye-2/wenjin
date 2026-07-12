@@ -11,7 +11,7 @@ import {
 function activity(overrides: Partial<WorkspaceActivityItem> = {}): WorkspaceActivityItem {
   return {
     id: overrides.id ?? "a1",
-    kind: overrides.kind ?? "feature_task",
+    kind: "mission",
     occurred_at: overrides.occurred_at ?? "2026-04-13T10:00:00Z",
     title: overrides.title ?? "activity",
     status: overrides.status ?? "pending",

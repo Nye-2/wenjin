@@ -1,5 +1,5 @@
 # src/academic/literature/__init__.py
-"""Semantic Scholar search service surface."""
+"""Model-native literature search service surface."""
 
 from .search_service import LiteratureSearchService
 

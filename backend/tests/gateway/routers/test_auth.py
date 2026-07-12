@@ -444,6 +444,7 @@ class TestGetMe:
 
 # ============ Integration tests using async fixtures ============
 
+
 class TestAuthIntegration:
     """Integration tests for auth endpoints."""
 
@@ -472,12 +473,14 @@ class TestAuthIntegration:
 
         # Verify token works
         from src.services.auth import verify_access_token
+
         token_data = verify_access_token(tokens.access_token)
         assert token_data is not None
         assert token_data.user_id == str(user.id)
 
         # Refresh token
         from src.services.auth import verify_refresh_token
+
         user_id = verify_refresh_token(tokens.refresh_token)
         assert user_id == str(user.id)
 

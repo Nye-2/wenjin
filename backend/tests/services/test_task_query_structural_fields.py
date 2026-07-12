@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-# Files that should not contain JSONB path queries for workspace_id/feature_id
+# Current owners of auxiliary task structural fields.
 _TARGET_FILES = [
-    Path(__file__).parents[2] / "src" / "services" / "dashboard" / "shared.py",
-    Path(__file__).parents[2] / "src" / "services" / "workspace_activity_service.py",
+    Path(__file__).parents[2] / "src" / "dataservice" / "domains" / "task" / "repository.py",
+    Path(__file__).parents[2] / "src" / "dataservice" / "domains" / "task" / "service.py",
     Path(__file__).parents[2] / "src" / "task" / "service.py",
     Path(__file__).parents[2] / "src" / "task" / "store.py",
 ]
@@ -14,10 +14,6 @@ _TARGET_FILES = [
 _JSONB_FIELD_PATTERNS = [
     'payload["workspace_id"]',
     "payload['workspace_id']",
-    'payload["feature_id"]',
-    "payload['feature_id']",
-    'payload["action"]',
-    "payload['action']",
     'payload["thread_id"]',
     "payload['thread_id']",
 ]

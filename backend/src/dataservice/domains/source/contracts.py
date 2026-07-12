@@ -24,7 +24,8 @@ class SourceCreateCommand(BaseModel):
     citation_count: int | None = None
     ingest_kind: str = "manual"
     ingest_label: str | None = None
-    ingest_execution_id: str | None = None
+    ingest_mission_id: str | None = None
+    ingest_mission_commit_id: str | None = None
     verified_at: datetime | None = None
     library_status: str = "candidate"
     evidence_level: str = "metadata_only"
@@ -94,7 +95,8 @@ class SourceProjection(BaseModel):
     citation_count: int | None = None
     ingest_kind: str
     ingest_label: str | None = None
-    ingest_execution_id: str | None = None
+    ingest_mission_id: str | None = None
+    ingest_mission_commit_id: str | None = None
     verified_at: datetime | None = None
     library_status: str
     evidence_level: str
@@ -154,7 +156,7 @@ class SourceBibliographySnapshotProjection(BaseModel):
 class SourceCitationUsageCreateCommand(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=36)
     citation_keys: list[str] = Field(default_factory=list)
-    execution_id: str | None = None
+    mission_id: str | None = None
     task_id: str | None = None
     artifact_id: str | None = None
     latex_project_id: str | None = None

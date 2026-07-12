@@ -309,7 +309,7 @@ def test_manifest_primary_path_rejects_protected_artifact_paths(primary_path: st
     "dataset_path",
     [
         "/workspace/.git/config",
-        "/workspace/tmp/tasks/.harness/outputs/file.png",
+        "/workspace/tmp/tasks/.wenjin/outputs/file.png",
         "/workspace/datasets/.env",
         "/workspace/datasets/secret.pem",
         "/workspace/datasets/secret.key",

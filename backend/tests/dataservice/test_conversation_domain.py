@@ -56,7 +56,7 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
                     "kind": "tool_invocation",
                     "data": {
                         "tool": "launch_feature",
-                        "args": {"feature_id": "outline"},
+                        "args": {"mission_policy_id": "outline"},
                         "tool_call_id": "call-1",
                     },
                 },
@@ -65,8 +65,8 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
                     "data": {
                         "tool": "launch_feature",
                         "status": "launched",
-                        "execution_id": "exec-1",
-                        "feature_id": "outline",
+                        "mission_id": "mission-1",
+                        "mission_policy_id": "outline",
                         "invocation_id": "legacy-call",
                         "tool_call_id": "call-1",
                     },
@@ -94,7 +94,7 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
     assert blocks[3] == {
         "kind": "tool_invocation",
         "tool": "launch_feature",
-        "input": {"feature_id": "outline"},
+        "input": {"mission_policy_id": "outline"},
         "tool_call_id": "call-1",
     }
     assert blocks[4] == {
@@ -104,13 +104,13 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
         "output": {
             "tool": "launch_feature",
             "status": "launched",
-            "execution_id": "exec-1",
-            "feature_id": "outline",
+            "mission_id": "mission-1",
+            "mission_policy_id": "outline",
             "invocation_id": "legacy-call",
             "tool_call_id": "call-1",
         },
-        "execution_id": "exec-1",
-        "feature_id": "outline",
+        "mission_id": "mission-1",
+        "mission_policy_id": "outline",
         "tool_call_id": "call-1",
     }
     assert all("legacy_kind" not in block for block in blocks)

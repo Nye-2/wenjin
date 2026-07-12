@@ -18,11 +18,7 @@ def thread_messages_to_response(messages: list[dict[str, Any]]) -> list[ThreadMe
     rendered_messages: list[ThreadMessage] = []
     for message in messages:
         raw_content = message.get("content")
-        safe_content = (
-            raw_content
-            if isinstance(raw_content, str)
-            else str(serialize_lc_object(raw_content) or "")
-        )
+        safe_content = raw_content if isinstance(raw_content, str) else str(serialize_lc_object(raw_content) or "")
         raw_blocks = serialize_lc_object(message.get("blocks"))
         raw_metadata = serialize_lc_object(message.get("metadata"))
         rendered_messages.append(

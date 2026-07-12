@@ -70,8 +70,8 @@ class SandboxJobCreateCommand(BaseModel):
 
     workspace_id: str = Field(min_length=1, max_length=36)
     sandbox_environment_id: str = Field(min_length=1, max_length=36)
-    execution_id: str | None = Field(default=None, max_length=36)
-    execution_node_id: str | None = Field(default=None, max_length=100)
+    mission_id: str | None = Field(default=None, max_length=36)
+    mission_item_seq: int | None = Field(default=None, ge=1)
     operation: str = Field(default="run_python", pattern="^(run_python|smoke_check|install_dependencies)$")
     billable: bool = True
     language: str = Field(default="python", pattern="^python$")
@@ -116,7 +116,7 @@ class SandboxLeaseAcquireCommand(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=36)
     sandbox_environment_id: str | None = Field(default=None, max_length=36)
     holder_job_id: str = Field(min_length=1, max_length=36)
-    holder_execution_id: str | None = Field(default=None, max_length=36)
+    holder_mission_id: str | None = Field(default=None, max_length=36)
     lease_token: str = Field(min_length=1, max_length=100)
     ttl_seconds: int = Field(default=900, ge=1, le=86_400)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
@@ -164,8 +164,8 @@ class SandboxJobProjection(BaseModel):
     id: str
     workspace_id: str
     sandbox_environment_id: str
-    execution_id: str | None = None
-    execution_node_id: str | None = None
+    mission_id: str | None = None
+    mission_item_seq: int | None = None
     operation: str = "run_python"
     billable: bool = True
     language: str
@@ -195,7 +195,7 @@ class SandboxLeaseProjection(BaseModel):
     workspace_id: str
     sandbox_environment_id: str | None = None
     holder_job_id: str
-    holder_execution_id: str | None = None
+    holder_mission_id: str | None = None
     lease_token: str
     expires_at: datetime
     metadata_json: dict[str, Any] = Field(default_factory=dict)
@@ -216,8 +216,7 @@ class SandboxArtifactProjection(BaseModel):
     mime_type: str | None = None
     content_hash: str | None = None
     reproducibility_json: dict[str, Any] = Field(default_factory=dict)
-    review_batch_id: str | None = None
-    review_item_id: str | None = None
+    mission_commit_id: str | None = None
     materialization_status: str
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None

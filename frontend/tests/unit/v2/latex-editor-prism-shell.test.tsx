@@ -186,14 +186,6 @@ vi.mock("@/stores/chat-store", () => ({
     }),
 }));
 
-vi.mock("@/stores/execution-store", () => ({
-  useExecutionStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      executions: {},
-      upsertExecution: vi.fn(),
-    }),
-}));
-
 vi.mock("@/stores/latex", () => ({
   useLatexStore: () => ({
     project: { id: "latex-1", name: "Prism Project", main_file: "main.tex" },

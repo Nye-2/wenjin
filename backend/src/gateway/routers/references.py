@@ -62,10 +62,6 @@ class LiteratureSearchImportRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
 
 
-class DeepSearchArtifactImportRequest(BaseModel):
-    artifact_ids: list[str] = Field(default_factory=list)
-
-
 class BibtexImportRequest(BaseModel):
     content: str = Field(min_length=1)
 
@@ -273,27 +269,6 @@ async def import_literature_search(
         query=request.query,
         discipline=request.discipline,
         limit=request.limit,
-    )
-    await _publish_references_refresh(workspace_id)
-    return result
-
-
-@router.post("/import/deep-search-artifact")
-async def import_deep_search_artifact(
-    workspace_id: str,
-    request: DeepSearchArtifactImportRequest,
-    current_user: AccountAuthSubject = Depends(get_current_user),
-    workspace_service: Any = Depends(get_workspace_service),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> dict[str, Any]:
-    await _require_owner(
-        workspace_id=workspace_id,
-        current_user=current_user,
-        workspace_service=workspace_service,
-    )
-    result = await SourceLibraryImportService(dataservice).import_deep_search_artifact(
-        workspace_id=workspace_id,
-        artifact_ids=request.artifact_ids,
     )
     await _publish_references_refresh(workspace_id)
     return result

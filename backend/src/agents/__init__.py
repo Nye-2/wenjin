@@ -1,6 +1,5 @@
 """Agents module initialization."""
 
-from .chat_agent.agent import make_chat_agent
 from .thread_state import (
     AgentState,
     ThreadDataState,
@@ -19,5 +18,4 @@ __all__ = [
     "merge_artifacts",
     "merge_cited_references",
     "merge_viewed_images",
-    "make_chat_agent",
 ]

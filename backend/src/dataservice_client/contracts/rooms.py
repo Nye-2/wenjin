@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -15,8 +14,9 @@ class DecisionSetPayload(BaseModel):
     extracted_by: str
     confidence: float = 1.0
     source_message_id: str | None = None
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_item_seq: int | None = None
+    source_mission_commit_id: str | None = None
 
 
 class WorkspaceTaskCreatePayload(BaseModel):
@@ -25,10 +25,11 @@ class WorkspaceTaskCreatePayload(BaseModel):
     description: str | None = None
     status: str = "pending"
     priority: int = 0
-    related_execution_ids: list[str] = Field(default_factory=list)
+    related_mission_ids: list[str] = Field(default_factory=list)
     created_by: str = "system"
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_item_seq: int | None = None
+    source_mission_commit_id: str | None = None
 
 
 class WorkspaceTaskUpdatePayload(BaseModel):
@@ -36,17 +37,7 @@ class WorkspaceTaskUpdatePayload(BaseModel):
     description: str | None = None
     status: str | None = None
     priority: int | None = None
-    related_execution_ids: list[str] | None = None
-
-
-class RoomCandidatePayload(BaseModel):
-    source_item_id: str | None = None
-    target_kind: str
-    title: str
-    summary: str | None = None
-    payload_json: dict[str, Any] = Field(default_factory=dict)
-    preview_json: dict[str, Any] = Field(default_factory=dict)
-    provenance_json: dict[str, Any] = Field(default_factory=dict)
+    related_mission_ids: list[str] | None = None
 
 
 class DecisionPayload(BaseModel):
@@ -58,8 +49,9 @@ class DecisionPayload(BaseModel):
     source_message_id: str | None = None
     extracted_by: str
     superseded_by: str | None = None
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_item_seq: int | None = None
+    source_mission_commit_id: str | None = None
     created_at: datetime | None = None
     deleted_at: datetime | None = None
 
@@ -71,17 +63,12 @@ class WorkspaceTaskPayload(BaseModel):
     description: str | None = None
     status: str
     priority: int
-    related_execution_ids: list[str] = Field(default_factory=list)
+    related_mission_ids: list[str] = Field(default_factory=list)
     created_by: str
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_item_seq: int | None = None
+    source_mission_commit_id: str | None = None
     completed_at: datetime | None = None
     deleted_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-
-class RoomCandidateApplyPayload(BaseModel):
-    review_batch_id: str | None = None
-    counts: dict[str, int] = Field(default_factory=dict)
-    item_results: list[dict[str, Any]] = Field(default_factory=list)

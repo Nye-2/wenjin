@@ -1,80 +1,75 @@
-"""Sandbox module for safe code execution and file operations."""
+"""Mission-linked sandbox operation runtime."""
 
-# Core
-from .base import CommandResult, FileInfo, Sandbox
-
-# Configuration
-from .config import (
-    AcademicToolsConfig,
-    CodeExecutionConfig,
-    DockerSandboxConfig,
-    LaTeXConfig,
-    LocalSandboxConfig,
-    SandboxSettings,
-    get_sandbox_settings,
+from .base import (
+    CommandAuditPort,
+    MissionLeaseGuard,
+    PreparedSandboxJob,
+    ProviderExecutionResult,
+    ProviderNetworkConfig,
+    SandboxMount,
+    SandboxOperationProvider,
+    SandboxReceiptStore,
 )
-
-# Exceptions
-from .exceptions import (
-    SandboxError,
-    SandboxNotFoundError,
-    SandboxRuntimeError,
-    SandboxTimeoutError,
+from .compiler import SandboxOperationCompiler, compiler_fingerprints
+from .config import DockerSandboxConfig, SandboxSettings, get_sandbox_settings
+from .contracts import (
+    CommandAuditEvidence,
+    CompiledSandboxCommand,
+    SandboxArtifactManifest,
+    SandboxDatasetManifest,
+    SandboxEnvironmentManifest,
+    SandboxMissionProvenance,
+    SandboxNetworkGrant,
+    SandboxNetworkProfile,
+    SandboxOperationKind,
+    SandboxOperationRequest,
+    SandboxOperationResult,
+    SandboxOperationStatus,
+    SandboxOutputRef,
+    SandboxOutputSlice,
+    SandboxPreflightReport,
+    SandboxResourceLimits,
+    SandboxRetryDisposition,
+    SandboxReviewCandidate,
 )
-from .providers.base import SandboxProvider
-
-# Providers
-from .providers.docker import DockerSandbox, DockerSandboxProvider
-from .providers.local import LocalSandbox, LocalSandboxProvider
-from .workspace_layout import (
-    WORKSPACE_MANIFEST_RELATIVE_PATH,
-    WORKSPACE_PATH_CLASSES,
-    WORKSPACE_PROTECTED_PATHS,
-    WORKSPACE_ROOT,
-    WORKSPACE_STANDARD_DIRS,
-    WORKSPACE_SUPPORTED_TYPES,
-    WORKSPACE_TYPE_PROFILE_SCHEMA,
-    ensure_workspace_sandbox_layout,
-    is_workspace_guidance_path,
-    validate_workspace_type_profile,
-    workspace_type_profile,
-    workspace_virtual_path,
-)
+from .network import SandboxRuntimeNetworkPolicy
+from .runtime import SandboxRuntime
+from .storage import FilesystemSandboxReceiptStore, SandboxWorkspace
 
 __all__ = [
-    # Core
-    "Sandbox",
-    "CommandResult",
-    "FileInfo",
-    # Exceptions
-    "SandboxError",
-    "SandboxNotFoundError",
-    "SandboxRuntimeError",
-    "SandboxTimeoutError",
-    "WORKSPACE_ROOT",
-    "WORKSPACE_STANDARD_DIRS",
-    "WORKSPACE_SUPPORTED_TYPES",
-    "WORKSPACE_PATH_CLASSES",
-    "WORKSPACE_PROTECTED_PATHS",
-    "WORKSPACE_TYPE_PROFILE_SCHEMA",
-    "WORKSPACE_MANIFEST_RELATIVE_PATH",
-    "ensure_workspace_sandbox_layout",
-    "is_workspace_guidance_path",
-    "validate_workspace_type_profile",
-    "workspace_type_profile",
-    "workspace_virtual_path",
-    # Configuration
-    "SandboxSettings",
-    "get_sandbox_settings",
-    "LocalSandboxConfig",
+    "CommandAuditEvidence",
+    "CommandAuditPort",
+    "CompiledSandboxCommand",
     "DockerSandboxConfig",
-    "LaTeXConfig",
-    "CodeExecutionConfig",
-    "AcademicToolsConfig",
-    # Providers
-    "SandboxProvider",
-    "DockerSandbox",
-    "DockerSandboxProvider",
-    "LocalSandbox",
-    "LocalSandboxProvider",
+    "FilesystemSandboxReceiptStore",
+    "MissionLeaseGuard",
+    "PreparedSandboxJob",
+    "ProviderExecutionResult",
+    "ProviderNetworkConfig",
+    "SandboxArtifactManifest",
+    "SandboxDatasetManifest",
+    "SandboxEnvironmentManifest",
+    "SandboxMissionProvenance",
+    "SandboxMount",
+    "SandboxNetworkGrant",
+    "SandboxNetworkProfile",
+    "SandboxOperationKind",
+    "SandboxOperationCompiler",
+    "SandboxOperationProvider",
+    "SandboxOperationRequest",
+    "SandboxOperationResult",
+    "SandboxOperationStatus",
+    "SandboxOutputRef",
+    "SandboxOutputSlice",
+    "SandboxPreflightReport",
+    "SandboxReceiptStore",
+    "SandboxResourceLimits",
+    "SandboxRetryDisposition",
+    "SandboxReviewCandidate",
+    "SandboxRuntime",
+    "SandboxRuntimeNetworkPolicy",
+    "SandboxSettings",
+    "SandboxWorkspace",
+    "get_sandbox_settings",
+    "compiler_fingerprints",
 ]

@@ -39,7 +39,6 @@ from src.gateway.validators.artifact import (
 )
 from src.services import ThreadService
 from src.services.asset_url_signing import get_asset_url_signer
-from src.services.execution_service import ExecutionService
 from src.services.workspace_uploads import resolve_workspace_upload_relative_path
 
 router = APIRouter(tags=["artifacts"])
@@ -94,11 +93,7 @@ def _build_inline_file_response(actual_path: Path, mime_type: str | None) -> Res
     """Return an inline response suitable for browser viewing."""
     encoded_filename = quote(actual_path.name)
     normalized_mime = str(mime_type or "").split(";", 1)[0].strip().lower()
-    safe_mime_type = (
-        "text/plain; charset=utf-8"
-        if normalized_mime in _UNSAFE_INLINE_MIME_TYPES
-        else (mime_type or "application/octet-stream")
-    )
+    safe_mime_type = "text/plain; charset=utf-8" if normalized_mime in _UNSAFE_INLINE_MIME_TYPES else (mime_type or "application/octet-stream")
     return FileResponse(
         path=actual_path,
         media_type=safe_mime_type,
@@ -129,7 +124,7 @@ async def _create_workspace_artifact(
         workspace_service=workspace_service,
     )
     # ``created_by_skill`` is accepted verbatim — capability/skill validity is
-    # enforced by ``launch_feature`` against the DB capability catalog, not
+    # enforced by MissionPolicy before durable mission execution, not
     # here at artifact creation.
 
     artifact = await artifact_service.create(
@@ -140,17 +135,6 @@ async def _create_workspace_artifact(
         created_by_skill=request.created_by_skill,
         parent_artifact_id=request.parent_artifact_id,
     )
-
-    # Associate newly-created artifact with the canonical ExecutionRecord.
-    if request.execution_id:
-        execution_service = ExecutionService(dataservice=dataservice)
-        execution = await execution_service.get_by_id(request.execution_id)
-        if execution is not None:
-            await execution_service.append_artifact_id(
-                str(execution.id),
-                str(artifact.id),
-                commit=False,
-            )
 
     return artifact_to_responses([artifact])[0]
 
@@ -319,11 +303,7 @@ async def sign_asset_url(
             detail="Asset url must be a relative API path",
         )
     route_path = parsed.path
-    normalized_route_path = (
-        route_path.removeprefix("/api")
-        if route_path.startswith("/api/")
-        else route_path
-    )
+    normalized_route_path = route_path.removeprefix("/api") if route_path.startswith("/api/") else route_path
     if normalized_route_path.startswith("/threads/") and "/artifacts/" in normalized_route_path:
         prefix = "/threads/"
         remainder = normalized_route_path.removeprefix(prefix)
@@ -398,11 +378,7 @@ async def get_thread_artifact(
             path=actual_path,
             filename=actual_path.name,
             media_type=mime_type,
-            headers={
-                "Content-Disposition": (
-                    f"attachment; filename*=UTF-8''{encoded_filename}"
-                )
-            },
+            headers={"Content-Disposition": (f"attachment; filename*=UTF-8''{encoded_filename}")},
         )
     return _build_inline_file_response(actual_path, mime_type)
 
@@ -457,11 +433,7 @@ async def get_workspace_file(
             path=actual_path,
             filename=actual_path.name,
             media_type=mime_type,
-            headers={
-                "Content-Disposition": (
-                    f"attachment; filename*=UTF-8''{encoded_filename}"
-                )
-            },
+            headers={"Content-Disposition": (f"attachment; filename*=UTF-8''{encoded_filename}")},
         )
     return _build_inline_file_response(actual_path, mime_type)
 

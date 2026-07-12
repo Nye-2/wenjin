@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import REAL, DateTime, ForeignKey, String, Text
+from sqlalchemy import REAL, BigInteger, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..base import Base, UUIDMixin
@@ -18,13 +18,16 @@ class Decision(Base, UUIDMixin):
         value: Decision value
         confidence: Confidence score (0.0-1.0)
         source_message_id: Optional source message ID
-        extracted_by: Who extracted this (user/chat_agent/compact_agent/execution:{id})
+        extracted_by: Actor that extracted this decision
         superseded_by: Self-FK to the decision that supersedes this one
         created_at: Creation timestamp
         deleted_at: Soft delete timestamp
     """
 
     __tablename__ = "decisions"
+    __table_args__ = (
+        Index("uq_decisions_mission_commit", "source_mission_commit_id", unique=True),
+    )
 
     workspace_id: Mapped[str] = mapped_column(
         String(36),
@@ -43,14 +46,15 @@ class Decision(Base, UUIDMixin):
         ForeignKey("decisions.id"),
         nullable=True,
     )
-    source_review_batch_id: Mapped[str | None] = mapped_column(
+    source_mission_id: Mapped[str | None] = mapped_column(
         String(36),
-        ForeignKey("review_batches.id", ondelete="SET NULL"),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
         nullable=True,
     )
-    source_review_item_id: Mapped[str | None] = mapped_column(
+    source_mission_item_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_mission_commit_id: Mapped[str | None] = mapped_column(
         String(36),
-        ForeignKey("review_items.id", ondelete="SET NULL"),
+        ForeignKey("mission_commits.commit_id", ondelete="SET NULL"),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

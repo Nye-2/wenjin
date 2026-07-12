@@ -135,7 +135,7 @@ class SourceBibliographyService:
                     citation_key=citation_key,
                     claim_text=command.claim_text,
                     generated_text=command.generated_text,
-                    execution_id=command.execution_id,
+                    mission_id=command.mission_id,
                     metadata_json={
                         "usage_type": command.usage_type,
                         "accepted_status": command.accepted_status,

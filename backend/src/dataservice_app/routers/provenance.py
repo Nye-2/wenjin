@@ -39,7 +39,7 @@ async def list_links(
     target_domain: str | None = Query(default=None),
     target_kind: str | None = Query(default=None),
     target_id: str | None = Query(default=None),
-    review_item_id: str | None = Query(default=None),
+    mission_review_item_id: str | None = Query(default=None),
     relation_kind: str | None = Query(default=None),
     limit: int = Query(default=50),
     uow: DataServiceUnitOfWork = Depends(get_uow),
@@ -53,7 +53,7 @@ async def list_links(
         target_domain=target_domain,
         target_kind=target_kind,
         target_id=target_id,
-        review_item_id=review_item_id,
+        mission_review_item_id=mission_review_item_id,
         relation_kind=relation_kind,
         limit=limit,
     )
@@ -67,7 +67,7 @@ async def delete_links(
     target_domain: str | None = Query(default=None),
     target_kind: str | None = Query(default=None),
     target_id: str | None = Query(default=None),
-    review_item_id: str | None = Query(default=None),
+    mission_review_item_id: str | None = Query(default=None),
     relation_kind: str | None = Query(default=None),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
@@ -80,7 +80,7 @@ async def delete_links(
         target_domain=target_domain,
         target_kind=target_kind,
         target_id=target_id,
-        review_item_id=review_item_id,
+        mission_review_item_id=mission_review_item_id,
         relation_kind=relation_kind,
     )
     await uow.commit()

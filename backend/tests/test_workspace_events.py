@@ -9,6 +9,7 @@ import pytest
 import src.workspace_events as workspace_events
 from src.workspace_events import (
     WorkspaceEventStreamUnavailable,
+    publish_workspace_event,
     stream_workspace_events,
 )
 
@@ -20,6 +21,20 @@ class _FailingPubSub:
 
     async def subscribe(self, _channel: str) -> None:
         raise RuntimeError("Too many connections")
+
+
+@pytest.mark.asyncio
+async def test_publish_workspace_event_connects_in_current_event_loop(monkeypatch):
+    connect = AsyncMock()
+    publish = AsyncMock()
+    client = type("Client", (), {"publish": publish})()
+    monkeypatch.setattr(workspace_events.redis_client, "connect", connect)
+    monkeypatch.setattr(type(workspace_events.redis_client), "client", property(lambda _self: client))
+
+    await publish_workspace_event("ws-1", "mission.updated", {"mission_id": "mission-1"})
+
+    connect.assert_awaited_once()
+    publish.assert_awaited_once()
 
 
 @pytest.mark.asyncio

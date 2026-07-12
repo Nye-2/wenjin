@@ -1,14 +1,7 @@
-"""Sandbox providers package."""
+"""Sandbox operation providers."""
 
-from .base import SandboxProvider
-from .docker import DockerSandbox, DockerSandboxProvider
-from .local import LocalSandbox, LocalSandboxProvider, SandboxSecurityError
+from src.sandbox.base import SandboxOperationProvider
 
-__all__ = [
-    "SandboxProvider",
-    "DockerSandbox",
-    "DockerSandboxProvider",
-    "LocalSandbox",
-    "LocalSandboxProvider",
-    "SandboxSecurityError",
-]
+from .docker import DockerSandboxProvider, DockerSdkGateway
+
+__all__ = ["SandboxOperationProvider", "DockerSandboxProvider", "DockerSdkGateway"]

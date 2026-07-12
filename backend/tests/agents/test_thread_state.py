@@ -188,14 +188,6 @@ class TestAcademicFields:
         state = ThreadState(messages=[], current_skill="deep-research")
         assert state["current_skill"] == "deep-research"
 
-    def test_subagent_tasks_field(self):
-        """Test subagent_tasks field."""
-        state = ThreadState(
-            messages=[],
-            subagent_tasks={"task-1": {"status": "running"}},
-        )
-        assert state["subagent_tasks"]["task-1"]["status"] == "running"
-
 # ============ Reducer Tests ============
 
 

@@ -35,10 +35,9 @@ def test_metrics_endpoint_exposes_keys(client: TestClient) -> None:
     response = client.get("/metrics")
     assert response.status_code == 200
     body = response.text
-    assert "execution_stream_latency_seconds" in body
-    assert "chat_agent_response_latency_seconds" in body
-    assert "capability_resolve_cache_hit_total" in body
-    assert "lead_agent_busy_rejection_total" in body
+    assert "mission_stream_latency_seconds" in body
+    assert "workspace_agent_response_latency_seconds" in body
+    assert "mission_slice_duration_seconds" in body
     assert "auto_compact_trigger_total" in body
 
 

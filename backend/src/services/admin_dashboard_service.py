@@ -12,12 +12,8 @@ from src.dataservice_client.contracts.account import (
     AccountUserRolePayload,
     AccountUserStatusPayload,
 )
-from src.dataservice_client.contracts.catalog import AdminLogCreatePayload
-from src.dataservice_client.contracts.execution import ExecutionNodePayload
+from src.dataservice_client.contracts.audit import AuditLogCreatePayload
 from src.dataservice_client.provider import dataservice_client
-from src.services.thread_billing import combine_token_usage, normalize_token_usage
-
-_TOKEN_USAGE_EXECUTION_SAMPLE_LIMIT = 200
 
 
 class DashboardAdminAction(StrEnum):
@@ -50,21 +46,15 @@ class AdminDashboardService:
     async def get_dashboard(self) -> dict[str, Any]:
         """Aggregate admin dashboard payload."""
         now = datetime.now(UTC)
-        since_24h = now - timedelta(hours=24)
-
         async with self._client() as client:
             account_stats = await client.get_account_admin_stats()
 
         async with self._client() as client:
             workspace_stats = await client.get_admin_workspace_stats()
 
-        async with self._client() as client:
-            task_total = await client.count_executions()
-            task_running = await client.count_executions(status=["running"])
-            task_failed_24h = await client.count_executions(
-                status=["failed"],
-                created_since=since_24h,
-            )
+        task_total = 0
+        task_running = 0
+        task_failed_24h = 0
 
         async with self._client() as client:
             artifact_total = await client.count_workspace_artifacts()
@@ -106,33 +96,26 @@ class AdminDashboardService:
             "updated_at": now.isoformat(),
         }
 
+    async def get_mission_stats(
+        self,
+        *,
+        range_days: int,
+        granularity: str,
+    ) -> dict[str, Any]:
+        """Aggregate the admin task panel from MissionRun only."""
+
+        created_since = datetime.now(UTC) - timedelta(days=range_days)
+        async with self._client() as client:
+            result = await client.missions.aggregate_stats(
+                created_since=created_since,
+                granularity=granularity,
+            )
+        return result.model_dump(mode="json")
+
     async def _get_token_usage_summary(self) -> dict[str, Any]:
         """Aggregate non-deduplicated token usage snapshots for admin overview."""
         async with self._client() as client:
             thread_summary = (await client.get_credit_thread_token_usage()).model_dump(mode="json")
-
-        async with self._client() as client:
-            executions = await client.list_executions(limit=_TOKEN_USAGE_EXECUTION_SAMPLE_LIMIT)
-        feature_usages = []
-        for execution in executions:
-            result = execution.result_json
-            usage = normalize_token_usage(
-                result.get("token_usage") if isinstance(result, dict) else None
-            )
-            if usage is not None:
-                feature_usages.append(usage)
-        feature_total = combine_token_usage(feature_usages)
-
-        async with self._client() as client:
-            subagent_nodes = await client.list_execution_nodes_by_execution_ids(
-                [execution.id for execution in executions]
-            )
-        subagent_usages = []
-        for node in subagent_nodes:
-            usage = self._node_token_usage(node)
-            if usage is not None:
-                subagent_usages.append(usage)
-        subagent_total = combine_token_usage(subagent_usages)
 
         return {
             "thread": {
@@ -140,19 +123,12 @@ class AdminDashboardService:
                 "transactions": thread_summary["transactions"],
                 "users": thread_summary["users"],
             },
-            "feature_tasks": {
-                "input_tokens": feature_total.input_tokens if feature_total is not None else 0,
-                "output_tokens": feature_total.output_tokens if feature_total is not None else 0,
-                "total_tokens": feature_total.total_tokens if feature_total is not None else 0,
-                "records": len(executions),
-                "records_with_usage": len(feature_usages),
-            },
             "subagents": {
-                "input_tokens": subagent_total.input_tokens if subagent_total is not None else 0,
-                "output_tokens": subagent_total.output_tokens if subagent_total is not None else 0,
-                "total_tokens": subagent_total.total_tokens if subagent_total is not None else 0,
-                "records": len(subagent_nodes),
-                "records_with_usage": len(subagent_usages),
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "records": 0,
+                "records_with_usage": 0,
             },
         }
 
@@ -182,9 +158,6 @@ class AdminDashboardService:
             async with self._client() as client:
                 workspace_counts = await client.count_workspaces_by_member_ids(user_ids)
 
-            async with self._client() as client:
-                task_counts = await client.count_executions_by_user_ids(user_ids)
-
         return [
             self._user_to_dict(
                 user,
@@ -198,18 +171,6 @@ class AdminDashboardService:
         """Count currently active admin users."""
         async with self._client() as client:
             return await client.count_active_admins()
-
-    @staticmethod
-    def _node_token_usage(record: ExecutionNodePayload) -> Any | None:
-        usage = normalize_token_usage(record.token_usage)
-        if usage is not None:
-            return usage
-        metadata = record.node_metadata if isinstance(record.node_metadata, dict) else {}
-        usage = normalize_token_usage(metadata.get("token_usage"))
-        if usage is not None:
-            return usage
-        output_data = record.output_data if isinstance(record.output_data, dict) else {}
-        return normalize_token_usage(output_data.get("token_usage"))
 
     async def update_user_status(self, *, user_id: str, is_active: bool) -> dict[str, Any]:
         """Enable or disable user account."""
@@ -249,14 +210,14 @@ class AdminDashboardService:
         """Persist admin audit log entry."""
         action_value = DashboardAdminAction(action).value
         async with self._client() as client:
-            return await client.record_catalog_admin_log(
-                AdminLogCreatePayload(
+            return await client.create_audit_log(
+                AuditLogCreatePayload(
                     action=action_value,
-                    admin_id=admin_id,
-                    target_user_id=target_user_id,
+                    user_id=admin_id,
                     target_type="user",
-                    details=details or {},
-                    ip_address=ip_address,
+                    target_id=target_user_id,
+                    payload=details or {},
+                    ip=ip_address,
                 )
             )
 

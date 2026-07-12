@@ -31,20 +31,20 @@ class RoomsRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_decision_by_review_source(
+    async def get_decision_by_mission_commit(
         self,
         *,
         workspace_id: str,
-        source_review_batch_id: str,
-        source_review_item_id: str,
+        source_mission_commit_id: str,
     ) -> DecisionRecord | None:
         result = await self.session.execute(
-            select(DecisionRecord).where(
+            select(DecisionRecord)
+            .where(
                 DecisionRecord.workspace_id == workspace_id,
-                DecisionRecord.source_review_batch_id == source_review_batch_id,
-                DecisionRecord.source_review_item_id == source_review_item_id,
+                DecisionRecord.source_mission_commit_id == source_mission_commit_id,
                 DecisionRecord.deleted_at.is_(None),
-            ).order_by(DecisionRecord.created_at.asc())
+            )
+            .order_by(DecisionRecord.created_at.asc())
         )
         return result.scalars().first()
 
@@ -56,12 +56,14 @@ class RoomsRepository:
         extracted_by: str,
     ) -> DecisionRecord | None:
         result = await self.session.execute(
-            select(DecisionRecord).where(
+            select(DecisionRecord)
+            .where(
                 DecisionRecord.workspace_id == workspace_id,
                 DecisionRecord.key == key,
                 DecisionRecord.extracted_by == extracted_by,
                 DecisionRecord.deleted_at.is_(None),
-            ).order_by(DecisionRecord.created_at.asc())
+            )
+            .order_by(DecisionRecord.created_at.asc())
         )
         return result.scalars().first()
 
@@ -80,9 +82,7 @@ class RoomsRepository:
         return result.scalar_one_or_none()
 
     async def get_decision_by_id(self, decision_id: str) -> DecisionRecord | None:
-        result = await self.session.execute(
-            select(DecisionRecord).where(DecisionRecord.id == decision_id)
-        )
+        result = await self.session.execute(select(DecisionRecord).where(DecisionRecord.id == decision_id))
         return result.scalar_one_or_none()
 
     async def list_active_decisions(self, workspace_id: str) -> list[DecisionRecord]:
@@ -100,20 +100,20 @@ class RoomsRepository:
         self.session.add(record)
         return record
 
-    async def get_workspace_task_by_review_source(
+    async def get_workspace_task_by_mission_commit(
         self,
         *,
         workspace_id: str,
-        source_review_batch_id: str,
-        source_review_item_id: str,
+        source_mission_commit_id: str,
     ) -> WorkspaceTaskRecord | None:
         result = await self.session.execute(
-            select(WorkspaceTaskRecord).where(
+            select(WorkspaceTaskRecord)
+            .where(
                 WorkspaceTaskRecord.workspace_id == workspace_id,
-                WorkspaceTaskRecord.source_review_batch_id == source_review_batch_id,
-                WorkspaceTaskRecord.source_review_item_id == source_review_item_id,
+                WorkspaceTaskRecord.source_mission_commit_id == source_mission_commit_id,
                 WorkspaceTaskRecord.deleted_at.is_(None),
-            ).order_by(WorkspaceTaskRecord.created_at.asc())
+            )
+            .order_by(WorkspaceTaskRecord.created_at.asc())
         )
         return result.scalars().first()
 
@@ -125,12 +125,14 @@ class RoomsRepository:
         created_by: str,
     ) -> WorkspaceTaskRecord | None:
         result = await self.session.execute(
-            select(WorkspaceTaskRecord).where(
+            select(WorkspaceTaskRecord)
+            .where(
                 WorkspaceTaskRecord.workspace_id == workspace_id,
                 WorkspaceTaskRecord.title == title,
                 WorkspaceTaskRecord.created_by == created_by,
                 WorkspaceTaskRecord.deleted_at.is_(None),
-            ).order_by(WorkspaceTaskRecord.created_at.asc())
+            )
+            .order_by(WorkspaceTaskRecord.created_at.asc())
         )
         return result.scalars().first()
 

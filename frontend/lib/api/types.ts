@@ -78,7 +78,7 @@ export interface LatexFileChange {
   status?: string | null;
   title?: string | null;
   source_type?: string | null;
-  source_execution_id?: string | null;
+  source_mission_id?: string | null;
   source_task_id?: string | null;
   target_kind?: string | null;
   applied_at?: string | null;
@@ -95,7 +95,7 @@ export interface LatexAppliedFileChange {
   status?: string | null;
   title?: string | null;
   source_type?: string | null;
-  source_execution_id?: string | null;
+  source_mission_id?: string | null;
   source_task_id?: string | null;
   previous_hash: string;
   applied_hash: string;
@@ -146,7 +146,7 @@ export interface WorkspacePrismReviewItem {
   summary?: string | null;
   source?: {
     type?: string | null;
-    execution_id?: string | null;
+    mission_id?: string | null;
     task_id?: string | null;
     job_id?: string | null;
   };
@@ -204,8 +204,8 @@ export interface WorkspacePrismRecentActivity {
   id: string;
   workspace_id: string;
   kind?: string | null;
-  execution_id?: string | null;
-  capability_id?: string | null;
+  mission_id?: string | null;
+  mission_policy_id?: string | null;
   title: string;
   summary?: string | null;
   status: string;
@@ -485,7 +485,7 @@ export interface ReferenceUsageEvent {
   reference_id: string;
   outline_node_id?: string | null;
   text_unit_id?: string | null;
-  execution_id?: string | null;
+  mission_id?: string | null;
   task_id?: string | null;
   artifact_id?: string | null;
   latex_project_id?: string | null;
@@ -677,7 +677,7 @@ export interface TokenUsageCounter {
 
 export interface WorkspaceActivityItem {
   id: string;
-  kind: "feature_task" | "thread" | "subagent_task" | "artifact" | "prism_review";
+  kind: "mission";
   workspace_id?: string | null;
   occurred_at: string;
   title: string;
@@ -686,7 +686,8 @@ export interface WorkspaceActivityItem {
   thread_id?: string | null;
   task_id?: string | null;
   artifact_id?: string | null;
-  feature_id?: string | null;
+  mission_id?: string | null;
+  mission_policy_id?: string | null;
   skill?: string | null;
   skill_name?: string | null;
   created_by_skill?: string | null;
@@ -714,13 +715,13 @@ export interface WorkspaceTaskEvent {
   workspace_id: string;
   task: {
     task_id: string;
-    execution_id?: string | null;
+    mission_id?: string | null;
     task_type?: string | null;
     status: string;
     progress: number;
     message?: string | null;
     current_step?: string | null;
-    feature_id?: string | null;
+    mission_policy_id?: string | null;
     thread_id?: string | null;
     metadata?: Record<string, unknown> | null;
     result?: Record<string, unknown> | null;
@@ -753,153 +754,13 @@ export interface WorkspaceThreadDeletedEvent {
   timestamp?: string;
 }
 
-export interface ComputeSession {
-  id: string;
-  execution_id: string;
-  workspace_id: string;
-  user_id: string;
-  sandbox_session_id?: string | null;
-  active_view: string;
-  ui_state: Record<string, unknown>;
-  created_at?: string | null;
-  updated_at?: string | null;
-}
-
-export interface ComputeSessionListResponse {
-  items: ComputeSession[];
-  count: number;
-}
-
-export interface ComputeFileProjection {
-  id: string;
-  kind: string;
-  label: string;
-  source: string;
-  path?: string | null;
-  url?: string | null;
-  artifact_id?: string | null;
-  metadata: Record<string, unknown>;
-}
-
-export interface ComputeLogProjection {
-  id: string;
-  source: string;
-  level: "info" | "success" | "warning" | "error" | string;
-  title: string;
-  message: string;
-  timestamp?: string | null;
-  truncated?: boolean;
-  metadata: Record<string, unknown>;
-}
-
-export interface ComputeReviewGateItem {
-  id: string;
-  kind: string;
-  label: string;
-  required: boolean;
-  payload: Record<string, unknown>;
-}
-
-export interface ComputeReviewGateProjection {
-  status: "clear" | "awaiting_user" | "advisory" | "failed" | string;
-  required: boolean;
-  policy?: string | null;
-  next_actions: Array<Record<string, unknown>>;
-  items: ComputeReviewGateItem[];
-  advisory_code?: string | null;
-}
-
-export interface ComputeSandboxProjection {
-  session_id?: string | null;
-  status: "bound" | "derived" | "required" | "unbound" | string;
-  required?: boolean;
-  files: ComputeFileProjection[];
-  logs: ComputeLogProjection[];
-  file_count: number;
-  log_count: number;
-}
-
-export interface ComputeRuntimeProfileProjection {
-  workspace_type?: string | null;
-  feature_id?: string | null;
-  runtime_mode?: "chat_only" | "deterministic" | "compute_workflow" | "compute_agentic" | string;
-  requires_compute?: boolean;
-  requires_sandbox?: boolean;
-  allowed_subagents?: string[];
-  max_subagents?: number;
-  agent_harness_provider?: string | null;
-  output_contract?: string;
-  review_gate?: string | null;
-}
-
-export interface ComputePrismCompileProjection {
-  status?: string | null;
-  pdf_path?: string | null;
-  pdf_url?: string | null;
-  pdf_endpoint?: string | null;
-  page_count?: number | null;
-  error?: string | null;
-}
-
-export interface ComputePrismItemProjection {
-  id: string;
-  source: string;
-  status: "ready" | "pending_changes" | "compile_failed" | string;
-  latex_project_id: string;
-  url: string;
-  main_file: string;
-  section_file?: string | null;
-  target_files: string[];
-  section_map: Record<string, string>;
-  file_changes: Array<Record<string, unknown>>;
-  applied_file_changes: Array<Record<string, unknown>>;
-  compile: ComputePrismCompileProjection;
-}
-
-export interface ComputePrismProjection {
-  status: "ready" | "pending_changes" | "compile_failed" | "unbound" | string;
-  project_id?: string | null;
-  url?: string | null;
-  main_file?: string | null;
-  target_files: string[];
-  file_changes: Array<Record<string, unknown>>;
-  applied_file_changes: Array<Record<string, unknown>>;
-  compile: ComputePrismCompileProjection;
-  items: WorkspacePrismReviewItem[];
-}
-
-export interface ComputeProjection {
-  compute_session: ComputeSession;
-  execution: ExecutionRecord;
-  primary_task?: Record<string, unknown> | null;
-  tasks: Array<Record<string, unknown>>;
-  runtime_blocks: Array<Record<string, unknown>>;
-  subagents: Array<Record<string, unknown>>;
-  artifacts: Record<string, unknown>;
-  runtime_profile: ComputeRuntimeProfileProjection;
-  sandbox: ComputeSandboxProjection;
-  prism: ComputePrismProjection;
-  files: ComputeFileProjection[];
-  logs: ComputeLogProjection[];
-  review_gate: ComputeReviewGateProjection;
-}
-
-export interface WorkspaceExecutionUpdatedEvent {
-  type: "execution.updated" | "execution.completed" | "execution.failed";
-  workspace_id: string;
-  execution_id: string;
-  event_type: string;
-  status?: string | null;
-  timestamp?: string;
-}
-
 export interface WorkspaceSubagentUpdatedEvent {
   type: "subagent.updated";
   workspace_id: string;
   subagent: {
     task_id: string;
     thread_id: string;
-    execution_id: string;
+    mission_id: string;
     status: string;
     subagent_type?: string | null;
     workflow_phase?: string | null;
@@ -916,13 +777,6 @@ export interface WorkspaceSubagentUpdatedEvent {
   timestamp?: string;
 }
 
-export interface WorkspaceComputeSessionEvent {
-  type: "compute.created" | "compute.updated";
-  workspace_id: string;
-  compute_session: ComputeSession;
-  timestamp?: string;
-}
-
 export type WorkspaceEvent =
   | WorkspaceRefreshEvent
   | WorkspaceReadyEvent
@@ -930,11 +784,9 @@ export type WorkspaceEvent =
   | WorkspaceThreadStatusEvent
   | WorkspaceThreadUpdatedEvent
   | WorkspaceThreadDeletedEvent
-  | WorkspaceExecutionUpdatedEvent
-  | WorkspaceSubagentUpdatedEvent
-  | WorkspaceComputeSessionEvent;
+  | WorkspaceSubagentUpdatedEvent;
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export interface RunRequest {
   message: string;
@@ -1011,10 +863,15 @@ export interface Model {
   category?: string;
   provider: string;
   max_tokens: number;
-  supports_tools?: boolean;
-  supports_thinking: boolean;
-  supports_reasoning_effort: boolean;
-  supports_vision: boolean;
+  generation_api: string | null;
+  capability_profile_version: string;
+  capability_profile: {
+    strict_tool_calls: boolean;
+    streaming: boolean;
+    reasoning_efforts: ReasoningEffort[];
+    vision: boolean;
+    native_web_search: boolean;
+  };
   is_default?: boolean;
 }
 
@@ -1070,7 +927,7 @@ export interface AdminPricingSimulationRequest {
   surface?: string;
   global_policy: Record<string, unknown>;
   model_usage_policy?: Record<string, unknown> | null;
-  capability_policy?: Record<string, unknown> | null;
+  mission_policy?: Record<string, unknown> | null;
   tool_policy?: Record<string, unknown> | null;
   sandbox_policy?: Record<string, unknown> | null;
   prompt_tokens?: number;
@@ -1082,22 +939,6 @@ export interface AdminPricingSimulationResult {
   raw_cost_cny?: number | null;
   margin_cny?: number | null;
   breakdown: Record<string, unknown>;
-}
-
-export interface FeatureStage {
-  id: string;
-  label: string;
-}
-
-export interface WorkspaceCapability {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  stages: FeatureStage[];
-  color?: string;
-  followUpPrompt?: string | null;
-  defaultSkillId?: string | null;
 }
 
 export interface WorkspacePrismEnsureResponse {
@@ -1175,7 +1016,7 @@ export interface WorkspacePrismSurfaceResponse {
 
 export interface TaskStatus {
   task_id: string;
-  execution_id?: string | null;
+  mission_id?: string | null;
   task_type: string;
   status: string;
   progress: number;
@@ -1185,9 +1026,7 @@ export interface TaskStatus {
   error?: string | null;
   metadata?: Record<string, unknown> | null;
   workspace_id?: string | null;
-  feature_id?: string | null;
   thread_id?: string | null;
-  action?: string | null;
   created_at: string;
   started_at?: string | null;
   completed_at?: string | null;
@@ -1228,14 +1067,16 @@ export interface WorkspaceSummaryProgress {
 }
 
 export interface WorkspaceSummaryPhase {
-  feature_id?: string | null;
+  mission_id?: string | null;
+  mission_policy_id?: string | null;
   title: string;
   status: string;
   description?: string | null;
 }
 
 export interface WorkspaceSummaryAction {
-  feature_id: string;
+  mission_id: string;
+  mission_policy_id?: string | null;
   title: string;
   description?: string | null;
   reason?: string | null;
@@ -1273,11 +1114,6 @@ export interface WorkspaceActivityResponse {
   count: number;
 }
 
-export interface WorkspaceExecutionsResponse {
-  items: ExecutionRecord[];
-  count: number;
-}
-
 export interface CreditTransactionItem {
   id: string;
   user_id?: string;
@@ -1287,7 +1123,9 @@ export interface CreditTransactionItem {
   amount: number;
   balance_after: number;
   description?: string | null;
-  feature_id?: string | null;
+  mission_policy_id?: string | null;
+  mission_id?: string | null;
+  operation_key?: string | null;
   metadata?: Record<string, unknown>;
   created_at: string;
 }
@@ -1423,7 +1261,6 @@ export interface AdminDashboardData {
         transactions: number;
         users: number;
       };
-      feature_tasks: DashboardTokenUsageSection;
       subagents: DashboardTokenUsageSection;
     };
   };
@@ -1550,145 +1387,4 @@ export interface ThreadBlockEvent {
   type: "block";
   message_id: string;
   block: AgentBlock;
-}
-
-// =============================================================================
-// Unified Execution Model Types
-// =============================================================================
-
-export type KnownExecutionType =
-  | "chat_turn"
-  | "feature"
-  | "subagent"
-  | "tool"
-  | "advisory"
-  | "capability"
-  | "latex_compile"
-  | "python_plot"
-  | "mermaid_diagram"
-  | "ai_image";
-
-export type ExecutionType = KnownExecutionType | (string & {});
-
-export type ExecutionStatus =
-  | "pending"
-  | "running"
-  | "cancelling"
-  | "completed"
-  | "failed_partial"
-  | "failed"
-  | "cancelled"
-  | "awaiting_user_input";
-
-export interface ExecutionRecord {
-  id: string;
-  user_id: string;
-  workspace_id?: string | null;
-  thread_id?: string | null;
-  execution_type: ExecutionType;
-  feature_id?: string | null;
-  entry_skill_id?: string | null;
-  workspace_type?: string | null;
-  display_name?: string | null;
-  status: ExecutionStatus;
-  params: Record<string, unknown>;
-  result?: Record<string, unknown> | null;
-  error?: string | null;
-  result_summary?: string | null;
-  graph_structure?: ExecutionGraphStructure | null;
-  node_states: Record<string, ExecutionNodeState>;
-  runtime_state?: Record<string, unknown> | null;
-  review_items?: WorkspacePrismReviewItem[];
-  progress: number;
-  message?: string | null;
-  artifact_ids: string[];
-  next_actions: Record<string, unknown>[];
-  advisory_code?: string | null;
-  last_error?: string | null;
-  parent_execution_id?: string | null;
-  child_execution_ids: string[];
-  dispatch_mode?: string | null;
-  worker_task_id?: string | null;
-  created_at: string;
-  started_at?: string | null;
-  completed_at?: string | null;
-  updated_at: string;
-}
-
-export interface ExecutionGraphStructure {
-  mode?: "static_graph" | "team_kernel" | (string & {});
-  nodes: ExecutionGraphNode[];
-  edges: ExecutionGraphEdge[];
-}
-
-export interface ExecutionGraphNode {
-  id: string;
-  type: string;
-  label?: string;
-  phase?: string;
-  task?: string;
-  subagent_type?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface ExecutionGraphEdge {
-  from: string;
-  to: string;
-  label?: string;
-}
-
-export interface ExecutionNodeState {
-  status?: string;
-  node_type?: string | null;
-  label?: string | null;
-  output_preview?: string | null;
-  token_usage?: Record<string, number> | null;
-  thinking?: string | null;
-  tool_calls?: Record<string, unknown>[] | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  input?: Record<string, unknown> | null;
-  output?: Record<string, unknown> | null;
-  node_metadata?: Record<string, unknown> | null;
-  error?: string | null;
-}
-
-export interface ExecutionNodeRecord {
-  id: string;
-  execution_id: string;
-  parent_node_id?: string | null;
-  node_id: string;
-  node_type: string;
-  label?: string | null;
-  status: string;
-  input_data?: Record<string, unknown> | null;
-  output_data?: Record<string, unknown> | null;
-  thinking?: string | null;
-  tool_calls?: Record<string, unknown>[] | null;
-  token_usage?: Record<string, unknown> | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// Execution stream events (SSE)
-export type ExecutionStreamEventType =
-  | "execution.metadata"
-  | "execution.graph_structure"
-  | "execution.node"
-  | "execution.node.delta"
-  | "execution.team.invocation"
-  | "execution.team.quality_gate"
-  | "execution.status"
-  | "execution.completed"
-  | "execution.error"
-  | "execution.end";
-
-export interface ExecutionStreamEvent {
-  execution_id: string;
-  type: ExecutionStreamEventType;
-  timestamp: string;
-  payload: Record<string, unknown>;
 }

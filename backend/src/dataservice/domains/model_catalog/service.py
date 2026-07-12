@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.model_catalog import (
     ModelCategory,
     ModelHealthStatus,
-    ModelProviderProtocol,
     ModelTrustLevel,
 )
 from src.database.models.pricing_policy import PricingPolicyKind
@@ -29,6 +29,14 @@ from src.dataservice.domains.model_catalog.security import (
     validate_model_base_url,
 )
 from src.dataservice.domains.pricing.repository import PricingPolicyRepository
+from src.models.capability_profile import (
+    CapabilityProfileAssessment,
+    GenerationAPI,
+    ModelCapabilityProbeEvidence,
+    ModelCapabilityProfile,
+    assess_profile_freshness,
+    unverified_capability_assessment,
+)
 from src.security.redaction import redact_secret_text, redact_sensitive_headers
 
 _SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9._-]{6,}")
@@ -92,6 +100,12 @@ class DataServiceModelCatalogService:
             enabled_only=True,
         )
         return [self.to_runtime_config(row) for row in rows]
+
+    async def get_runtime_model(self, model_id: str) -> ModelRuntimeConfig | None:
+        """Return one internal runtime config regardless of enabled state."""
+
+        row = await self.repository.get_model(model_id)
+        return self.to_runtime_config(row) if row is not None else None
 
     async def update_model(
         self,
@@ -159,6 +173,55 @@ class DataServiceModelCatalogService:
         await self._finish(row)
         return self.to_record(row)
 
+    async def update_capability_assessment(
+        self,
+        model_id: str,
+        *,
+        profile: ModelCapabilityProfile | dict[str, Any],
+        evidence: ModelCapabilityProbeEvidence | dict[str, Any],
+    ) -> ModelCatalogRecord | None:
+        """Persist an exact endpoint-bound result from the explicit probe runner."""
+
+        row = await self.repository.get_model(model_id)
+        if row is None:
+            return None
+        try:
+            assessment = CapabilityProfileAssessment.model_validate(
+                {"profile": profile, "evidence": evidence}
+            )
+        except ValidationError as exc:
+            raise DataServiceValidationError(
+                "capability assessment is not derived from its probe evidence"
+            ) from exc
+        freshness = assess_profile_freshness(
+            assessment.profile,
+            assessment.evidence,
+            model_id=row.model_id,
+            model_name=row.model_name,
+            base_url=row.base_url,
+            generation_api=_generation_api_value(row.generation_api),
+        )
+        if not freshness.current:
+            joined = ", ".join(freshness.reasons)
+            raise DataServiceValidationError(
+                f"capability assessment does not match the current endpoint: {joined}"
+            )
+
+        row.capability_profile_json = assessment.profile.model_dump(mode="json")
+        row.capability_probe_json = assessment.evidence.model_dump(mode="json")
+        row.capability_probe_hash = assessment.profile.probe_hash
+        row.capability_observed_at = assessment.profile.observed_at
+        row.last_tested_at = assessment.profile.observed_at
+        if assessment.profile.protocol_conformance:
+            row.health_status = ModelHealthStatus.HEALTHY
+            row.last_test_error = None
+        else:
+            row.health_status = ModelHealthStatus.FAILED
+            row.last_test_error = "capability probe did not satisfy protocol conformance"
+        row.config_version = int(getattr(row, "config_version", 1) or 1) + 1
+        await self._finish(row)
+        return self.to_record(row)
+
     async def require_model(self, model_id: str) -> ModelCatalogRecord:
         record = await self.get_model(model_id)
         if record is None:
@@ -166,11 +229,12 @@ class DataServiceModelCatalogService:
         return record
 
     def to_record(self, row: Any) -> ModelCatalogRecord:
+        assessment = _assessment_from_row(row)
         return ModelCatalogRecord(
             id=str(row.id) if getattr(row, "id", None) is not None else None,
             model_id=row.model_id,
             display_name=row.display_name,
-            provider_protocol=_enum_value(row.provider_protocol),
+            generation_api=_generation_api_value(row.generation_api),
             provider_name=row.provider_name,
             category=_enum_value(row.category),
             model_name=row.model_name,
@@ -178,12 +242,10 @@ class DataServiceModelCatalogService:
             api_key_redacted=redact_api_key(getattr(row, "api_key_last4", None)),
             enabled=bool(row.enabled),
             is_default=bool(row.is_default),
-            supports_streaming=bool(row.supports_streaming),
-            supports_tools=bool(row.supports_tools),
-            supports_json_mode=bool(row.supports_json_mode),
-            supports_json_schema=bool(row.supports_json_schema),
-            supports_vision=bool(row.supports_vision),
-            supports_reasoning_effort=bool(row.supports_reasoning_effort),
+            capability_profile=assessment.profile,
+            capability_probe=assessment.evidence,
+            capability_probe_hash=assessment.profile.probe_hash,
+            capability_observed_at=assessment.profile.observed_at,
             max_tokens=int(row.max_tokens),
             temperature=float(row.temperature),
             timeout_seconds=getattr(row, "timeout_seconds", None),
@@ -202,22 +264,21 @@ class DataServiceModelCatalogService:
         )
 
     def to_runtime_config(self, row: Any) -> ModelRuntimeConfig:
+        assessment = _assessment_from_row(row)
         return ModelRuntimeConfig(
             model_id=row.model_id,
             display_name=row.display_name,
-            provider_protocol=_enum_value(row.provider_protocol),
+            generation_api=_generation_api_value(row.generation_api),
             provider_name=row.provider_name,
             category=_enum_value(row.category),
             model_name=row.model_name,
             base_url=row.base_url,
             api_key=decrypt_api_key(row.encrypted_api_key, model_id=row.model_id, master_key=self.master_key),
             is_default=bool(row.is_default),
-            supports_streaming=bool(row.supports_streaming),
-            supports_tools=bool(row.supports_tools),
-            supports_json_mode=bool(row.supports_json_mode),
-            supports_json_schema=bool(row.supports_json_schema),
-            supports_vision=bool(row.supports_vision),
-            supports_reasoning_effort=bool(row.supports_reasoning_effort),
+            capability_profile=assessment.profile,
+            capability_probe=assessment.evidence,
+            capability_probe_hash=assessment.profile.probe_hash,
+            capability_observed_at=assessment.profile.observed_at,
             max_tokens=int(row.max_tokens),
             temperature=float(row.temperature),
             timeout_seconds=getattr(row, "timeout_seconds", None),
@@ -229,9 +290,47 @@ class DataServiceModelCatalogService:
         )
 
     def _create_values(self, data: dict[str, Any], *, admin_id: str | None) -> dict[str, Any]:
+        _reject_unknown_fields(
+            data,
+            allowed={
+                "api_key",
+                "base_url",
+                "category",
+                "default_headers",
+                "display_name",
+                "enabled",
+                "generation_api",
+                "is_default",
+                "max_retries",
+                "max_tokens",
+                "model_id",
+                "model_name",
+                "pricing_policy_id",
+                "provider_name",
+                "temperature",
+                "timeout_seconds",
+                "trust_level",
+            },
+        )
         model_id = _required_string(data, "model_id")
         api_key = _required_string(data, "api_key")
         category = _coerce_enum(ModelCategory, data.get("category", ModelCategory.LLM.value))
+        generation_api = _generation_api_for_category(
+            category=category,
+            value=data.get("generation_api"),
+        )
+        model_name = _required_string(data, "model_name")
+        base_url = validate_model_base_url(
+            _required_string(data, "base_url"),
+            allow_private_network=self.allow_private_network,
+            require_https=self.require_https,
+        )
+        assessment = unverified_capability_assessment(
+            model_id=model_id,
+            model_name=model_name,
+            base_url=base_url,
+            generation_api=generation_api,
+        )
         enabled = bool(data.get("enabled", True))
         is_default = bool(data.get("is_default", False))
         if is_default and not enabled:
@@ -239,26 +338,20 @@ class DataServiceModelCatalogService:
         return {
             "model_id": model_id,
             "display_name": _required_string(data, "display_name"),
-            "provider_protocol": _coerce_enum(ModelProviderProtocol, data.get("provider_protocol", ModelProviderProtocol.OPENAI_COMPATIBLE.value)),
+            "generation_api": generation_api,
             "provider_name": str(data.get("provider_name") or "Custom").strip(),
             "category": category,
-            "model_name": _required_string(data, "model_name"),
-            "base_url": validate_model_base_url(
-                _required_string(data, "base_url"),
-                allow_private_network=self.allow_private_network,
-                require_https=self.require_https,
-            ),
+            "model_name": model_name,
+            "base_url": base_url,
             "encrypted_api_key": encrypt_api_key(api_key, model_id=model_id, master_key=self.master_key),
             "api_key_last4": api_key_last4(api_key),
             "api_key_fingerprint": api_key_fingerprint(api_key, master_key=self.master_key),
             "enabled": enabled,
             "is_default": is_default,
-            "supports_streaming": bool(data.get("supports_streaming", True)),
-            "supports_tools": bool(data.get("supports_tools", False)),
-            "supports_json_mode": bool(data.get("supports_json_mode", True)),
-            "supports_json_schema": bool(data.get("supports_json_schema", False)),
-            "supports_vision": bool(data.get("supports_vision", False)),
-            "supports_reasoning_effort": bool(data.get("supports_reasoning_effort", False)),
+            "capability_profile_json": assessment.profile.model_dump(mode="json"),
+            "capability_probe_json": assessment.evidence.model_dump(mode="json"),
+            "capability_probe_hash": assessment.profile.probe_hash,
+            "capability_observed_at": assessment.profile.observed_at,
             "max_tokens": int(data.get("max_tokens", 4096)),
             "temperature": float(data.get("temperature", 0.7)),
             "timeout_seconds": data.get("timeout_seconds"),
@@ -273,6 +366,28 @@ class DataServiceModelCatalogService:
         }
 
     def _update_values(self, row: Any, data: dict[str, Any], *, admin_id: str | None) -> dict[str, Any]:
+        _reject_unknown_fields(
+            data,
+            allowed={
+                "api_key",
+                "base_url",
+                "category",
+                "default_headers",
+                "display_name",
+                "enabled",
+                "generation_api",
+                "is_default",
+                "max_retries",
+                "max_tokens",
+                "model_id",
+                "model_name",
+                "pricing_policy_id",
+                "provider_name",
+                "temperature",
+                "timeout_seconds",
+                "trust_level",
+            },
+        )
         values: dict[str, Any] = {}
         simple_fields = {
             "display_name",
@@ -280,12 +395,6 @@ class DataServiceModelCatalogService:
             "model_name",
             "enabled",
             "is_default",
-            "supports_streaming",
-            "supports_tools",
-            "supports_json_mode",
-            "supports_json_schema",
-            "supports_vision",
-            "supports_reasoning_effort",
             "max_tokens",
             "temperature",
             "timeout_seconds",
@@ -295,8 +404,11 @@ class DataServiceModelCatalogService:
         for field in simple_fields:
             if field in data:
                 values[field] = data[field]
-        if "provider_protocol" in data:
-            values["provider_protocol"] = _coerce_enum(ModelProviderProtocol, data["provider_protocol"])
+        if "generation_api" in data:
+            values["generation_api"] = _generation_api_for_category(
+                category=row.category,
+                value=data["generation_api"],
+            )
         if "category" in data:
             values["category"] = _coerce_enum(ModelCategory, data["category"])
         if "trust_level" in data:
@@ -315,6 +427,41 @@ class DataServiceModelCatalogService:
             values["encrypted_api_key"] = encrypt_api_key(key_value, model_id=row.model_id, master_key=self.master_key)
             values["api_key_last4"] = api_key_last4(key_value)
             values["api_key_fingerprint"] = api_key_fingerprint(key_value, master_key=self.master_key)
+        capability_inputs = {
+            "model_name",
+            "base_url",
+            "generation_api",
+            "default_headers",
+            "api_key",
+        }
+        if capability_inputs.intersection(data):
+            effective_generation_api = values.get(
+                "generation_api",
+                _generation_api_value(row.generation_api),
+            )
+            assessment = unverified_capability_assessment(
+                model_id=row.model_id,
+                model_name=str(values.get("model_name", row.model_name)),
+                base_url=str(values.get("base_url", row.base_url)),
+                generation_api=(
+                    effective_generation_api
+                    if isinstance(effective_generation_api, GenerationAPI)
+                    else GenerationAPI(str(effective_generation_api))
+                    if effective_generation_api is not None
+                    else None
+                ),
+            )
+            values.update(
+                {
+                    "capability_profile_json": assessment.profile.model_dump(mode="json"),
+                    "capability_probe_json": assessment.evidence.model_dump(mode="json"),
+                    "capability_probe_hash": assessment.profile.probe_hash,
+                    "capability_observed_at": assessment.profile.observed_at,
+                    "health_status": ModelHealthStatus.UNKNOWN,
+                    "last_tested_at": None,
+                    "last_test_error": None,
+                }
+            )
         values["updated_by_admin_id"] = admin_id
         return values
 
@@ -356,6 +503,14 @@ def _required_string(data: dict[str, Any], field: str) -> str:
     return value
 
 
+def _reject_unknown_fields(data: dict[str, Any], *, allowed: set[str]) -> None:
+    unknown = sorted(set(data).difference(allowed))
+    if unknown:
+        raise DataServiceValidationError(
+            "unsupported model catalog fields: " + ", ".join(unknown)
+        )
+
+
 def _dict_value(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
@@ -371,6 +526,62 @@ def _coerce_enum(enum_cls: type[StrEnum], value: Any) -> Any:
         return enum_cls(str(value))
     except ValueError as exc:
         raise DataServiceValidationError(f"Unsupported {enum_cls.__name__}: {value}") from exc
+
+
+def _generation_api_for_category(
+    *,
+    category: ModelCategory | str,
+    value: Any,
+) -> GenerationAPI | None:
+    normalized_category = _enum_value(category)
+    if normalized_category == ModelCategory.IMAGE.value:
+        if value not in (None, ""):
+            raise DataServiceValidationError(
+                "image catalog entries do not use an LLM generation_api"
+            )
+        return None
+    if value in (None, ""):
+        raise DataServiceValidationError("LLM catalog entries require generation_api")
+    try:
+        return value if isinstance(value, GenerationAPI) else GenerationAPI(str(value))
+    except ValueError as exc:
+        raise DataServiceValidationError(f"Unsupported GenerationAPI: {value}") from exc
+
+
+def _generation_api_value(value: Any) -> GenerationAPI | None:
+    if value is None:
+        return None
+    if isinstance(value, GenerationAPI):
+        return value
+    try:
+        return GenerationAPI(str(_enum_value(value)))
+    except ValueError as exc:
+        raise DataServiceValidationError(f"Unsupported GenerationAPI: {value}") from exc
+
+
+def _assessment_from_row(row: Any) -> CapabilityProfileAssessment:
+    try:
+        assessment = CapabilityProfileAssessment.model_validate(
+            {
+                "profile": row.capability_profile_json,
+                "evidence": row.capability_probe_json,
+            }
+        )
+    except Exception as exc:
+        raise DataServiceValidationError(
+            f"model {row.model_id!r} has an invalid capability assessment"
+        ) from exc
+    stored_hash = str(getattr(row, "capability_probe_hash", "") or "")
+    if stored_hash != assessment.profile.probe_hash:
+        raise DataServiceValidationError(
+            f"model {row.model_id!r} capability probe hash does not match its evidence"
+        )
+    stored_observed_at = getattr(row, "capability_observed_at", None)
+    if stored_observed_at is None or stored_observed_at != assessment.profile.observed_at:
+        raise DataServiceValidationError(
+            f"model {row.model_id!r} capability observation timestamp is inconsistent"
+        )
+    return assessment
 
 
 def _enum_value(value: Any) -> Any:

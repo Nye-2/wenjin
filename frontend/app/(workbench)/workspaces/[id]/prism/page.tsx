@@ -63,7 +63,7 @@ export default function WorkspacePrismPage({
   const typeConfig = workspace
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
     : null;
-  const { pendingReviewCount, activeRunCount, completedRunCount } =
+  const { pendingReviewCount, missionStatus, completedRunCount } =
     useWorkspaceChromeCounts(
       id,
       safeCount(surface?.review_summary?.pending_count),
@@ -141,7 +141,7 @@ export default function WorkspacePrismPage({
         workspaceTypeLabel={typeConfig?.title}
         activeSurface="prism"
         pendingReviewCount={pendingReviewCount}
-        activeRunCount={activeRunCount}
+        missionStatus={missionStatus}
         onOpenHub={() => setHubOpen(true)}
       />
       <WorkspaceHubDrawer

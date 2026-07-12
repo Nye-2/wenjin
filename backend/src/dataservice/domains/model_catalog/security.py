@@ -156,11 +156,16 @@ def _decode_key(key: str | bytes) -> bytes:
         value = value.removeprefix("base64:")
     try:
         decoded = base64.urlsafe_b64decode(value.encode("ascii"))
-        if len(decoded) == 32:
-            return decoded
     except Exception:
-        pass
-    return value.encode("utf-8")
+        decoded = b""
+    if len(decoded) == 32:
+        if not any(decoded):
+            raise ModelCatalogSecurityError("MODEL_SECRET_KEY cannot use the all-zero placeholder")
+        return decoded
+    decoded = value.encode("utf-8")
+    if decoded and not any(decoded):
+        raise ModelCatalogSecurityError("MODEL_SECRET_KEY cannot use the all-zero placeholder")
+    return decoded
 
 
 def _is_private_target(host: str) -> bool:

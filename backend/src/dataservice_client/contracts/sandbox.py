@@ -33,8 +33,8 @@ class SandboxEnvironmentUpdatePayload(BaseModel):
 class SandboxJobCreatePayload(BaseModel):
     workspace_id: str
     sandbox_environment_id: str
-    execution_id: str | None = None
-    execution_node_id: str | None = None
+    mission_id: str | None = None
+    mission_item_seq: int | None = None
     operation: str = "run_python"
     billable: bool = True
     language: str = "python"
@@ -73,7 +73,7 @@ class SandboxLeaseAcquirePayload(BaseModel):
     workspace_id: str
     sandbox_environment_id: str | None = None
     holder_job_id: str
-    holder_execution_id: str | None = None
+    holder_mission_id: str | None = None
     lease_token: str
     ttl_seconds: int = 900
     metadata_json: dict[str, Any] = Field(default_factory=dict)
@@ -113,8 +113,8 @@ class SandboxJobPayload(BaseModel):
     id: str
     workspace_id: str
     sandbox_environment_id: str
-    execution_id: str | None = None
-    execution_node_id: str | None = None
+    mission_id: str | None = None
+    mission_item_seq: int | None = None
     operation: str = "run_python"
     billable: bool = True
     language: str
@@ -142,7 +142,7 @@ class SandboxLeasePayload(BaseModel):
     workspace_id: str
     sandbox_environment_id: str | None = None
     holder_job_id: str
-    holder_execution_id: str | None = None
+    holder_mission_id: str | None = None
     lease_token: str
     expires_at: datetime
     metadata_json: dict[str, Any] = Field(default_factory=dict)
@@ -161,8 +161,7 @@ class SandboxArtifactPayload(BaseModel):
     mime_type: str | None = None
     content_hash: str | None = None
     reproducibility_json: dict[str, Any] = Field(default_factory=dict)
-    review_batch_id: str | None = None
-    review_item_id: str | None = None
+    mission_commit_id: str | None = None
     materialization_status: str
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None

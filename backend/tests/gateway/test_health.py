@@ -11,6 +11,15 @@ from src.config.extensions_config import ExtensionsConfig
 from src.gateway import health as health_module
 
 
+@pytest.fixture(autouse=True)
+def healthy_mission_catalog(monkeypatch):
+    monkeypatch.setattr(
+        health_module,
+        "check_mission_catalog",
+        AsyncMock(return_value={"status": "healthy", "policy_count": 6, "skill_count": 15}),
+    )
+
+
 def test_build_liveness_report_is_static():
     report = health_module.build_liveness_report()
 
@@ -44,7 +53,7 @@ async def test_build_readiness_report_aggregates_component_health(monkeypatch):
     )
     monkeypatch.setattr(
         health_module,
-        "check_execution",
+        "check_sandbox",
         AsyncMock(return_value={"status": "healthy"}),
     )
 
@@ -80,7 +89,7 @@ async def test_build_readiness_report_is_unhealthy_if_any_component_fails(monkey
     )
     monkeypatch.setattr(
         health_module,
-        "check_execution",
+        "check_sandbox",
         AsyncMock(return_value={"status": "healthy"}),
     )
 
@@ -114,7 +123,7 @@ async def test_build_readiness_report_is_degraded_when_optional_dependency_fails
     )
     monkeypatch.setattr(
         health_module,
-        "check_execution",
+        "check_sandbox",
         AsyncMock(return_value={"status": "healthy"}),
     )
 
@@ -210,7 +219,7 @@ async def test_build_readiness_report_marks_dependency_unhealthy_on_timeout(monk
     )
     monkeypatch.setattr(
         health_module,
-        "check_execution",
+        "check_sandbox",
         AsyncMock(return_value={"status": "healthy"}),
     )
 

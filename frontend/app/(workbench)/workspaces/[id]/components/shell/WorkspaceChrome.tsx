@@ -9,6 +9,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { useWenjinThemeStore } from "@/stores/wenjin-theme-store";
 
 export type WorkspaceSurface = "workbench" | "prism";
+export type WorkspaceMissionStatus = "running" | "waiting" | null;
 
 export function WorkspaceChrome({
   workspaceId,
@@ -16,7 +17,7 @@ export function WorkspaceChrome({
   workspaceTypeLabel,
   activeSurface,
   pendingReviewCount,
-  activeRunCount,
+  missionStatus,
   onOpenHub,
 }: {
   workspaceId: string;
@@ -24,7 +25,7 @@ export function WorkspaceChrome({
   workspaceTypeLabel?: string | null;
   activeSurface: WorkspaceSurface;
   pendingReviewCount: number;
-  activeRunCount: number;
+  missionStatus: WorkspaceMissionStatus;
   onOpenHub: () => void;
 }) {
   const theme = useWenjinThemeStore((state) => state.theme);
@@ -60,7 +61,8 @@ export function WorkspaceChrome({
             {workspaceTypeLabel ?? "工作空间"}
           </div>
         </div>
-        {activeRunCount > 0 ? <StatusChip label="运行中" tone="running" /> : null}
+        {missionStatus === "running" ? <StatusChip label="运行中" tone="running" /> : null}
+        {missionStatus === "waiting" ? <StatusChip label="等待回应" tone="review" /> : null}
         {pendingReviewCount > 0 ? <StatusChip label="待复核" tone="review" /> : null}
       </div>
 

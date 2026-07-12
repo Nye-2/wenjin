@@ -195,7 +195,7 @@ class TestThreadService:
             patch(
                 "src.services.thread_service.validate_requested_model",
                 return_value="resolved-tool-model",
-            ),
+            ) as validate_model,
             patch(
                 "src.services.thread_service.route_model",
                 return_value="resolved-tool-model",
@@ -210,6 +210,7 @@ class TestThreadService:
             )
 
         persisted = fake_dataservice.create_conversation_thread.await_args.args[0]
+        assert validate_model.call_args.kwargs["allowed_categories"] == ("llm",)
         assert persisted.user_id == "user-1"
         assert persisted.workspace_id == "ws-1"
         assert persisted.title == "Draft thread"

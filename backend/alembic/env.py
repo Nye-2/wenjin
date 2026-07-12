@@ -12,79 +12,16 @@ from alembic import context
 # Import models to register them with Base.metadata
 from src.config import settings
 from src.database import Base
+from src.database import models as database_models  # noqa: F401
 from src.database.alembic_version_guard import ensure_alembic_version_column_width
-from src.database.models import (  # noqa: F401
-    Artifact,
-    AuditLog,
-    Decision,
-    DocumentV2,
-    ExecutionNodeRecord,
-    ExecutionRecord,
-    GenerationRecord,
-    LatexCompileHistory,
-    LatexProject,
-    LatexTemplate,
-    LibraryItem,
-    RunHistory,
-    Sandbox,
-    TaskRecord,
-    User,
-    Workspace,
-    WorkspaceSettings,
-    WorkspaceTask,
-)
-from src.dataservice.domains.asset.models import WorkspaceAssetRecord  # noqa: F401
-from src.dataservice.domains.catalog.models import (  # noqa: F401
-    CapabilityDefinition,
-    CapabilitySeedRevision,
-)
-from src.dataservice.domains.conversation.models import (  # noqa: F401
-    MessageBlock,
-    ThreadMessage,
-    ToolInvocationRecord,
-    ToolResultRecord,
-)
-from src.dataservice.domains.execution.models import ExecutionEventRecord  # noqa: F401
-from src.dataservice.domains.operations.models import (  # noqa: F401
-    DataServiceIdempotencyKey,
-    DataServiceMigrationReport,
-    DataServiceOutboxEvent,
-)
-from src.dataservice.domains.prism.models import (  # noqa: F401
-    PrismDocumentRecord,
-    PrismFileRecord,
-    PrismFileVersionRecord,
-    PrismProjectRecord,
-    PrismProtectedScopeRecord,
-    PrismRenderRecord,
-)
-from src.dataservice.domains.provenance.models import (  # noqa: F401
-    ProvenanceLinkRecord,
-    SourceAnchorRecord,
-)
-from src.dataservice.domains.review.models import (  # noqa: F401
-    ReviewActionLogRecord,
-    ReviewBatchRecord,
-    ReviewItemRecord,
-)
-from src.dataservice.domains.sandbox.models import (  # noqa: F401
-    SandboxArtifactRecord,
-    SandboxEnvironmentRecord,
-    SandboxJobRecord,
-)
-from src.dataservice.domains.source.models import (  # noqa: F401
-    SourceAssetRecord,
-    SourceBibtexSnapshotRecord,
-    SourceExternalIdRecord,
-    SourceOutlineNodeRecord,
-    SourceRecord,
-    SourceTextUnitRecord,
-)
-from src.dataservice.domains.workspace.models import WorkspaceMembership  # noqa: F401
-from src.dataservice.domains.workspace_memory.models import (  # noqa: F401
-    WorkspaceMemoryDocumentRecord,
-    WorkspaceMemoryRevisionRecord,
-)
+from src.dataservice.domains.asset import models as asset_models  # noqa: F401
+from src.dataservice.domains.conversation import models as conversation_models  # noqa: F401
+from src.dataservice.domains.prism import models as prism_models  # noqa: F401
+from src.dataservice.domains.provenance import models as provenance_models  # noqa: F401
+from src.dataservice.domains.sandbox import models as sandbox_models  # noqa: F401
+from src.dataservice.domains.source import models as source_models  # noqa: F401
+from src.dataservice.domains.workspace import models as workspace_models  # noqa: F401
+from src.dataservice.domains.workspace_memory import models as workspace_memory_models  # noqa: F401
 
 # Alembic Config object
 config = context.config

@@ -119,8 +119,7 @@ class TestProgressUpdateWriteStrategy:
             "task-1",
             workspace_id="ws-1",
             thread_id="thread-1",
-            task_type="execution",
-            feature_id="deep_research",
+            task_type="reference_preprocess",
         )
 
         with patch("src.workspace_events.publish_workspace_event", new=AsyncMock()) as publish_workspace_event:

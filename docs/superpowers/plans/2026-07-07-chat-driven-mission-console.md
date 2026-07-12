@@ -29,8 +29,8 @@
 - Architecture source: `docs/current/architecture.md`
 - Workspace behavior source: `docs/current/workspace-current-state.md`
 - UI source: `docs/current/wenjin-research-navigation-uiux.md`
-- Capability contract source: `docs/current/frontend-feature-plugin-contract.md`
-- Catalog source: `docs/current/workspace-feature-catalog.md`
+- Mission contract source: `docs/current/frontend-mission-contract.md`
+- Catalog source: `docs/current/workspace-mission-catalog.md`
 - AGENTS project instructions in repository root.
 
 ## Current Code Map
@@ -52,7 +52,7 @@ Backend:
 - Chat Agent prompt assembly: `backend/src/agents/chat_agent/agent.py`
 - Chat Agent system prompt: `backend/src/agents/chat_agent/prompts/system.py`
 - Launch boundary: `backend/src/tools/builtins/launch_feature.py`
-- Capability schema: `backend/src/services/capability_schema.py`
+- Mission policy schema: `backend/src/services/mission_policy_schema.py`
 - Research state: `backend/src/agents/harness/research_state.py`
 - Team member context projection: `backend/src/agents/lead_agent/v2/team/member_context.py`
 - TeamKernel runtime: `backend/src/agents/lead_agent/v2/team/kernel.py`
@@ -360,7 +360,7 @@ Remove stale UI paths and lock in the new boundary.
   - [ ] `rg -n "raw log|raw JSON|tool JSON|capability id" frontend/app/'(workbench)' backend/src/agents/chat_agent`
 - [ ] Update docs:
   - [ ] `docs/current/wenjin-research-navigation-uiux.md` reflects chat-first Mission Console.
-  - [ ] `docs/current/frontend-feature-plugin-contract.md` states capabilities are backend/admin contracts, not default right-panel buttons.
+  - [ ] `docs/current/frontend-mission-contract.md` states Mission policies are backend contracts, not default right-panel buttons.
   - [ ] `docs/current/workspace-current-state.md` describes follow-up routing through Chat Agent with mission context.
 - [ ] Keep docs concise. Do not document the removed button launcher as a supported alternate mode.
 

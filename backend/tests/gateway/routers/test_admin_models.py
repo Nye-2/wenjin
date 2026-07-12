@@ -12,6 +12,10 @@ from src.dataservice_client.contracts.model_catalog import ModelCatalogPayload
 from src.dataservice_client.errors import DataServiceClientError
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
 from src.gateway.routers import admin_models
+from src.models.capability_profile import (
+    GenerationAPI,
+    unverified_capability_assessment,
+)
 
 
 def _admin() -> AccountAuthSubject:
@@ -30,7 +34,7 @@ def _model_payload(**overrides: Any) -> ModelCatalogPayload:
         "id": "row-1",
         "model_id": "deepseek-v3",
         "display_name": "DeepSeek V3",
-        "provider_protocol": "openai_compatible",
+        "generation_api": "chat_completions",
         "provider_name": "QnAIGC",
         "category": "llm",
         "model_name": "deepseek/deepseek-v3",
@@ -38,9 +42,20 @@ def _model_payload(**overrides: Any) -> ModelCatalogPayload:
         "api_key_redacted": "sk-****abcd",
         "enabled": True,
         "is_default": True,
-        "supports_tools": True,
     }
     data.update(overrides)
+    assessment = unverified_capability_assessment(
+        model_id=data["model_id"],
+        model_name=data["model_name"],
+        base_url=data["base_url"],
+        generation_api=(GenerationAPI(data["generation_api"]) if data.get("generation_api") else None),
+    )
+    data.update(
+        capability_profile=assessment.profile,
+        capability_probe=assessment.evidence,
+        capability_probe_hash=assessment.profile.probe_hash,
+        capability_observed_at=assessment.profile.observed_at,
+    )
     return ModelCatalogPayload.model_validate(data)
 
 
@@ -111,6 +126,7 @@ def test_admin_create_passes_admin_id_and_payload() -> None:
             "model_name": "deepseek/deepseek-v3",
             "base_url": "https://api.example.com/v1",
             "api_key": "sk-live-1234abcd",
+            "generation_api": "chat_completions",
             "is_default": True,
         },
     )

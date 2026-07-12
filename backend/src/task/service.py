@@ -9,7 +9,6 @@ from uuid import uuid4
 from src.config.app_config import celery_settings
 from src.config.task_config import task_settings
 from src.runtime.serialization import serialize_lc_object
-from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
     serialize_activity_item,
@@ -31,9 +30,7 @@ class ConcurrencyLimitError(Exception):
     def __init__(self, current: int, limit: int) -> None:
         self.current = current
         self.limit = limit
-        super().__init__(
-            f"Concurrent task limit reached: {current}/{limit} active tasks"
-        )
+        super().__init__(f"Concurrent task limit reached: {current}/{limit} active tasks")
 
 
 class TaskService:
@@ -62,7 +59,7 @@ class TaskService:
 
         return {
             "task_id": record.id,
-            "execution_id": record.execution_id,
+            "mission_id": record.mission_id,
             "task_type": record.task_type,
             "status": str(status),
             "progress": self._coerce_progress(progress),
@@ -72,9 +69,7 @@ class TaskService:
             "error": record.error,
             "metadata": serialize_lc_object(metadata),
             "workspace_id": record.workspace_id,
-            "feature_id": record.feature_id,
             "thread_id": record.thread_id,
-            "action": record.action,
             "created_at": record.created_at.isoformat(),
             "started_at": record.started_at.isoformat() if record.started_at else None,
             "completed_at": record.completed_at.isoformat() if record.completed_at else None,
@@ -100,20 +95,6 @@ class TaskService:
             return None
         workspace_id = payload.get("workspace_id")
         return str(workspace_id) if workspace_id else None
-
-    @classmethod
-    def _normalize_params(cls, value: Any) -> Any:
-        """Normalize nested params for stable equality checks."""
-        if isinstance(value, Mapping):
-            return {
-                str(key): cls._normalize_params(item)
-                for key, item in sorted(value.items(), key=lambda item: str(item[0]))
-            }
-        if isinstance(value, tuple):
-            return [cls._normalize_params(item) for item in value]
-        if isinstance(value, list):
-            return [cls._normalize_params(item) for item in value]
-        return value
 
     async def submit_task(
         self,
@@ -175,9 +156,7 @@ class TaskService:
                 priority=10 - priority,  # Celery uses inverse priority
             )
         except Exception as exc:
-            logger.error(
-                "Task submission failed for task %s: %s", task_id, exc
-            )
+            logger.error("Task submission failed for task %s: %s", task_id, exc)
             await self._store.update_task_record(
                 task_id,
                 status=TaskStatus.FAILED.value,
@@ -194,14 +173,11 @@ class TaskService:
             {
                 "task": {
                     "task_id": task_id,
-                    "execution_id": (
-                        payload.get("execution_id") if isinstance(payload, dict) else None
-                    ),
+                    "mission_id": (payload.get("mission_id") if isinstance(payload, dict) else None),
                     "task_type": task_type,
                     "status": TaskStatus.PENDING.value,
                     "progress": 0,
                     "message": None,
-                    "feature_id": payload.get("feature_id") if isinstance(payload, dict) else None,
                     "thread_id": payload.get("thread_id") if isinstance(payload, dict) else None,
                     "metadata": None,
                 }
@@ -234,43 +210,6 @@ class TaskService:
         )
 
         return task_id
-
-    async def find_active_task(
-        self,
-        user_id: str,
-        task_type: str,
-        workspace_id: str,
-        feature_id: str,
-        action: str | None = None,
-        params: dict[str, Any] | None = None,
-    ) -> str | None:
-        """Find an active (pending/running) task for the same context.
-
-        Returns task_id if found, None otherwise.
-        """
-        active_statuses = [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]
-        records = await self._store.list_user_tasks(
-            user_id=user_id,
-            task_type=task_type,
-            status=active_statuses,
-            limit=50,
-            workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=action,
-        )
-        for record in records:
-            payload = record.payload or {}
-            if not isinstance(payload, dict):
-                continue
-            payload_params = dict(payload.get("params")) if isinstance(payload.get("params"), Mapping) else {}
-            if params is not None:
-                if self._normalize_params(payload_params) == self._normalize_params(params):
-                    return record.id
-                continue
-            payload_action = payload_params.get("action")
-            if payload_action == action:
-                return record.id
-        return None
 
     async def find_active_task_by_payload(
         self,
@@ -329,8 +268,6 @@ class TaskService:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ) -> list[JsonObject]:
         """List tasks for a user."""
         records = await self._store.list_user_tasks(
@@ -339,8 +276,6 @@ class TaskService:
             task_type=task_type,
             limit=limit,
             workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=action,
         )
         serialized: list[JsonObject] = []
         for record in records:
@@ -372,25 +307,10 @@ class TaskService:
         cast(Any, celery_app).control.revoke(task_id, terminate=True)
 
         runtime_state = await self._store.get_task_state(task_id)
-        runtime_progress = (
-            runtime_state.get("progress")
-            if isinstance(runtime_state, Mapping)
-            else None
-        )
+        runtime_progress = runtime_state.get("progress") if isinstance(runtime_state, Mapping) else None
         fallback_progress = self._coerce_progress(getattr(record, "progress", 0), default=0)
         final_progress = self._coerce_progress(runtime_progress, default=fallback_progress)
-        runtime_metadata = (
-            runtime_state.get("metadata")
-            if isinstance(runtime_state, Mapping)
-            and isinstance(runtime_state.get("metadata"), dict)
-            else None
-        )
-        runtime_snapshot = (
-            runtime_metadata.get("runtime")
-            if isinstance(runtime_metadata, Mapping)
-            and isinstance(runtime_metadata.get("runtime"), dict)
-            else None
-        )
+        runtime_metadata = runtime_state.get("metadata") if isinstance(runtime_state, Mapping) and isinstance(runtime_state.get("metadata"), dict) else None
         cancelled_at = datetime.now(UTC)
         # Update database
         await self._store.update_task_record(
@@ -407,22 +327,6 @@ class TaskService:
             message="Cancelled by user",
             metadata=runtime_metadata,
         )
-        if record.execution_id:
-            await ExecutionService().apply_task_transition(
-                str(record.execution_id),
-                commit=True,
-                status=TaskStatus.CANCELLED.value,
-                runtime_state=runtime_snapshot,
-                result_summary="Cancelled by user",
-                next_actions=[],
-                advisory_code=None,
-                last_error=None,
-                started_at=record.started_at,
-                completed_at=cancelled_at,
-                message="Cancelled by user",
-                progress=final_progress,
-            )
-
         # Attempt credit refund if credits were consumed for this task
         await self._refund_cancelled_task(user_id, record)
 
@@ -434,12 +338,11 @@ class TaskService:
             {
                 "task": {
                     "task_id": task_id,
-                    "execution_id": record.execution_id,
+                    "mission_id": record.mission_id,
                     "task_type": record.task_type,
                     "status": TaskStatus.CANCELLED.value,
                     "progress": final_progress,
                     "message": "Cancelled by user",
-                    "feature_id": payload.get("feature_id"),
                     "thread_id": payload.get("thread_id"),
                     "metadata": runtime_metadata,
                 }

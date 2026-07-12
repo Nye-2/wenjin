@@ -1,5 +1,9 @@
 # Authoritative Template Packs for Software Copyright and CUMCM
 
+Status: Partially superseded for runtime topology by `docs/superpowers/specs/mission-runtime-overview.md` and `docs/superpowers/specs/mission-runtime/`.
+
+Note: authoritative template pack product decisions remain useful. Runtime references to Lead runtime, capability graph execution, result-card commit, or execution storage must be interpreted through MissionPolicy, StageAcceptanceContract, MissionRuntime, MissionReviewItem, and MissionCommit after the refactor.
+
 ## Goal
 
 Wenjin should ship exactly one built-in authoritative template pack for each of the two priority vertical workspaces:

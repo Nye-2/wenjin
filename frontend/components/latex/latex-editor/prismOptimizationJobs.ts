@@ -1,4 +1,4 @@
-import type { ExecutionRecord } from "@/lib/api";
+import type { MissionView } from "@/lib/api/mission-types";
 
 export type PrismOptimizationJobStatus =
   | "launching"
@@ -11,7 +11,7 @@ export type PrismOptimizationJobStatus =
 export interface PrismOptimizationJob {
   id: string;
   feedbackId: string;
-  executionId?: string | null;
+  missionId?: string | null;
   status: PrismOptimizationJobStatus;
   filePath: string;
   scope: "selection" | "section" | "document";
@@ -21,9 +21,8 @@ export interface PrismOptimizationJob {
   error?: string | null;
 }
 
-export const TERMINAL_PRISM_EXECUTION_STATUSES = new Set([
+export const TERMINAL_PRISM_MISSION_STATUSES = new Set([
   "completed",
-  "failed_partial",
   "failed",
   "cancelled",
 ]);
@@ -43,20 +42,17 @@ export function trimSnippet(value: string, limit = 120): string {
   return `${compact.slice(0, limit - 1).trim()}…`;
 }
 
-export function jobStatusFromExecution(record: ExecutionRecord | null | undefined): PrismOptimizationJobStatus | null {
+export function jobStatusFromMission(record: MissionView | null | undefined): PrismOptimizationJobStatus | null {
   if (!record) {
     return null;
   }
-  if (record.status === "completed") {
+  if (record.executionStatus === "completed") {
     return "completed";
   }
-  if (record.status === "failed_partial") {
-    return record.review_items?.length ? "completed" : "failed";
-  }
-  if (record.status === "cancelled") {
+  if (record.executionStatus === "cancelled") {
     return "cancelled";
   }
-  if (record.status === "failed") {
+  if (record.executionStatus === "failed") {
     return "failed";
   }
   return "running";
@@ -71,7 +67,7 @@ export function prismJobStatusLabel(status: PrismOptimizationJobStatus): string 
   return "正在启动研究团队";
 }
 
-export function prismExecutionNodeLabel(status?: string): string {
+export function prismMissionStageLabel(status?: string): string {
   if (status === "completed") return "完成";
   if (status === "failed") return "失败";
   if (status === "running") return "运行中";

@@ -37,7 +37,8 @@ class PrismWorkspaceFileUpsertCommand(PrismFileCreateCommand):
     content_asset_id: str | None = Field(default=None, max_length=36)
     content_hash: str | None = Field(default=None, max_length=128)
     created_by: str = Field(default="system", min_length=1, max_length=100)
-    review_item_id: str | None = Field(default=None, max_length=36)
+    mission_review_item_id: str | None = Field(default=None, max_length=36)
+    mission_commit_id: str | None = Field(default=None, max_length=36)
 
     @model_validator(mode="after")
     def validate_optional_content_pointer(self) -> PrismWorkspaceFileUpsertCommand:
@@ -54,7 +55,8 @@ class PrismFileVersionCreateCommand(BaseModel):
     """Append an immutable file version."""
 
     file_id: str = Field(min_length=1, max_length=36)
-    review_item_id: str | None = Field(default=None, max_length=36)
+    mission_review_item_id: str | None = Field(default=None, max_length=36)
+    mission_commit_id: str | None = Field(default=None, max_length=36)
     content_inline: str | None = None
     content_asset_id: str | None = Field(default=None, max_length=36)
     content_hash: str = Field(min_length=1, max_length=128)
@@ -74,7 +76,8 @@ class PrismFileContentUpdateCommand(BaseModel):
     content_asset_id: str | None = Field(default=None, max_length=36)
     content_hash: str = Field(min_length=1, max_length=128)
     created_by: str = Field(default="user", min_length=1, max_length=100)
-    review_item_id: str | None = Field(default=None, max_length=36)
+    mission_review_item_id: str | None = Field(default=None, max_length=36)
+    mission_commit_id: str | None = Field(default=None, max_length=36)
     expected_current_hash: str | None = Field(default=None, max_length=128)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -158,7 +161,8 @@ class PrismFileVersionProjection(BaseModel):
     workspace_id: str
     file_id: str
     version_no: int
-    review_item_id: str | None = None
+    mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
     content_inline: str | None = None
     content_asset_id: str | None = None
     content_hash: str

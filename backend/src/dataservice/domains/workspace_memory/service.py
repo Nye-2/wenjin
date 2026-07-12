@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.dataservice.domains.workspace_memory.contracts import (
     WorkspaceMemoryDocumentProjection,
     WorkspaceMemoryMergeCommand,
-    WorkspaceMemoryRewriteCommand,
     WorkspaceMemoryRevisionProjection,
+    WorkspaceMemoryRewriteCommand,
     WorkspaceMemoryWriteProjection,
 )
 from src.dataservice.domains.workspace_memory.projection import (
@@ -131,7 +131,8 @@ class WorkspaceMemoryDataDomainService:
                     "content_hash": next_hash,
                     "revision": 1,
                     "updated_by": command.updated_by,
-                    "source_execution_id": command.source_execution_id,
+                    "source_mission_id": command.source_mission_id,
+                    "source_mission_commit_id": command.source_mission_commit_id,
                     "source_thread_id": command.source_thread_id,
                     "metadata_json": dict(command.metadata_json or {}),
                 }
@@ -144,7 +145,8 @@ class WorkspaceMemoryDataDomainService:
                     "content_markdown": next_content,
                     "content_hash": next_hash,
                     "update_reason": command.update_reason,
-                    "source_execution_id": command.source_execution_id,
+                    "source_mission_id": command.source_mission_id,
+                    "source_mission_commit_id": command.source_mission_commit_id,
                     "source_thread_id": command.source_thread_id,
                     "created_by": command.updated_by,
                 }
@@ -169,7 +171,8 @@ class WorkspaceMemoryDataDomainService:
         record.content_hash = next_hash
         record.revision = next_revision
         record.updated_by = command.updated_by
-        record.source_execution_id = command.source_execution_id
+        record.source_mission_id = command.source_mission_id
+        record.source_mission_commit_id = command.source_mission_commit_id
         record.source_thread_id = command.source_thread_id
         record.metadata_json = {
             **dict(record.metadata_json or {}),
@@ -184,7 +187,8 @@ class WorkspaceMemoryDataDomainService:
                 "content_markdown": next_content,
                 "content_hash": next_hash,
                 "update_reason": command.update_reason,
-                "source_execution_id": command.source_execution_id,
+                "source_mission_id": command.source_mission_id,
+                "source_mission_commit_id": command.source_mission_commit_id,
                 "source_thread_id": command.source_thread_id,
                 "created_by": command.updated_by,
             }
@@ -197,11 +201,21 @@ class WorkspaceMemoryDataDomainService:
         )
 
     async def merge_items(self, command: WorkspaceMemoryMergeCommand) -> WorkspaceMemoryWriteProjection:
-        normalized_items = [
-            item
-            for item in command.items
-            if item.content.strip() and item.confidence >= 0.5
-        ]
+        if command.source_mission_commit_id:
+            existing = await self.repository.get_revision_by_mission_commit(
+                command.source_mission_commit_id
+            )
+            if existing is not None:
+                document = await self.repository.get_document(command.workspace_id)
+                if document is None:
+                    raise RuntimeError("memory_revision_lost_document")
+                return WorkspaceMemoryWriteProjection(
+                    document=document_to_projection(document),
+                    revision=revision_to_projection(existing),
+                    changed=False,
+                    skipped_reason="mission_commit_replayed",
+                )
+        normalized_items = [item for item in command.items if item.content.strip() and item.confidence >= 0.5]
         if not normalized_items:
             document = await self.ensure_document(
                 workspace_id=command.workspace_id,
@@ -227,7 +241,8 @@ class WorkspaceMemoryDataDomainService:
                 content_markdown=content,
                 update_reason=command.update_reason,
                 updated_by=command.updated_by,
-                source_execution_id=command.source_execution_id,
+                source_mission_id=command.source_mission_id,
+                source_mission_commit_id=command.source_mission_commit_id,
                 source_thread_id=command.source_thread_id,
                 metadata_json=dict(command.metadata_json or {}),
             )

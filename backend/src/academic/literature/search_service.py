@@ -1,93 +1,39 @@
-"""Multi-source literature search service."""
+"""Literature projection over the canonical model-native search tool."""
 
 from __future__ import annotations
 
-import logging
-import re
 from datetime import UTC, datetime
 from typing import Any
 
-from src.services.search import sources as _sources  # noqa: F401 - auto-register sources
-from src.services.search.base import SearchResult, SearchSource
-from src.services.search.registry import get_search_source
-
-logger = logging.getLogger(__name__)
+from src.services.search.model_native import MODEL_NATIVE_SEARCH_TOOL_ID
+from src.tools.orchestrator import (
+    ResearchToolOutcome,
+    ToolInvocationContext,
+    ToolOrchestrator,
+    ToolOutcomeStatus,
+    ToolPolicy,
+)
 
 DEFAULT_LITERATURE_SEARCH_LIMIT = 10
-DEFAULT_LITERATURE_SEARCH_SOURCES = ("semantic_scholar", "web_search", "curated_academic")
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(tz=UTC).isoformat()
 
 
 def _normalize_query(value: str) -> str:
     return " ".join(str(value or "").split()).strip()
 
 
-def _normalize_doi(value: str | None) -> str | None:
-    normalized = str(value or "").strip().lower()
-    if normalized.startswith("https://doi.org/"):
-        normalized = normalized.removeprefix("https://doi.org/")
-    if normalized.startswith("http://dx.doi.org/"):
-        normalized = normalized.removeprefix("http://dx.doi.org/")
-    return normalized or None
-
-
-def _normalize_title(value: str) -> str:
-    normalized = re.sub(r"\W+", " ", str(value or "").lower(), flags=re.UNICODE)
-    return " ".join(normalized.split())
-
-
-def _dedupe_key(paper: SearchResult) -> str:
-    doi = _normalize_doi(paper.doi)
-    if doi:
-        return f"doi:{doi}"
-    if paper.external_id:
-        return f"{paper.source}:{paper.external_id}"
-    return f"title:{_normalize_title(paper.title)}:{paper.year or ''}"
-
-
-def _verified_paper_dict(
-    paper: SearchResult,
-    *,
-    retrieval_query: str,
-    verified_at: str,
-) -> dict[str, Any]:
-    source = paper.source or "unknown"
-    return {
-        "title": paper.title,
-        "authors": paper.authors,
-        "year": paper.year,
-        "venue": paper.venue,
-        "doi": _normalize_doi(paper.doi),
-        "url": paper.url,
-        "abstract": paper.abstract,
-        "citations_count": paper.citations,
-        "source": source,
-        "external_id": paper.external_id,
-        "verified_at": verified_at,
-        "evidence_level": _evidence_level_for_source(paper),
-        "retrieval_query": retrieval_query,
-        "raw": paper.raw,
-    }
-
-
 class LiteratureSearchService:
-    """Canonical literature search over registered academic and web sources.
-
-    This service owns verified paper retrieval. LLM callers may synthesize over
-    the returned evidence, but they should not create additional paper records.
-    """
+    """Build paper candidates only from ToolOrchestrator source receipts."""
 
     def __init__(
         self,
         *,
-        sources: list[SearchSource] | None = None,
-        source_names: list[str] | None = None,
+        orchestrator: ToolOrchestrator | None = None,
+        invocation_context: ToolInvocationContext | None = None,
+        tool_policy: ToolPolicy | None = None,
     ) -> None:
-        self._sources = sources
-        self._source_names = list(source_names or DEFAULT_LITERATURE_SEARCH_SOURCES)
+        self._orchestrator = orchestrator
+        self._invocation_context = invocation_context
+        self._tool_policy = tool_policy
 
     async def search(
         self,
@@ -96,101 +42,130 @@ class LiteratureSearchService:
         discipline: str | None = None,
         limit: int = DEFAULT_LITERATURE_SEARCH_LIMIT,
     ) -> dict[str, Any]:
-        normalized_query = _normalize_query(query)
-        if not normalized_query:
-            normalized_query = "research topic"
+        normalized_query = _normalize_query(query) or "research topic"
         normalized_limit = max(1, min(int(limit or DEFAULT_LITERATURE_SEARCH_LIMIT), 20))
-        verified_at = _utc_now_iso()
-
-        raw_results: list[SearchResult] = []
-        source_records: list[dict[str, Any]] = []
-        source_errors: list[dict[str, str]] = []
-        for source in self._resolved_sources():
-            try:
-                source_results = await source.search(
-                    normalized_query,
-                    year_range=None,
-                    limit=normalized_limit,
-                )
-                raw_results.extend(source_results)
-                source_records.append(
-                    {
-                        "source": source.name,
-                        "status": "ok",
-                        "returned": len(source_results),
-                    }
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Literature search source '%s' failed for query '%s': %s",
-                    source.name,
-                    normalized_query,
-                    exc,
-                )
-                source_records.append(
-                    {
-                        "source": source.name,
-                        "status": "failed",
-                        "returned": 0,
-                        "error": str(exc),
-                    }
-                )
-                source_errors.append({"source": source.name, "error": str(exc)})
-
-        if raw_results and source_errors:
-            status = "partial"
-        elif raw_results:
-            status = "ok"
-        else:
-            status = "failed" if source_errors else "empty"
-
-        verified_papers: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for paper in raw_results:
-            if not paper.title.strip():
-                continue
-            key = _dedupe_key(paper)
-            if key in seen:
-                continue
-            seen.add(key)
-            verified_papers.append(
-                _verified_paper_dict(
-                    paper,
-                    retrieval_query=normalized_query,
-                    verified_at=verified_at,
-                )
+        if (
+            self._orchestrator is None
+            or self._invocation_context is None
+            or self._tool_policy is None
+        ):
+            return _unavailable_result(
+                query=normalized_query,
+                discipline=discipline,
+                limit=normalized_limit,
+                reason="mission_tool_context_required",
             )
 
-        return {
-            "query": normalized_query,
-            "discipline": discipline,
-            "source": "literature_search",
-            "verified_papers": verified_papers,
-            "retrieval": {
-                "source": "literature_search",
-                "sources": source_records,
-                "query": normalized_query,
-                "limit": normalized_limit,
-                "returned": len(raw_results),
-                "verified": len(verified_papers),
-                "status": status,
-                "source_errors": source_errors,
-                "verified_at": verified_at,
+        outcome = await self._orchestrator.invoke(
+            MODEL_NATIVE_SEARCH_TOOL_ID,
+            {"query": normalized_query, "limit": normalized_limit},
+            context=self._invocation_context,
+            policy=self._tool_policy,
+        )
+        return _result_from_outcome(
+            query=normalized_query,
+            discipline=discipline,
+            limit=normalized_limit,
+            outcome=outcome,
+        )
+
+
+def _result_from_outcome(
+    *,
+    query: str,
+    discipline: str | None,
+    limit: int,
+    outcome: ResearchToolOutcome,
+) -> dict[str, Any]:
+    verified_at = outcome.observed_at.astimezone(UTC).isoformat()
+    papers = [
+        {
+            "title": source.title,
+            "authors": list(source.authors),
+            "year": None,
+            "venue": source.publisher,
+            "doi": None,
+            "url": source.canonical_url,
+            "abstract": None,
+            "citations_count": None,
+            "source": "web_page",
+            "external_id": source.source_id,
+            "verified_at": verified_at,
+            "evidence_level": "provider_search_receipt",
+            "retrieval_query": query,
+            "raw": {
+                "producer_tool_id": outcome.tool_id,
+                "producer_tool_version": outcome.tool_version,
+                "operation_id": outcome.operation_id,
+                "verification_status": source.verification_status.value,
+                "supported_claim_refs": list(source.supported_claim_refs),
             },
         }
+        for source in outcome.source_refs[:limit]
+    ]
+    if outcome.status is ToolOutcomeStatus.SUCCESS:
+        status = "ok"
+    elif outcome.status is ToolOutcomeStatus.PARTIAL:
+        status = "partial"
+    else:
+        status = "failed"
+    return {
+        "query": query,
+        "discipline": discipline,
+        "source": "literature_search",
+        "verified_papers": papers,
+        "retrieval": {
+            "source": "literature_search",
+            "tool_id": outcome.tool_id,
+            "operation_id": outcome.operation_id,
+            "query": query,
+            "limit": limit,
+            "returned": len(outcome.source_refs),
+            "verified": len(papers),
+            "status": status,
+            "evidence_gaps": [
+                ref.model_dump(mode="json")
+                for ref in outcome.evidence_refs
+                if ref.kind == "evidence_gap"
+            ],
+            "verified_at": verified_at,
+            "summary": outcome.summary,
+        },
+    }
 
-    def _resolved_sources(self) -> list[SearchSource]:
-        if self._sources is not None:
-            return list(self._sources)
-        return [get_search_source(name) for name in self._source_names]
+
+def _unavailable_result(
+    *,
+    query: str,
+    discipline: str | None,
+    limit: int,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "query": query,
+        "discipline": discipline,
+        "source": "literature_search",
+        "verified_papers": [],
+        "retrieval": {
+            "source": "literature_search",
+            "tool_id": MODEL_NATIVE_SEARCH_TOOL_ID,
+            "query": query,
+            "limit": limit,
+            "returned": 0,
+            "verified": 0,
+            "status": "partial",
+            "evidence_gaps": [
+                {
+                    "kind": "evidence_gap",
+                    "reason": reason,
+                    "message": (
+                        "Verified web search requires an active Mission Runtime tool context."
+                    ),
+                }
+            ],
+            "verified_at": datetime.now(UTC).isoformat(),
+        },
+    }
 
 
-def _evidence_level_for_source(paper: SearchResult) -> str:
-    raw_level = paper.raw.get("evidence_level") if isinstance(paper.raw, dict) else None
-    if isinstance(raw_level, str) and raw_level.strip():
-        return raw_level.strip()
-    if paper.source == "semantic_scholar":
-        return "semantic_scholar_metadata"
-    if paper.source == "web_search":
-        return "web_search_result_snippet"
-    return f"{paper.source or 'unknown'}_metadata"
+__all__ = ["LiteratureSearchService"]

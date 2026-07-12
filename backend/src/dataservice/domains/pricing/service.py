@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.billing.policies import calculate_model_usage_credits
 from src.database.models.pricing_policy import PricingPolicyKind
 from src.dataservice.domains.pricing.contracts import (
-    CapabilityPricingPolicyConfig,
     GlobalCreditPolicyConfig,
+    MissionPricingPolicyConfig,
     ModelUsagePolicyConfig,
     PricingPolicyCreateCommand,
     PricingPolicyRecord,
@@ -168,7 +168,7 @@ def _validated_config(kind: str | PricingPolicyKind, config: dict[str, Any]) -> 
     validators = {
         PricingPolicyKind.GLOBAL_CREDIT.value: GlobalCreditPolicyConfig,
         PricingPolicyKind.MODEL_USAGE.value: ModelUsagePolicyConfig,
-        PricingPolicyKind.CAPABILITY.value: CapabilityPricingPolicyConfig,
+        PricingPolicyKind.MISSION.value: MissionPricingPolicyConfig,
         PricingPolicyKind.TOOL.value: ToolPricingPolicyConfig,
         PricingPolicyKind.SANDBOX.value: SandboxPricingPolicyConfig,
     }

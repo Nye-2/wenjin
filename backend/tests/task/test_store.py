@@ -16,7 +16,6 @@ class _TestTaskDataServiceClient:
             autocommit=True,
             record_model=record_model,
         )
-        self.execution_updates: list[tuple[str, object]] = []
 
     async def create_task_record(self, command):
         return await self._service.create_task_record(**command.model_dump())
@@ -42,8 +41,6 @@ class _TestTaskDataServiceClient:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ):
         return await self._service.list_user_tasks(
             user_id=user_id,
@@ -51,8 +48,6 @@ class _TestTaskDataServiceClient:
             task_type=task_type,
             limit=limit,
             workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=action,
         )
 
     async def count_active_task_records(self, *, user_id: str, active_statuses: list[str]):
@@ -78,10 +73,6 @@ class _TestTaskDataServiceClient:
             task_id=task_id,
             **command.model_dump(),
         )
-
-    async def update_execution(self, execution_id: str, command):
-        self.execution_updates.append((execution_id, command))
-        return None
 
 
 @pytest_asyncio.fixture
@@ -154,14 +145,14 @@ class TestTaskStorePostgres:
         record = await task_store.create_task_record(
             task_id="test-task-pg-1",
             user_id="user-1",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
-            payload={"feature_id": "deep_research", "query": "test"},
+            payload={"reference_id": "deep_research", "query": "test"},
         )
 
         assert record.id == "test-task-pg-1"
         assert record.user_id == "user-1"
-        assert record.task_type == "execution"
+        assert record.task_type == "reference_preprocess"
         assert record.status == "pending"
 
     @pytest.mark.asyncio
@@ -171,9 +162,9 @@ class TestTaskStorePostgres:
             record, active_count = await task_store.create_task_record_guarded(
                 task_id=f"guarded-task-{index}",
                 user_id="guarded-user",
-                task_type="execution",
+                task_type="reference_preprocess",
                 priority=5,
-                payload={"feature_id": "deep_research", "index": index},
+                payload={"reference_id": "deep_research", "index": index},
                 concurrency_limit=2,
             )
             assert record is not None
@@ -182,9 +173,9 @@ class TestTaskStorePostgres:
         blocked_record, blocked_count = await task_store.create_task_record_guarded(
             task_id="guarded-task-blocked",
             user_id="guarded-user",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
-            payload={"feature_id": "deep_research", "index": 2},
+            payload={"reference_id": "deep_research", "index": 2},
             concurrency_limit=2,
         )
 
@@ -197,14 +188,14 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-pg-2",
             user_id="user-1",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
-            payload={"workspace_id": "ws-1", "feature_id": "literature_search"},
+            payload={"workspace_id": "ws-1", "reference_id": "literature_search"},
         )
 
         record = await task_store.get_task_record("test-task-pg-2")
         assert record is not None
-        assert record.task_type == "execution"
+        assert record.task_type == "reference_preprocess"
 
     @pytest.mark.asyncio
     async def test_update_task_record(self, task_store):
@@ -212,9 +203,9 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-pg-3",
             user_id="user-1",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
-            payload={"feature_id": "deep_research"},
+            payload={"reference_id": "deep_research"},
         )
 
         updated = await task_store.update_task_record(
@@ -233,9 +224,9 @@ class TestTaskStorePostgres:
             await task_store.create_task_record(
                 task_id=f"test-task-list-{i}",
                 user_id="user-list",
-                task_type="execution",
+                task_type="reference_preprocess",
                 priority=5,
-                payload={"feature_id": "deep_research"},
+                payload={"reference_id": "deep_research"},
             )
 
         tasks = await task_store.list_user_tasks("user-list")
@@ -247,16 +238,16 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-status-1",
             user_id="user-status-list",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
-            payload={"feature_id": "deep_research"},
+            payload={"reference_id": "deep_research"},
         )
         await task_store.create_task_record(
             task_id="test-task-status-2",
             user_id="user-status-list",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
-            payload={"feature_id": "deep_research"},
+            payload={"reference_id": "deep_research"},
         )
         await task_store.update_task_record("test-task-status-2", status="success")
 
@@ -275,9 +266,9 @@ class TestTaskStorePostgres:
             await task_store.create_task_record(
                 task_id=f"test-active-{i}",
                 user_id="user-active",
-                task_type="execution",
+                task_type="reference_preprocess",
                 priority=5,
-                payload={"feature_id": "deep_research"},
+                payload={"reference_id": "deep_research"},
             )
         # First task is completed
         await task_store.update_task_record("test-active-0", status="success")
@@ -297,7 +288,7 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-complete",
             user_id="user-1",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
             payload={},
         )
@@ -337,11 +328,11 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-event",
             user_id="user-1",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
             payload={
                 "workspace_id": "ws-1",
-                "feature_id": "deep_research",
+                "reference_id": "deep_research",
                 "params": {"topic": "LLM agents"},
             },
         )
@@ -365,95 +356,6 @@ class TestTaskStorePostgres:
         assert first_payload["activity"]["summary"] == "Collecting papers"
         assert second_payload["refresh_targets"] == ["dashboard", "artifacts"]
 
-    @pytest.mark.asyncio
-    async def test_mark_task_completed_derives_artifact_followup_next_actions(
-        self,
-        task_store,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        publish_workspace_event = AsyncMock()
-        transition_kwargs: dict[str, object] = {}
-        compute_touch = AsyncMock()
-
-        class _FakeExecutionService:
-            def __init__(self, **kwargs) -> None:
-                self.kwargs = kwargs
-
-            async def apply_task_transition(self, execution_id: str, **kwargs):
-                transition_kwargs["execution_id"] = execution_id
-                transition_kwargs.update(kwargs)
-                return None
-
-        class _FakeComputeSessionService:
-            def __init__(self, *args, **kwargs) -> None:
-                self.args = args
-                self.kwargs = kwargs
-
-            async def touch_session_by_execution(self, execution_id: str):
-                await compute_touch(execution_id)
-
-        monkeypatch.setattr("src.task.store.publish_workspace_event", publish_workspace_event)
-        monkeypatch.setattr("src.task.store.ExecutionService", _FakeExecutionService)
-        monkeypatch.setattr(
-            "src.compute.session_service.ComputeSessionService",
-            _FakeComputeSessionService,
-        )
-
-        await task_store.create_task_record(
-            task_id="test-task-followup-actions",
-            user_id="user-1",
-            task_type="execution",
-            priority=5,
-            payload={
-                "workspace_id": "ws-1",
-                "feature_id": "framework_outline",
-                "execution_id": "exec-1",
-                "skill_id": "framework-designer",
-                "params": {"topic": "LLM planning"},
-            },
-        )
-
-        await task_store.mark_task_completed(
-            "test-task-followup-actions",
-            success=True,
-            result={
-                "artifact_ids": ["artifact-current"],
-                "artifacts": [{"id": "artifact-current", "title": "LLM Framework"}],
-            },
-        )
-
-        next_actions = transition_kwargs["next_actions"]
-        assert transition_kwargs["execution_id"] == "exec-1"
-        assert isinstance(next_actions, list)
-        assert {
-            (item.get("action"), item.get("artifact_id"), item.get("title"))
-            for item in next_actions
-            if isinstance(item, dict)
-        } >= {
-            ("open_artifact", "artifact-current", "LLM Framework"),
-        }
-        assert {
-            (
-                item.get("action"),
-                item.get("feature_id"),
-                item.get("source_artifact_id"),
-                tuple(item.get("context_artifact_ids") or []),
-                item.get("topic"),
-                item.get("skill_id"),
-            )
-            for item in next_actions
-            if isinstance(item, dict)
-        } >= {
-            (
-                "rerun_from_artifact",
-                "framework_outline",
-                "artifact-current",
-                ("artifact-current",),
-                "LLM planning",
-                "framework-designer",
-            ),
-        }
-        compute_touch.assert_awaited_once_with("exec-1")
 
     @pytest.mark.asyncio
     async def test_mark_task_started_publishes_running_activity(
@@ -467,11 +369,11 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-started",
             user_id="user-1",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
             payload={
                 "workspace_id": "ws-1",
-                "feature_id": "framework_outline",
+                "reference_id": "framework_outline",
                 "thread_id": "thread-1",
             },
         )
@@ -482,7 +384,8 @@ class TestTaskStorePostgres:
         assert payload["task"]["status"] == "running"
         assert payload["activity"]["id"] == "task:test-task-started"
         assert payload["activity"]["status"] == "running"
-        assert payload["activity"]["feature_id"] == "framework_outline"
+        assert payload["activity"]["mission_id"] is None
+        assert payload["activity"]["mission_policy_id"] is None
 
     @pytest.mark.asyncio
     async def test_persist_runtime_state_writes_runtime_to_record(self, task_store):
@@ -490,7 +393,7 @@ class TestTaskStorePostgres:
         await task_store.create_task_record(
             task_id="test-task-runtime",
             user_id="user-1",
-            task_type="execution",
+            task_type="reference_preprocess",
             priority=5,
             payload={},
         )

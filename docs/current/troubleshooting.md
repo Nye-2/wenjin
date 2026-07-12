@@ -1,385 +1,200 @@
 # Troubleshooting
 
-更新时间：2026-06-30
+> Status: Current
+> Updated: 2026-07-11
 
-以下命令默认你已经设置：
+## 1. Chat says work started, but Mission Console is empty
 
-```bash
-export REPO_ROOT=/path/to/your/wenjin/repo
-cd "$REPO_ROOT"
-```
+Check in order:
 
-## 1. 功能任务一直 pending
+1. the assistant `status_line.run_id` is a Mission id;
+2. `GET /api/missions/{id}` returns an owner-visible MissionView;
+3. a `mission_runs` row exists with the expected workspace/thread/user;
+4. the `long_running` worker is online;
+5. the mission has a due `next_wakeup_at` or an active/expired lease as expected.
 
-高频原因：
+Do not infer success from assistant prose. A launch is real only after the Mission row exists. The frontend must refetch MissionView after the receipt.
 
-- worker 没有启动
-- Redis 不可用
-- DataService 不可用，或模型目录没有 enabled default 模型
-- 根目录 `.env` 缺少 `MODEL_SECRET_KEY`
+## 2. Mission remains `created` or `planning`
 
-排查：
+Inspect `mission-worker` logs and worker queues. It must consume `long_running` with prefetch 1. Verify Celery/Redis, then inspect Mission lease fields and recent items.
 
-```bash
-docker compose ps
-docker compose logs -f dataservice
-docker compose logs -f worker
-docker compose logs -f gateway
-```
+Common causes:
 
-- worker 健康检查已改为探测 `http://127.0.0.1:9153/metrics`（容器内），不再依赖 Celery inspect ping。
-- 若 `gateway` 因 `depends_on: worker:service_healthy` 未启动，先检查：
-  ```bash
-  docker compose ps worker gateway
-  docker compose logs -f worker
-  docker compose exec worker curl -fsS http://127.0.0.1:9153/metrics >/dev/null
-  ```
+- no worker for `long_running`;
+- stale model profile or missing policy hash;
+- policy references an unknown tool group/stage;
+- budget preflight produced a durable wait;
+- a provider capability required at start is unavailable.
 
-修复：
+Never repair this by updating status manually. Fix the prerequisite and resume/reconcile through runtime APIs.
 
-1. 确认 `docker compose ps` 中 `worker`、`dataservice`、`gateway` 均为 healthy/running。
-2. 检查根目录 `.env` 的 `REDIS_URL`、`DATASERVICE_INTERNAL_TOKEN`、`MODEL_SECRET_KEY` 和数据库连接。
-3. 进入管理员后台确认模型管理里至少有一个 enabled default LLM 模型，且该模型绑定了可用 API URL/API Key。
-4. 重启 DataService：`docker compose restart dataservice`。
-5. 重启 worker：`docker compose restart worker`。
+## 3. Mission is `waiting`
 
-## 2. Compose 启动后 API 不可用
+Read the latest pause/permission/review item and MissionView waiting request. Waiting is a valid durable state, not a generic failure. Resolve it through:
 
-快速检查：
+- chat steering/resume;
+- `POST /api/missions/{id}/actions`;
+- `POST /api/missions/{id}/permissions/{request_id}/resolve`;
+- review/commit endpoints.
 
-```bash
-docker compose ps
-docker compose logs -f migrate
-docker compose logs -f gateway
-docker compose logs -f worker
-```
+A stale queue hint must not claim an undelayed waiting mission. If it does, treat it as a MissionStore regression.
 
-高频问题：
+## 4. Duplicate work or side effect
 
-- `migrate` 失败导致主服务不启动
-- 根目录 `.env` 未配置或配置与 compose 网络不匹配
-- `gateway` 健康检查未通过
+Collect `mission_id`, `operation_id`, item sequences, lease epoch/owner, state version, and commit/request id. Check that:
 
-修复建议：
+- only the current lease epoch executed the effect;
+- tool operation start/completion receipts share one operation id;
+- retries reused the idempotency key;
+- commit materialization used the same request id;
+- stale workers failed their fence before side effects.
 
-1. 先修复 `migrate` 报错，再重启：`docker compose up -d migrate gateway worker frontend nginx`
-2. 确认容器内 DB 地址是 `postgres:5432`，Redis 地址是 `redis:6379`
+Do not deduplicate by hiding duplicate UI rows. The durable operation/commit boundary must prevent the duplicate.
 
-## 3. 浏览器提示 `Failed to fetch`
+## 5. Mission SSE disconnects or skips sequence
 
-常见原因：
+Mission SSE is an invalidation channel. Reconnect with `Last-Event-ID`; on any gap, visibility restore, malformed event, or Redis interruption, fetch MissionView and needed items again. Do not replay hints into a local workflow state.
 
-- Gateway 未启动或 `/readyz` 不健康
-- `NEXT_PUBLIC_API_URL` 或开发态代理目标配错
-- 反向代理没有正确转发 `/api`
+If events are absent but canonical state changes, the UI should still recover on polling/refocus/manual refresh. If events arrive for another owner/workspace, stop release and fix isolation.
 
-排查：
+## 6. Search-required Mission refuses to start
 
-```bash
-curl -i http://localhost:8001/readyz
-curl -i http://localhost:2026/livez
-curl -i http://localhost:2026/readyz
-curl -i http://localhost:2026/api/auth/me
-```
+This is expected when native search cannot be verified. Check the model profile freshness and independent Responses SSE search capability.
 
-补充：
+Valid search requires a completed `web_search_call`, source receipts, URL citations, and the accepted completion boundary. These are failures:
 
-- 如果根目录 `.env` 没有配置 `NEXT_PUBLIC_API_URL`，前端默认请求同源 `/api`
-- `npm run dev` 会把 `/api/*` 代理到 `WENJIN_DEV_API_PROXY_TARGET`，默认 `http://localhost:8001`
-- Docker/Nginx 入口仍是 `http://localhost:2026`；只有需要让本地前端直连该入口时才设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:2026`
+- HTTP success without a search call;
+- generated citations without provider source receipts;
+- completed response with empty sources;
+- transport ends before the verified completed payload;
+- probe belongs to another endpoint/model/API hash.
 
-## 4. SSE 不流动或前端长时间无更新
+Do not enable another provider or mark a static flag. Restore provider conformance, rerun the probe, and atomically update the model profile evidence.
 
-检查项：
+## 7. Main GPT-5.5 chat fails
 
-1. 代理层是否关闭了 SSE 缓冲
-2. Gateway 日志中是否有流式异常
-3. Worker 是否正常发布任务进度 / workspace events
+Verify the DataService model row is enabled/default and uses Chat Completions generation with the correct `/v1` base URL. Check decryption key stability and pricing policy. Then run the capability probe.
 
-排查：
+Strict structured tools, clean streaming termination, `store=false`, and the selected reasoning effort must pass. Responses is not a fallback generation protocol.
 
-```bash
-docker compose logs -f gateway
-docker compose logs -f worker
-docker compose logs -f nginx
-```
+## 8. Unknown or forbidden tool
 
-补充：
+Inspect the pinned Mission tool policy and production ToolCatalog.
 
-- 当前 Nginx 已显式转发 `GET /metrics` 到 gateway；默认可直接使用 `http://localhost:2026/metrics`。
-- 如反代配置尚未更新，仍可用 `http://localhost:8001/metrics` 直连网关。
+- `unknown`: the id/group is not registered; fix policy/catalog deployment.
+- `policy_forbidden`: the mission or subagent scope does not grant it; do not widen at call time.
+- `permission_required`: resolve the specific durable request.
+- `tool_unavailable`: provider/runtime prerequisite is down.
+- `provenance_missing`: output lacks required receipts/evidence.
+- `rate_limited`: retry only according to the operation policy.
 
-新增（2026-04-15）：
+The catalog is frozen at worker startup and the mission pins exact ids. Restart/reseed after a deliberate catalog change.
 
-- `runs/stream` 创建后会先下发 `run_queued` 事件，前端应立即看到流式已建立。
-- runs 运行链路已收敛为 worker-only：`CELERY_ENABLED=true` 与 `REDIS_ENABLED=true` 任一缺失都会直接返回 503，不再回退 gateway 进程内执行。
-- Gateway 启用了事件循环阻塞 watchdog：
-  - `GATEWAY_EVENT_LOOP_WATCHDOG_ENABLED`
-  - `GATEWAY_EVENT_LOOP_WATCHDOG_INTERVAL_SECONDS`
-  - `GATEWAY_EVENT_LOOP_WATCHDOG_LAG_THRESHOLD_SECONDS`
-  - `GATEWAY_EVENT_LOOP_WATCHDOG_MAX_BREACHES`
-- 当主事件循环连续严重阻塞时，Gateway 会主动退出进程，依赖 `restart: unless-stopped` 自动拉起，实现自愈。
-- 可直接用压测脚本复现实例并量化流式链路：
-  ```bash
-  python scripts/run_pressure.py \
-    --base-url http://localhost:2026 \
-    --token "$WENJIN_ACCESS_TOKEN" \
-    --mode stream \
-    --runs 8 \
-    --concurrency 4
-  ```
-  然后对齐同一时间窗的 Grafana `Run Dispatch/s By Result` 与 `Run Wait Duration P95 By Outcome`。
+## 9. Stage will not advance
 
-## 5. SMTP 已配置但收不到验证码
+Inspect the latest stage assessment and contract. Typical causes are missing required artifact/evidence, unsupported criterion refs, blockers, minimum effort, or exhausted iteration budget. The model cannot pass a stage with prose alone; supporting refs must belong to current candidates.
 
-按顺序检查：
+Revise the stage output or provide missing material. Do not bypass the contract or manually jump `active_stage_id`.
 
-1. `SMTP_ENABLED=true`
-2. `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` 是否可连通
-3. backend 日志里是否出现 `发送邮件失败`
-4. 是否触发频控或日限额
+## 10. Review item cannot be accepted or saved
 
-提示：
+Check ownership, item status, review mode, preview availability/expiry, target, base revision/hash, and current document version.
 
-- 当 `SMTP_ENABLED=false` 时不会发送真实邮件，只会写日志和 Redis
-- 验证码格式固定为 6 位数字
+- `needs_more_evidence`: generate supporting material first;
+- stale base: regenerate preview against current content;
+- protected item unchecked: review individually;
+- accepted but unsaved: call commit with that item id;
+- partial commit: inspect per-item results, not only the aggregate status.
 
-## 6. 功能执行后无结果刷新
+Never write directly to Prism/rooms to work around review state.
 
-检查任务结果中的 `refresh_targets`：
+## 11. Mission Console disagrees after refresh
 
-- `artifacts`：前端刷新成果列表
-- `references`：前端刷新 Reference Library
-- `workspace`：前端刷新 workspace 基础信息
+The browser must hydrate from MissionView and Mission history. Clear only presentation focus if needed; do not preserve a client workflow state over the server projection. Verify the console uses `frontend/lib/api/missions.ts` and that History queries workspace missions.
 
-相关代码：
+## 12. Mission history is empty
 
-- `frontend/stores/execution-store.ts`
-- `frontend/hooks/useWorkspaceEventStream.ts`
-- `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
-- `backend/src/services/execution_commit_service.py`
+Verify `GET /api/workspaces/{workspace_id}/missions`, owner identity, and workspace id. Chat turn run history is not research history. A direct advisory chat correctly creates no Mission entry.
 
-## 7. `migrate` 报错：`value too long for type character varying(32)`
+## 13. Sandbox preflight fails
 
-典型日志片段：
-
-```text
-UPDATE alembic_version SET version_num='022_rename_chat_credit_types_to_thread' ...
-value too long for type character varying(32)
-```
-
-原因：
-
-- 历史库里的 `alembic_version.version_num` 仍是 `varchar(32)`，但新 revision id 超过 32。
-
-现状：
-
-- 已在 `backend/alembic/env.py` 接入自动守护，迁移前会确保该列至少为 `varchar(191)`。
-
-手动修复（旧镜像/旧代码场景）：
-
-```sql
-ALTER TABLE alembic_version
-  ALTER COLUMN version_num TYPE VARCHAR(191);
-```
-
-然后重试：
+`mission-worker` runs release preflight before it consumes any task. Inspect the structured check report first:
 
 ```bash
-docker compose up -d migrate
+docker compose logs mission-worker
+docker compose run --rm --no-deps mission-worker python -m src.sandbox.preflight --release
 ```
 
-## 8. `nginx` 长期 `unhealthy`，日志出现 `gateway could not be resolved`
+Check:
 
-典型日志片段：
+- `SANDBOX_DOCKER_SOCKET` names a local unix socket and the source is mounted only at `/var/run/docker.sock` in `mission-worker`;
+- `SANDBOX_DOCKER_GID` equals the container-visible mounted socket GID; after changing it, recreate rather than restart the container;
+- rootless/userns requirement;
+- pinned image digest exists or can be pulled by policy;
+- non-root uid/gid;
+- seccomp is not unconfined;
+- root directory and bind identity;
+- quota attestation;
+- package egress network/proxy/index/allowlist completeness.
 
-```text
-gateway could not be resolved (2: Server failure)
-GET /readyz ... 502 Bad Gateway
-```
+Production readiness must remain unhealthy until preflight passes. Do not switch to host execution.
 
-原因：
-
-- `nginx.conf` 若使用变量式 `proxy_pass`（如 `set $gateway_upstream ...; proxy_pass $gateway_upstream/...`），会依赖运行时 DNS 解析；
-- 在 Docker DNS 抖动时会周期性解析失败，导致健康检查长期 502。
-
-现状：
-
-- 已改为静态 upstream（`gateway_upstream`/`frontend_upstream`）转发，避免变量式动态解析。
-
-排查与修复：
+For `docker_socket_access` failures, compare the report's process UID/GIDs with socket UID/GID/mode. Resolve the host value and recreate the worker:
 
 ```bash
-docker compose ps
-docker compose logs -f nginx
-docker exec wenjin-nginx nginx -t
-docker compose up -d nginx
+export SANDBOX_DOCKER_SOCKET="${SANDBOX_DOCKER_SOCKET:-/var/run/docker.sock}"
+export SANDBOX_DOCKER_GID="$(docker run --rm \
+  -v "$SANDBOX_DOCKER_SOCKET:/var/run/docker.sock" \
+  --entrypoint stat \
+  "${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}" \
+  -c '%g' /var/run/docker.sock)"
+docker compose up -d --force-recreate mission-worker
 ```
 
-## 9. Gateway 反复卡住但容器还在运行
+Do not chmod the socket world-writable, mount it into the default worker, enable a TCP Docker endpoint, set an attestation merely to silence the gate, or enable rootful production fallback.
 
-现象：
+## 14. Sandbox cannot read/write a file
 
-- `/livez` 正常，但 `/api/*` 偶发超时或无流式输出
-- 前端出现 502 / 长时间 pending
+Confirm the path is inside the managed workspace, not protected/internal, and does not escape through a symlink. Mutation also requires read-before-write base hash/revision. Re-read the current file and regenerate the operation rather than dropping the precondition.
 
-优先检查：
+Large stdout/stderr/diffs become output refs. Absence from inline payload does not mean data loss; inspect the bounded receipt and allowed ref.
+
+## 15. Mission worker died mid-slice
+
+The lease should expire and the reconciler should republish a due mission. Verify no terminal status, `lease_expires_at`, `next_wakeup_at`, and the last durable item. A replacement worker must claim a new epoch and stale effects must fail fencing.
+
+Do not clear lease columns manually except during controlled incident recovery with an audited DataService operation.
+
+## 16. Credits are reserved but Mission failed
+
+Inspect the Mission billing snapshot and `credit_reservations.mission_id`. Reservation must be idempotent. Settlement records zero or policy-defined actual charge for failed/cancelled work and estimated/actual charge for completed work. Missing durable reservation is a runtime error, not a reason to synthesize one in the UI.
+
+## 17. Migration fails around 086-096
+
+These are irreversible development migrations. Confirm the chain is linear and `alembic heads` reports one head. For pre-cutover development data, drop/reseed instead of reconstructing removed tables. Validate each new migration's offline SQL from its immediate predecessor; very old migration scripts may not support a full offline chain from zero.
+
+## 18. DataService or Gateway import fails
+
+Run:
 
 ```bash
-docker compose logs -f gateway
-curl -i http://localhost:2026/api/models?purpose=chat
-curl -i http://localhost:2026/readyz
+cd backend
+.venv/bin/python -c "from src.dataservice_app.app import app; print(app.title)"
+.venv/bin/python -c "from src.gateway.app import app; print(app.title)"
 ```
 
-说明：
+Import errors after the clean cut usually indicate a stale contract/test import. Remove or migrate the caller; do not restore an alias module.
 
-- Compose 与镜像 healthcheck 已改为探测 `GET /api/models?purpose=chat`（轻量 API 路径），避免仅依赖 `/readyz`。
-- `/readyz` 仍用于依赖级健康判断（DB/Redis/Celery/MCP/Execution），并带单依赖超时保护。
-- `task_backend` 就绪检查采用双探针：`inspect ping` 优先，失败时自动回退到 `worker:9153/metrics`；当 `inspect` 不可用但 metrics 可达时，`/readyz` 仍判定健康并在报告里给出 `warning`。
-- run 元数据已持久化到 Redis，网关重启后 `run_id` 可被重新查询；但重启前处于 `pending/running` 的 run 会被标记为 `interrupted`，需要前端重新发起执行。
-- runs 主执行默认在 Celery worker（`src.task.tasks.execute_run`）执行；如出现“run 一直 pending”，优先检查 `wenjin-worker` 日志与 `long_running` 队列消费状态。
-
-### 9.1 Gateway health 一直 `starting`，`/api/models?purpose=chat` 返回 500
-
-高频原因：
-
-- 根目录 `.env` 或 Docker 环境缺少 `MODEL_SECRET_KEY` / `MODEL_SECRET_KEY_FILE`，DataService 无法解密模型 API Key。
-- 管理员后台模型目录里没有 enabled default chat model。
-
-排查：
+## 19. Anti-compat gate fails
 
 ```bash
-curl -i http://localhost:2026/api/models?purpose=chat
-docker compose logs -f gateway dataservice
-rg -n "MODEL_SECRET_KEY" .env
+cd backend
+.venv/bin/python -m src.quality.mission_cutover_gate --project-root .. --json
 ```
 
-修复：
+Every production finding is release-blocking. Delete/migrate the path. Do not exclude another file merely to make the scan green.
 
-1. 为根目录 `.env` 和 Compose 运行环境配置同一个稳定的 `MODEL_SECRET_KEY`，重启 dataservice / gateway / worker。
-2. 进入管理员后台确认至少一个 chat-capable model 处于 enabled + default，且测试配置为 healthy。
-3. API Key 不应写入前端环境变量；只通过管理员后台或 DataService seed 写入，DataService 内部加密保存。
+## 20. Browser test looks successful but no real work occurred
 
-### 9.2 Admin dashboard overview 出现 token usage 异常
-
-高频原因：
-
-- dashboard summary 读取 execution token usage 时请求超过 DataService list API 上限。
-- 大量历史 execution 需要全量统计，但 gateway facade 只做展示用采样汇总。
-
-当前边界：
-
-- admin overview token summary 只允许按 DataService 上限读取受控样本；不要把 list limit 调到超大值。
-- 如果需要全量成本 / token 审计，应新增 DataService aggregate endpoint，再由 admin dashboard 调用。
-
-## 10. Worker 反复重启，日志出现 `cannot unpack non-iterable ExceptionInfo object`
-
-典型日志片段：
-
-```text
-Unrecoverable error: TypeError('cannot unpack non-iterable ExceptionInfo object')
-...
-billiard.exceptions.WorkerLostError: CancelledError()
-```
-
-原因：
-
-- run 执行协程内若 `asyncio.CancelledError` 直接冒泡到 Celery，会触发 worker 主循环异常并重启；
-- 重启期间会看到 run 流中断、前端无持续流式输出、偶发 502/超时。
-
-现状（2026-04-15 起）：
-
-- run worker 已把 `CancelledError` 收敛为 run `interrupted` 终态，不再向 Celery 主循环继续抛出；
-- `pool=solo` 场景会自动将并发参数收敛到 `1` 并打印提示日志，减少调度误判。
-- Gateway 对流式断开增加了取消宽限（`RUNTIME_DISCONNECT_CANCEL_GRACE_SECONDS`，默认 1.5 秒），降低“请求尾部断连导致误 cancel”的概率。
-
-排查：
-
-```bash
-docker compose logs -f worker
-docker compose logs --since=30m worker | rg "WorkerLostError|ExceptionInfo|CancelledError|Unrecoverable error"
-```
-
-若仍出现旧签名，执行：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build gateway worker
-```
-
-## 11. 本地构建拉取基础镜像失败
-
-典型日志片段：
-
-```text
-failed to fetch oauth token: Post "https://auth.docker.io/token": read: connection reset by peer
-load metadata for docker.io/library/node:24-alpine
-load metadata for docker.io/library/python:3.13-slim
-```
-
-原因：
-
-- 你正在走本地构建 override，构建阶段仍需要解析 Node/Python base image；
-- 当前网络到 registry 或镜像源的 manifest metadata 请求不稳定，可能出现 token reset、HEAD 401/500 等错误。
-
-修复：
-
-```bash
-docker compose up -d
-```
-
-默认 `docker-compose.yml` 使用预构建应用镜像，不再触发 frontend/backend base image 解析。确认 `.env` 中至少包含：
-
-```bash
-BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
-LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
-FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
-TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
-REDIS_IMAGE=docker.m.daocloud.io/library/redis:8-alpine
-NGINX_IMAGE=docker.m.daocloud.io/library/nginx:alpine
-POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16
-GRAFANA_IMAGE=docker.m.daocloud.io/grafana/grafana:latest
-PROMETHEUS_IMAGE=docker.m.daocloud.io/prom/prometheus:latest
-```
-
-如果确实需要本地构建，使用显式 local-build override，并在失败时先预拉 base image：
-
-```bash
-# 继续使用根目录 .env；如需国内镜像源，只复制
-# deploy/env/compose.local-build-cn.example 中的构建镜像变量到根目录 .env。
-docker pull "$NODE_IMAGE"
-docker pull "$PYTHON_IMAGE"
-docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
-```
-
-## 12. `/readyz` 显示 `execution` 不健康，日志出现 Docker socket 权限错误
-
-典型日志片段：
-
-```text
-permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
-```
-
-原因：
-
-- gateway / worker 需要访问宿主机 Docker socket 来调度执行沙箱；
-- Docker Desktop 场景下 `/var/run/docker.sock` 常见为 `root:root 660`，容器内用户若不在对应 group 中会被拒绝。
-
-修复：
-
-```bash
-DOCKER_GID=0
-docker compose up -d gateway worker
-curl -fsS http://localhost:2026/readyz
-```
-
-Linux 服务器如 Docker socket group 不是 `0`，使用宿主机实际 gid：
-
-```bash
-stat -c '%g' /var/run/docker.sock
-```
-
-然后写入 `.env`：
-
-```bash
-DOCKER_GID=<上一步输出>
-```
+Correlate the UI with Mission rows/items, worker logs, tool/subagent receipts, stage assessments, evidence, review items, and commit results. Require multiple observable state transitions and at least one refresh/reconnect. A mock-only Playwright pass is necessary but not sufficient for production acceptance.

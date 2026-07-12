@@ -1,0 +1,103 @@
+schema_version: stage_acceptance_contract.v1
+contract_id: thesis_research.scope
+version: 1
+mission_policy_id: thesis_research
+workspace_type: thesis
+stage_id: scope
+stage_goal: Freeze thesis question, degree constraints, materials and target chapters.
+minimum_criteria:
+  - criterion_id: thesis_question
+    description: The thesis question and disciplinary boundary are explicit.
+  - criterion_id: school_constraints
+    description: School, degree, length, format and deadline constraints are recorded.
+  - criterion_id: material_inventory
+    description: Existing sources, data, drafts and missing inputs are distinguished.
+required_artifacts: [{kind: research_brief}]
+failure_modes: [missing_requirement, topic_too_broad]
+reviewer_roles: [thesis_scope_reviewer]
+allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+advance_condition: Scope, institutional constraints and materials are explicit.
+stop_condition: Required school rules or core materials remain unavailable.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: thesis_research.literature_framework
+version: 1
+mission_policy_id: thesis_research
+workspace_type: thesis
+stage_id: literature_framework
+stage_goal: Build a source-grounded literature and chapter argument framework.
+minimum_criteria:
+  - criterion_id: literature_coverage
+    description: Core theories, methods and competing findings are covered.
+    required_evidence_surfaces: [literature, citation_strength]
+  - criterion_id: chapter_evidence_map
+    description: Each planned chapter has claims and evidence responsibilities.
+    required_evidence_surfaces: [claim_evidence_alignment]
+required_evidence_surfaces: [literature, citation_strength, claim_evidence_alignment]
+required_artifacts: [{kind: chapter_evidence_map}]
+failure_modes: [thin_literature, outline_without_evidence]
+reviewer_roles: [literature_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: high
+prerequisite_stage_ids: [scope]
+advance_condition: Literature and chapter evidence responsibilities pass review.
+stop_condition: The proposed thesis cannot be supported by available sources.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: thesis_research.method_design
+version: 1
+mission_policy_id: thesis_research
+workspace_type: thesis
+stage_id: method_design
+stage_goal: Define a feasible, ethical and reproducible thesis method.
+minimum_criteria:
+  - criterion_id: method_question_fit
+    description: Method choices directly answer the thesis question.
+  - criterion_id: data_and_sampling
+    description: Data, sampling, measurement and analysis are explicit.
+  - criterion_id: validity_and_ethics
+    description: Bias, validity, ethics and limitations are addressed.
+required_artifacts: [{kind: methodology_plan}]
+failure_modes: [method_mismatch, inaccessible_data, ethics_gap]
+reviewer_roles: [methodology_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [literature_framework]
+advance_condition: Method, data, validity and ethics criteria pass.
+stop_condition: No feasible method remains within degree and resource constraints.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: thesis_research.chapter_writing
+version: 1
+mission_policy_id: thesis_research
+workspace_type: thesis
+stage_id: chapter_writing
+stage_goal: Draft or revise chapters with evidence-aligned arguments and school-compliant structure.
+minimum_criteria:
+  - criterion_id: argument_continuity
+    description: Chapter claims contribute to the thesis-level argument.
+    required_evidence_surfaces: [argument_chain]
+  - criterion_id: citation_alignment
+    description: Citation-bearing claims map to verified sources.
+    required_evidence_surfaces: [citation_strength, claim_evidence_alignment]
+  - criterion_id: reviewable_revision
+    description: Structural and semantic changes are previewable and safe.
+    required_evidence_surfaces: [writing_semantic_preservation, review_packet_completeness]
+required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, argument_chain, writing_semantic_preservation, review_packet_completeness]
+required_artifacts: [{kind: thesis_draft}]
+failure_modes: [chapter_isolation, unsupported_claim, format_violation]
+reviewer_roles: [thesis_manuscript_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 5
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [method_design]
+advance_condition: Chapter argument, evidence, semantics and reviewability all pass.
+stop_condition: Critical evidence or institutional constraints cannot be satisfied.

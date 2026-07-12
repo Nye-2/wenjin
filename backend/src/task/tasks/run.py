@@ -1,4 +1,4 @@
-"""Celery task entrypoint for thread run execution."""
+"""Celery task entrypoint for short-lived ChatTurnRun processing."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from celery import shared_task
 from src.application.handlers.thread_turn_handler import ThreadTurnHandler
 from src.application.results import ThreadTurnAttachment, ThreadTurnRequest
 from src.config import redis_settings, settings
-from src.runtime.runs import RunManager, run_thread_turn
+from src.runtime.chat_turns import ChatTurnRunManager, run_chat_turn
 from src.runtime.stream_bridge import RedisStreamBridge
 
 
@@ -58,7 +58,7 @@ def _build_turn_request(payload: dict[str, Any]) -> ThreadTurnRequest:
     )
 
 
-async def _execute_run_async(
+async def _process_chat_turn_async(
     run_id: str,
     request_payload: dict[str, Any],
     actor_id: str,
@@ -71,7 +71,7 @@ async def _execute_run_async(
     from src.task.model_catalog_runtime import refresh_runtime_model_catalog
 
     if not redis_settings.enabled:
-        raise RuntimeError("execute_run requires REDIS_ENABLED=true")
+        raise RuntimeError("process_chat_turn requires REDIS_ENABLED=true")
 
     # Rebind Redis clients to the current loop before task execution.
     await redis_client.reset_client(close_current=False)
@@ -81,9 +81,9 @@ async def _execute_run_async(
     await redis_client.connect()
     await redis_client.connect_stream()
 
-    run_manager = RunManager(
+    run_manager = ChatTurnRunManager(
         redis_backend=redis_client.client,
-        run_ttl_seconds=settings.runtime_run_ttl_seconds,
+        chat_turn_ttl_seconds=settings.runtime_run_ttl_seconds,
     )
     record = await run_manager.get_or_load(run_id)
     if record is None:
@@ -93,7 +93,8 @@ async def _execute_run_async(
     bridge = RedisStreamBridge(
         redis_client.stream_client,
         queue_maxsize=512,
-        stream_ttl_seconds=settings.runtime_run_ttl_seconds,
+        stream_ttl_seconds=min(3600, settings.runtime_run_ttl_seconds),
+        key_prefix="runtime:chat_turns:stream",
     )
 
     async with dataservice_client() as dataservice:
@@ -105,7 +106,7 @@ async def _execute_run_async(
             artifact_service=ArtifactService(dataservice=dataservice),
             reference_service=dataservice,
         )
-        await run_thread_turn(
+        await run_chat_turn(
             bridge,
             run_manager,
             record,
@@ -123,7 +124,7 @@ async def _execute_run_async(
     }
 
 
-def _execute_run_entry(
+def _process_chat_turn_entry(
     _self: Any,
     run_id: str,
     request_payload: dict[str, Any],
@@ -135,10 +136,10 @@ def _execute_run_entry(
         Callable[[Awaitable[dict[str, Any]]], dict[str, Any]],
         run_worker_coroutine,
     )
-    return runner(_execute_run_async(run_id, request_payload, actor_id))
+    return runner(_process_chat_turn_async(run_id, request_payload, actor_id))
 
 
-execute_run = shared_task(
+process_chat_turn = shared_task(
     bind=True,
-    name="src.task.tasks.execute_run",
-)(_execute_run_entry)
+    name="src.task.tasks.process_chat_turn",
+)(_process_chat_turn_entry)

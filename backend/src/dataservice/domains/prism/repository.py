@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,9 +50,7 @@ class PrismRepository:
         return record
 
     async def get_project(self, project_id: str) -> PrismProjectRecord | None:
-        result = await self.session.execute(
-            select(PrismProjectRecord).where(PrismProjectRecord.id == project_id)
-        )
+        result = await self.session.execute(select(PrismProjectRecord).where(PrismProjectRecord.id == project_id))
         return result.scalar_one_or_none()
 
     async def get_primary_project(
@@ -131,9 +128,7 @@ class PrismRepository:
         return result.scalar_one_or_none()
 
     async def get_file(self, file_id: str) -> PrismFileRecord | None:
-        result = await self.session.execute(
-            select(PrismFileRecord).where(PrismFileRecord.id == file_id)
-        )
+        result = await self.session.execute(select(PrismFileRecord).where(PrismFileRecord.id == file_id))
         return result.scalar_one_or_none()
 
     async def get_file_for_workspace(self, *, workspace_id: str, file_id: str) -> PrismFileRecord | None:
@@ -147,9 +142,7 @@ class PrismRepository:
         return result.scalar_one_or_none()
 
     async def get_file_version(self, version_id: str) -> PrismFileVersionRecord | None:
-        result = await self.session.execute(
-            select(PrismFileVersionRecord).where(PrismFileVersionRecord.id == version_id)
-        )
+        result = await self.session.execute(select(PrismFileVersionRecord).where(PrismFileVersionRecord.id == version_id))
         return result.scalar_one_or_none()
 
     async def get_current_file_version(self, file_record: PrismFileRecord) -> PrismFileVersionRecord | None:
@@ -197,11 +190,7 @@ class PrismRepository:
         return result.scalar_one_or_none()
 
     async def list_documents(self, project_id: str) -> list[PrismDocumentRecord]:
-        result = await self.session.execute(
-            select(PrismDocumentRecord)
-            .where(PrismDocumentRecord.project_id == project_id)
-            .order_by(PrismDocumentRecord.created_at.asc())
-        )
+        result = await self.session.execute(select(PrismDocumentRecord).where(PrismDocumentRecord.project_id == project_id).order_by(PrismDocumentRecord.created_at.asc()))
         return list(result.scalars().all())
 
     async def list_files(self, document_id: str) -> list[PrismFileRecord]:
@@ -221,19 +210,10 @@ class PrismRepository:
         *,
         limit: int = 200,
     ) -> list[PrismProtectedScopeRecord]:
-        result = await self.session.execute(
-            select(PrismProtectedScopeRecord)
-            .where(PrismProtectedScopeRecord.project_id == project_id)
-            .order_by(PrismProtectedScopeRecord.updated_at.desc())
-            .limit(limit)
-        )
+        result = await self.session.execute(select(PrismProtectedScopeRecord).where(PrismProtectedScopeRecord.project_id == project_id).order_by(PrismProtectedScopeRecord.updated_at.desc()).limit(limit))
         return list(result.scalars().all())
 
     async def next_file_version_no(self, file_id: str) -> int:
-        result = await self.session.execute(
-            select(func.max(PrismFileVersionRecord.version_no)).where(
-                PrismFileVersionRecord.file_id == file_id
-            )
-        )
+        result = await self.session.execute(select(func.max(PrismFileVersionRecord.version_no)).where(PrismFileVersionRecord.file_id == file_id))
         current = result.scalar_one_or_none()
         return int(current or 0) + 1

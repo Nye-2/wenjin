@@ -1,8 +1,8 @@
 """DataService pricing policy domain."""
 
 from .contracts import (
-    CapabilityPricingPolicyConfig,
     GlobalCreditPolicyConfig,
+    MissionPricingPolicyConfig,
     ModelUsagePolicyConfig,
     PricingSimulationRequest,
     PricingSimulationResult,
@@ -16,7 +16,7 @@ from .seed_loader import (
 from .service import DataServicePricingPolicyService
 
 __all__ = [
-    "CapabilityPricingPolicyConfig",
+    "MissionPricingPolicyConfig",
     "DataServicePricingPolicyService",
     "DataServicePricingPolicySeedLoader",
     "DEFAULT_MODEL_USAGE_POLICY_KEY",

@@ -100,9 +100,7 @@ async def get_compiled_pdf(
     return FileResponse(
         path=pdf_path,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
-        },
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"},
     )
 
 
@@ -131,7 +129,5 @@ async def get_compiled_synctex(
     return FileResponse(
         path=synctex_path,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
-        },
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
     )

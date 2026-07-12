@@ -5,16 +5,16 @@ import { TriangleAlert } from "lucide-react";
 
 import { AdminPageHeader } from "../components/AdminPageHeader";
 import { UserGrowthPanel } from "./user-growth-panel";
-import { ExecutionPanel } from "./execution-panel";
+import { MissionPanel } from "./mission-panel";
 import { CreditPanel } from "./credit-panel";
 import { WorkspaceAdoptionPanel } from "./workspace-adoption-panel";
 import {
   getUserGrowth,
-  getExecutionStats,
+  getMissionStats,
   getCreditConsumption,
   getWorkspaceAdoption,
   type UserGrowthResponse,
-  type ExecutionStatsResponse,
+  type MissionStatsResponse,
   type CreditConsumptionResponse,
   type WorkspaceAdoptionResponse,
 } from "@/lib/api/admin-analytics";
@@ -28,7 +28,7 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState("30d");
 
   const [userGrowth, setUserGrowth] = useState<UserGrowthResponse | null>(null);
-  const [executionStats, setExecutionStats] = useState<ExecutionStatsResponse | null>(null);
+  const [missionStats, setMissionStats] = useState<MissionStatsResponse | null>(null);
   const [creditData, setCreditData] = useState<CreditConsumptionResponse | null>(null);
   const [workspaceData, setWorkspaceData] = useState<WorkspaceAdoptionResponse | null>(null);
 
@@ -47,14 +47,14 @@ export default function AnalyticsPage() {
 
     Promise.all([
       getUserGrowth({ range, granularity: "day" }),
-      getExecutionStats({ range, granularity: "day" }),
+      getMissionStats({ range, granularity: "day" }),
       getCreditConsumption({ range, granularity: "day" }),
       getWorkspaceAdoption(),
     ])
       .then(([ug, es, cc, wa]) => {
         if (!cancelled) {
           setUserGrowth(ug);
-          setExecutionStats(es);
+          setMissionStats(es);
           setCreditData(cc);
           setWorkspaceData(wa);
         }
@@ -75,7 +75,7 @@ export default function AnalyticsPage() {
     <>
       <AdminPageHeader
         title="数据分析"
-        description="用户增长、执行统计、积分消费与空间采用趋势。"
+        description="用户增长、研究任务、积分消费与空间采用趋势。"
         onRefresh={() => setReloadNonce((v) => v + 1)}
         isRefreshing={isLoading}
       />
@@ -93,8 +93,8 @@ export default function AnalyticsPage() {
           range={range}
           onRangeChange={setRange}
         />
-        <ExecutionPanel
-          data={executionStats}
+        <MissionPanel
+          data={missionStats}
           range={range}
           onRangeChange={setRange}
         />

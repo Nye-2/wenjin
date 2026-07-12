@@ -1,218 +1,119 @@
-"""Tests for mission-level workspace summary service."""
+"""Mission-backed workspace summary projection tests."""
 
+from __future__ import annotations
+
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from src.dataservice_client.contracts.mission import MissionStatus
 from src.services.workspace_summary_service import WorkspaceSummaryService
-from tests.database.conftest import _Capability as DbCapability
 
 
-def _make_capability(
-    capability_id: str,
-    workspace_type: str,
+def _mission(
+    mission_id: str,
+    status: MissionStatus,
     *,
-    order: int = 0,
-    display_name: str | None = None,
-    description: str = "",
-    dashboard_meta: dict | None = None,
-) -> DbCapability:
-    return DbCapability(
-        id=capability_id,
-        workspace_type=workspace_type,
-        enabled=True,
-        display_name=display_name or capability_id,
-        description=description,
-        intent_description="test",
-        trigger_phrases=[],
-        required_decisions=[],
-        brief_schema={},
-        graph_template={},
-        ui_meta={"order": order, "icon": "x", "color": "x", "entry_tier": "primary"},
-        runtime={"mode": "compute_agentic"},
-        dashboard_meta=dashboard_meta or {},
-        notes=None,
+    policy_id: str = "sci_research",
+    title: str = "Federated PEFT",
+    objective: str = "Map research gaps",
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        mission_id=mission_id,
+        mission_policy_id=policy_id,
+        status=status,
+        title=title,
+        objective=objective,
     )
 
 
-class _FakeSummaryDataService:
-    def __init__(self, capabilities: list[DbCapability]) -> None:
-        self.capabilities = list(capabilities)
-
-    async def list_catalog_capabilities(
-        self,
-        *,
-        workspace_type: str | None = None,
-        enabled_only: bool = False,
-    ):
-        return [
-            capability
-            for capability in self.capabilities
-            if (workspace_type is None or capability.workspace_type == workspace_type)
-            and (not enabled_only or capability.enabled)
-        ]
+def _service(missions: list[SimpleNamespace], *, activity: dict | None = None) -> WorkspaceSummaryService:
+    dataservice = SimpleNamespace(
+        missions=SimpleNamespace(list_workspace=AsyncMock(return_value=missions)),
+    )
+    activity_service = SimpleNamespace(
+        get_activity=AsyncMock(return_value=activity or {"items": []}),
+    )
+    return WorkspaceSummaryService(
+        dataservice=dataservice,  # type: ignore[arg-type]
+        activity_service=activity_service,  # type: ignore[arg-type]
+    )
 
 
 @pytest.mark.asyncio
-async def test_summary_prioritizes_failed_mission_and_generates_risk():
-    capabilities = [
-        _make_capability("idea_to_thesis_manuscript", "thesis", order=0, display_name="论文全文"),
-        _make_capability("thesis_research_pack", "thesis", order=1, display_name="研究包"),
-        _make_capability("thesis_revision_pass", "thesis", order=2, display_name="论文修订"),
-    ]
-    dashboard_service = AsyncMock()
-    dashboard_service.get_dashboard = AsyncMock(
-        return_value={
-            "modules": [
-                {"id": "idea_to_thesis_manuscript", "status": "completed", "summary": {}},
-                {"id": "thesis_research_pack", "status": "failed", "summary": {}},
-                {"id": "thesis_revision_pass", "status": "not_started", "summary": {}},
-            ],
-            "recent_artifacts": [],
-        }
-    )
-    activity_service = AsyncMock()
-    activity_service.get_activity = AsyncMock(return_value={"items": []})
-    service = WorkspaceSummaryService(
-        dashboard_service=dashboard_service,
-        activity_service=activity_service,
-        dataservice=_FakeSummaryDataService(capabilities),
-    )
+async def test_empty_workspace_summary_invites_a_research_goal() -> None:
+    result = await _service([]).get_summary("ws-1", workspace_type="sci", user_id="user-1")
 
-    result = await service.get_summary("ws-1", workspace_type="thesis", user_id="user-1")
-
-    assert result["current_phase"]["feature_id"] == "thesis_research_pack"
-    assert result["next_step"]["feature_id"] == "thesis_research_pack"
-    assert result["risk_items"][0]["tone"] == "danger"
-    assert "阻塞" in result["headline"]
+    assert result["progress"] == {
+        "completed": 0,
+        "in_progress": 0,
+        "failed": 0,
+        "total": 0,
+        "percent": 0,
+    }
+    assert result["current_phase"]["mission_id"] is None
+    assert result["current_phase"]["mission_policy_id"] is None
+    assert result["next_step"] is None
+    assert result["headline"] == "从一个具体研究目标开始"
 
 
 @pytest.mark.asyncio
-async def test_summary_builds_progress_and_recommended_actions_for_missions():
-    capabilities = [
-        _make_capability("sci_literature_positioning", "sci", order=0, display_name="文献定位"),
-        _make_capability("sci_empirical_package", "sci", order=1, display_name="实证包"),
-        _make_capability("research_question_to_paper", "sci", order=2, display_name="论文主稿"),
-        _make_capability("sci_revision_for_journal", "sci", order=3, display_name="期刊修订"),
-    ]
-    dashboard_service = AsyncMock()
-    dashboard_service.get_dashboard = AsyncMock(
-        return_value={
-            "modules": [
-                {"id": "sci_literature_positioning", "status": "completed", "summary": {}},
-                {"id": "sci_empirical_package", "status": "in_progress", "summary": {}},
-            ],
-            "recent_artifacts": [],
-        }
-    )
-    activity_service = AsyncMock()
-    activity_service.get_activity = AsyncMock(return_value={"items": []})
-    service = WorkspaceSummaryService(
-        dashboard_service=dashboard_service,
-        activity_service=activity_service,
-        dataservice=_FakeSummaryDataService(capabilities),
-    )
+async def test_active_mission_is_the_current_phase_and_next_step() -> None:
+    active = _mission("mission-2", MissionStatus.RUNNING, title="Literature positioning")
+    completed = _mission("mission-1", MissionStatus.COMPLETED)
 
-    result = await service.get_summary("ws-2", workspace_type="sci", user_id="user-2")
+    result = await _service([active, completed]).get_summary("ws-1", workspace_type="sci")
 
     assert result["progress"] == {
         "completed": 1,
         "in_progress": 1,
         "failed": 0,
-        "total": 4,
-        "percent": 38,
+        "total": 2,
+        "percent": 50,
     }
-    assert result["current_phase"]["feature_id"] == "sci_empirical_package"
-    assert result["recommended_actions"][0]["feature_id"] == "sci_empirical_package"
-    assert result["recommended_actions"][1]["feature_id"] == "research_question_to_paper"
+    assert result["current_phase"] == {
+        "mission_id": "mission-2",
+        "mission_policy_id": "sci_research",
+        "title": "Literature positioning",
+        "status": "running",
+        "description": "Map research gaps",
+    }
+    assert result["next_step"]["mission_id"] == "mission-2"
+    assert result["next_step"]["mission_policy_id"] == "sci_research"
+    assert result["recommended_actions"] == [result["next_step"]]
 
 
 @pytest.mark.asyncio
-async def test_summary_prefers_active_execution_session():
-    capabilities = [
-        _make_capability("sci_literature_positioning", "sci", order=0, display_name="文献定位"),
-        _make_capability("research_question_to_paper", "sci", order=1, display_name="论文主稿"),
+async def test_terminal_missions_project_completed_and_failed_counts() -> None:
+    missions = [
+        _mission("mission-3", MissionStatus.FAILED),
+        _mission("mission-2", MissionStatus.CANCELLED),
+        _mission("mission-1", MissionStatus.COMPLETED),
     ]
-    dashboard_service = AsyncMock()
-    dashboard_service.get_dashboard = AsyncMock(
-        return_value={
-            "modules": [
-                {"id": "sci_literature_positioning", "status": "completed", "summary": {}},
-                {"id": "research_question_to_paper", "status": "not_started", "summary": {}},
-            ],
-            "recent_artifacts": [],
-        }
-    )
-    activity_service = AsyncMock()
-    activity_service.get_activity = AsyncMock(return_value={"items": []})
-    execution_service = AsyncMock()
-    execution_service.list_executions = AsyncMock(
-        return_value=[
-            AsyncMock(
-                id="exec-1",
-                feature_id="research_question_to_paper",
-                status="running",
-                result_summary="正在生成论文主稿",
-                next_actions=[{"label": "补充摘要约束", "feature_id": "research_question_to_paper"}],
-                graph_structure={"nodes": [{"id": "draft", "phase": "draft"}]},
-                node_states={"draft": {"status": "running"}},
-                updated_at="2026-04-10T12:00:00+00:00",
-            )
-        ]
-    )
-    service = WorkspaceSummaryService(
-        dashboard_service=dashboard_service,
-        activity_service=activity_service,
-        execution_service=execution_service,
-        dataservice=_FakeSummaryDataService(capabilities),
-    )
 
-    result = await service.get_summary("ws-exec", workspace_type="sci", user_id="user-exec")
+    result = await _service(missions).get_summary("ws-1", workspace_type="thesis")
 
-    assert result["current_phase"]["feature_id"] == "research_question_to_paper"
-    assert result["current_phase"]["status"] == "in_progress"
-    assert result["next_step"]["title"] == "补充摘要约束"
+    assert result["progress"]["completed"] == 1
+    assert result["progress"]["failed"] == 2
+    assert result["progress"]["in_progress"] == 0
+    assert result["current_phase"]["status"] == "failed"
+    assert result["next_step"] is None
 
 
 @pytest.mark.asyncio
-async def test_summary_adds_advisory_risk_for_awaiting_user_input():
-    capabilities = [
-        _make_capability("technical_route_package", "proposal", order=0, display_name="技术路线包"),
-    ]
-    dashboard_service = AsyncMock()
-    dashboard_service.get_dashboard = AsyncMock(
-        return_value={
-            "modules": [
-                {"id": "technical_route_package", "status": "in_progress", "summary": {}},
-            ],
-            "recent_artifacts": [],
-        }
-    )
-    activity_service = AsyncMock()
-    activity_service.get_activity = AsyncMock(return_value={"items": []})
-    execution_service = AsyncMock()
-    execution_service.list_executions = AsyncMock(
-        return_value=[
-            AsyncMock(
-                id="exec-2",
-                feature_id="technical_route_package",
-                status="awaiting_user_input",
-                result_summary="需要确认技术路线边界",
-                next_actions=[],
-                graph_structure={},
-                node_states={},
-                updated_at="2026-04-10T12:00:00+00:00",
-            )
+async def test_recent_activity_is_projected_without_catalog_lookup() -> None:
+    activity = {
+        "items": [
+            {
+                "title": "Stage accepted",
+                "summary": "Scope passed",
+                "kind": "mission_stage",
+                "occurred_at": "2026-07-11T00:00:00Z",
+            }
         ]
-    )
-    service = WorkspaceSummaryService(
-        dashboard_service=dashboard_service,
-        activity_service=activity_service,
-        execution_service=execution_service,
-        dataservice=_FakeSummaryDataService(capabilities),
-    )
+    }
 
-    result = await service.get_summary("ws-advisory", workspace_type="proposal", user_id="user-1")
+    result = await _service([], activity=activity).get_summary("ws-1", workspace_type="proposal")
 
-    assert result["risk_items"][0]["id"] == "advisory:technical_route_package"
-    assert result["risk_items"][0]["tone"] == "warning"
+    assert result["recent_activity"] == activity["items"][0]

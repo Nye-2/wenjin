@@ -3,11 +3,11 @@
 import { useState, useEffect } from "react";
 import { listModels, type Model } from "@/lib/api";
 import { authorizedFetch } from "@/lib/api/client";
-import type { WriteMode } from "@/lib/change-set-view";
+import type { MissionReviewMode } from "@/lib/api/mission-types";
 import {
-  normalizeWriteMode,
-  WriteModeSelector,
-} from "../review-changes/WriteModeSelector";
+  normalizeReviewMode,
+  ReviewModeSelector,
+} from "../mission-console/ReviewModeSelector";
 
 interface SettingsFormProps {
   workspaceId: string;
@@ -17,14 +17,14 @@ interface WorkspaceSettings {
   name: string;
   auto_compact_threshold: number;
   default_model: string;
-  write_mode?: WriteMode | null;
+  review_mode?: MissionReviewMode | null;
 }
 
 export function SettingsForm({ workspaceId }: SettingsFormProps) {
   const [name, setName] = useState("");
   const [autoCompactThreshold, setAutoCompactThreshold] = useState(0.8);
   const [defaultModel, setDefaultModel] = useState("");
-  const [writeMode, setWriteMode] = useState<WriteMode>("auto_draft");
+  const [reviewMode, setReviewMode] = useState<MissionReviewMode>("balanced_default");
   const [models, setModels] = useState<Model[]>([]);
   const [modelsError, setModelsError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -57,7 +57,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
           if (data.auto_compact_threshold != null)
             setAutoCompactThreshold(data.auto_compact_threshold);
           if (data.default_model) setDefaultModel(data.default_model);
-          setWriteMode(normalizeWriteMode(data.write_mode));
+          setReviewMode(normalizeReviewMode(data.review_mode));
           setLoading(false);
         }
       })
@@ -78,7 +78,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
         name,
         auto_compact_threshold: autoCompactThreshold,
         default_model: defaultModel,
-        write_mode: writeMode,
+        review_mode: reviewMode,
       };
       const res = await authorizedFetch(`/api/workspaces/${workspaceId}/settings`, {
         method: "PUT",
@@ -133,9 +133,15 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
             display_name: `${defaultModel}（当前设置）`,
             provider: "",
             max_tokens: 0,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            supports_vision: false,
+            generation_api: null,
+            capability_profile_version: "unavailable",
+            capability_profile: {
+              strict_tool_calls: false,
+              streaming: false,
+              reasoning_efforts: [],
+              vision: false,
+              native_web_search: false,
+            },
           } satisfies Model,
           ...models,
         ]
@@ -243,11 +249,11 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               marginBottom: 6,
             }}
           >
-            写入模式
+            确认方式
           </label>
-          <WriteModeSelector value={writeMode} onChange={setWriteMode} disabled={saving} />
+          <ReviewModeSelector value={reviewMode} onChange={setReviewMode} disabled={saving} />
           <div style={{ marginTop: 7, fontSize: 12, color: "var(--wjn-text-muted)", lineHeight: 1.45 }}>
-            设置会影响后续新启动的运行；已经启动的运行会保留启动时的模式快照。
+            设置会影响后续新任务；已经启动的任务会保留创建时的确认方式。
           </div>
         </div>
 

@@ -9,9 +9,9 @@ from pathlib import PurePosixPath
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.prism.contracts import (
-    PrismFileCreateCommand,
     PrismFileContentProjection,
     PrismFileContentUpdateCommand,
+    PrismFileCreateCommand,
     PrismFileProjection,
     PrismFileRestoreCommand,
     PrismFileVersionCreateCommand,
@@ -297,7 +297,8 @@ class PrismDataDomainService:
                     content_asset_id=command.content_asset_id,
                     content_hash=command.content_hash,
                     created_by=command.created_by,
-                    review_item_id=command.review_item_id,
+                    mission_review_item_id=command.mission_review_item_id,
+                    mission_commit_id=command.mission_commit_id,
                     metadata_json=dict(command.metadata_json or {}),
                 ),
             )
@@ -360,18 +361,15 @@ class PrismDataDomainService:
             await self._finish()
             return PrismFileWriteProjection(
                 file=file_to_projection(file_record),
-                version=(
-                    version_to_projection(await self.repository.get_current_file_version(file_record))
-                    if file_record.current_version_id
-                    else None
-                ),
+                version=(version_to_projection(await self.repository.get_current_file_version(file_record)) if file_record.current_version_id else None),
                 changed=False,
                 skipped_reason="unchanged",
             )
         version = await self.append_file_version(
             PrismFileVersionCreateCommand(
                 file_id=file_id,
-                review_item_id=command.review_item_id,
+                mission_review_item_id=command.mission_review_item_id,
+                mission_commit_id=command.mission_commit_id,
                 content_inline=command.content_inline,
                 content_asset_id=command.content_asset_id,
                 content_hash=command.content_hash,
@@ -397,7 +395,8 @@ class PrismDataDomainService:
                 "workspace_id": file_record.workspace_id,
                 "file_id": command.file_id,
                 "version_no": version_no,
-                "review_item_id": command.review_item_id,
+                "mission_review_item_id": command.mission_review_item_id,
+                "mission_commit_id": command.mission_commit_id,
                 "content_inline": command.content_inline,
                 "content_asset_id": command.content_asset_id,
                 "content_hash": command.content_hash,

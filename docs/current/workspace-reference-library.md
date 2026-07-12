@@ -1,6 +1,6 @@
 # Workspace Reference Library
 
-更新时间：2026-06-23
+更新时间：2026-07-11
 状态：Current
 
 本文档是 workspace 文献中心的当前事实源。历史重建任务书、SSOT review 和阶段性计划已清理；追溯请使用 Git 历史。
@@ -12,8 +12,8 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 所有文献来源统一进入 `sources`；gateway 层的 reference routes 只是产品入口命名，运行时不再通过 legacy reference tables 写入事实数据：
 
 - 上传 PDF
-- literature search 检索（Semantic Scholar、web_search、curated academic fallback）
-- deep search / deep research 产物
+- literature search 检索（model-native web search）
+- Mission 研究产物
 - 手动录入
 - BibTeX import
 
@@ -34,12 +34,12 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 1. 文献中心唯一事实源是 canonical `sources`；legacy `workspace_references*` / `reference_*` 不再承载运行时 import、detail、preprocess 或 usage 逻辑，并由 migration `072_drop_legacy_reference_tables.py` 删除。
 2. 所有文献资产必须绑定 `workspace_id`，workspace 间不共享全文、索引、状态或 citation key。
 3. citation key 由系统生成并在 workspace 内唯一，LLM 只能使用已有 key。
-4. Literature search 的 `verified_papers` 是检索导入事实来源；`retrieval.sources` / `retrieval.source_errors` 记录各 source 状态，`model_synthesis` 和 `unverified_leads` 只能作为分析或下一轮检索线索。
+4. Literature search 的 `verified_papers` 是模型原生 web search 导入事实来源；`retrieval.sources` / `retrieval.source_errors` 记录 source 状态，`model_synthesis` 和 `unverified_leads` 只能作为分析或下一轮检索线索。
 5. 上传全文进入 `workspace_assets` / `source_assets`，预处理后写入 canonical `source_outline_nodes` 和 `source_text_units`。
 6. 写作 evidence pack 只从已纳入 Reference Library 的文献和索引内容构建。
 7. `refs.bib` 是 projection，由 `SourceBibliographyService` 从 Source DataService metadata 生成。
 8. Prism 写入正文引用时必须同步或校验 `refs.bib`；agent 不直接手写 `refs.bib` 内容。
-9. capability 通过 `citation_policy` 声明 Library citation contract；SCI 主稿写作使用 `workspace_library` source scope，missing key 以 `block_prism_stage` 处理。
+9. MissionPolicy 和 StageAcceptanceContract 声明 Library citation contract；SCI 主稿写作使用 workspace Library 作为引用范围，missing key 阻止对应写作阶段通过。
 10. compile 前必须校验 `\cite{}` 是否存在于当前 workspace 文献中心。
 11. Prism 稿件变更与文献/文档来源的关联进入 canonical `provenance_links`。
 
@@ -48,7 +48,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 核心表：
 
 - `sources`：文献主表，包含 title/authors/year/venue/doi/source/status/citation_key/read 状态等。
-- `source_external_ids`：Semantic Scholar、web search URL、上传 hash 等外部来源 ID。
+- `source_external_ids`：模型原生 web search URL、上传 hash 等外部来源 ID。
 - `source_assets` + `workspace_assets`：PDF、Markdown、manifest 和补充资产，包含 preprocess 状态。
 - `source_outline_nodes`：目录/页码索引节点。
 - `source_text_units`：可检索全文单元。
@@ -58,7 +58,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 
 关键枚举：
 
-- `source_type`: `upload | semantic_scholar | web_search | curated_academic | deep_search | manual | bibtex`
+- Source ingest provenance 使用当前 canonical ingest kind；开发环境不保留已删除 provider 枚举的兼容值。
 - `library_status`: `candidate | included | core | excluded | used_in_draft`
 - `evidence_level`: `metadata_only | external_verified | uploaded_fulltext | indexed_fulltext`
 - `fulltext_status`: `none | uploaded | preprocessing | indexed | failed`
@@ -68,12 +68,12 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 服务层：
 
 - `SourceDataService`：CRUD、去重、citation key 唯一性、详情响应、evidence pack、citation usage。
-- `SourceLibraryImportService`：Source Library import service；manual、literature search、BibTeX、deep search artifact 和 PDF upload 均委托 Source/Asset DataService。
+- `SourceLibraryImportService`：manual、literature search、BibTeX 和 PDF upload 均委托 Source/Asset DataService。
 - `SourcePreprocessService`：PDF 预处理、Source outline/text units 写入。
 - Source outline/text-unit APIs：outline-first 检索与 page/content 读取。
 - `SourceBibliographyService`：BibTeX 生成、citation validation、Prism sync。
 - `PrismReviewDataService`：从 canonical Prism review content 与 Source/Provenance 生成 source links。
-- LeadAgentRuntime：读取 capability `citation_policy`，把 Library sources 注入为 `library_context` / `citation_context`，在 Prism staging 时阻断 missing citation key，并记录 `record_source_citation_usage`。
+- WorkspaceAgent/MissionRuntime：根据 pinned policy 读取 Library context；StageAcceptance 校验 citation key，review/commit 写入 Prism 并记录 source provenance。
 
 API 面：
 
@@ -82,7 +82,6 @@ API 面：
 - `POST /api/workspaces/{workspace_id}/references/manual`
 - `POST /api/workspaces/{workspace_id}/references/upload`
 - `POST /api/workspaces/{workspace_id}/references/import/literature-search`
-- `POST /api/workspaces/{workspace_id}/references/import/deep-search-artifact`
 - `POST /api/workspaces/{workspace_id}/references/import/bibtex`
 - `GET /api/workspaces/{workspace_id}/references/{reference_id}/outline`
 - `GET /api/workspaces/{workspace_id}/references/{reference_id}/outline/{node_id}/content`
@@ -129,7 +128,7 @@ API 面：
 当前写作闭环的最小可回归路径是：
 
 1. Reference Library 生成 outline-first evidence pack。
-2. capability 声明 `citation_policy.source_scope=workspace_library`；Lead Agent 将 Library citation keys 作为写作唯一引用事实源。
+2. Pinned MissionPolicy 将 workspace Library citation keys 作为写作唯一引用事实源。
 3. 写作使用 citation key 通过 `SourceDataService.record_citation_usage` 写入 `provenance_links`，并把候选/已纳入 source 推进到 `used_in_draft`。
 4. `SourceBibliographyService` 以当前 workspace 文献和 usage 生成 `refs.bib`。
 5. `sync_prism` 将 `refs.bib` 写入 workspace Prism，并确保 `main.tex` 包含 bibliography 入口。
@@ -145,4 +144,4 @@ API 面：
 - usage event 跳转到对应 artifact、task、LaTeX project 或章节位置。
 - source history 增加过滤和审计视图。
 - preprocess 状态在详情 Dialog 中实时刷新。
-- 显式 TaskReport source usage payload 可进一步补充 citation-derived source links。
+- Mission artifact source usage 可进一步补充 citation-derived source links。

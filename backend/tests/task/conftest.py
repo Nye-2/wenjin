@@ -46,10 +46,8 @@ class FixtureTaskRecord(TestBase):
 
     # Structured context fields — populated from payload at task creation
     workspace_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    feature_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    action: Mapped[str | None] = mapped_column(String, nullable=True)
+    mission_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
     status: Mapped[str] = mapped_column(
         String(20),
@@ -118,8 +116,6 @@ class _TestTaskDataServiceClient:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ):
         return await self._service.list_user_tasks(
             user_id=user_id,
@@ -127,8 +123,6 @@ class _TestTaskDataServiceClient:
             task_type=task_type,
             limit=limit,
             workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=action,
         )
 
     async def count_active_task_records(self, *, user_id: str, active_statuses: list[str]):

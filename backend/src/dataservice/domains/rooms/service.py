@@ -7,7 +7,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.common.errors import DataServiceValidationError
 from src.dataservice.domains.rooms.contracts import (
     DecisionProjection,
     DecisionSetCommand,
@@ -44,8 +43,9 @@ class RoomsDataDomainService:
                 "confidence": command.confidence,
                 "source_message_id": command.source_message_id,
                 "extracted_by": command.extracted_by,
-                "source_review_batch_id": command.source_review_batch_id,
-                "source_review_item_id": command.source_review_item_id,
+                "source_mission_id": command.source_mission_id,
+                "source_mission_item_seq": command.source_mission_item_seq,
+                "source_mission_commit_id": command.source_mission_commit_id,
             }
         )
         if old is not None:
@@ -85,10 +85,11 @@ class RoomsDataDomainService:
                 "description": command.description,
                 "status": command.status,
                 "priority": command.priority,
-                "related_execution_ids": list(command.related_execution_ids or []),
+                "related_mission_ids": list(command.related_mission_ids or []),
                 "created_by": command.created_by,
-                "source_review_batch_id": command.source_review_batch_id,
-                "source_review_item_id": command.source_review_item_id,
+                "source_mission_id": command.source_mission_id,
+                "source_mission_item_seq": command.source_mission_item_seq,
+                "source_mission_commit_id": command.source_mission_commit_id,
             }
         )
         if command.status == "done":
@@ -102,10 +103,7 @@ class RoomsDataDomainService:
         workspace_id: str,
         status: str | None = None,
     ) -> list[WorkspaceTaskProjection]:
-        return [
-            workspace_task_to_projection(record)
-            for record in await self.repository.list_workspace_tasks(workspace_id=workspace_id, status=status)
-        ]
+        return [workspace_task_to_projection(record) for record in await self.repository.list_workspace_tasks(workspace_id=workspace_id, status=status)]
 
     async def update_workspace_task(
         self,
@@ -117,10 +115,10 @@ class RoomsDataDomainService:
         record = await self.repository.get_workspace_task(workspace_id=workspace_id, task_id=task_id)
         if record is None:
             return None
-        for field in ("title", "description", "status", "priority", "related_execution_ids"):
+        for field in ("title", "description", "status", "priority", "related_mission_ids"):
             value = getattr(command, field)
             if value is not None:
-                setattr(record, field, list(value) if field == "related_execution_ids" else value)
+                setattr(record, field, list(value) if field == "related_mission_ids" else value)
         if command.status == "done" and record.completed_at is None:
             record.completed_at = datetime.now(UTC)
         record.updated_at = datetime.now(UTC)
@@ -135,41 +133,6 @@ class RoomsDataDomainService:
         await self._finish()
         return True
 
-    async def apply_review_item(self, item: Any) -> dict[str, Any]:
-        target_kind = str(item.target_kind)
-        payload = dict(item.payload_json or {})
-        if target_kind == "decision":
-            decision = await self.set_decision(
-                DecisionSetCommand(
-                    workspace_id=item.workspace_id,
-                    key=payload["key"],
-                    value=payload["value"],
-                    extracted_by=payload.get("extracted_by") or f"review:{item.id}",
-                    confidence=payload.get("confidence", 1.0),
-                    source_review_batch_id=item.batch_id,
-                    source_review_item_id=item.id,
-                )
-            )
-            return {"room": "decisions", "record_id": decision.id, "key": decision.key}
-        if target_kind == "workspace_task":
-            task = await self.create_workspace_task(
-                WorkspaceTaskCreateCommand(
-                    workspace_id=item.workspace_id,
-                    title=payload["title"],
-                    description=payload.get("description"),
-                    priority=payload.get("priority", 0),
-                    related_execution_ids=list(payload.get("related_execution_ids") or []),
-                    created_by=payload.get("created_by") or f"review:{item.id}",
-                    source_review_batch_id=item.batch_id,
-                    source_review_item_id=item.id,
-                )
-            )
-            return {"room": "tasks", "record_id": task.id}
-        raise DataServiceValidationError(
-            "Unsupported room review item target",
-            detail={"target_kind": target_kind},
-        )
-
     async def _finish(self) -> None:
         if self.autocommit:
             await self.session.commit()
@@ -180,15 +143,14 @@ class RoomsDataDomainService:
         self,
         command: DecisionSetCommand,
     ) -> Any | None:
-        if command.source_review_batch_id and command.source_review_item_id:
-            existing = await self.repository.get_decision_by_review_source(
+        if command.source_mission_commit_id:
+            existing = await self.repository.get_decision_by_mission_commit(
                 workspace_id=command.workspace_id,
-                source_review_batch_id=command.source_review_batch_id,
-                source_review_item_id=command.source_review_item_id,
+                source_mission_commit_id=command.source_mission_commit_id,
             )
             if existing is not None:
                 return existing
-        if _is_execution_unit_provenance(command.extracted_by):
+        if _is_mission_commit_provenance(command.extracted_by):
             return await self.repository.get_decision_by_extracted_by(
                 workspace_id=command.workspace_id,
                 key=command.key,
@@ -200,15 +162,14 @@ class RoomsDataDomainService:
         self,
         command: WorkspaceTaskCreateCommand,
     ) -> Any | None:
-        if command.source_review_batch_id and command.source_review_item_id:
-            existing = await self.repository.get_workspace_task_by_review_source(
+        if command.source_mission_commit_id:
+            existing = await self.repository.get_workspace_task_by_mission_commit(
                 workspace_id=command.workspace_id,
-                source_review_batch_id=command.source_review_batch_id,
-                source_review_item_id=command.source_review_item_id,
+                source_mission_commit_id=command.source_mission_commit_id,
             )
             if existing is not None:
                 return existing
-        if _is_execution_unit_provenance(command.created_by):
+        if _is_mission_commit_provenance(command.created_by):
             return await self.repository.get_workspace_task_by_created_by(
                 workspace_id=command.workspace_id,
                 title=command.title,
@@ -217,5 +178,5 @@ class RoomsDataDomainService:
         return None
 
 
-def _is_execution_unit_provenance(value: str) -> bool:
-    return value.startswith("execution:") and ":unit:" in value
+def _is_mission_commit_provenance(value: str) -> bool:
+    return value.startswith("mission:") and ":commit:" in value

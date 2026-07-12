@@ -81,8 +81,8 @@ class ModelUsageCreditCharge:
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilityPricingEstimate:
-    """Value-based capability estimate used before long-running work."""
+class MissionPricingEstimate:
+    """Value-based Mission estimate used before long-running work."""
 
     base_fee_credits: int
     estimate_min_credits: int
@@ -250,14 +250,14 @@ def calculate_model_usage_credits(
     )
 
 
-def calculate_capability_estimate(capability_policy: Any) -> CapabilityPricingEstimate:
-    """Calculate value-based capability reservation bounds."""
-    policy = _policy_config(capability_policy)
+def calculate_mission_estimate(mission_policy: Any) -> MissionPricingEstimate:
+    """Calculate value-based Mission reservation bounds."""
+    policy = _policy_config(mission_policy)
     base_fee = _int_policy_value(policy, "base_fee_credits", default=0)
     estimate_min = max(_int_policy_value(policy, "estimate_min_credits", default=base_fee), base_fee)
     estimate_max = max(_int_policy_value(policy, "estimate_max_credits", default=estimate_min), estimate_min)
     max_charge = max(_int_policy_value(policy, "max_charge_credits", default=estimate_max), estimate_max)
-    return CapabilityPricingEstimate(
+    return MissionPricingEstimate(
         base_fee_credits=base_fee,
         estimate_min_credits=estimate_min,
         estimate_max_credits=estimate_max,
@@ -409,8 +409,8 @@ def _billable_usage_slice(usage: dict[str, int], billable_tokens: int | None) ->
 
 def _surface_minimum(policy: dict[str, Any], surface: str) -> int:
     normalized_surface = str(surface or "").strip()
-    if normalized_surface in {"feature", "workflow", "capability"}:
-        return _int_policy_value(policy, "min_feature_model_credits", default=10)
+    if normalized_surface == "mission":
+        return _int_policy_value(policy, "min_mission_model_credits", default=10)
     return _int_policy_value(policy, "min_chat_credits", default=3)
 
 

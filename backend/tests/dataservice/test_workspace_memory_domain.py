@@ -51,7 +51,8 @@ class FakeWorkspaceMemoryRepository:
         record = _record(
             {
                 "id": record_id,
-                "source_execution_id": None,
+                "source_mission_id": None,
+                "source_mission_commit_id": None,
                 "source_thread_id": None,
                 **values,
             }
@@ -61,7 +62,9 @@ class FakeWorkspaceMemoryRepository:
 
     def create_revision(self, values: dict[str, Any]) -> SimpleNamespace:
         record_id = f"memory-rev-{len(self.revisions) + 1}"
-        record = _record({"id": record_id, **values})
+        record = _record(
+            {"id": record_id, "source_mission_commit_id": None, **values}
+        )
         self.revisions[record_id] = record
         return record
 
@@ -105,8 +108,8 @@ async def test_merge_items_creates_one_hidden_markdown_document() -> None:
                     confidence=0.9,
                 )
             ],
-            updated_by="execution:run-1",
-            source_execution_id="run-1",
+            updated_by="mission:run-1",
+            source_mission_id="run-1",
         )
     )
 
@@ -132,7 +135,7 @@ async def test_merge_items_skips_duplicate_content() -> None:
                 confidence=0.9,
             )
         ],
-        updated_by="execution:run-1",
+        updated_by="mission:run-1",
     )
 
     first = await service.merge_items(command)

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Depends, Query
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.rooms.contracts import (
     DecisionSetCommand,
-    RoomCandidateCommand,
     WorkspaceTaskCreateCommand,
     WorkspaceTaskUpdateCommand,
 )
@@ -104,21 +103,3 @@ async def delete_workspace_task(
     deleted = await service.soft_delete_workspace_task(workspace_id=workspace_id, task_id=task_id)
     await uow.commit()
     return envelope_ok({"deleted": deleted})
-
-
-@router.post("/workspaces/{workspace_id}/candidate-apply")
-async def stage_and_apply_candidates(
-    workspace_id: str,
-    execution_id: str = Query(),
-    candidates: list[RoomCandidateCommand] = Body(default_factory=list),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = RoomsDataService(uow.required_session, autocommit=False)
-    result = await service.stage_and_apply_candidates(
-        workspace_id=workspace_id,
-        execution_id=execution_id,
-        candidates=list(candidates or []),
-        actor_id="dataservice",
-    )
-    await uow.commit()
-    return envelope_ok(result.model_dump(mode="json"))

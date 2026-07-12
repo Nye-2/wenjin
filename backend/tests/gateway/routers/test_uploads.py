@@ -222,9 +222,7 @@ def test_literature_upload_persists_pdf_to_reference_library(client):
     assert submit_kwargs["task_service"] is client.app.state.task_service
     assert submit_kwargs["user_id"] == "user-1"
     assert submit_kwargs["thread_id"] == "thread-1"
-    assert not (
-        client.app.state.temp_root / "threads" / "thread-1" / "user-data" / "uploads" / "paper.pdf"
-    ).exists()
+    assert not (client.app.state.temp_root / "threads" / "thread-1" / "user-data" / "uploads" / "paper.pdf").exists()
     assert body["files"][0]["metadata"]["reference_asset_id"] == "asset-1"
     assert body["files"][0]["metadata"]["stored_url"] == "/api/workspaces/ws-1/files/references/paper.pdf"
     assert body["files"][0]["metadata"]["document_title"] == "Transformer Paper"

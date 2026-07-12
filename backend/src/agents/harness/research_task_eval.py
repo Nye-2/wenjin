@@ -1,1269 +1,221 @@
-"""Deterministic eval helpers for Wenjin research-task harness outputs."""
+"""Deterministic research evidence evaluation over Mission-native contracts."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any, Literal
 
-from src.agents.contracts.task_report import TaskReport
-from src.agents.harness.research_eval_surfaces import (
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.contracts.research_evidence import (
     DEFAULT_RESEARCH_SURFACES,
+    NON_BYPASSABLE_REVIEW_RISKS,
+    ResearchEvidenceBundle,
     ResearchSurface,
-)
-from src.agents.harness.research_prism_eval import (
-    prism_change_is_structurally_reviewable,
-    prism_content_contract,
-    writing_academic_style_evidence,
-    writing_semantic_preservation_evidence,
-)
-from src.sandbox.workspace_layout import (
-    WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT,
-    is_workspace_readable_internal_output_ref,
 )
 
 EvalStatus = Literal["pass", "fail"]
 
-_VERIFIED_LITERATURE_LEVELS = {
-    "external_verified",
-    "indexed_fulltext",
-    "uploaded_fulltext",
-}
-_UNTRUSTED_CITATION_AUDIT_RISKS = {
-    "blocked",
-    "contradicted",
-    "fabricated",
-    "incomplete",
-    "missing",
-    "missing_metadata",
-    "missing_source",
-    "needs_replacement",
-    "not_ready",
-    "replace",
-    "unsupported",
-}
-_UNTRUSTED_CITATION_AUDIT_SEVERITIES = {"blocking", "critical", "high"}
-_STRONG_CITATION_AUDIT_STATUSES = {
-    "accepted",
-    "grounded",
-    "ready",
-    "supported",
-    "verified",
-}
-_STRONG_CITATION_AUDIT_RISKS = {
-    "grounded",
-    "low",
-    "verified",
-}
-_WEAK_CITATION_AUDIT_STATUSES = {
-    "partial",
-    "uncertain",
-    "weak",
-}
-_WEAK_CITATION_AUDIT_RISKS = {
-    "medium",
-    "partial",
-    "uncertain",
-    "weak",
-}
-_REJECTED_CITATION_AUDIT_STATUSES = {
-    "blocked",
-    "contradicted",
-    "fabricated",
-    "incomplete",
-    "missing",
-    "missing_metadata",
-    "missing_source",
-    "needs_replacement",
-    "not_ready",
-    "replace",
-    "unsupported",
-}
 
-
-@dataclass(slots=True)
-class ResearchTaskEvidenceEval:
-    """Compact deterministic audit for a research workflow result."""
+class ResearchTaskEvidenceEval(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: EvalStatus
     coverage: dict[str, EvalStatus]
-    findings: list[dict[str, Any]] = field(default_factory=list)
-    evidence: dict[str, dict[str, Any]] = field(default_factory=dict)
+    findings: tuple[dict[str, Any], ...] = ()
+    evidence: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 def evaluate_research_task_evidence(
-    report: TaskReport,
+    bundle: ResearchEvidenceBundle,
     *,
-    node_events: list[dict[str, Any]] | None = None,
     required_surfaces: tuple[ResearchSurface, ...] = DEFAULT_RESEARCH_SURFACES,
 ) -> ResearchTaskEvidenceEval:
-    """Evaluate whether a research task produced reviewable, grounded evidence.
+    """Verify evidence and review structure without judging prose or calling a model."""
 
-    This is intentionally deterministic and model-free. It does not judge prose
-    quality; it verifies that the harness produced the evidence surfaces needed
-    for later human/model quality review.
-    """
-
-    node_events = node_events or []
+    checks: dict[
+        ResearchSurface,
+        Callable[[ResearchEvidenceBundle], tuple[bool, dict[str, Any], str]],
+    ] = {
+        "literature": _literature,
+        "experiment": _experiment,
+        "writing": _writing,
+        "workflow_trace": _workflow_trace,
+        "citation_strength": _citation_strength,
+        "experiment_interpretation": _claim_alignment,
+        "paper_relevance": _paper_relevance,
+        "statistical_robustness": _statistical_robustness,
+        "writing_semantic_preservation": _writing_semantic_preservation,
+        "writing_academic_style": _writing_academic_style,
+        "output_ref_reuse": _output_ref_reuse,
+        "claim_evidence_alignment": _claim_alignment,
+        "experiment_reproducibility": _experiment_reproducibility,
+        "figure_data_consistency": _figure_data_consistency,
+        "review_packet_completeness": _review_packet_completeness,
+        "argument_chain": _claim_alignment,
+        "protected_section_safety": _protected_section_safety,
+        "prior_art_provenance": _citation_strength,
+        "claim_support": _claim_alignment,
+        "enablement_support": _claim_alignment,
+        "drawing_consistency": _figure_data_consistency,
+        "feasibility_evidence": _claim_alignment,
+        "risk_evidence": _claim_alignment,
+        "milestone_realism": _claim_alignment,
+        "source_provenance": _citation_strength,
+        "screenshot_provenance": _figure_data_consistency,
+        "non_fabrication_evidence": _claim_alignment,
+        "ai_use_disclosure": _ai_use_disclosure,
+    }
     coverage: dict[str, EvalStatus] = {}
     findings: list[dict[str, Any]] = []
     evidence: dict[str, dict[str, Any]] = {}
-
-    checks = {
-        "literature": _evaluate_literature,
-        "experiment": _evaluate_experiment,
-        "writing": _evaluate_writing,
-        "workflow_trace": _evaluate_workflow_trace,
-        "citation_strength": _evaluate_citation_strength,
-        "experiment_interpretation": _evaluate_experiment_interpretation,
-        "paper_relevance": _evaluate_paper_relevance,
-        "statistical_robustness": _evaluate_statistical_robustness,
-        "writing_semantic_preservation": _evaluate_writing_semantic_preservation,
-        "writing_academic_style": _evaluate_writing_academic_style,
-        "output_ref_reuse": _evaluate_output_ref_reuse,
-        "claim_evidence_alignment": _evaluate_claim_evidence_alignment,
-        "experiment_reproducibility": _evaluate_experiment,
-        "figure_data_consistency": _evaluate_figure_data_consistency,
-        "review_packet_completeness": _evaluate_review_packet_completeness,
-        "argument_chain": _evaluate_claim_evidence_alignment,
-        "protected_section_safety": _evaluate_writing_semantic_preservation,
-        "prior_art_provenance": _evaluate_citation_strength,
-        "claim_support": _evaluate_claim_evidence_alignment,
-        "enablement_support": _evaluate_claim_evidence_alignment,
-        "drawing_consistency": _evaluate_figure_data_consistency,
-        "feasibility_evidence": _evaluate_claim_evidence_alignment,
-        "risk_evidence": _evaluate_risk_evidence,
-        "milestone_realism": _evaluate_claim_evidence_alignment,
-        "source_provenance": _evaluate_claim_evidence_alignment,
-        "screenshot_provenance": _evaluate_figure_data_consistency,
-        "non_fabrication_evidence": _evaluate_claim_evidence_alignment,
-        "ai_use_disclosure": _evaluate_ai_use_disclosure,
-    }
     for surface in required_surfaces:
-        passed, surface_evidence, message = checks[surface](report, node_events)
+        passed, details, message = checks[surface](bundle)
         coverage[surface] = "pass" if passed else "fail"
-        evidence[surface] = surface_evidence
+        evidence[surface] = details
         if not passed:
-            findings.append(
-                {
-                    "surface": surface,
-                    "severity": "high",
-                    "message": message,
-                }
-            )
-
-    status: EvalStatus = "pass" if all(value == "pass" for value in coverage.values()) else "fail"
+            findings.append({"surface": surface, "severity": "high", "message": message})
     return ResearchTaskEvidenceEval(
-        status=status,
+        status="pass" if all(value == "pass" for value in coverage.values()) else "fail",
         coverage=coverage,
-        findings=findings,
+        findings=tuple(findings),
         evidence=evidence,
     )
 
 
-def _evaluate_literature(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    verified_outputs: list[dict[str, Any]] = []
-    for output in report.outputs:
-        if output.kind != "library_item":
-            continue
-        data = output.data
-        evidence_level = str(data.evidence_level or "").strip()
-        has_external_identity = bool(str(data.doi or data.url or data.external_id or "").strip())
-        if evidence_level in _VERIFIED_LITERATURE_LEVELS or (
-            has_external_identity and str(data.source or "").strip()
-        ):
-            verified_outputs.append(
-                {
-                    "output_id": output.id,
-                    "title": data.title,
-                    "source": data.source,
-                    "external_id": data.external_id,
-                    "evidence_level": evidence_level,
-                }
-            )
+def _verified(bundle: ResearchEvidenceBundle):
+    return [item for item in bundle.evidence if item.status == "verified"]
 
-    audit_refs = _citation_audit_refs(node_events)
-    evidence = {
-        "verified_library_outputs": verified_outputs,
-        "citation_audit_refs": audit_refs,
-    }
-    if verified_outputs or audit_refs:
-        return True, evidence, ""
+
+def _literature(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    items = [item for item in _verified(bundle) if item.kind in {"literature", "source", "citation"} and item.source_ref]
+    return bool(items), {"evidence_ids": [item.evidence_id for item in items]}, ("No verified literature evidence with a stable source reference was produced.")
+
+
+def _citation_strength(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    citations = [item for item in bundle.evidence if item.kind in {"citation", "source", "prior_art"}]
+    verified = [item for item in citations if item.status == "verified" and item.source_ref]
+    rejected = [item for item in citations if item.status in {"contradicted", "missing"}]
+    passed = bool(verified) and not rejected
     return (
-        False,
-        evidence,
-        "No verified literature output or citation/source audit refs were produced.",
+        passed,
+        {
+            "verified": [item.evidence_id for item in verified],
+            "rejected": [item.evidence_id for item in rejected],
+        },
+        "Citation evidence is missing, contradicted, or lacks stable provenance.",
     )
 
 
-def _evaluate_citation_strength(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    del report
-    evidence = _citation_strength_evidence(node_events)
-    if evidence["strong_count"] > 0:
-        return True, evidence, ""
+def _paper_relevance(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    relevant = [item for item in _verified(bundle) if str(item.metadata.get("relevance") or "").lower() in {"aligned", "direct", "high"}]
+    return bool(relevant), {"evidence_ids": [item.evidence_id for item in relevant]}, ("No verified evidence was explicitly screened as directly relevant.")
+
+
+def _experiment(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    artifacts = [item for item in bundle.artifacts if item.kind in {"experiment_result", "analysis_result", "model_result"} and item.content_hash]
+    return bool(artifacts), {"artifact_ids": [item.artifact_id for item in artifacts]}, ("No content-addressed experiment or analysis result was produced.")
+
+
+def _writing(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    outputs = [item for item in bundle.outputs if item.kind in {"document", "manuscript", "prism_change"}]
+    return bool(outputs), {"output_ids": [item.output_id for item in outputs]}, ("No reviewable writing output was produced.")
+
+
+def _workflow_trace(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    terminal = [item for item in bundle.operations if item.status in {"success", "partial"}]
+    return bool(terminal), {"operation_ids": [item.operation_id for item in terminal]}, ("No terminal tool or subagent receipt was recorded.")
+
+
+def _claim_alignment(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    verified_ids = {item.evidence_id for item in _verified(bundle)}
+    artifact_ids = {item.artifact_id for item in bundle.artifacts if item.content_hash}
+    unsupported: list[str] = []
+    for claim in bundle.claims:
+        if claim.support_status != "supported":
+            unsupported.append(claim.claim_id)
+            continue
+        if not (set(claim.evidence_refs) & verified_ids or set(claim.artifact_refs) & artifact_ids):
+            unsupported.append(claim.claim_id)
     return (
-        False,
-        evidence,
-        "No strong citation/source audit evidence was produced.",
+        bool(bundle.claims) and not unsupported,
+        {
+            "claim_ids": [item.claim_id for item in bundle.claims],
+            "unsupported": unsupported,
+        },
+        "One or more claims lack verified evidence or a content-addressed artifact.",
     )
 
 
-def _evaluate_paper_relevance(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
+def _statistical_robustness(
+    bundle: ResearchEvidenceBundle,
 ) -> tuple[bool, dict[str, Any], str]:
-    del report
-    evidence = _paper_relevance_evidence(node_events)
-    if evidence["aligned_count"] > 0 and evidence["off_topic_count"] == 0 and evidence["aligned_refs"]:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "No topic-aligned paper relevance evidence was produced.",
-    )
+    robust = [item for item in _verified(bundle) if item.kind == "statistic" and item.metadata.get("metric") and item.metadata.get("sample_size") and (item.metadata.get("uncertainty") or item.metadata.get("statistical_test"))]
+    return bool(robust), {"evidence_ids": [item.evidence_id for item in robust]}, ("Statistical evidence must include metric, sample size, and uncertainty or a test.")
 
 
-def _evaluate_experiment(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
+def _writing_semantic_preservation(
+    bundle: ResearchEvidenceBundle,
 ) -> tuple[bool, dict[str, Any], str]:
-    review_artifacts: list[dict[str, Any]] = []
-    artifact_paths: list[str] = []
-    for item in report.review_items:
-        if not isinstance(item, dict) or item.get("kind") != "sandbox_artifact":
-            continue
-        reproducibility = item.get("reproducibility")
-        if not isinstance(reproducibility, dict):
-            continue
-        source_script = _workspace_script_path(reproducibility.get("source_script"))
-        dataset_paths = _workspace_dataset_paths(reproducibility.get("dataset_paths"))
-        content_hash = _clean_text(reproducibility.get("content_hash"))
-        target = item.get("target") if isinstance(item.get("target"), dict) else {}
-        artifact_path = _workspace_artifact_path(target.get("path"))
-        if source_script and dataset_paths and content_hash and artifact_path:
-            review_artifacts.append(
-                {
-                    "review_item_id": str(item.get("id") or ""),
-                    "source_script": source_script,
-                    "dataset_paths": dataset_paths,
-                    "artifact_path": artifact_path,
-                    "content_hash": content_hash,
-                }
-            )
-            artifact_paths.append(artifact_path)
-
-    summaries = _reproducibility_summaries(node_events)
-    evidence = {
-        "review_artifacts": review_artifacts,
-        "reproducibility_summaries": summaries,
-        "artifact_paths": _unique([*artifact_paths, *_summary_paths(summaries, "artifact_paths")]),
-    }
-    if review_artifacts and summaries:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "No reviewable sandbox artifact with source script, dataset paths, content hash, and node reproducibility summary was produced.",
-    )
+    checked = [item.output_id for item in bundle.outputs if item.kind in {"document", "manuscript", "prism_change"} and item.metadata.get("semantic_preservation_checked") is True]
+    return bool(checked), {"output_ids": checked}, "Writing changes lack semantic-preservation evidence."
 
 
-def _evaluate_experiment_interpretation(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
+def _writing_academic_style(
+    bundle: ResearchEvidenceBundle,
 ) -> tuple[bool, dict[str, Any], str]:
-    del report
-    evidence = _experiment_interpretation_evidence(node_events)
-    has_core_interpretation = (
-        evidence["interpretation_count"] > 0
-        and evidence["method_summary_count"] > 0
-        and bool(evidence["metric_names"])
-        and evidence["verified_result_count"] > 0
-        and evidence["limitation_count"] > 0
-        and bool(evidence["artifact_paths"])
-        and bool(evidence["dataset_paths"])
-    )
-    has_reproducibility_alignment = bool(
-        set(evidence["artifact_paths"]) & set(evidence["reproducibility_artifact_paths"])
-    ) and bool(
-        set(evidence["dataset_paths"]) & set(evidence["reproducibility_dataset_paths"])
-    )
-    if has_core_interpretation and has_reproducibility_alignment:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "No experiment interpretation with method, metric, result, limitation, artifact, and dataset evidence was produced.",
-    )
+    checked = [item.output_id for item in bundle.outputs if item.kind in {"document", "manuscript", "prism_change"} and item.metadata.get("academic_style_checked") is True]
+    return bool(checked), {"output_ids": checked}, "Writing outputs lack an academic-style review receipt."
 
 
-def _evaluate_statistical_robustness(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
+def _output_ref_reuse(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    evidence_ids = {item.evidence_id for item in bundle.evidence}
+    artifact_ids = {item.artifact_id for item in bundle.artifacts}
+    broken = [item.output_id for item in bundle.outputs if not set(item.evidence_refs) <= evidence_ids or not set(item.artifact_refs) <= artifact_ids]
+    return bool(bundle.outputs) and not broken, {"broken_output_ids": broken}, ("Outputs contain missing evidence or artifact references.")
+
+
+def _experiment_reproducibility(
+    bundle: ResearchEvidenceBundle,
 ) -> tuple[bool, dict[str, Any], str]:
-    del report
-    evidence = _statistical_robustness_evidence(node_events)
-    has_core_statistics = (
-        evidence["check_count"] > 0
-        and evidence["method_count"] > 0
-        and bool(evidence["metric_names"])
-        and evidence["sample_size_count"] > 0
-        and evidence["robustness_check_count"] > 0
-        and evidence["passed_robustness_check_count"] > 0
-        and evidence["critical_failed_robustness_check_count"] == 0
-        and evidence["limitation_count"] > 0
-        and bool(evidence["artifact_paths"])
-        and bool(evidence["dataset_paths"])
-    )
-    has_reproducibility_alignment = bool(
-        set(evidence["artifact_paths"]) & set(evidence["reproducibility_artifact_paths"])
-    ) and bool(
-        set(evidence["dataset_paths"]) & set(evidence["reproducibility_dataset_paths"])
-    )
-    if has_core_statistics and has_reproducibility_alignment:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        (
-            "No statistical robustness evidence with method, sample size, metrics, "
-            "passed checks, limitations, artifact, and dataset alignment was produced."
-        ),
-    )
+    reproducible = [item.artifact_id for item in bundle.artifacts if item.kind in {"experiment_result", "analysis_result", "model_result"} and item.content_hash and item.manifest_ref and item.script_ref and item.data_refs]
+    return bool(reproducible), {"artifact_ids": reproducible}, ("Experiment artifacts require content hash, manifest, script, and data refs.")
 
 
-def _evaluate_writing(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
+def _figure_data_consistency(
+    bundle: ResearchEvidenceBundle,
 ) -> tuple[bool, dict[str, Any], str]:
-    del node_events
-    prism_changes: list[dict[str, Any]] = []
-    documents: list[dict[str, Any]] = []
-    for item in report.review_items:
-        if not isinstance(item, dict) or item.get("kind") != "prism_file_change":
-            continue
-        target = item.get("target") if isinstance(item.get("target"), dict) else {}
-        file_path = _clean_text(target.get("file_path"))
-        logical_key = _clean_text(target.get("logical_key"))
-        if file_path and logical_key and prism_change_is_structurally_reviewable(item):
-            prism_changes.append(
-                {
-                    "review_item_id": str(item.get("id") or ""),
-                    "logical_key": logical_key,
-                    "file_path": file_path,
-                    "content_contract": prism_content_contract(item),
-                }
-            )
-
-    for output in report.outputs:
-        if output.kind != "document":
-            continue
-        data = output.data
-        has_content = bool(str(data.content or data.storage_path or "").strip())
-        if has_content:
-            documents.append(
-                {
-                    "output_id": output.id,
-                    "name": data.name,
-                    "doc_kind": data.doc_kind,
-                }
-            )
-
-    evidence = {
-        "prism_file_changes": prism_changes,
-        "document_outputs": documents,
-    }
-    if prism_changes or documents:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "No structurally reviewable Prism file-change or document output was produced for writing review.",
-    )
+    figures = [item for item in bundle.artifacts if item.kind in {"figure", "table"}]
+    valid = [item.artifact_id for item in figures if item.content_hash and item.script_ref and item.data_refs]
+    return bool(figures) and len(valid) == len(figures), {"artifact_ids": valid}, ("Figures and tables require content hash, generation script, and data refs.")
 
 
-def _evaluate_writing_semantic_preservation(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
+def _review_packet_completeness(
+    bundle: ResearchEvidenceBundle,
 ) -> tuple[bool, dict[str, Any], str]:
-    del node_events
-    evidence = writing_semantic_preservation_evidence(report)
-    passed = (
-        evidence["review_item_count"] > 0
-        and evidence["checked_item_count"] == evidence["review_item_count"]
-        and evidence["missing_semantic_contract_count"] == 0
-        and evidence["high_risk_count"] == 0
-        and evidence["claim_preservation_fail_count"] == 0
-        and evidence["citation_preservation_fail_count"] == 0
-        and evidence["equation_preservation_fail_count"] == 0
-        and evidence["table_preservation_fail_count"] == 0
-    )
-    if passed:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "No low-risk Prism semantic preservation contract was produced for writing review.",
-    )
+    by_output = {item.output_ref: item for item in bundle.review_items}
+    missing: list[str] = []
+    unsafe: list[str] = []
+    for output in bundle.outputs:
+        risks = set(output.risk_categories)
+        requires_review = bool(risks & NON_BYPASSABLE_REVIEW_RISKS)
+        review_item = by_output.get(output.output_id)
+        if requires_review and review_item is None:
+            missing.append(output.output_id)
+        elif requires_review and review_item and not review_item.requires_user_review:
+            unsafe.append(review_item.review_item_id)
+    passed = bool(bundle.outputs) and not missing and not unsafe
+    return passed, {"missing_outputs": missing, "unsafe_review_items": unsafe}, ("High-trust outputs require explicit non-bypassable review items.")
 
 
-def _evaluate_writing_academic_style(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
+def _protected_section_safety(
+    bundle: ResearchEvidenceBundle,
 ) -> tuple[bool, dict[str, Any], str]:
-    del node_events
-    evidence = writing_academic_style_evidence(report)
-    passed = (
-        evidence["review_item_count"] > 0
-        and evidence["checked_item_count"] == evidence["review_item_count"]
-        and evidence["missing_style_contract_count"] == 0
-        and evidence["high_risk_count"] == 0
-        and evidence["low_score_count"] == 0
-        and evidence["anti_pattern_count"] == 0
-        and evidence["improvement_fail_count"] == 0
-    )
-    if passed:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "No Prism academic-style improvement contract passed the writing quality gate.",
-    )
+    unsafe = [item.output_id for item in bundle.outputs if item.kind == "prism_change" and item.metadata.get("protected_section_safe") is not True]
+    prism_outputs = [item for item in bundle.outputs if item.kind == "prism_change"]
+    return bool(prism_outputs) and not unsafe, {"unsafe_output_ids": unsafe}, ("Prism structural changes lack protected-section safety evidence.")
 
 
-def _evaluate_workflow_trace(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    del report
-    evidence = _workflow_trace_evidence(node_events)
-    if evidence["member_count"] > 0 and evidence["completed_tool_count"] > 0:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "No member execution transcript with completed tool activity was produced.",
-    )
-
-
-def _evaluate_output_ref_reuse(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    del report
-    evidence = _output_ref_reuse_evidence(node_events)
-    if evidence["recoverable_output_ref_count"] == 0:
-        return (
-            False,
-            evidence,
-            "No recoverable sandbox output refs were available for reuse.",
-        )
-    if evidence["reused_output_ref_count"] > 0:
-        return True, evidence, ""
-    return (
-        False,
-        evidence,
-        "Recoverable sandbox output refs were available but no member read them.",
-    )
-
-
-def _evaluate_review_packet_completeness(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    del node_events
-    packet = report.review_packet
-    items = packet.items if packet else []
-    previewable = [
-        item
-        for item in items
-        if item.title.strip() and item.summary.strip()
-    ]
-    committable = [item for item in previewable if item.can_commit]
-    deliverables = [item for item in committable if item.kind != "warning"]
-    substantive_deliverables = [
-        item for item in deliverables if _review_packet_item_has_substantive_anchor(item)
-    ]
-    evidence = {
-        "packet_id": packet.packet_id if packet else "",
-        "item_count": len(items),
-        "previewable_count": len(previewable),
-        "committable_count": len(committable),
-        "deliverable_count": len(deliverables),
-        "substantive_deliverable_count": len(substantive_deliverables),
-        "warning_count": sum(1 for item in items if item.kind == "warning"),
-    }
-    if substantive_deliverables:
-        return True, evidence, ""
-    if deliverables:
-        return False, evidence, "No anchored Review Packet deliverable was produced."
-    if previewable:
-        return False, evidence, "No committable Review Packet deliverable was produced."
-    return False, evidence, "No previewable Review Packet item was produced."
-
-
-def _evaluate_claim_evidence_alignment(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    del node_events
-    packet = report.review_packet
-    items = packet.items if packet else []
-    claim_items = [item for item in items if item.claim_refs]
-    unsupported = [
-        item.item_id
-        for item in claim_items
-        if not item.evidence_refs and item.kind != "warning"
-    ]
-    high_risk_warnings = [
-        item.item_id
-        for item in claim_items
-        if item.kind == "warning"
-        and str((item.risk or {}).get("level") or "").lower() in {"high", "critical"}
-    ]
-    unchecked_quality_surface = [
-        item.item_id
-        for item in claim_items
-        if item.kind != "warning"
-        and "claim_evidence_alignment" not in set(item.quality_surfaces or [])
-    ]
-    evidence = {
-        "claim_item_count": len(claim_items),
-        "aligned_claim_item_count": (
-            len(claim_items)
-            - len(unsupported)
-            - len(high_risk_warnings)
-            - len(unchecked_quality_surface)
-        ),
-        "unsupported_item_ids": unsupported[:50],
-        "high_risk_warning_item_ids": high_risk_warnings[:50],
-        "unchecked_quality_surface_item_ids": unchecked_quality_surface[:50],
-    }
-    if claim_items and not unsupported and not high_risk_warnings and not unchecked_quality_surface:
-        return True, evidence, ""
-    if not claim_items:
-        return False, evidence, "No claim-bearing Review Packet item was produced."
-    if high_risk_warnings:
-        return False, evidence, "High-risk claim evidence warnings remain unresolved."
-    if unchecked_quality_surface:
-        return False, evidence, "Claim-bearing Review Packet items were not checked by the claim_evidence_alignment quality surface."
-    return False, evidence, "Some claim-bearing Review Packet items have no evidence refs."
-
-
-def _evaluate_risk_evidence(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    del node_events
-    packet = report.review_packet
-    items = packet.items if packet else []
-    risk_items = [
-        item
-        for item in items
-        if item.kind == "warning"
-        or str((item.risk or {}).get("level") or "").lower() in {"medium", "high", "critical"}
-        or "risk_evidence" in set(item.quality_surfaces or [])
-    ]
-    anchored = [item for item in risk_items if _review_packet_item_has_substantive_anchor(item)]
-    evidence = {
-        "risk_item_count": len(risk_items),
-        "anchored_risk_item_count": len(anchored),
-        "risk_item_ids": [item.item_id for item in risk_items[:50]],
-    }
-    if anchored:
-        return True, evidence, ""
-    return False, evidence, "No reviewable risk evidence item was produced."
-
-
-def _evaluate_ai_use_disclosure(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    del node_events
-    packet = report.review_packet
-    items = packet.items if packet else []
-    disclosure_items = [
-        item
-        for item in items
-        if "ai_use_disclosure" in set(item.quality_surfaces or [])
-        or _review_packet_item_text_contains(item, ("人工智能", "大模型", "生成式"))
-    ]
-    evidence = {
-        "disclosure_item_count": len(disclosure_items),
-        "disclosure_item_ids": [item.item_id for item in disclosure_items[:50]],
-    }
-    if disclosure_items:
-        return True, evidence, ""
-    return False, evidence, "No AI-use disclosure or no-AI declaration was produced."
-
-
-def _review_packet_item_has_substantive_anchor(item: Any) -> bool:
-    if item.claim_refs or item.evidence_refs or item.artifact_refs or item.prism_change_refs:
-        return True
-    if item.preview:
-        return True
-    source = item.source if isinstance(item.source, dict) else {}
-    return any(
-        bool(str(source.get(key) or "").strip())
-        for key in ("output_id", "expert_id", "node_id", "artifact_id")
-    )
-
-
-def _review_packet_item_text_contains(item: Any, needles: tuple[str, ...]) -> bool:
-    haystack = " ".join([item.title, item.summary, str(item.preview or "")]).lower()
-    return any(needle.lower() in haystack for needle in needles)
-
-
-def _evaluate_figure_data_consistency(
-    report: TaskReport,
-    node_events: list[dict[str, Any]],
-) -> tuple[bool, dict[str, Any], str]:
-    figure_artifacts: list[dict[str, Any]] = []
-    for item in report.review_items:
-        if not isinstance(item, dict) or item.get("kind") != "sandbox_artifact":
-            continue
-        preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
-        reproducibility = item.get("reproducibility") if isinstance(item.get("reproducibility"), dict) else {}
-        target = item.get("target") if isinstance(item.get("target"), dict) else {}
-        path = _workspace_artifact_path(preview.get("path") or target.get("path"))
-        source_script = _workspace_script_path(reproducibility.get("source_script"))
-        dataset_paths = _workspace_dataset_paths(reproducibility.get("dataset_paths"))
-        caption = _clean_text(preview.get("caption") or item.get("summary"))
-        if path and caption and (source_script or dataset_paths):
-            figure_artifacts.append(
-                {
-                    "review_item_id": str(item.get("id") or ""),
-                    "path": path,
-                    "source_script": source_script,
-                    "dataset_paths": dataset_paths,
-                    "caption": caption[:300],
-                }
-            )
-    evidence = {
-        "figure_artifacts": figure_artifacts,
-        "figure_artifact_count": len(figure_artifacts),
-    }
-    if figure_artifacts:
-        return True, evidence, ""
-    return False, evidence, "No figure artifact with caption and data/script provenance was produced."
-
-
-def _output_ref_reuse_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
-    recoverable_output_refs: list[str] = []
-    output_refs_read: list[str] = []
-    for event in node_events:
-        harness = _harness_metadata(event)
-        summary = _dict_value(harness.get("sandbox_execution_summary"))
-        for ref in (_workspace_output_ref(ref) for ref in _string_list(summary.get("output_refs"))):
-            _append_unique(recoverable_output_refs, ref)
-        transcript = _dict_value(harness.get("member_execution_transcript"))
-        for ref in (_workspace_output_ref(ref) for ref in _string_list(transcript.get("output_refs_read"))):
-            _append_unique(output_refs_read, ref)
-    read_ref_set = set(output_refs_read)
-    reused_output_refs = [
-        ref for ref in recoverable_output_refs if ref in read_ref_set
-    ][:50]
-    recoverable_output_refs = recoverable_output_refs[:50]
-    output_refs_read = output_refs_read[:50]
-    return {
-        "recoverable_output_refs": recoverable_output_refs,
-        "output_refs_read": output_refs_read,
-        "reused_output_refs": reused_output_refs,
-        "recoverable_output_ref_count": len(recoverable_output_refs),
-        "output_ref_read_count": len(output_refs_read),
-        "reused_output_ref_count": len(reused_output_refs),
-    }
-
-
-def _workflow_trace_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
-    member_count = 0
-    tool_call_count = 0
-    completed_tool_count = 0
-    failed_tool_count = 0
-    generated_artifact_count = 0
-    duration_ms = 0
-    credits_charged = 0.0
-    tool_names: list[str] = []
-    changed_paths: list[str] = []
-    sandbox_job_ids: list[str] = []
-    sandbox_environment_ids: list[str] = []
-    scratch_refs: list[str] = []
-    output_refs_read: list[str] = []
-    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-    for transcript in _member_execution_transcripts(node_events):
-        member_count += 1
-        tool_call_count += _int_value(transcript.get("tool_call_count"))
-        completed_tool_count += _int_value(transcript.get("completed_tool_count"))
-        failed_tool_count += _int_value(transcript.get("failed_tool_count"))
-        generated_artifact_count += _int_value(transcript.get("generated_artifact_count"))
-        duration_ms += _int_value(transcript.get("duration_ms"))
-        for name in _string_list(transcript.get("tool_names")):
-            _append_unique(tool_names, name)
-        for path in (_workspace_path(path) for path in _string_list(transcript.get("changed_paths"))):
-            _append_unique(changed_paths, path)
-        for job_id in _string_list(transcript.get("sandbox_job_ids")):
-            _append_unique(sandbox_job_ids, job_id)
-        for environment_id in _string_list(transcript.get("sandbox_environment_ids")):
-            _append_unique(sandbox_environment_ids, environment_id)
-        for ref in (_workspace_task_scratch_ref(ref) for ref in _string_list(transcript.get("scratch_refs"))):
-            _append_unique(scratch_refs, ref)
-        for ref in (_workspace_output_ref(ref) for ref in _string_list(transcript.get("output_refs_read"))):
-            _append_unique(output_refs_read, ref)
-        raw_usage = _dict_value(transcript.get("usage"))
-        for key in usage:
-            usage[key] += _int_value(raw_usage.get(key))
-        billing = _dict_value(transcript.get("billing"))
-        credits_charged += _number_value(billing.get("credits_charged"))
-    return {
-        "member_count": member_count,
-        "tool_call_count": tool_call_count,
-        "completed_tool_count": completed_tool_count,
-        "failed_tool_count": failed_tool_count,
-        "tool_names": tool_names[:50],
-        "changed_paths": changed_paths[:50],
-        "sandbox_job_ids": sandbox_job_ids[:50],
-        "sandbox_environment_ids": sandbox_environment_ids[:50],
-        "scratch_refs": scratch_refs[:50],
-        "output_refs_read": output_refs_read[:50],
-        "output_ref_read_count": len(output_refs_read[:50]),
-        "generated_artifact_count": generated_artifact_count,
-        "usage": usage,
-        "billing": {"credits_charged": _json_number(credits_charged)},
-        "duration_ms": duration_ms,
-    }
-
-
-def _experiment_interpretation_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
-    interpretation_count = 0
-    method_summary_count = 0
-    verified_result_count = 0
-    limitation_count = 0
-    metric_names: list[str] = []
-    artifact_paths: list[str] = []
-    dataset_paths: list[str] = []
-    for summary in _experiment_interpretation_summaries(node_events):
-        interpretation_count += _int_value(summary.get("interpretation_count"))
-        summary_method_count = _int_value(summary.get("method_summary_count"))
-        if summary_method_count == 0:
-            summary_method_count = len(_string_list(summary.get("method_summaries")))
-        method_summary_count += summary_method_count
-        verified_result_count += _int_value(summary.get("verified_result_count"))
-        summary_limitation_count = _int_value(summary.get("limitation_count"))
-        if summary_limitation_count == 0:
-            summary_limitation_count = len(_string_list(summary.get("limitations")))
-        limitation_count += summary_limitation_count
-        for metric_name in _string_list(summary.get("metric_names")):
-            _append_unique(metric_names, metric_name)
-        for path in (_workspace_artifact_path(path) for path in _string_list(summary.get("artifact_paths"))):
-            _append_unique(artifact_paths, path)
-        for path in _workspace_dataset_paths(summary.get("dataset_paths")):
-            _append_unique(dataset_paths, path)
-
-    reproducibility_summaries = _reproducibility_summaries(node_events)
-    reproducibility_artifact_paths = _unique(_summary_paths(reproducibility_summaries, "artifact_paths"))
-    reproducibility_dataset_paths = _unique(_summary_paths(reproducibility_summaries, "dataset_paths"))
-    return {
-        "interpretation_count": interpretation_count,
-        "method_summary_count": method_summary_count,
-        "metric_names": metric_names[:50],
-        "verified_result_count": verified_result_count,
-        "limitation_count": limitation_count,
-        "artifact_paths": artifact_paths[:50],
-        "dataset_paths": dataset_paths[:50],
-        "reproducibility_artifact_paths": reproducibility_artifact_paths[:50],
-        "reproducibility_dataset_paths": reproducibility_dataset_paths[:50],
-    }
-
-
-def _experiment_interpretation_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summaries: list[dict[str, Any]] = []
-    for event in node_events:
-        harness = _harness_metadata(event)
-        summary = harness.get("experiment_interpretation_summary")
-        if isinstance(summary, dict):
-            summaries.append(summary)
-    return summaries[:20]
-
-
-def _statistical_robustness_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
-    check_count = 0
-    method_count = 0
-    sample_size_count = 0
-    robustness_check_count = 0
-    passed_robustness_check_count = 0
-    failed_robustness_check_count = 0
-    critical_failed_robustness_check_count = 0
-    limitation_count = 0
-    metric_names: list[str] = []
-    sample_sizes: list[int] = []
-    artifact_paths: list[str] = []
-    dataset_paths: list[str] = []
-    failed_robustness_checks: list[str] = []
-    for summary in _statistical_robustness_summaries(node_events):
-        check_count += _int_value(summary.get("check_count"))
-        method_count += _int_value(summary.get("method_count"))
-        sample_size_count += _int_value(summary.get("sample_size_count"))
-        robustness_check_count += _int_value(summary.get("robustness_check_count"))
-        passed_robustness_check_count += _int_value(summary.get("passed_robustness_check_count"))
-        failed_robustness_check_count += _int_value(summary.get("failed_robustness_check_count"))
-        critical_failed_robustness_check_count += _int_value(
-            summary.get("critical_failed_robustness_check_count")
-        )
-        limitation_count += _int_value(summary.get("limitation_count"))
-        for metric_name in _string_list(summary.get("metric_names")):
-            _append_unique(metric_names, metric_name)
-        for sample_size in (_int_value(value) for value in _string_list(summary.get("sample_sizes"))):
-            if sample_size and sample_size not in sample_sizes:
-                sample_sizes.append(sample_size)
-        for path in (_workspace_artifact_path(path) for path in _string_list(summary.get("artifact_paths"))):
-            _append_unique(artifact_paths, path)
-        for path in _workspace_dataset_paths(summary.get("dataset_paths")):
-            _append_unique(dataset_paths, path)
-        for name in _string_list(summary.get("failed_robustness_checks")):
-            _append_unique(failed_robustness_checks, name)
-
-    if sample_size_count == 0:
-        sample_size_count = len(sample_sizes)
-    reproducibility_summaries = _reproducibility_summaries(node_events)
-    reproducibility_artifact_paths = _unique(_summary_paths(reproducibility_summaries, "artifact_paths"))
-    reproducibility_dataset_paths = _unique(_summary_paths(reproducibility_summaries, "dataset_paths"))
-    return {
-        "check_count": check_count,
-        "method_count": method_count,
-        "metric_names": metric_names[:50],
-        "sample_size_count": sample_size_count,
-        "sample_sizes": sample_sizes[:20],
-        "robustness_check_count": robustness_check_count,
-        "passed_robustness_check_count": passed_robustness_check_count,
-        "failed_robustness_check_count": failed_robustness_check_count,
-        "critical_failed_robustness_check_count": critical_failed_robustness_check_count,
-        "limitation_count": limitation_count,
-        "artifact_paths": artifact_paths[:50],
-        "dataset_paths": dataset_paths[:50],
-        "reproducibility_artifact_paths": reproducibility_artifact_paths[:50],
-        "reproducibility_dataset_paths": reproducibility_dataset_paths[:50],
-        "failed_robustness_checks": failed_robustness_checks[:20],
-    }
-
-
-def _statistical_robustness_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summaries: list[dict[str, Any]] = []
-    for event in node_events:
-        harness = _harness_metadata(event)
-        summary = harness.get("statistical_robustness_summary")
-        if isinstance(summary, dict):
-            summaries.append(summary)
-    return summaries[:20]
-
-
-def _member_execution_transcripts(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    transcripts: list[dict[str, Any]] = []
-    for event in node_events:
-        harness = _harness_metadata(event)
-        transcript = harness.get("member_execution_transcript")
-        if isinstance(transcript, dict):
-            transcripts.append(transcript)
-    return transcripts
-
-
-def _citation_audit_refs(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    refs: list[dict[str, Any]] = []
-    for finding in _citation_source_findings(node_events):
-        ref = _citation_audit_ref(finding)
-        if ref:
-            refs.append(ref)
-    return _dedupe_citation_refs(refs)[:50]
-
-
-def _citation_strength_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
-    strong_refs: list[dict[str, str]] = []
-    weak_refs: list[dict[str, str]] = []
-    rejected_refs: list[dict[str, str]] = []
-    for finding in _citation_source_findings(node_events):
-        ref = _citation_strength_ref(finding)
-        if not ref:
-            continue
-        if _citation_strength_ref_is_rejected(ref):
-            _append_unique_dict(rejected_refs, ref)
-            continue
-        if _citation_strength_ref_is_strong(ref):
-            _append_unique_dict(strong_refs, ref)
-            continue
-        if _citation_strength_ref_is_weak(ref):
-            _append_unique_dict(weak_refs, ref)
-    return {
-        "strong_refs": strong_refs[:50],
-        "weak_refs": weak_refs[:50],
-        "rejected_refs": rejected_refs[:50],
-        "strong_count": len(strong_refs),
-        "weak_count": len(weak_refs),
-        "rejected_count": len(rejected_refs),
-    }
-
-
-def _paper_relevance_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
-    aligned_refs: list[dict[str, str]] = []
-    weak_refs: list[dict[str, str]] = []
-    off_topic_refs: list[dict[str, str]] = []
-    aligned_count = 0
-    weak_count = 0
-    off_topic_count = 0
-    for summary in _paper_relevance_summaries(node_events):
-        summary_aligned_refs = _paper_relevance_refs(summary.get("aligned_refs"))
-        summary_weak_refs = _paper_relevance_refs(summary.get("weak_refs"))
-        summary_off_topic_refs = _paper_relevance_refs(summary.get("off_topic_refs"))
-        aligned_count += _int_value(summary.get("aligned_count")) or len(summary_aligned_refs)
-        weak_count += _int_value(summary.get("weak_count")) or len(summary_weak_refs)
-        off_topic_count += _int_value(summary.get("off_topic_count")) or len(summary_off_topic_refs)
-        for ref in summary_aligned_refs:
-            _append_unique_dict(aligned_refs, ref)
-        for ref in summary_weak_refs:
-            _append_unique_dict(weak_refs, ref)
-        for ref in summary_off_topic_refs:
-            _append_unique_dict(off_topic_refs, ref)
-    return {
-        "aligned_count": aligned_count,
-        "weak_count": weak_count,
-        "off_topic_count": off_topic_count,
-        "aligned_refs": aligned_refs[:50],
-        "weak_refs": weak_refs[:50],
-        "off_topic_refs": off_topic_refs[:50],
-    }
-
-
-def _paper_relevance_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summaries: list[dict[str, Any]] = []
-    for event in node_events:
-        harness = _harness_metadata(event)
-        summary = harness.get("paper_relevance_summary")
-        if isinstance(summary, dict):
-            summaries.append(summary)
-    return summaries[:20]
-
-
-def _paper_relevance_refs(value: Any) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-    refs: list[dict[str, str]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        source_id = _clean_text(item.get("source_id"))
-        citation_key = _clean_text(item.get("citation_key"))
-        if not source_id and not citation_key:
-            continue
-        ref = {
-            "source_id": source_id,
-            "citation_key": citation_key,
-            "reason": _clean_text(item.get("reason"))[:300],
-        }
-        refs.append({key: value for key, value in ref.items() if value})
-    return refs
-
-
-def _citation_source_findings(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    findings: list[dict[str, Any]] = []
-    for event in node_events:
-        harness = _harness_metadata(event)
-        findings.extend(
-            _citation_source_findings_from_value(
-                harness.get("citation_source_audit")
-            )
-        )
-        findings.extend(_team_quality_gate_citation_findings(event))
-    return findings
-
-
-def _citation_source_findings_from_value(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
-
-
-def _team_quality_gate_citation_findings(event: dict[str, Any]) -> list[dict[str, Any]]:
-    findings: list[dict[str, Any]] = []
-    for gate in _team_quality_gates(event):
-        raw_findings = gate.get("findings")
-        if not isinstance(raw_findings, list):
-            continue
-        for gate_finding in raw_findings:
-            if not isinstance(gate_finding, dict):
-                continue
-            findings.extend(
-                _citation_source_findings_from_value(
-                    gate_finding.get("citation_source_audit")
-                )
-            )
-    return findings
-
-
-def _team_quality_gates(event: dict[str, Any]) -> list[dict[str, Any]]:
-    candidates = [
-        event.get("quality_gates"),
-        _dict_value(event.get("runtime_state")).get("quality_gates"),
-        _dict_value(event.get("runtime_state_json")).get("quality_gates"),
-        _dict_value(_dict_value(event.get("node_metadata")).get("runtime_state")).get("quality_gates"),
-    ]
-    gates: list[dict[str, Any]] = []
-    for candidate in candidates:
-        if not isinstance(candidate, list):
-            continue
-        gates.extend(item for item in candidate if isinstance(item, dict))
-    return gates
-
-
-def _citation_audit_ref(finding: dict[str, Any]) -> dict[str, str] | None:
-    source_id = _clean_text(finding.get("source_id"))
-    citation_key = _clean_text(finding.get("citation_key"))
-    risk = _clean_text(finding.get("risk")).lower()
-    severity = _clean_text(finding.get("severity")).lower()
-    if risk in _UNTRUSTED_CITATION_AUDIT_RISKS:
-        return None
-    if severity in _UNTRUSTED_CITATION_AUDIT_SEVERITIES:
-        return None
-    if source_id or citation_key:
-        return {
-            "source_id": source_id,
-            "citation_key": citation_key,
-            "risk": risk,
-        }
-    return None
-
-
-def _citation_strength_ref(finding: dict[str, Any]) -> dict[str, str] | None:
-    source_id = _clean_text(finding.get("source_id"))
-    citation_key = _clean_text(finding.get("citation_key"))
-    if not source_id and not citation_key:
-        return None
-    ref = {
-        "source_id": source_id,
-        "citation_key": citation_key,
-        "status": _clean_text(finding.get("status")).lower(),
-        "risk": _clean_text(finding.get("risk")).lower(),
-        "severity": _clean_text(finding.get("severity")).lower(),
-    }
-    return {key: value for key, value in ref.items() if value}
-
-
-def _citation_strength_ref_is_rejected(ref: dict[str, str]) -> bool:
-    return (
-        ref.get("status") in _REJECTED_CITATION_AUDIT_STATUSES
-        or ref.get("risk") in _UNTRUSTED_CITATION_AUDIT_RISKS
-        or ref.get("severity") in _UNTRUSTED_CITATION_AUDIT_SEVERITIES
-    )
-
-
-def _citation_strength_ref_is_strong(ref: dict[str, str]) -> bool:
-    if _citation_strength_ref_has_weak_signal(ref):
-        return False
-    return (
-        ref.get("status") in _STRONG_CITATION_AUDIT_STATUSES
-        or ref.get("risk") in _STRONG_CITATION_AUDIT_RISKS
-    ) and not _citation_strength_ref_is_rejected(ref)
-
-
-def _citation_strength_ref_is_weak(ref: dict[str, str]) -> bool:
-    return _citation_strength_ref_has_weak_signal(ref) or bool(
-        ref.get("source_id") or ref.get("citation_key")
-    )
-
-
-def _citation_strength_ref_has_weak_signal(ref: dict[str, str]) -> bool:
-    return (
-        ref.get("status") in _WEAK_CITATION_AUDIT_STATUSES
-        or ref.get("risk") in _WEAK_CITATION_AUDIT_RISKS
-    )
-
-
-def _dedupe_citation_refs(refs: list[dict[str, str]]) -> list[dict[str, str]]:
-    unique: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for ref in refs:
-        key = (
-            ref.get("source_id", ""),
-            ref.get("citation_key", ""),
-            ref.get("risk", ""),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(ref)
-    return unique
-
-
-def _dict_value(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def _reproducibility_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summaries: list[dict[str, Any]] = []
-    for event in node_events:
-        harness = _harness_metadata(event)
-        summary = harness.get("reproducibility_summary")
-        if not isinstance(summary, dict):
-            continue
-        script_paths = [
-            path
-            for path in (_workspace_script_path(path) for path in _string_list(summary.get("script_paths")))
-            if path
-        ]
-        dataset_paths = _workspace_dataset_paths(summary.get("dataset_paths"))
-        artifact_paths = [
-            path
-            for path in (_workspace_artifact_path(path) for path in _string_list(summary.get("artifact_paths")))
-            if path
-        ]
-        if script_paths and dataset_paths and artifact_paths:
-            summaries.append(
-                {
-                    "script_paths": script_paths,
-                    "dataset_paths": dataset_paths,
-                    "artifact_paths": artifact_paths,
-                }
-            )
-    return summaries[:20]
-
-
-def _harness_metadata(event: dict[str, Any]) -> dict[str, Any]:
-    node_metadata = event.get("node_metadata")
-    if not isinstance(node_metadata, dict):
-        return {}
-    harness = node_metadata.get("harness")
-    return dict(harness) if isinstance(harness, dict) else {}
-
-
-def _summary_paths(summaries: list[dict[str, Any]], key: str) -> list[str]:
-    values: list[str] = []
-    for summary in summaries:
-        values.extend(_string_list(summary.get(key)))
-    return values
-
-
-def _workspace_script_path(value: Any) -> str:
-    path = _workspace_path(value)
-    if not path.startswith("/workspace/scripts/") or not path.endswith(".py"):
-        return ""
-    return path
-
-
-def _workspace_dataset_paths(value: Any) -> list[str]:
-    return [
-        path
-        for path in (_workspace_path(item) for item in _string_list(value))
-        if path.startswith("/workspace/datasets/")
-    ][:50]
-
-
-def _workspace_artifact_path(value: Any) -> str:
-    path = _workspace_path(value)
-    if path.startswith("/workspace/outputs/") or path.startswith("/workspace/reports/"):
-        if path.startswith(f"{WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT}/"):
-            return ""
-        return path
-    return ""
-
-
-def _workspace_path(value: Any) -> str:
-    text = _clean_text(value)
-    if not text or not text.startswith("/workspace/"):
-        return ""
-    if "/../" in text or text.endswith("/..") or "\x00" in text:
-        return ""
-    if (
-        text.startswith("/workspace/.")
-        or "/.env" in text
-        or text.endswith(".pem")
-        or text.endswith(".key")
-    ):
-        return ""
-    return text
-
-
-def _workspace_task_scratch_ref(value: Any) -> str:
-    path = _workspace_path(value)
-    if not path.startswith("/workspace/tmp/tasks/"):
-        return ""
-    if path.startswith(f"{WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT}/"):
-        return ""
-    parts = path.removeprefix("/workspace/tmp/tasks/").split("/")
-    if len(parts) < 2 or any(part in {"", ".", ".."} for part in parts):
-        return ""
-    return path
-
-
-def _workspace_output_ref(value: Any) -> str:
-    path = _clean_text(value)
-    if not path or not is_workspace_readable_internal_output_ref(path):
-        return ""
-    return path
-
-
-def _string_list(value: Any) -> list[str]:
-    if isinstance(value, str):
-        raw = [value]
-    elif isinstance(value, list | tuple | set | frozenset):
-        raw = list(value)
-    else:
-        return []
-    return _unique([text for item in raw for text in (_clean_text(item),) if text])
-
-
-def _unique(values: list[str]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = _clean_text(value)
-        if not text or text in seen:
-            continue
-        result.append(text)
-        seen.add(text)
-    return result
-
-
-def _append_unique(values: list[str], value: str) -> None:
-    text = _clean_text(value)
-    if text and text not in values:
-        values.append(text)
-
-
-def _append_unique_dict(values: list[dict[str, str]], value: dict[str, str]) -> None:
-    if value not in values:
-        values.append(value)
-
-
-def _int_value(value: Any) -> int:
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return max(value, 0)
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return 0
-    return max(parsed, 0)
-
-
-def _number_value(value: Any) -> float:
-    if isinstance(value, bool):
-        return 0.0
-    if isinstance(value, int | float):
-        parsed = float(value)
-    else:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-    return parsed if parsed > 0 else 0.0
-
-
-def _json_number(value: float) -> int | float:
-    return int(value) if value.is_integer() else value
-
-
-def _clean_text(value: Any) -> str:
-    text = str(value or "").strip()
-    return text if text else ""
+def _ai_use_disclosure(bundle: ResearchEvidenceBundle) -> tuple[bool, dict[str, Any], str]:
+    items = [item.evidence_id for item in _verified(bundle) if item.kind in {"ai_use_disclosure", "no_ai_declaration"}]
+    return bool(items), {"evidence_ids": items}, "AI-use disclosure or no-AI declaration is missing."

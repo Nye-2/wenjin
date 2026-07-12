@@ -100,8 +100,6 @@ class DataServiceTaskService:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ) -> list[TaskRecordProjection]:
         return [
             task_record_to_projection(record)
@@ -111,8 +109,6 @@ class DataServiceTaskService:
                 task_type=task_type,
                 limit=limit,
                 workspace_id=workspace_id,
-                feature_id=feature_id,
-                action=action,
             )
         ]
 
@@ -130,7 +126,6 @@ class DataServiceTaskService:
     @staticmethod
     def _create_values(command: TaskRecordCreateCommand) -> dict[str, Any]:
         payload = command.payload or {}
-        params = payload.get("params", {}) if isinstance(payload, dict) else {}
         return {
             "id": command.task_id,
             "user_id": command.user_id,
@@ -138,11 +133,9 @@ class DataServiceTaskService:
             "status": command.status,
             "priority": command.priority,
             "payload": payload,
-            "workspace_id": payload.get("workspace_id") or params.get("workspace_id"),
-            "feature_id": payload.get("feature_id"),
+            "workspace_id": payload.get("workspace_id"),
             "thread_id": payload.get("thread_id"),
-            "execution_id": payload.get("execution_id"),
-            "action": payload.get("action") or params.get("action"),
+            "mission_id": payload.get("mission_id"),
         }
 
     @staticmethod

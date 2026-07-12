@@ -2,23 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.domains.review.contracts import ReviewBatchCreateCommand, ReviewItemCreateCommand
-from src.dataservice.domains.review.registry import ReviewHandlerRegistry
-from src.dataservice.domains.review.service import DataServiceReviewService
 from src.dataservice.domains.rooms.contracts import (
     DecisionProjection,
     DecisionSetCommand,
-    RoomCandidateApplyResult,
-    RoomCandidateCommand,
     WorkspaceTaskCreateCommand,
     WorkspaceTaskProjection,
     WorkspaceTaskUpdateCommand,
 )
-from src.dataservice.domains.rooms.review_handler import build_room_review_handler
 from src.dataservice.domains.rooms.service import RoomsDataDomainService
 
 
@@ -65,86 +57,3 @@ class RoomsDataService:
 
     async def soft_delete_workspace_task(self, *, workspace_id: str, task_id: str) -> bool:
         return await self._domain.soft_delete_workspace_task(workspace_id=workspace_id, task_id=task_id)
-
-    async def stage_and_apply_candidates(
-        self,
-        *,
-        workspace_id: str,
-        execution_id: str,
-        candidates: list[RoomCandidateCommand],
-        actor_id: str | None = None,
-    ) -> RoomCandidateApplyResult:
-        if not candidates:
-            return RoomCandidateApplyResult(review_batch_id=None, counts=_empty_counts(), item_results=[])
-
-        handler_domain = RoomsDataDomainService(self.session, autocommit=False)
-        handlers = ReviewHandlerRegistry()
-        handler = build_room_review_handler(handler_domain)
-        for target_kind in ("decision", "workspace_task"):
-            handlers.register(target_domain="rooms", target_kind=target_kind, handler=handler)
-        review_service = DataServiceReviewService(
-            self.session,
-            autocommit=self.autocommit,
-            handlers=handlers,
-        )
-        detail = await review_service.create_batch(
-            ReviewBatchCreateCommand(
-                workspace_id=workspace_id,
-                execution_id=execution_id,
-                source_type="execution_commit",
-                source_id=execution_id,
-                review_kind="room_write",
-                title="Apply accepted room outputs",
-                summary=f"{len(candidates)} accepted room output(s)",
-                items=[
-                    ReviewItemCreateCommand(
-                        source_item_id=candidate.source_item_id,
-                        item_kind="room_write",
-                        target_domain="rooms",
-                        target_kind=candidate.target_kind,
-                        title=candidate.title,
-                        summary=candidate.summary,
-                        payload_json=dict(candidate.payload_json or {}),
-                        preview_json=dict(candidate.preview_json or {}),
-                        provenance_json=dict(candidate.provenance_json or {}),
-                        sort_order=index,
-                    )
-                    for index, candidate in enumerate(candidates)
-                ],
-            )
-        )
-        applied_items = await review_service.apply_many(
-            [item.id for item in detail.items],
-            command=_review_transition_command(actor_id=actor_id),
-        )
-        item_results: list[dict[str, Any]] = []
-        counts = _empty_counts()
-        for applied in applied_items:
-            if applied is None or not applied.result_json:
-                continue
-            result = dict(applied.result_json)
-            item_results.append(
-                {
-                    "review_item_id": applied.id,
-                    "source_item_id": applied.source_item_id,
-                    **result,
-                }
-            )
-            room = result.get("room")
-            if room in counts:
-                counts[room] += 1
-        return RoomCandidateApplyResult(
-            review_batch_id=detail.batch.id,
-            counts=counts,
-            item_results=item_results,
-        )
-
-
-def _empty_counts() -> dict[str, int]:
-    return {"decisions": 0, "tasks": 0}
-
-
-def _review_transition_command(*, actor_id: str | None) -> Any:
-    from src.dataservice.domains.review.contracts import ReviewItemTransitionCommand
-
-    return ReviewItemTransitionCommand(status="applied", actor_id=actor_id)

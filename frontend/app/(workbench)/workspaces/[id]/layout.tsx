@@ -3,11 +3,9 @@
 import { ReactNode, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
-import { useFeaturesStore } from "@/stores/features";
 import { useChatStoreV2 } from "@/stores/chat-store";
-import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useRunUiStore } from "@/stores/run-ui-store";
+import { useMissionUiStore } from "@/stores/mission-ui-store";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
 
 interface WorkbenchLayoutProps {
@@ -30,13 +28,8 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const fetchArtifacts = useWorkspaceStore((state) => state.fetchArtifacts);
   const fetchActivity = useWorkspaceStore((state) => state.fetchActivity);
   const clearWorkspace = useWorkspaceStore((state) => state.clearWorkspace);
-  const setActiveWorkspace = useFeaturesStore((state) => state.setActiveWorkspace);
-  const fetchFeatures = useFeaturesStore((state) => state.fetchFeatures);
-  const clearFeatures = useFeaturesStore((state) => state.clearFeatures);
   const resetChat = useChatStoreV2((state) => state.reset);
-  const resetRunUi = useRunUiStore((state) => state.reset);
-  const hydrateCompute = useComputeStore((state) => state.hydrateWorkspace);
-  const clearCompute = useComputeStore((state) => state.clearWorkspace);
+  const resetMissionUi = useMissionUiStore((state) => state.clearWorkspaceFocus);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -49,35 +42,24 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
       return;
     }
 
-    setActiveWorkspace(workspaceId);
     void loadWorkspace(workspaceId);
-    void fetchFeatures(workspaceId);
     void fetchArtifacts(workspaceId);
     void fetchActivity(workspaceId);
-    void hydrateCompute(workspaceId);
     return () => {
-      setActiveWorkspace(null);
       clearWorkspace();
-      clearFeatures();
-      clearCompute(workspaceId);
       resetChat();
-      resetRunUi();
+      resetMissionUi();
     };
   }, [
     workspaceId,
     workspaceNotFound,
     router,
-    setActiveWorkspace,
     loadWorkspace,
-    fetchFeatures,
     fetchArtifacts,
     fetchActivity,
-    hydrateCompute,
     clearWorkspace,
-    clearFeatures,
-    clearCompute,
     resetChat,
-    resetRunUi,
+    resetMissionUi,
   ]);
 
   return (

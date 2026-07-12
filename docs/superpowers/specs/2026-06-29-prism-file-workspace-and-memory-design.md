@@ -1,5 +1,9 @@
 # Prism File Workspace and Workspace Memory Refactor
 
+Status: Partially superseded for runtime topology by `docs/superpowers/specs/mission-runtime-overview.md` and `docs/superpowers/specs/mission-runtime/`.
+
+Note: Prism and workspace memory product boundaries remain useful. ExecutionCommitService, ReviewBatch, execution provenance, and Lead Agent references must be migrated to MissionReviewItem, MissionCommit, mission provenance, and WorkspaceAgent / MissionRuntime boundaries.
+
 ## Goal
 
 Refactor Wenjin's workspace persistence model around two clear surfaces:

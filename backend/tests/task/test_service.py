@@ -19,7 +19,6 @@ class _TestTaskDataServiceClient:
             autocommit=True,
             record_model=record_model,
         )
-        self.execution_updates: list[tuple[str, object]] = []
 
     async def create_task_record_guarded(self, command):
         return await self._service.create_task_record_guarded(**command.model_dump())
@@ -41,8 +40,6 @@ class _TestTaskDataServiceClient:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ):
         return await self._service.list_user_tasks(
             user_id=user_id,
@@ -50,13 +47,7 @@ class _TestTaskDataServiceClient:
             task_type=task_type,
             limit=limit,
             workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=action,
         )
-
-    async def update_execution(self, execution_id: str, command):
-        self.execution_updates.append((execution_id, command))
-        return None
 
 
 @pytest_asyncio.fixture
@@ -90,8 +81,8 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-1",
-                task_type="execution",
-                payload={"feature_id": "deep_research", "query": "machine learning"},
+                task_type="reference_preprocess",
+                payload={"reference_id": "deep_research", "query": "machine learning"},
                 priority=5,
             )
 
@@ -118,18 +109,18 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-1",
-                task_type="execution",
+                task_type="reference_preprocess",
                 payload={
                     "workspace_id": "ws-1",
                     "workspace_type": "sci",
-                    "feature_id": "literature_search",
+                    "reference_id": "literature_search",
                     "query": "test",
                 },
             )
 
             status = await task_service.get_task_status(task_id, "user-1")
             assert status is not None
-            assert status["task_type"] == "execution"
+            assert status["task_type"] == "reference_preprocess"
             assert status["status"] in ("pending", "running")
 
     @pytest.mark.asyncio
@@ -140,8 +131,8 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-1",
-                task_type="execution",
-                payload={"feature_id": "deep_research"},
+                task_type="reference_preprocess",
+                payload={"reference_id": "deep_research"},
             )
 
             status = await task_service.get_task_status(task_id, "user-2")
@@ -156,8 +147,8 @@ class TestTaskService:
             for i in range(3):
                 await task_service.submit_task(
                     user_id="user-list",
-                    task_type="execution",
-                    payload={"feature_id": "deep_research", "index": i},
+                    task_type="reference_preprocess",
+                    payload={"reference_id": "deep_research", "index": i},
                 )
 
             tasks = await task_service.list_tasks("user-list")
@@ -171,13 +162,13 @@ class TestTaskService:
 
             await task_service.submit_task(
                 user_id="user-workspace-filter",
-                task_type="execution",
-                payload={"workspace_id": "ws-a", "feature_id": "deep_research"},
+                task_type="reference_preprocess",
+                payload={"workspace_id": "ws-a", "reference_id": "deep_research"},
             )
             await task_service.submit_task(
                 user_id="user-workspace-filter",
-                task_type="execution",
-                payload={"workspace_id": "ws-b", "feature_id": "deep_research"},
+                task_type="reference_preprocess",
+                payload={"workspace_id": "ws-b", "reference_id": "deep_research"},
             )
 
             tasks = await task_service.list_tasks(
@@ -201,8 +192,8 @@ class TestTaskService:
             with pytest.raises(ConnectionError):
                 await task_service.submit_task(
                     user_id="user-fail",
-                    task_type="execution",
-                    payload={"feature_id": "deep_research"},
+                    task_type="reference_preprocess",
+                    payload={"reference_id": "deep_research"},
                 )
 
         # Verify the task record exists and has failed status
@@ -222,16 +213,16 @@ class TestTaskService:
             for i in range(3):
                 await task_service.submit_task(
                     user_id="user-limit",
-                    task_type="execution",
-                    payload={"feature_id": "deep_research", "index": i},
+                    task_type="reference_preprocess",
+                    payload={"reference_id": "deep_research", "index": i},
                 )
 
             # 4th should fail
             with pytest.raises(ConcurrencyLimitError):
                 await task_service.submit_task(
                     user_id="user-limit",
-                    task_type="execution",
-                    payload={"feature_id": "deep_research", "index": 3},
+                    task_type="reference_preprocess",
+                    payload={"reference_id": "deep_research", "index": 3},
                 )
 
     @pytest.mark.asyncio
@@ -244,8 +235,8 @@ class TestTaskService:
             for i in range(3):
                 tid = await task_service.submit_task(
                     user_id="user-limit2",
-                    task_type="execution",
-                    payload={"feature_id": "deep_research", "index": i},
+                    task_type="reference_preprocess",
+                    payload={"reference_id": "deep_research", "index": i},
                 )
                 task_ids.append(tid)
 
@@ -257,8 +248,8 @@ class TestTaskService:
             # Now should allow submitting again
             new_id = await task_service.submit_task(
                 user_id="user-limit2",
-                task_type="execution",
-                payload={"feature_id": "deep_research", "index": 3},
+                task_type="reference_preprocess",
+                payload={"reference_id": "deep_research", "index": 3},
             )
             assert new_id is not None
 
@@ -270,8 +261,8 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-1",
-                task_type="execution",
-                payload={"workspace_id": "ws-1", "feature_id": "thesis_writing"},
+                task_type="reference_preprocess",
+                payload={"workspace_id": "ws-1", "reference_id": "thesis_writing"},
             )
 
         await task_service._store.update_task_record(
@@ -305,8 +296,8 @@ class TestTaskService:
 
             task_id = await task_service.submit_task(
                 user_id="user-runtime",
-                task_type="execution",
-                payload={"workspace_id": "ws-1", "feature_id": "deep_research"},
+                task_type="reference_preprocess",
+                payload={"workspace_id": "ws-1", "reference_id": "deep_research"},
             )
 
         runtime = {
@@ -409,17 +400,15 @@ class TestTaskService:
 
         record = MagicMock()
         record.id = "task-x"
-        record.execution_id = "exec-x"
-        record.task_type = "execution"
+        record.mission_id = "mission-x"
+        record.task_type = "reference_preprocess"
         record.status = "running"
         record.progress = 17
         record.message = "working"
         record.result = _ResultPayload(artifact="paper.md")
         record.error = None
         record.workspace_id = "ws-1"
-        record.feature_id = "deep_research"
         record.thread_id = "thread-1"
-        record.action = None
         record.created_at = datetime(2026, 4, 13, 10, 0, tzinfo=UTC)
         record.started_at = None
         record.completed_at = None
@@ -439,77 +428,3 @@ class TestTaskService:
         assert status["progress"] == 100
         assert status["result"] == {"artifact": "paper.md"}
         assert "2026-04-13" in str(status["metadata"]["finished_at"])
-
-    @pytest.mark.asyncio
-    async def test_find_active_task_matches_full_execution_params(self, task_service):
-        """Workspace feature dedupe must not collide across different params."""
-        mock_executor = AsyncMock()
-
-        with patch("src.task.service.get_executor", return_value=mock_executor):
-            first_task_id = await task_service.submit_task(
-                user_id="user-feature-dedupe",
-                task_type="execution",
-                payload={
-                    "workspace_id": "ws-1",
-                    "feature_id": "literature_search",
-                    "params": {"query": "agent planning", "limit": 10},
-                },
-            )
-            second_task_id = await task_service.submit_task(
-                user_id="user-feature-dedupe",
-                task_type="execution",
-                payload={
-                    "workspace_id": "ws-1",
-                    "feature_id": "literature_search",
-                    "params": {"query": "multi-agent systems", "limit": 10},
-                },
-            )
-
-        first_match = await task_service.find_active_task(
-            user_id="user-feature-dedupe",
-            task_type="execution",
-            workspace_id="ws-1",
-            feature_id="literature_search",
-            params={"query": "agent planning", "limit": 10},
-        )
-        second_match = await task_service.find_active_task(
-            user_id="user-feature-dedupe",
-            task_type="execution",
-            workspace_id="ws-1",
-            feature_id="literature_search",
-            params={"query": "multi-agent systems", "limit": 10},
-        )
-        missing_match = await task_service.find_active_task(
-            user_id="user-feature-dedupe",
-            task_type="execution",
-            workspace_id="ws-1",
-            feature_id="literature_search",
-            params={"query": "unseen topic", "limit": 10},
-        )
-
-        assert first_match == first_task_id
-        assert second_match == second_task_id
-        assert missing_match is None
-
-    @pytest.mark.asyncio
-    async def test_find_active_task_queries_only_active_statuses(self, task_service):
-        """Service should constrain dedupe query at SQL layer with active statuses."""
-        expected_task = MagicMock()
-        expected_task.id = "task-active"
-        expected_task.payload = {"params": {"action": "research"}}
-        expected_task.status = "pending"
-        task_service._store.list_user_tasks = AsyncMock(return_value=[expected_task])
-
-        matched = await task_service.find_active_task(
-            user_id="user-1",
-            task_type="execution",
-            workspace_id="ws-1",
-            feature_id="feature-1",
-            action="research",
-            params={"action": "research"},
-        )
-
-        assert matched == "task-active"
-        task_service._store.list_user_tasks.assert_awaited_once()
-        kwargs = task_service._store.list_user_tasks.await_args.kwargs
-        assert kwargs["status"] == ["pending", "running"]

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GLOBAL_CREDIT_POLICY_KEY = "default-global-credit"
 DEFAULT_MODEL_USAGE_POLICY_KEY = "default-model-usage"
-DEFAULT_CAPABILITY_POLICY_KEY = "default-capability"
+DEFAULT_MISSION_POLICY_KEY = "default-mission"
 DEFAULT_TOOL_POLICY_KEY = "default-tool"
 DEFAULT_SANDBOX_POLICY_KEY = "default-sandbox"
 
@@ -68,7 +68,7 @@ def default_pricing_policy_commands() -> list[PricingPolicyCreateCommand]:
                 "reasoning_weight": 1.0,
                 "credits_per_1k_weighted_tokens": 6,
                 "min_chat_credits": 3,
-                "min_feature_model_credits": 10,
+                "min_mission_model_credits": 10,
                 "cost_guard_multiplier": 20,
                 "raw_cost": {
                     "input_usd_per_1m": 0,
@@ -81,9 +81,9 @@ def default_pricing_policy_commands() -> list[PricingPolicyCreateCommand]:
             },
         ),
         PricingPolicyCreateCommand(
-            policy_key=DEFAULT_CAPABILITY_POLICY_KEY,
-            policy_kind=PricingPolicyKind.CAPABILITY.value,
-            name="Default capability reserve",
+            policy_key=DEFAULT_MISSION_POLICY_KEY,
+            policy_kind=PricingPolicyKind.MISSION.value,
+            name="Default Mission reserve",
             config={
                 "base_fee_credits": 0,
                 "estimate_min_credits": 0,

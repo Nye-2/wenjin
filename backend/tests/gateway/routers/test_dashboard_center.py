@@ -43,16 +43,10 @@ def _create_client(
         return release_gate_service or AsyncMock()
 
     app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[dashboard.get_user_dashboard_service] = (
-        override_user_dashboard_service
-    )
-    app.dependency_overrides[dashboard.get_admin_dashboard_service] = (
-        override_admin_dashboard_service
-    )
+    app.dependency_overrides[dashboard.get_user_dashboard_service] = override_user_dashboard_service
+    app.dependency_overrides[dashboard.get_admin_dashboard_service] = override_admin_dashboard_service
     app.dependency_overrides[dashboard.get_credit_service] = override_credit_service
-    app.dependency_overrides[dashboard.get_release_gate_service] = (
-        override_release_gate_service
-    )
+    app.dependency_overrides[dashboard.get_release_gate_service] = override_release_gate_service
     app.include_router(dashboard.router)
     return TestClient(app)
 
@@ -180,9 +174,7 @@ def test_get_admin_release_gate_defaults_to_core_only():
 
 def test_update_user_status_rejects_disabling_last_active_admin():
     admin_service = AsyncMock()
-    admin_service.update_user_status = AsyncMock(
-        side_effect=ValueError("Cannot disable the last active admin")
-    )
+    admin_service.update_user_status = AsyncMock(side_effect=ValueError("Cannot disable the last active admin"))
 
     client = _create_client(
         user=_mock_user(user_id="admin-1", is_superuser=True),
@@ -200,9 +192,7 @@ def test_update_user_status_rejects_disabling_last_active_admin():
 
 def test_update_user_role_rejects_demoting_last_active_admin():
     admin_service = AsyncMock()
-    admin_service.update_user_role = AsyncMock(
-        side_effect=ValueError("Cannot demote the last active admin")
-    )
+    admin_service.update_user_role = AsyncMock(side_effect=ValueError("Cannot demote the last active admin"))
 
     client = _create_client(
         user=_mock_user(user_id="admin-1", is_superuser=True),

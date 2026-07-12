@@ -18,7 +18,6 @@ class WorkspaceSettings(Base, TimestampMixin):
         thinking_enabled: Whether thinking mode is enabled
         sandbox_provider: Sandbox provider name (default: local)
         auto_compact_threshold: Context usage ratio that triggers auto-compaction
-        capability_overrides: JSON overrides for workspace capabilities
         metadata_json: Arbitrary metadata blob
     """
 
@@ -40,9 +39,6 @@ class WorkspaceSettings(Base, TimestampMixin):
     )
     auto_compact_threshold: Mapped[float] = mapped_column(
         nullable=False, default=0.8, server_default="0.8",
-    )
-    capability_overrides: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default="'{}'::jsonb",
     )
     settings_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="'{}'::jsonb",

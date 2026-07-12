@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hashlib
 import logging
 import time
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.memory.capture import messages_to_conversation_text
 from src.agents.memory.capture import (
     filter_messages_for_memory as _filter_messages_for_memory,
 )
+from src.agents.memory.capture import messages_to_conversation_text
 from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
@@ -77,8 +78,11 @@ class MemoryMiddleware(Middleware):
         """Check if memory persistence is enabled."""
         return self._enabled
 
-    def _cache_key(self, workspace_id: str) -> str:
-        return workspace_id
+    def _cache_key(self, workspace_id: str, current_context: str) -> str:
+        if not current_context:
+            return workspace_id
+        context_hash = hashlib.sha256(current_context.encode("utf-8")).hexdigest()[:16]
+        return f"{workspace_id}:{context_hash}"
 
     def _cache_set(self, key: str, value: str) -> None:
         """Store *value* under *key* in the LRU cache.
@@ -111,12 +115,6 @@ class MemoryMiddleware(Middleware):
         if not workspace_id:
             return {}
 
-        cache_key = self._cache_key(str(workspace_id))
-        cached_context, cached_at = self._memory_cache.get(cache_key, ("", 0.0))
-        if cached_context and time.monotonic() - cached_at < self._cache_ttl:
-            self._memory_cache.move_to_end(cache_key)   # promote to MRU position
-            return {"memory_context": cached_context}
-
         max_context_turns = 3
         try:
             from src.config.config_loader import get_app_config
@@ -134,11 +132,31 @@ class MemoryMiddleware(Middleware):
             filtered_messages,
             limit=max_context_turns * 2,
         )
+        objective = str(
+            state.get("mission_objective")
+            or configurable.get("mission_objective")
+            or configurable.get("objective")
+            or ""
+        ).strip()
+        review_context = "\n".join(
+            part
+            for part in (
+                f"objective: {objective}" if objective else "",
+                conversation_context,
+            )
+            if part
+        )
+        cache_key = self._cache_key(str(workspace_id), review_context)
+        cached_context, cached_at = self._memory_cache.get(cache_key, ("", 0.0))
+        if cached_context and time.monotonic() - cached_at < self._cache_ttl:
+            self._memory_cache.move_to_end(cache_key)
+            return {"memory_context": cached_context}
+
         try:
             memory_context = await asyncio.wait_for(
                 build_workspace_memory_context(
                     str(workspace_id),
-                    current_context=conversation_context or None,
+                    current_context=review_context or None,
                 ),
                 timeout=self._timeout,
             )

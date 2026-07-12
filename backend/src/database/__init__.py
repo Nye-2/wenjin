@@ -14,14 +14,12 @@ from .models import (
     Artifact,
     ArtifactType,
     # Credit
-    ComputeSessionRecord,
     CreditGrantRule,
     CreditGrantRuleType,
     CreditRedeemCode,
     CreditRedemption,
     CreditTransaction,
     CreditTransactionType,
-    ExecutionRecord,
     # Generation
     GenerationRecord,
     LatexCompileHistory,
@@ -29,7 +27,6 @@ from .models import (
     LatexTemplate,
     # Referral
     Referral,
-    SubagentTaskRecord,
     # Task
     TaskRecord,
     Thread,
@@ -78,8 +75,6 @@ __all__ = [
     # Models - Credit
     "CreditTransaction",
     "CreditTransactionType",
-    "ComputeSessionRecord",
-    "ExecutionRecord",
     # Models - Admin audit
     "AdminLog",
     "AdminActionType",
@@ -98,5 +93,4 @@ __all__ = [
     "GenerationRecord",
     # Models - Task
     "TaskRecord",
-    "SubagentTaskRecord",
 ]

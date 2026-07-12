@@ -1,13 +1,14 @@
-"""Tests for runtime model routing."""
+"""Tests for profile-backed model routing."""
 
-import json
-import os
-from collections.abc import Generator
-from unittest.mock import patch
+from __future__ import annotations
 
 import pytest
 
-from src.config.llm_config import reload_models
+from src.models.capability_profile import (
+    GenerationAPI,
+    gpt55_release_assessment,
+    unverified_capability_assessment,
+)
 from src.models.router import (
     InvalidRequestedModelError,
     list_user_selectable_models,
@@ -16,362 +17,155 @@ from src.models.router import (
     model_supports_vision,
     route_chat_model,
     route_image_model,
-    route_writing_model,
+    route_model,
     validate_requested_model,
+)
+from src.services.model_catalog_cache import (
+    RuntimeModelConfig,
+    install_model_catalog_snapshot,
+    reset_model_catalog_cache,
 )
 
 
+def _runtime_model(
+    *,
+    model_id: str = "gpt-5.5",
+    category: str = "llm",
+    is_default: bool = True,
+    base_url: str = "https://api.nainai.love/v1",
+    verified: bool = True,
+) -> RuntimeModelConfig:
+    if verified:
+        assessment = gpt55_release_assessment()
+        model_name = "gpt-5.5"
+        generation_api = GenerationAPI.CHAT_COMPLETIONS
+    else:
+        model_name = model_id
+        generation_api = (
+            GenerationAPI.CHAT_COMPLETIONS if category == "llm" else None
+        )
+        assessment = unverified_capability_assessment(
+            model_id=model_id,
+            model_name=model_name,
+            base_url=base_url,
+            generation_api=generation_api,
+        )
+    return RuntimeModelConfig(
+        id=model_id,
+        name=model_id,
+        category=category,
+        provider="OpenAI" if category == "llm" else "Image Provider",
+        model=model_name,
+        api_key="sk-test",
+        base_url=base_url,
+        generation_api=generation_api,
+        max_tokens=128000,
+        temperature=0.3,
+        timeout_seconds=30,
+        max_retries=0,
+        capability_profile=assessment.profile,
+        capability_probe=assessment.evidence,
+        capability_probe_hash=assessment.profile.probe_hash,
+        capability_observed_at=assessment.profile.observed_at,
+        default_headers={},
+        pricing_policy_id="model-standard",
+        is_default=is_default,
+        config_version=1,
+    )
+
+
 @pytest.fixture(autouse=True)
-def _reset_model_cache() -> Generator[None, None, None]:
-    reload_models()
+def _catalog():
+    reset_model_catalog_cache()
+    install_model_catalog_snapshot(
+        [
+            _runtime_model(),
+            _runtime_model(
+                model_id="image-gen",
+                category="image",
+                is_default=False,
+                base_url="https://images.example/v1",
+                verified=False,
+            ),
+        ]
+    )
     yield
-    reload_models()
+    reset_model_catalog_cache()
 
 
-def test_route_prefers_explicit_user_model() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-primary",
-            "model": "provider/llm-primary",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-            "supports_tools": True,
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models, "LLM_DEFAULT_MODEL": "llm-primary"},
-        clear=False,
-    ):
-        reload_models()
-        model_id = route_chat_model(
-            requested_model="llm-primary",
-            thread_model="some-thread-model",
+def test_explicit_verified_chat_model_is_honored() -> None:
+    assert route_chat_model(requested_model="gpt-5.5") == "gpt-5.5"
+    assert validate_requested_model("gpt-5.5", require_tools=True) == "gpt-5.5"
+    assert validate_requested_model("default", require_tools=True) == "default"
+
+
+def test_unknown_explicit_model_is_never_silently_rerouted() -> None:
+    with pytest.raises(InvalidRequestedModelError, match="Unknown model id"):
+        validate_requested_model("missing-model")
+    with pytest.raises(InvalidRequestedModelError, match="Requested model"):
+        route_chat_model(requested_model="missing-model")
+
+
+def test_unverified_tool_model_is_rejected_instead_of_using_default() -> None:
+    install_model_catalog_snapshot(
+        [
+            _runtime_model(
+                model_id="unverified",
+                category="llm",
+                verified=False,
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="No models configured for required routing"):
+        route_chat_model(require_tools=True)
+    with pytest.raises(InvalidRequestedModelError, match="strict-tool capability probe"):
+        validate_requested_model("unverified", require_tools=True)
+
+
+def test_capabilities_are_not_inferred_from_unknown_model_names() -> None:
+    assert model_supports_vision("qwen-vl-plus") is False
+    assert model_supports_thinking("gpt-5.5-name-only") is False
+    assert model_supports_reasoning_effort("gpt-5.5-name-only") is False
+
+
+def test_reasoning_support_comes_from_current_profile() -> None:
+    assert model_supports_thinking("gpt-5.5") is True
+    assert model_supports_reasoning_effort("gpt-5.5") is True
+    assert model_supports_vision("gpt-5.5") is False
+
+
+def test_image_routing_remains_category_based() -> None:
+    assert route_image_model(requested_model="image-gen") == "image-gen"
+    assert validate_requested_model(
+        "image-gen",
+        allowed_categories=("image",),
+    ) == "image-gen"
+    assert [item.id for item in list_user_selectable_models(purpose="image")] == [
+        "image-gen"
+    ]
+    assert validate_requested_model(
+        "image-gen",
+        allowed_categories=("llm", "image"),
+    ) == "image-gen"
+
+
+def test_multi_category_routing_honors_preference_order_deterministically() -> None:
+    assert (
+        route_model(
+            preferred_categories=("image", "llm"),
+            allowed_categories=("llm", "image"),
         )
-        assert model_id == "llm-primary"
+        == "image-gen"
+    )
 
 
-def test_route_uses_thread_model_when_request_not_specified() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-primary",
-            "model": "provider/llm-primary",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-            "supports_tools": True,
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models, "LLM_DEFAULT_MODEL": "llm-primary"},
-        clear=False,
-    ):
-        reload_models()
-        model_id = route_chat_model(
-            requested_model=None,
-            thread_model="llm-primary",
-        )
-        assert model_id == "llm-primary"
+def test_stale_profile_rejects_selected_model() -> None:
+    stale = _runtime_model(base_url="https://changed.example/v1")
+    install_model_catalog_snapshot([stale])
 
+    with pytest.raises(InvalidRequestedModelError, match="strict-tool capability probe"):
+        route_chat_model(requested_model="gpt-5.5")
 
-def test_validate_requested_model_rejects_unknown_model() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-primary",
-            "model": "provider/llm-primary",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-            "supports_tools": True,
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models, "LLM_DEFAULT_MODEL": "llm-primary"},
-        clear=False,
-    ):
-        reload_models()
-        with pytest.raises(InvalidRequestedModelError, match="Unknown model id"):
-            validate_requested_model("missing-model", allowed_categories=("llm",))
-
-
-def test_validate_requested_model_rejects_image_for_non_image_task() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-primary",
-            "model": "provider/llm-primary",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-        }
-    ])
-    image_models = json.dumps([
-        {
-            "id": "img-primary",
-            "model": "provider/img-primary",
-            "api_key": "sk-img",
-            "base_url": "https://example.com/v1",
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {
-            "LLM_MODELS": llm_models,
-            "LLM_IMAGE_MODELS": image_models,
-            "LLM_DEFAULT_MODEL": "llm-primary",
-        },
-        clear=False,
-    ):
-        reload_models()
-        with pytest.raises(InvalidRequestedModelError, match="image model"):
-            validate_requested_model("img-primary", allowed_categories=("llm",))
-
-
-def test_validate_requested_model_accepts_image_for_image_task() -> None:
-    image_models = json.dumps([
-        {
-            "id": "img-primary",
-            "model": "provider/img-primary",
-            "api_key": "sk-img",
-            "base_url": "https://example.com/v1",
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_IMAGE_MODELS": image_models, "LLM_DEFAULT_MODEL": "img-primary"},
-        clear=False,
-    ):
-        reload_models()
-        assert validate_requested_model("img-primary", allowed_categories=("image",)) == "img-primary"
-
-
-def test_route_picks_first_tool_capable_candidate_when_no_selection() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-tool",
-            "model": "provider/llm-tool",
-            "api_key": "sk-tool",
-            "base_url": "https://example.com/v1",
-            "supports_tools": True,
-        },
-        {
-            "id": "llm-plain",
-            "model": "provider/llm-plain",
-            "api_key": "sk-plain",
-            "base_url": "https://example.com/v1",
-        },
-    ])
-    with patch.dict(
-        os.environ,
-        {
-            "LLM_MODELS": llm_models,
-            "LLM_DEFAULT_MODEL": "llm-plain",
-        },
-        clear=False,
-    ):
-        reload_models()
-        model_id = route_chat_model(requested_model=None, thread_model=None, require_tools=True)
-        assert model_id == "llm-tool"
-
-
-def test_route_falls_back_to_default_when_no_tool_capable_models() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-plain",
-            "model": "provider/llm-plain",
-            "api_key": "sk-plain",
-            "base_url": "https://example.com/v1",
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models, "LLM_DEFAULT_MODEL": "llm-plain"},
-        clear=False,
-    ):
-        reload_models()
-        model_id = route_chat_model(requested_model=None, thread_model=None, require_tools=True)
-        assert model_id == "llm-plain"
-
-
-def test_route_writing_selects_from_llm_models() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-primary",
-            "model": "provider/llm-primary",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-        },
-        {
-            "id": "llm-secondary",
-            "model": "provider/llm-secondary",
-            "api_key": "sk-llm2",
-            "base_url": "https://example.com/v1",
-        },
-    ])
-    with patch.dict(
-        os.environ,
-        {
-            "LLM_MODELS": llm_models,
-            "LLM_DEFAULT_MODEL": "llm-primary",
-        },
-        clear=False,
-    ):
-        reload_models()
-        model_id = route_writing_model()
-        assert model_id == "llm-primary"
-
-
-def test_list_user_selectable_models_returns_all_llm_for_chat() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-primary",
-            "model": "provider/llm-primary",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-        },
-        {
-            "id": "llm-secondary",
-            "model": "provider/llm-secondary",
-            "api_key": "sk-llm2",
-            "base_url": "https://example.com/v1",
-        },
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models},
-        clear=False,
-    ):
-        reload_models()
-        selectable = list_user_selectable_models(purpose="chat")
-        selectable_ids = [model.id for model in selectable]
-        assert "llm-primary" in selectable_ids
-        assert "llm-secondary" in selectable_ids
-
-
-def test_list_user_selectable_models_returns_image_models_for_image() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-primary",
-            "model": "provider/llm-primary",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-        }
-    ])
-    image_models = json.dumps([
-        {
-            "id": "img-primary",
-            "model": "provider/img-primary",
-            "api_key": "sk-img",
-            "base_url": "https://example.com/v1",
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models, "LLM_IMAGE_MODELS": image_models},
-        clear=False,
-    ):
-        reload_models()
-        selectable = list_user_selectable_models(purpose="image")
-        selectable_ids = [model.id for model in selectable]
-        assert "img-primary" in selectable_ids
-        assert "llm-primary" not in selectable_ids
-
-
-def test_route_image_model_selects_from_image_models() -> None:
-    image_models = json.dumps([
-        {
-            "id": "img-primary",
-            "model": "provider/img-primary",
-            "api_key": "sk-img",
-            "base_url": "https://example.com/v1",
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_IMAGE_MODELS": image_models, "LLM_DEFAULT_MODEL": "img-primary"},
-        clear=False,
-    ):
-        reload_models()
-        model_id = route_image_model()
-        assert model_id == "img-primary"
-
-
-def test_model_supports_vision_honors_explicit_flag() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-vision",
-            "model": "provider/llm-vision",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-            "supports_vision": True,
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models},
-        clear=False,
-    ):
-        reload_models()
-        assert model_supports_vision("llm-vision") is True
-
-
-def test_model_supports_vision_uses_name_hints_for_unknown_model() -> None:
-    assert model_supports_vision("qwen-vl-plus") is True
-    assert model_supports_vision("plain-text-model") is False
-
-
-def test_model_supports_thinking_honors_explicit_flag() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-think",
-            "model": "provider/llm-think",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-            "supports_thinking": True,
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models},
-        clear=False,
-    ):
-        reload_models()
-        assert model_supports_thinking("llm-think") is True
-        assert model_supports_thinking("llm-plain") is False
-
-
-def test_model_supports_reasoning_effort_honors_explicit_flag() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-reasoning",
-            "model": "provider/llm-reasoning",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-            "supports_reasoning_effort": True,
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models},
-        clear=False,
-    ):
-        reload_models()
-        assert model_supports_reasoning_effort("llm-reasoning") is True
-        assert model_supports_reasoning_effort("llm-plain") is False
-
-
-def test_model_supports_reasoning_effort_does_not_infer_for_configured_gpt_name() -> None:
-    llm_models = json.dumps([
-        {
-            "id": "llm-gpt-name-only",
-            "model": "gpt-5.5",
-            "api_key": "sk-llm",
-            "base_url": "https://example.com/v1",
-            "supports_reasoning_effort": False,
-        }
-    ])
-    with patch.dict(
-        os.environ,
-        {"LLM_MODELS": llm_models},
-        clear=False,
-    ):
-        reload_models()
-        assert model_supports_reasoning_effort("llm-gpt-name-only") is False
+    with pytest.raises(InvalidRequestedModelError, match="strict-tool capability probe"):
+        validate_requested_model("default", require_tools=True)

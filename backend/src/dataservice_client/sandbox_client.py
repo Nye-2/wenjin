@@ -114,7 +114,7 @@ class SandboxDataServiceClientMixin:
         *,
         workspace_id: str,
         sandbox_environment_id: str | None = None,
-        execution_id: str | None = None,
+        mission_id: str | None = None,
         status: str | None = None,
         limit: int = 50,
     ) -> list[SandboxJobPayload]:
@@ -124,7 +124,7 @@ class SandboxDataServiceClientMixin:
             params={
                 "workspace_id": workspace_id,
                 "sandbox_environment_id": sandbox_environment_id,
-                "execution_id": execution_id,
+                "mission_id": mission_id,
                 "status": status,
                 "limit": limit,
             },
@@ -172,12 +172,12 @@ class SandboxDataServiceClientMixin:
         self,
         artifact_id: str,
         *,
-        review_item_id: str | None = None,
+        mission_commit_id: str,
     ) -> SandboxArtifactPayload | None:
         payload = await self._request(
             "POST",
             f"/internal/v1/sandbox/artifacts/{artifact_id}/materialized",
-            json={"review_item_id": review_item_id},
+            json={"mission_commit_id": mission_commit_id},
         )
         data = payload.get("data")
         return SandboxArtifactPayload.model_validate(data) if data is not None else None

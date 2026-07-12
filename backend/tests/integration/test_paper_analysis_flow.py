@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from src.runtime.runs.worker import _emit_assistant_blocks
+from src.runtime.chat_turns.worker import _emit_assistant_blocks
 from src.runtime.stream_bridge import END_SENTINEL, MemoryStreamBridge
 
 

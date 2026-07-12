@@ -13,10 +13,9 @@ class ReferenceSourceType(enum.StrEnum):
     """How a reference entered a workspace library."""
 
     UPLOAD = "upload"
-    SEMANTIC_SCHOLAR = "semantic_scholar"
-    WEB_SEARCH = "web_search"
-    CURATED_ACADEMIC = "curated_academic"
-    DEEP_SEARCH = "deep_search"
+    WEB_PAGE = "web_page"
+    PAPER = "paper"
+    DATASET = "dataset"
     MANUAL = "manual"
     BIBTEX = "bibtex"
 
@@ -135,7 +134,8 @@ class SourceCreatePayload(BaseModel):
     citation_count: int | None = None
     ingest_kind: str = "manual"
     ingest_label: str | None = None
-    ingest_execution_id: str | None = None
+    ingest_mission_id: str | None = None
+    ingest_mission_commit_id: str | None = None
     verified_at: datetime | None = None
     library_status: str = "candidate"
     evidence_level: str = "metadata_only"
@@ -273,7 +273,7 @@ class SourceIndexReplacePayload(BaseModel):
 class SourceCitationUsageCreatePayload(BaseModel):
     workspace_id: str
     citation_keys: list[str] = Field(default_factory=list)
-    execution_id: str | None = None
+    mission_id: str | None = None
     task_id: str | None = None
     artifact_id: str | None = None
     latex_project_id: str | None = None

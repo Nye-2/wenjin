@@ -1,0 +1,133 @@
+schema_version: stage_acceptance_contract.v1
+contract_id: patent_development.invention_scope
+version: 1
+mission_policy_id: patent_development
+workspace_type: patent
+stage_id: invention_scope
+stage_goal: Freeze the technical problem, solution boundary, inventors and disclosure materials.
+minimum_criteria:
+  - criterion_id: technical_problem
+    description: The technical problem and application setting are concrete.
+  - criterion_id: solution_boundary
+    description: Essential and optional technical features are distinguished.
+  - criterion_id: disclosure_inventory
+    description: Drawings, experiments, embodiments and missing facts are inventor-confirmed.
+required_artifacts: [{kind: invention_disclosure_brief}]
+failure_modes: [abstract_idea_only, inventor_fact_missing]
+reviewer_roles: [patent_scope_reviewer]
+allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+advance_condition: Problem, essential features and disclosure inventory pass.
+stop_condition: Inventor-confirmed technical facts are insufficient to continue safely.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: patent_development.prior_art
+version: 1
+mission_policy_id: patent_development
+workspace_type: patent
+stage_id: prior_art
+stage_goal: Establish verifiable prior art and novelty boundaries.
+minimum_criteria:
+  - criterion_id: search_coverage
+    description: Search concepts cover essential features, synonyms and classifications.
+    required_evidence_surfaces: [prior_art_provenance]
+  - criterion_id: feature_comparison
+    description: Relevant prior art is compared feature by feature.
+    required_evidence_surfaces: [claim_evidence_alignment]
+required_evidence_surfaces: [prior_art_provenance, claim_evidence_alignment]
+required_artifacts: [{kind: prior_art_matrix}]
+failure_modes: [unverifiable_prior_art, novelty_overstatement]
+reviewer_roles: [prior_art_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [invention_scope]
+advance_condition: Prior art provenance and feature comparison pass.
+stop_condition: Search evidence remains unavailable or novelty cannot be bounded.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: patent_development.claim_strategy
+version: 1
+mission_policy_id: patent_development
+workspace_type: patent
+stage_id: claim_strategy
+stage_goal: Define supported independent and dependent claim scope.
+minimum_criteria:
+  - criterion_id: essential_features
+    description: Independent claims contain only inventor-supported essential features.
+    required_evidence_surfaces: [claim_support]
+  - criterion_id: novelty_distance
+    description: Claim scope is distinguishable from cited prior art.
+    required_evidence_surfaces: [prior_art_provenance, claim_evidence_alignment]
+  - criterion_id: fallback_positions
+    description: Dependent claims provide coherent fallback positions.
+required_evidence_surfaces: [claim_support, prior_art_provenance, claim_evidence_alignment]
+required_artifacts: [{kind: claim_strategy}]
+failure_modes: [unsupported_feature, overbroad_claim, no_fallback]
+reviewer_roles: [claim_strategy_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 5
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [prior_art]
+advance_condition: Essential features, novelty distance and fallback scope pass.
+stop_condition: Defensible claim scope cannot be formed from inventor-confirmed disclosure.
+anti_examples:
+  - A generated claim introduces a feature never supplied by the inventor.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: patent_development.enablement
+version: 1
+mission_policy_id: patent_development
+workspace_type: patent
+stage_id: enablement
+stage_goal: Ensure the specification and drawings enable every claimed feature.
+minimum_criteria:
+  - criterion_id: embodiment_support
+    description: Every claimed feature appears in at least one coherent embodiment.
+    required_evidence_surfaces: [enablement_support]
+  - criterion_id: drawing_support
+    description: Drawings and reference signs match the text and claim strategy.
+    required_evidence_surfaces: [drawing_consistency]
+required_evidence_surfaces: [enablement_support, drawing_consistency]
+required_artifacts: [{kind: enablement_map}]
+failure_modes: [missing_embodiment, drawing_mismatch]
+reviewer_roles: [enablement_reviewer]
+allowed_actions_if_failed: [revise_existing, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [claim_strategy]
+advance_condition: Every claim feature is enabled and drawing-consistent.
+stop_condition: Missing inventor facts prevent an enabling disclosure.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: patent_development.patent_draft
+version: 1
+mission_policy_id: patent_development
+workspace_type: patent
+stage_id: patent_draft
+stage_goal: Produce a consistent, reviewable patent draft without inventing legal or technical facts.
+minimum_criteria:
+  - criterion_id: cross_section_consistency
+    description: Claims, description, embodiments, abstract and drawings agree.
+  - criterion_id: support_alignment
+    description: Claim and enablement support remain traceable.
+    required_evidence_surfaces: [claim_support, enablement_support]
+  - criterion_id: reviewable_claims
+    description: Claim changes are atomic and require explicit user review.
+    required_evidence_surfaces: [review_packet_completeness]
+required_evidence_surfaces: [writing, claim_support, enablement_support, review_packet_completeness]
+required_artifacts: [{kind: patent_draft}]
+failure_modes: [claim_description_mismatch, invented_fact, unreviewable_claim]
+reviewer_roles: [patent_draft_reviewer]
+allowed_actions_if_failed: [revise_existing, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 5
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [enablement]
+advance_condition: Consistency, support and explicit claim review requirements pass.
+stop_condition: Unsupported claim content remains after bounded revision.

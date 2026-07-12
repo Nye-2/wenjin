@@ -6,8 +6,20 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.mission import MissionRunPayload, MissionStatus
 from src.dataservice_client.provider import dataservice_client
 from src.services.credit_service import CreditService
+
+_RUNNING_MISSION_STATUSES = {
+    MissionStatus.PLANNING,
+    MissionStatus.RUNNING,
+    MissionStatus.WAITING,
+}
+_TERMINAL_MISSION_STATUSES = {
+    MissionStatus.COMPLETED,
+    MissionStatus.FAILED,
+    MissionStatus.CANCELLED,
+}
 
 
 class UserDashboardService:
@@ -37,7 +49,7 @@ class UserDashboardService:
 
         credit_service = CreditService()
         workspace_stats = await self._get_workspace_stats(user_id)
-        task_stats, recent_tasks = await self._get_task_stats(user_id)
+        task_stats, recent_tasks = await self._get_mission_stats(user_id)
         thread_credit_status = await self._get_thread_credit_status(
             user_id,
             credit_service=credit_service,
@@ -76,38 +88,59 @@ class UserDashboardService:
             "created_last_7d": stats.created_last_7d,
         }
 
-    async def _get_task_stats(self, user_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    async def _get_mission_stats(self, user_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         async with self._client() as client:
-            counts = await client.count_executions_by_status(user_id=user_id)
-        total = sum(counts.values())
-        success = int(counts.get("success", 0)) + int(counts.get("completed", 0))
-        # Only count terminal tasks (success + failed + cancelled) for completion rate
-        terminal = success + int(counts.get("failed", 0)) + int(counts.get("cancelled", 0))
+            workspaces = await client.list_workspaces(member_user_id=user_id)
+            missions: list[MissionRunPayload] = []
+            for workspace in workspaces:
+                cursor: str | None = None
+                while True:
+                    page = await client.missions.list_workspace_page(
+                        workspace_id=workspace.id,
+                        user_id=user_id,
+                        limit=100,
+                        cursor=cursor,
+                    )
+                    missions.extend(page.items)
+                    cursor = page.next_cursor
+                    if cursor is None:
+                        break
+
+        counts = {status: 0 for status in MissionStatus}
+        for mission in missions:
+            counts[mission.status] += 1
+
+        total = len(missions)
+        success = counts[MissionStatus.COMPLETED]
+        terminal = sum(counts[status] for status in _TERMINAL_MISSION_STATUSES)
         completion_rate = float(round(success / terminal, 4)) if terminal else 0.0
 
-        async with self._client() as client:
-            recent_executions = await client.list_executions(user_id=user_id, limit=10)
+        recent_missions = sorted(
+            missions,
+            key=lambda mission: (mission.updated_at, mission.mission_id),
+            reverse=True,
+        )[:10]
         recent_tasks = [
             {
-                "id": execution.id,
-                "task_type": execution.execution_type,
-                "status": execution.status,
-                "progress": int(execution.progress),
-                "message": execution.message,
-                "created_at": execution.created_at.isoformat() if execution.created_at else None,
-                "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
+                "id": mission.mission_id,
+                "task_type": mission.title,
+                "status": mission.status.value,
+                "progress": 100 if mission.status in _TERMINAL_MISSION_STATUSES else 0,
+                "message": mission.objective,
+                "created_at": mission.created_at.isoformat(),
+                "completed_at": mission.completed_at.isoformat() if mission.completed_at else None,
             }
-            for execution in recent_executions
+            for mission in recent_missions
         ]
 
         return (
             {
                 "total": total,
                 "success": success,
-                "running": int(counts.get("running", 0)),
-                "failed": int(counts.get("failed", 0)),
-                "pending": int(counts.get("pending", 0)),
-                "cancelled": int(counts.get("cancelled", 0)),
+                "running": sum(counts[status] for status in _RUNNING_MISSION_STATUSES),
+                "failed": counts[MissionStatus.FAILED],
+                "pending": counts[MissionStatus.CREATED],
+                "cancelled": counts[MissionStatus.CANCELLED],
                 "completion_rate": completion_rate,
             },
             recent_tasks,
@@ -123,11 +156,7 @@ class UserDashboardService:
         """Build thread-specific credit status for dashboard display."""
         policy = credit_service.get_thread_billing_policy()
         consumed_tokens = await credit_service.get_consumed_thread_tokens(user_id)
-        can_start_thread = (
-            (not policy.enabled)
-            or consumed_tokens < policy.free_tokens
-            or current_balance > 0
-        )
+        can_start_thread = (not policy.enabled) or consumed_tokens < policy.free_tokens or current_balance > 0
 
         return {
             "enabled": policy.enabled,

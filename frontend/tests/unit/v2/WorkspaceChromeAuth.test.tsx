@@ -35,7 +35,7 @@ describe("WorkspaceChrome auth routing", () => {
         workspaceTypeLabel="SCI论文"
         activeSurface="workbench"
         pendingReviewCount={0}
-        activeRunCount={0}
+        missionStatus={null}
         onOpenHub={() => undefined}
       />,
     );

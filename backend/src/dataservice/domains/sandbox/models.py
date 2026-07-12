@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -64,7 +64,7 @@ class SandboxJobRecord(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_sandbox_jobs_environment_created", "sandbox_environment_id", "created_at"),
         Index("ix_sandbox_jobs_workspace_status", "workspace_id", "status"),
-        Index("ix_sandbox_jobs_execution", "execution_id", "execution_node_id"),
+        Index("ix_sandbox_jobs_mission", "mission_id", "mission_item_seq"),
     )
 
     workspace_id: Mapped[str] = mapped_column(
@@ -77,8 +77,12 @@ class SandboxJobRecord(Base, UUIDMixin, TimestampMixin):
         ForeignKey("sandbox_environments.id", ondelete="CASCADE"),
         nullable=False,
     )
-    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    execution_node_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    mission_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    mission_item_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     operation: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
@@ -137,7 +141,11 @@ class SandboxLeaseRecord(Base, UUIDMixin, TimestampMixin):
         nullable=True,
     )
     holder_job_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    holder_execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    holder_mission_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     lease_token: Mapped[str] = mapped_column(String(100), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
@@ -150,7 +158,7 @@ class SandboxArtifactRecord(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_sandbox_artifacts_job", "sandbox_job_id"),
         Index("ix_sandbox_artifacts_workspace_status", "workspace_id", "materialization_status"),
-        Index("ix_sandbox_artifacts_review_item", "review_item_id"),
+        Index("uq_sandbox_artifacts_mission_commit", "mission_commit_id", unique=True),
     )
 
     workspace_id: Mapped[str] = mapped_column(
@@ -183,14 +191,9 @@ class SandboxArtifactRecord(Base, UUIDMixin, TimestampMixin):
         default=dict,
         server_default="{}",
     )
-    review_batch_id: Mapped[str | None] = mapped_column(
+    mission_commit_id: Mapped[str | None] = mapped_column(
         String(36),
-        ForeignKey("review_batches.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    review_item_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey("review_items.id", ondelete="SET NULL"),
+        ForeignKey("mission_commits.commit_id", ondelete="SET NULL"),
         nullable=True,
     )
     materialization_status: Mapped[str] = mapped_column(

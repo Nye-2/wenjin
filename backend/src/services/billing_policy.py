@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from src.billing.policies import (
-    CapabilityPricingEstimate,
     GlobalCreditPolicy,
+    MissionPricingEstimate,
     ModelUsageCreditCharge,
     OperationBillingPolicy,
     SandboxPricingEstimate,
     TokenBillingCharge,
     TokenBillingPolicy,
-    calculate_capability_estimate,
+    calculate_mission_estimate,
     calculate_model_usage_credits,
     calculate_sandbox_estimate,
     calculate_token_billing_charge,
@@ -20,7 +20,7 @@ from src.billing.policies import (
 )
 from src.config.config_loader import get_app_config
 
-BILLABLE_FEATURE_TASK_TYPES: frozenset[str] = frozenset({"execution"})
+BILLABLE_MISSION_TASK_TYPES: frozenset[str] = frozenset({"mission"})
 
 
 def _coerce_policy(raw_policy: Any, *, default_free_tokens: int) -> TokenBillingPolicy:
@@ -51,9 +51,9 @@ def get_thread_token_billing_policy() -> TokenBillingPolicy:
     return _coerce_policy(get_app_config().billing.thread, default_free_tokens=100000)
 
 
-def get_feature_token_billing_policy() -> TokenBillingPolicy:
-    """Return token billing policy for workspace feature tasks."""
-    return _coerce_policy(get_app_config().billing.feature, default_free_tokens=0)
+def get_mission_token_billing_policy() -> TokenBillingPolicy:
+    """Return token billing policy for Mission work."""
+    return _coerce_policy(get_app_config().billing.mission, default_free_tokens=0)
 
 
 def get_sandbox_operation_billing_policy() -> OperationBillingPolicy:
@@ -65,7 +65,7 @@ def get_workflow_costs() -> dict[str, dict[str, int | bool]]:
     """Expose internal billing policies for admin/diagnostics consumers."""
     return {
         "thread_token_billing": get_thread_token_billing_policy().as_dict(),
-        "feature_token_billing": get_feature_token_billing_policy().as_dict(),
+        "mission_token_billing": get_mission_token_billing_policy().as_dict(),
         "sandbox_operation_billing": get_sandbox_operation_billing_policy().as_dict(),
     }
 
@@ -79,8 +79,8 @@ def get_public_workflow_costs() -> dict[str, dict[str, int | str | bool]]:
             "unit": "credits",
             "pricing": "usage_based",
         },
-        "feature": {
-            "enabled": get_feature_token_billing_policy().enabled,
+        "mission": {
+            "enabled": get_mission_token_billing_policy().enabled,
             "unit": "credits",
             "pricing": "usage_based",
         },
@@ -93,20 +93,20 @@ def get_public_workflow_costs() -> dict[str, dict[str, int | str | bool]]:
 
 
 __all__ = [
-    "BILLABLE_FEATURE_TASK_TYPES",
-    "CapabilityPricingEstimate",
+    "BILLABLE_MISSION_TASK_TYPES",
+    "MissionPricingEstimate",
     "GlobalCreditPolicy",
     "ModelUsageCreditCharge",
     "OperationBillingPolicy",
     "SandboxPricingEstimate",
     "TokenBillingCharge",
     "TokenBillingPolicy",
-    "calculate_capability_estimate",
+    "calculate_mission_estimate",
     "calculate_model_usage_credits",
     "calculate_sandbox_estimate",
     "calculate_token_billing_charge",
     "calculate_weighted_tokens",
-    "get_feature_token_billing_policy",
+    "get_mission_token_billing_policy",
     "get_public_workflow_costs",
     "get_sandbox_operation_billing_policy",
     "get_thread_token_billing_policy",

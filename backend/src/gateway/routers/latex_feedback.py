@@ -108,11 +108,7 @@ async def preview_project_feedback_rewrite(
         raise _not_found()
 
     try:
-        source_content = (
-            request.file_content
-            if request.file_content is not None
-            else service.read_text_file(project, request.file_path)
-        )
+        source_content = request.file_content if request.file_content is not None else service.read_text_file(project, request.file_path)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -204,7 +200,7 @@ async def apply_project_feedback_rewrite(
             },
         )
 
-    current_segment = current_content[request.target_start:request.target_end]
+    current_segment = current_content[request.target_start : request.target_end]
     current_range_hash = compute_range_hash(
         request.target_start,
         request.target_end,
@@ -235,11 +231,7 @@ async def apply_project_feedback_rewrite(
             },
         ) from exc
 
-    applied_content = (
-        current_content[:request.target_start]
-        + request.rewritten_text
-        + current_content[request.target_end:]
-    )
+    applied_content = current_content[: request.target_start] + request.rewritten_text + current_content[request.target_end :]
     try:
         validate_latex_document_structure(applied_content)
     except LatexStructureValidationError as exc:
@@ -276,9 +268,7 @@ async def apply_project_feedback_rewrite(
                     compile_errors = []
                     break
                 error_message = str(
-                    compile_payload.get("error")
-                    or compile_payload.get("log")
-                    or "No PDF generated.",
+                    compile_payload.get("error") or compile_payload.get("log") or "No PDF generated.",
                 ).strip()
             except Exception as exc:
                 error_message = str(exc).strip() or "Compile validation failed."
@@ -410,7 +400,7 @@ async def revert_project_feedback_rewrite(
             },
         )
 
-    current_segment = current_content[request.revert_start:request.revert_end]
+    current_segment = current_content[request.revert_start : request.revert_end]
     if current_segment != request.rewritten_text:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -420,11 +410,7 @@ async def revert_project_feedback_rewrite(
             },
         )
 
-    reverted_content = (
-        current_content[:request.revert_start]
-        + request.previous_text
-        + current_content[request.revert_end:]
-    )
+    reverted_content = current_content[: request.revert_start] + request.previous_text + current_content[request.revert_end :]
     try:
         await service.write_text_file(project, request.file_path, reverted_content)
     except ValueError as exc:
@@ -463,11 +449,7 @@ async def rewrite_project_feedback(
         raise _not_found()
 
     try:
-        source_content = (
-            request.file_content
-            if request.file_content is not None
-            else service.read_text_file(project, request.file_path)
-        )
+        source_content = request.file_content if request.file_content is not None else service.read_text_file(project, request.file_path)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -549,11 +531,7 @@ async def map_project_feedback_selection(
     source_content: str = ""
     mapping_method: Literal["synctex", "text_fallback"] = "text_fallback"
 
-    if (
-        request.source == "pdf"
-        and isinstance(request.pdf_anchor, dict)
-        and request.history_id
-    ):
+    if request.source == "pdf" and isinstance(request.pdf_anchor, dict) and request.history_id:
         page = int(request.pdf_anchor.get("page") or 0)
         rects = request.pdf_anchor.get("rects")
         if page > 0 and isinstance(rects, list) and rects:
@@ -616,11 +594,7 @@ async def map_project_feedback_selection(
                     pass
 
     try:
-        source_content = source_content or (
-            request.file_content
-            if request.file_content is not None
-            else service.read_text_file(project, target_file_path)
-        )
+        source_content = source_content or (request.file_content if request.file_content is not None else service.read_text_file(project, target_file_path))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except FileNotFoundError as exc:

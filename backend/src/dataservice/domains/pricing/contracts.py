@@ -35,18 +35,18 @@ class ModelUsagePolicyConfig(BaseModel):
     reasoning_weight: float = Field(default=1.0, ge=0)
     credits_per_1k_weighted_tokens: float = Field(default=6.0, gt=0)
     min_chat_credits: int = Field(default=3, ge=0)
-    min_feature_model_credits: int = Field(default=10, ge=0)
+    min_mission_model_credits: int = Field(default=10, ge=0)
     cost_guard_multiplier: float = Field(default=20.0, ge=1.0)
     raw_cost: ModelRawCostPolicyConfig = Field(default_factory=ModelRawCostPolicyConfig)
     free_tokens: int = Field(default=0, ge=0)
     max_overdraft_credits: int = Field(default=100, ge=0)
 
 
-class CapabilityPricingPolicyConfig(BaseModel):
+class MissionPricingPolicyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_type: str | None = None
-    capability_id: str | None = None
+    mission_policy_id: str | None = None
     base_fee_credits: int = Field(default=0, ge=0)
     estimate_min_credits: int = Field(default=0, ge=0)
     estimate_max_credits: int = Field(ge=0)
@@ -56,7 +56,7 @@ class CapabilityPricingPolicyConfig(BaseModel):
     user_cancel_policy: str = "settle_completed_usage"
 
     @model_validator(mode="after")
-    def validate_charge_bounds(self) -> CapabilityPricingPolicyConfig:
+    def validate_charge_bounds(self) -> MissionPricingPolicyConfig:
         if self.max_charge_credits < self.estimate_max_credits:
             raise ValueError("max_charge_credits must be greater than or equal to estimate_max_credits")
         return self
@@ -93,7 +93,7 @@ class PricingSimulationRequest(BaseModel):
     surface: str = "chat"
     global_policy: GlobalCreditPolicyConfig = Field(default_factory=lambda: GlobalCreditPolicyConfig(credits_per_cny=10))
     model_usage_policy: ModelUsagePolicyConfig | None = None
-    capability_policy: CapabilityPricingPolicyConfig | None = None
+    mission_policy: MissionPricingPolicyConfig | None = None
     tool_policy: ToolPricingPolicyConfig | None = None
     sandbox_policy: SandboxPricingPolicyConfig | None = None
     prompt_tokens: int = Field(default=0, ge=0)

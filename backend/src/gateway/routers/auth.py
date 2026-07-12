@@ -41,8 +41,10 @@ __all__ = [
 
 # ============ Request/Response Models ============
 
+
 class RegisterRequest(BaseModel):
     """User registration request."""
+
     email: EmailStr
     password: str
     name: str | None = None
@@ -52,12 +54,14 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     """User login request."""
+
     email: EmailStr
     password: str
 
 
 class TokenResponse(BaseModel):
     """Token response for login/register/refresh."""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -66,6 +70,7 @@ class TokenResponse(BaseModel):
 
 class UserResponse(BaseModel):
     """User information response."""
+
     id: str
     email: str
     name: str | None
@@ -77,21 +82,27 @@ class UserResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     """Token refresh request."""
+
     refresh_token: str
 
 
 class SendVerificationCodeRequest(BaseModel):
     """Request to send verification code."""
+
     email: EmailStr
     purpose: str = Field(default="register", pattern="^(register|reset_password)$")
 
 
 class SendVerificationCodeResponse(BaseModel):
     """Response for verification code sending."""
+
     success: bool
     message: str
     expire_seconds: int
+
+
 # ============ Endpoints ============
+
 
 @router.post("/auth/send-verification-code", response_model=SendVerificationCodeResponse)
 async def send_verification_code(
@@ -116,28 +127,14 @@ async def send_verification_code(
     """
     from src.services.email_service import email_service
 
-    purpose_map = {
-        "register": "注册",
-        "reset_password": "重置密码"
-    }
+    purpose_map = {"register": "注册", "reset_password": "重置密码"}
 
-    success, result = await email_service.send_verification_code(
-        email=request.email,
-        purpose=purpose_map.get(request.purpose, "验证"),
-        ip_address=req.client.host if req.client else None
-    )
+    success, result = await email_service.send_verification_code(email=request.email, purpose=purpose_map.get(request.purpose, "验证"), ip_address=req.client.host if req.client else None)
 
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=result
-        )
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=result)
 
-    return SendVerificationCodeResponse(
-        success=True,
-        message="验证码已发送，请查收邮件",
-        expire_seconds=email_service.settings.code_ttl
-    )
+    return SendVerificationCodeResponse(success=True, message="验证码已发送，请查收邮件", expire_seconds=email_service.settings.code_ttl)
 
 
 @router.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -178,11 +175,7 @@ async def register(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Verification code is required",
             )
-        is_valid, message = await email_service.verify_code(
-            email=request.email,
-            code=request.verification_code,
-            purpose="注册"
-        )
+        is_valid, message = await email_service.verify_code(email=request.email, code=request.verification_code, purpose="注册")
         if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -200,6 +193,7 @@ async def register(
         # Grant registration bonus with ledger record (rule-based)
         try:
             from src.services.credit_grant_rule_service import CreditGrantRuleService
+
             rule_svc = CreditGrantRuleService()
             await rule_svc.apply_registration_bonus(str(user.id))
         except Exception:
@@ -213,6 +207,7 @@ async def register(
             )
             if referrer:
                 from src.services.referral_service import ReferralService
+
                 referral_svc = ReferralService()
                 try:
                     await referral_svc.record(
@@ -379,7 +374,7 @@ def _invite_code_to_user_id(code: str) -> str:
     upper = normalized.upper()
     for prefix in ("USER-", "USER_", "INVITE-", "INVITE_"):
         if upper.startswith(prefix):
-            return normalized[len(prefix):].strip()
+            return normalized[len(prefix) :].strip()
     return normalized
 
 

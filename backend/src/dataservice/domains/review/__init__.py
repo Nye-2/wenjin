@@ -1,2 +1,0 @@
-"""Review batch DataService domain."""
-

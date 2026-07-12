@@ -8,19 +8,14 @@ from typing import Any
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.latex import LatexProjectAttachWorkspacePayload
+from src.dataservice_client.contracts.mission import MissionReviewItemPayload
 from src.dataservice_client.contracts.prism import PrismPrimaryProjectPayload
-from src.dataservice_client.contracts.review import ReviewItemPayload
 from src.dataservice_client.provider import dataservice_client
-from src.services.prism_review_projection import prism_review_item_projection
-from src.services.workspace_activity_contracts import (
-    build_prism_review_activity_item,
-    serialize_activity_item,
-)
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 
 PRIMARY_MANUSCRIPT_ROLE = "primary_manuscript"
 PENDING_REVIEW_STATUSES = ("pending", "accepted")
-APPLIED_REVIEW_STATUSES = ("applied",)
+APPLIED_REVIEW_STATUSES = ("committed",)
 FILE_WORKSPACE_ADAPTER_KIND = "workspace_files"
 FILE_WORKSPACE_TYPES = {"software_copyright", "patent"}
 
@@ -63,15 +58,13 @@ def _build_latex_adapter_metadata(
 
 def _run_history_payload(item: Any) -> dict[str, Any]:
     return {
-        "id": str(item.id),
+        "id": str(item.mission_id),
         "workspace_id": str(item.workspace_id or ""),
-        "execution_id": str(getattr(item, "execution_id", None) or item.id),
-        "capability_id": str(item.capability_id or ""),
-        "title": str(getattr(item, "title", None) or getattr(item, "display_name", None) or item.execution_type),
-        "summary": str(getattr(item, "summary", None) or getattr(item, "result_summary", None) or ""),
+        "mission_id": str(item.mission_id),
+        "title": str(item.title),
+        "summary": str(item.objective),
         "status": str(item.status),
-        "artifact_count": int(getattr(item, "artifact_count", None) or len(getattr(item, "artifact_ids", []) or [])),
-        "duration_seconds": int(getattr(item, "duration_seconds", None) or 0),
+        "artifact_count": int(item.artifact_count or 0),
         "created_at": _isoformat(item.created_at),
     }
 
@@ -104,28 +97,21 @@ def _workspace_type_value(workspace: Any) -> str:
 
 
 def _review_target_ref(item: Any) -> dict[str, Any]:
-    return _json_object(item.target_ref_json)
+    payload = _review_payload(item)
+    return {
+        "file_id": getattr(item, "target_ref", None),
+        "file_path": payload.get("path"),
+        "path": payload.get("path"),
+        "logical_key": payload.get("logical_key"),
+        "latex_project_id": payload.get("latex_project_id"),
+    }
 
 
 def _review_payload(item: Any) -> dict[str, Any]:
-    payload = _json_object(item.payload_json)
     preview = _json_object(item.preview_json)
-    result = _json_object(item.result_json)
-    merged = {**payload}
-    for key in (
-        "pending_content",
-        "pending_hash",
-        "current_hash",
-        "previous_content",
-        "previous_hash",
-        "applied_hash",
-        "revert_signature",
-    ):
-        if key in preview:
-            merged[key] = preview[key]
-        if key in result:
-            merged[key] = result[key]
-    return merged
+    descriptor = _json_object(preview.get("materialization"))
+    payload = _json_object(descriptor.get("payload"))
+    return {**preview, **payload}
 
 
 def _review_file_change_payload(item: Any) -> dict[str, Any]:
@@ -140,14 +126,14 @@ def _review_file_change_payload(item: Any) -> dict[str, Any]:
     logical_key = str(
         target_ref.get("logical_key")
         or payload.get("logical_key")
-        or item.source_item_id
-        or item.id
+        or item.source_item_seq
+        or item.review_item_id
     )
     result = {
-        "id": str(item.id),
+        "id": str(item.review_item_id),
         "logical_key": logical_key,
-        "source_type": "review_batch",
-        "source_execution_id": payload.get("source_execution_id"),
+        "source_type": "mission_review",
+        "source_mission_id": payload.get("source_mission_id"),
         "source_task_id": payload.get("source_task_id"),
         "target_kind": str(item.target_kind or ""),
         "path": path,
@@ -156,7 +142,7 @@ def _review_file_change_payload(item: Any) -> dict[str, Any]:
         "status": str(item.status),
         "created_at": _isoformat(item.created_at),
         "updated_at": _isoformat(item.updated_at),
-        "applied_at": _isoformat(item.applied_at),
+        "applied_at": _isoformat(item.decided_at) if str(item.status) == "committed" else None,
     }
     for key, value in payload.items():
         if key in {"content_contract", "semantic_contract", "academic_style_contract"}:
@@ -167,39 +153,15 @@ def _review_file_change_payload(item: Any) -> dict[str, Any]:
 
 
 def _prism_review_activity_payload(item: Any) -> dict[str, Any]:
-    occurred_at = item.applied_at or item.updated_at or item.created_at
-    target_ref = _review_target_ref(item)
-    payload = _review_payload(item)
-    logical_key = str(
-        target_ref.get("logical_key")
-        or payload.get("logical_key")
-        or item.source_item_id
-        or item.id
-    )
-    target_file_path = target_ref.get("file_path") or target_ref.get("path") or payload.get("path")
-    return serialize_activity_item(
-        build_prism_review_activity_item(
-            review_item_id=str(item.id),
-            workspace_id=str(item.workspace_id),
-            latex_project_id=str(
-                target_ref.get("latex_project_id") or target_ref.get("project_id") or ""
-            ),
-            logical_key=logical_key,
-            title=item.title,
-            summary=item.summary,
-            status=item.status,
-            source_execution_id=payload.get("source_execution_id"),
-            source_task_id=payload.get("source_task_id"),
-            target_kind=item.target_kind,
-            target_file_path=str(target_file_path) if target_file_path else None,
-            target_room=target_ref.get("room"),
-            target_item_id=target_ref.get("item_id"),
-            occurred_at=occurred_at,
-            created_at=item.created_at,
-            updated_at=item.updated_at,
-            applied_at=item.applied_at,
-        )
-    )
+    return {
+        "id": item.review_item_id,
+        "kind": "mission_review",
+        "title": item.title,
+        "summary": item.summary,
+        "status": str(item.status),
+        "occurred_at": _isoformat(item.updated_at),
+        "mission_id": item.mission_id,
+    }
 
 
 def _recent_activity_sort_key(item: dict[str, Any]) -> str:
@@ -216,7 +178,7 @@ def _review_item_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
         "title": str(item.get("title") or ""),
         "summary": item.get("summary"),
         "target_file_path": target.get("file_path"),
-        "source_execution_id": source.get("execution_id"),
+        "source_mission_id": source.get("mission_id"),
         "source_task_id": source.get("task_id"),
     }
 
@@ -243,7 +205,7 @@ def _provenance_source_link_payload(item: Any, *, latex_project_id: str) -> dict
         "id": str(getattr(item, "id", "")),
         "workspace_id": str(getattr(item, "workspace_id", "")),
         "latex_project_id": latex_project_id,
-        "review_item_id": getattr(item, "review_item_id", None),
+        "review_item_id": getattr(item, "mission_review_item_id", None),
         "source_type": "source",
         "source_id": str(getattr(item, "source_id", "") or ""),
         "file_path": file_path,
@@ -456,7 +418,7 @@ class WorkspacePrismService:
         file_changes = [_review_file_change_payload(item) for item in pending_items]
         applied_file_changes = [_review_file_change_payload(item) for item in applied_items]
         review_items = [
-            prism_review_item_projection(item)
+            item.model_dump(mode="json")
             for item in [*pending_items, *applied_items]
         ]
         source_links = (
@@ -571,22 +533,28 @@ class WorkspacePrismService:
         latex_project_id: str | None,
         statuses: tuple[str, ...],
         limit: int = 200,
-    ) -> list[ReviewItemPayload]:
+    ) -> list[MissionReviewItemPayload]:
         if not latex_project_id:
             return []
         async with self._client() as client:
-            items = await client.list_review_items(
+            runs = await client.missions.list_workspace(
                 workspace_id=workspace_id,
-                target_domain="prism",
-                target_kind="prism_file_change",
-                status=list(statuses),
-                limit=limit,
+                limit=min(limit, 200),
             )
-        return [
+            items: list[MissionReviewItemPayload] = []
+            for run in runs:
+                view = await client.missions.get_view(run.mission_id)
+                if view is not None:
+                    items.extend(view.review_items)
+        matching_items = [
             item
             for item in items
-            if str(_review_target_ref(item).get("latex_project_id") or "") == latex_project_id
+            if item.target_kind in {"prism_file_change", "prism_structure", "document"}
+            and item.status.value in statuses
+            and str(_review_target_ref(item).get("latex_project_id") or "")
+            == latex_project_id
         ]
+        return matching_items[:limit]
 
     async def _list_source_links(
         self,
@@ -631,12 +599,15 @@ class WorkspacePrismService:
 
     async def _list_recent_activity(self, workspace_id: str) -> list[dict[str, Any]]:
         async with self._client() as client:
-            run_history = await client.list_executions(workspace_id=workspace_id, limit=5)
-            review_records = await client.list_review_items(
+            run_history = await client.missions.list_workspace(
                 workspace_id=workspace_id,
-                target_domain="prism",
                 limit=5,
             )
+            review_records: list[MissionReviewItemPayload] = []
+            for run in run_history:
+                view = await client.missions.get_view(run.mission_id)
+                if view is not None:
+                    review_records.extend(view.review_items[:5])
         run_history_items = [_run_history_payload(item) for item in run_history]
         review_items = [
             _prism_review_activity_payload(item)

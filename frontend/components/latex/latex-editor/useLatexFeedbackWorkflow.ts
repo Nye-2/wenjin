@@ -420,24 +420,21 @@ export function useLatexFeedbackWorkflow({
         },
       });
 
-      if (result?.executionId) {
+      if (result?.missionId) {
         prismOptimization.updateJob(
           jobId,
-          (entry) => ({ ...entry, executionId: result.executionId ?? undefined, status: "running" }),
+          (entry) => ({ ...entry, missionId: result.missionId ?? undefined, status: "running" }),
         );
         setFeedbackStatus("这段修改已启动，右下角可查看生成过程。");
         return;
       }
 
-      const detail =
-        typeof result?.toolResult?.detail === "string" && result.toolResult.detail.trim()
-          ? result.toolResult.detail.trim()
-          : "未能生成这段修改，请稍后重试。";
+      const detail = "未能启动这段修改；请在对话中补充修改目标后重试。";
       prismOptimization.updateJob(
         jobId,
         (entry) => ({
           ...entry,
-          status: result?.status === "advisory" ? "advisory" : "failed",
+          status: "failed",
           error: detail,
         }),
       );
@@ -580,25 +577,22 @@ export function useLatexFeedbackWorkflow({
         },
       });
 
-      if (result?.executionId) {
+      if (result?.missionId) {
         prismOptimization.updateJob(
           jobId,
-          (entry) => ({ ...entry, executionId: result.executionId ?? undefined, status: "running" }),
+          (entry) => ({ ...entry, missionId: result.missionId ?? undefined, status: "running" }),
         );
         setFeedbackStatus("全文修改已启动，会生成待复核写入。");
         setFeedbackDraftComment("");
         return;
       }
 
-      const detail =
-        typeof result?.toolResult?.detail === "string" && result.toolResult.detail.trim()
-          ? result.toolResult.detail.trim()
-          : "未能生成全文修改，请稍后重试。";
+      const detail = "未能启动全文修改；请在对话中补充修改目标后重试。";
       prismOptimization.updateJob(
         jobId,
         (entry) => ({
           ...entry,
-          status: result?.status === "advisory" ? "advisory" : "failed",
+          status: "failed",
           error: detail,
         }),
       );

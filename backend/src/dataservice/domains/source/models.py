@@ -17,6 +17,11 @@ class SourceRecord(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "sources"
     __table_args__ = (
+        Index(
+            "uq_sources_ingest_mission_commit",
+            "ingest_mission_commit_id",
+            unique=True,
+        ),
         Index("ix_sources_workspace_status", "workspace_id", "library_status"),
         Index("ix_sources_workspace_title", "workspace_id", "normalized_title"),
         Index("uq_sources_workspace_citation_key", "workspace_id", "citation_key", unique=True),
@@ -44,7 +49,16 @@ class SourceRecord(Base, UUIDMixin, TimestampMixin):
     citation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ingest_kind: Mapped[str] = mapped_column(String(50), nullable=False, default="manual", server_default="manual")
     ingest_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    ingest_execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    ingest_mission_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    ingest_mission_commit_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_commits.commit_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     library_status: Mapped[str] = mapped_column(String(32), nullable=False, default="candidate", server_default="candidate")
     evidence_level: Mapped[str] = mapped_column(

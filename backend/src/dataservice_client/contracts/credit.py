@@ -29,7 +29,9 @@ class CreditTransactionPayload(BaseModel):
     amount: int
     balance_after: int
     description: str | None = None
-    feature_id: str | None = None
+    mission_policy_id: str | None = None
+    mission_id: str | None = None
+    operation_key: str | None = None
     workspace_id: str | None = None
     task_id: str | None = None
     admin_id: str | None = None
@@ -41,8 +43,8 @@ class CreditReservationPayload(BaseModel):
     id: str
     user_id: str
     workspace_id: str | None = None
-    execution_id: str | None = None
-    node_id: str | None = None
+    mission_id: str | None = None
+    mission_item_seq: int | None = None
     scope: str
     status: str
     reserved_credits: int
@@ -136,7 +138,9 @@ class CreditConsumptionCreatePayload(BaseModel):
     transaction_type: str
     amount: int
     description: str
-    feature_id: str | None = None
+    mission_policy_id: str | None = None
+    mission_id: str | None = None
+    operation_key: str | None = None
     workspace_id: str | None = None
     task_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -148,8 +152,8 @@ class CreditReservationCreatePayload(BaseModel):
     reserved_credits: int
     idempotency_key: str
     workspace_id: str | None = None
-    execution_id: str | None = None
-    node_id: str | None = None
+    mission_id: str | None = None
+    mission_item_seq: int | None = None
     expires_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -158,8 +162,9 @@ class CreditReservationSettlePayload(BaseModel):
     settled_credits: int
     description: str
     transaction_type: str = "workflow_consume"
-    feature_id: str | None = None
-    task_id: str | None = None
+    mission_policy_id: str | None = None
+    mission_id: str | None = None
+    operation_key: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

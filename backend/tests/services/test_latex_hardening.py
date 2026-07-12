@@ -12,9 +12,6 @@ from fastapi import HTTPException
 
 from src.gateway.routers.latex import (
     LatexCompileRequest,
-    LatexFileChangeActionRequest,
-    LatexFileChangeApplyRequest,
-    LatexFileChangeRevertRequest,
     LatexUpdateProjectRequest,
     _candidate_risk_level,
     _collect_archive_upload_payload,
@@ -24,10 +21,6 @@ from src.gateway.routers.latex import (
     _normalize_upload_relative_path,
     _profiled_comment,
     _read_upload_bytes_with_limit,
-    apply_project_file_change,
-    discard_project_file_change,
-    preview_project_file_change,
-    revert_project_file_change,
 )
 from src.services.latex.compile_service import (
     LatexCompileService,
@@ -185,7 +178,6 @@ class _FakePrismReviewService:
         **kwargs: object,
     ) -> SimpleNamespace:
         _ = project
-        kwargs.setdefault("source_execution_id", None)
         kwargs.setdefault("source_task_id", None)
         self.pending_changes.append(dict(kwargs))
         self.review_item = SimpleNamespace(
@@ -778,9 +770,7 @@ def test_workspace_main_tex_uses_refs_bibliography() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bridge_write_records_managed_change_as_feature_proposal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_bridge_write_preserves_existing_file_for_mission_review() -> None:
     _FakePrismReviewService.reset()
     service = WorkspaceLatexProjectService(dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
     )
@@ -808,27 +798,16 @@ async def test_bridge_write_records_managed_change_as_feature_proposal(
     assert fake_files.writes == []
     assert fake_files.files["main.tex"] == "old"
     assert "file_changes" not in metadata
-    assert _FakePrismReviewService.pending_changes == [
-        {
-            "workspace_id": "workspace-1",
-            "latex_project_id": "project-1",
-            "logical_key": "project:main",
-            "path": "main.tex",
-            "reason": "feature_proposal",
-            "pending_content": "new",
-            "pending_hash": WorkspaceLatexProjectService._content_hash("new"),
-            "current_hash": WorkspaceLatexProjectService._content_hash("old"),
-            "academic_style_contract": None,
-            "source_execution_id": None,
-            "source_task_id": None,
-        }
-    ]
+    assert _FakePrismReviewService.pending_changes == []
+    assert metadata["managed_files"]["project:main"] == {
+        "path": "main.tex",
+        "content_hash": WorkspaceLatexProjectService._content_hash("old"),
+        "protected": True,
+    }
 
 
 @pytest.mark.asyncio
-async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_bridge_write_seeds_missing_file_without_legacy_review_state() -> None:
     _FakePrismReviewService.reset()
     service = WorkspaceLatexProjectService(dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
     )
@@ -849,166 +828,13 @@ async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict(
 
     assert fake_files.writes == [("sections/introduction.tex", "fresh")]
     assert "file_changes" not in metadata
-    assert _FakePrismReviewService.cleared == ["section:introduction"]
+    assert _FakePrismReviewService.cleared == []
     assert metadata["managed_files"]["section:introduction"] == {
         "path": "sections/introduction.tex",
         "content_hash": WorkspaceLatexProjectService._content_hash("fresh"),
         "protected": False,
     }
 
-
-@pytest.mark.asyncio
-async def test_file_change_preview_and_apply_use_signature_guard(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _reset_fake_router_service()
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.LatexProjectService",
-        _FakeLatexRouterService,
-    )
-    dataservice = _patch_latex_files_dataservice(monkeypatch)
-    user = SimpleNamespace(id="user-1")
-
-    preview = await preview_project_file_change(
-        "project-1",
-        LatexFileChangeActionRequest(logical_key="project:main"),
-        current_user=user,
-        dataservice=dataservice,
-    )
-
-    assert preview.path == "main.tex"
-    assert preview.reason == "feature_proposal"
-    assert preview.diff.stats.tokens_changed > 0
-
-    applied = await apply_project_file_change(
-        "project-1",
-        LatexFileChangeApplyRequest(
-            logical_key="project:main",
-            change_signature=preview.change_signature,
-        ),
-        current_user=user,
-        dataservice=dataservice,
-    )
-
-    assert applied.path == "main.tex"
-    assert _FakeLatexRouterService.files["main.tex"] == "\\section{Generated}\n"
-    metadata = _FakeLatexRouterService.project.llm_config["metadata"]
-    assert metadata["managed_files"]["project:main"]["protected"] is False
-    assert "file_changes" not in metadata
-    assert "applied_file_changes" not in metadata
-    assert _FakePrismReviewService.review_item.status == "applied"
-    assert _FakePrismReviewService.review_item.preview_payload["previous_content"] == "\\section{Current}\n"
-
-
-@pytest.mark.asyncio
-async def test_file_change_apply_rejects_stale_preview_signature(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _reset_fake_router_service()
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.LatexProjectService",
-        _FakeLatexRouterService,
-    )
-    dataservice = _patch_latex_files_dataservice(monkeypatch)
-    user = SimpleNamespace(id="user-1")
-
-    preview = await preview_project_file_change(
-        "project-1",
-        LatexFileChangeActionRequest(logical_key="project:main"),
-        current_user=user,
-        dataservice=dataservice,
-    )
-    _FakeLatexRouterService.files["main.tex"] = "\\section{User edit}\n"
-
-    with pytest.raises(HTTPException) as exc_info:
-        await apply_project_file_change(
-            "project-1",
-            LatexFileChangeApplyRequest(
-                logical_key="project:main",
-                change_signature=preview.change_signature,
-            ),
-            current_user=user,
-            dataservice=dataservice,
-        )
-
-    assert exc_info.value.status_code == 409
-    assert _FakeLatexRouterService.files["main.tex"] == "\\section{User edit}\n"
-
-
-@pytest.mark.asyncio
-async def test_file_change_discard_protects_current_content(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _reset_fake_router_service()
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.LatexProjectService",
-        _FakeLatexRouterService,
-    )
-    dataservice = _patch_latex_files_dataservice(monkeypatch)
-
-    response = await discard_project_file_change(
-        "project-1",
-        LatexFileChangeActionRequest(logical_key="project:main"),
-        current_user=SimpleNamespace(id="user-1"),
-        dataservice=dataservice,
-    )
-
-    metadata = _FakeLatexRouterService.project.llm_config["metadata"]
-    assert response.discarded is True
-    assert metadata["managed_files"]["project:main"]["protected"] is True
-    assert _FakePrismReviewService.review_item.status == "rejected"
-    assert _FakePrismReviewService.protected == [
-        {
-            "logical_key": "project:main",
-            "path": "main.tex",
-            "reason": "user_protected",
-        }
-    ]
-
-
-@pytest.mark.asyncio
-async def test_file_change_revert_restores_previous_content(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _reset_fake_router_service()
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.LatexProjectService",
-        _FakeLatexRouterService,
-    )
-    dataservice = _patch_latex_files_dataservice(monkeypatch)
-    user = SimpleNamespace(id="user-1")
-    preview = await preview_project_file_change(
-        "project-1",
-        LatexFileChangeActionRequest(logical_key="project:main"),
-        current_user=user,
-        dataservice=dataservice,
-    )
-    applied = await apply_project_file_change(
-        "project-1",
-        LatexFileChangeApplyRequest(
-            logical_key="project:main",
-            change_signature=preview.change_signature,
-        ),
-        current_user=user,
-        dataservice=dataservice,
-    )
-
-    response = await revert_project_file_change(
-        "project-1",
-        LatexFileChangeRevertRequest(
-            logical_key="project:main",
-            revert_signature=applied.undo.revert_signature,
-        ),
-        current_user=user,
-        dataservice=dataservice,
-    )
-
-    metadata = _FakeLatexRouterService.project.llm_config["metadata"]
-    assert response.reverted is True
-    assert _FakeLatexRouterService.files["main.tex"] == "\\section{Current}\n"
-    assert metadata["managed_files"]["project:main"]["protected"] is True
-    assert "applied_file_changes" not in metadata
-    assert _FakePrismReviewService.review_item.status == "reverted"
 
 
 def test_upload_path_normalization_avoids_duplicate_base_prefix() -> None:

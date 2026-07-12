@@ -11,7 +11,7 @@ This module tests the artifact endpoints including:
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -33,6 +33,7 @@ USER_ID = "550e8400-e29b-41d4-a716-446655440002"
 
 
 # ============ Mock Fixtures ============
+
 
 class MockArtifactService:
     """Mock artifact service for testing."""
@@ -84,8 +85,7 @@ class MockArtifactService:
         column.name = name
         return column
 
-    async def create(self, workspace_id, type, content, title=None,
-                     created_by_skill=None, parent_artifact_id=None, status="draft"):
+    async def create(self, workspace_id, type, content, title=None, created_by_skill=None, parent_artifact_id=None, status="draft"):
         artifact = self._create_artifact_obj(
             workspace_id=workspace_id,
             type=type,
@@ -226,12 +226,8 @@ def app(mock_service, mock_thread_service, mock_workspace_service):
 
     app.dependency_overrides[get_artifact_service] = get_artifact_service_override
     app.dependency_overrides[get_thread_service] = get_thread_service_override
-    app.dependency_overrides[artifacts_router.get_workspace_service] = (
-        get_workspace_service_override
-    )
-    app.dependency_overrides[artifacts_router.get_dataservice_client] = (
-        get_dataservice_client_override
-    )
+    app.dependency_overrides[artifacts_router.get_workspace_service] = get_workspace_service_override
+    app.dependency_overrides[artifacts_router.get_dataservice_client] = get_dataservice_client_override
     app.dependency_overrides[get_current_user] = get_current_user_override
     app.dependency_overrides[get_current_user_optional] = get_current_user_override
     app.include_router(router)
@@ -373,6 +369,7 @@ class TestThreadArtifactFiles:
         assert response.status_code == 200
         assert response.text == "# Report"
 
+
 class TestWorkspaceFiles:
     """Test canonical workspace upload file serving."""
 
@@ -403,9 +400,7 @@ class TestWorkspaceFiles:
             _raise,
         )
 
-        response = client.get(
-            f"/workspaces/{WORKSPACE_ID}/files/%2E%2E/%2E%2E/etc/passwd"
-        )
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/files/%2E%2E/%2E%2E/etc/passwd")
 
         assert response.status_code == 403
         assert "escapes workspace uploads root" in response.json()["detail"]
@@ -482,11 +477,7 @@ class TestCreateArtifact:
         assert data["version"] == 1
 
     def test_create_artifact_accepts_arbitrary_skill_id(self, client):
-        """Legacy skill-catalog validation is gone; any non-empty id is accepted.
-
-        Capability/skill validity is enforced at launch_feature time against
-        the DB capability catalog, not at artifact creation.
-        """
+        """Artifact provenance accepts the runtime-selected worker skill id."""
         response = client.post(
             f"/workspaces/{WORKSPACE_ID}/artifacts",
             json={
@@ -516,37 +507,6 @@ class TestCreateArtifact:
         assert data["type"] == "methodology"
         assert data["title"] is None
         assert data["created_by_skill"] is None
-
-    def test_create_artifact_links_execution_record_when_execution_id_present(self, client):
-        fake_execution = MagicMock()
-        fake_execution.id = "550e8400-e29b-41d4-a716-446655440099"
-
-        with patch(
-            "src.gateway.routers.artifacts.ExecutionService"
-        ) as execution_service_cls:
-            execution_service = execution_service_cls.return_value
-            execution_service.get_by_id = MagicMock(return_value=None)
-            execution_service.get_by_id = AsyncMock(return_value=fake_execution)
-            execution_service.append_artifact_id = AsyncMock()
-
-            response = client.post(
-                f"/workspaces/{WORKSPACE_ID}/artifacts",
-                json={
-                    "type": "research_idea",
-                    "title": "Linked Artifact",
-                    "content": {"idea": "linked"},
-                    "execution_id": "550e8400-e29b-41d4-a716-446655440099",
-                },
-            )
-
-        assert response.status_code == 201
-        artifact_id = response.json()["id"]
-        execution_service.append_artifact_id.assert_awaited_once_with(
-            "550e8400-e29b-41d4-a716-446655440099",
-            artifact_id,
-            commit=False,
-        )
-
 
     def test_create_artifact_with_parent(self, client):
         """Test artifact creation with parent artifact."""
@@ -703,9 +663,7 @@ class TestGetArtifact:
 
     def test_get_artifact_not_found(self, client):
         """Test get artifact with non-existent ID."""
-        response = client.get(
-            f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099"
-        )
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -850,9 +808,7 @@ class TestDeleteArtifact:
 
     def test_delete_artifact_not_found(self, client):
         """Test deleting non-existent artifact."""
-        response = client.delete(
-            f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099"
-        )
+        response = client.delete(f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -926,9 +882,7 @@ class TestGetArtifactLineage:
 
     def test_get_lineage_not_found(self, client):
         """Test lineage for non-existent artifact."""
-        response = client.get(
-            f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099/lineage"
-        )
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440099/lineage")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()

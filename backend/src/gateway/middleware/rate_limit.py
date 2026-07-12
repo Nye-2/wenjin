@@ -358,9 +358,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             self._storage[key] = []
 
         # Remove old entries
-        self._storage[key] = [
-            ts for ts in self._storage[key] if ts > window_start
-        ]
+        self._storage[key] = [ts for ts in self._storage[key] if ts > window_start]
 
         # Check limit
         if len(self._storage[key]) >= effective_limit:

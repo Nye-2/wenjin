@@ -18,9 +18,9 @@ export function formatCreditCostLabel(key: string): string {
     case "thread":
     case "thread_token_billing":
       return "主线对话";
-    case "feature":
-    case "feature_token_billing":
-      return "功能任务";
+    case "mission":
+    case "mission_token_billing":
+      return "研究任务";
     case "sandbox_run_python":
       return "实验环境 Python";
     case "sandbox_operation_billing":
@@ -98,7 +98,7 @@ export function summarizeCreditTransaction(item: CreditTransactionItem): string 
     item.type === "thread_token_consume" ||
     (item.type === "workflow_consume" &&
       isRecord(item.metadata) &&
-      (item.metadata.type === "feature_token_billing" ||
+      (item.metadata.type === "mission_token_billing" ||
         item.metadata.type === "sandbox_operation_billing"));
   if (!isSettledBilling || !isRecord(item.metadata)) {
     return base || "-";

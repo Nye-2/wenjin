@@ -83,10 +83,7 @@ async def upload_project_files(
             if total_upload_bytes > _MAX_UPLOAD_TOTAL_BYTES:
                 raise HTTPException(
                     status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                    detail=(
-                        "Upload batch too large. Maximum total size is "
-                        f"{_MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)}MB"
-                    ),
+                    detail=(f"Upload batch too large. Maximum total size is {_MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)}MB"),
                 )
             pending_files[relative_path] = content
             parent = Path(relative_path).parent.as_posix()

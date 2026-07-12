@@ -1,0 +1,131 @@
+schema_version: stage_acceptance_contract.v1
+contract_id: proposal_development.scope
+version: 1
+mission_policy_id: proposal_development
+workspace_type: proposal
+stage_id: scope
+stage_goal: Freeze call requirements, research objective, applicant constraints and deliverables.
+minimum_criteria:
+  - criterion_id: call_alignment
+    description: Call scope, eligibility and evaluation dimensions are explicit.
+  - criterion_id: objective_boundary
+    description: The proposal objective is bounded and assessable.
+  - criterion_id: resource_boundary
+    description: Team, budget, schedule and available foundations are recorded.
+required_artifacts: [{kind: proposal_brief}]
+failure_modes: [missing_call, objective_too_broad]
+reviewer_roles: [proposal_scope_reviewer]
+allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+advance_condition: Call, objective and resource boundaries pass review.
+stop_condition: Required call or applicant information is unavailable.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: proposal_development.evidence_case
+version: 1
+mission_policy_id: proposal_development
+workspace_type: proposal
+stage_id: evidence_case
+stage_goal: Establish source-backed need, prior work, gap and applicant foundation.
+minimum_criteria:
+  - criterion_id: need_evidence
+    description: The problem importance is supported by verifiable sources.
+    required_evidence_surfaces: [citation_strength, claim_evidence_alignment]
+  - criterion_id: prior_work_positioning
+    description: Prior work and applicant foundation are separated and evidenced.
+    required_evidence_surfaces: [literature, source_provenance]
+required_evidence_surfaces: [literature, citation_strength, claim_evidence_alignment, source_provenance]
+required_artifacts: [{kind: evidence_case}]
+failure_modes: [unsupported_need, overstated_foundation]
+reviewer_roles: [proposal_evidence_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: high
+prerequisite_stage_ids: [scope]
+advance_condition: Need, prior work and applicant foundation are verifiably supported.
+stop_condition: The proposal case remains unsupported after bounded retrieval.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: proposal_development.technical_route
+version: 1
+mission_policy_id: proposal_development
+workspace_type: proposal
+stage_id: technical_route
+stage_goal: Define a coherent technical route linking objectives, methods and milestones.
+minimum_criteria:
+  - criterion_id: objective_method_mapping
+    description: Every objective maps to methods, evidence and deliverables.
+  - criterion_id: milestones
+    description: Milestones are measurable, ordered and resource-aware.
+    required_evidence_surfaces: [milestone_realism]
+  - criterion_id: innovation_test
+    description: Innovation claims are distinguished from ordinary implementation.
+    required_evidence_surfaces: [claim_evidence_alignment]
+required_evidence_surfaces: [claim_evidence_alignment, milestone_realism]
+required_artifacts: [{kind: technical_route}]
+failure_modes: [method_list_without_logic, unrealistic_milestone]
+reviewer_roles: [technical_route_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 4
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [evidence_case]
+advance_condition: Objective, method, innovation and milestone mappings pass.
+stop_condition: The proposed route remains infeasible within resource constraints.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: proposal_development.feasibility_risk
+version: 1
+mission_policy_id: proposal_development
+workspace_type: proposal
+stage_id: feasibility_risk
+stage_goal: Validate feasibility, budget, risk controls and fallback routes.
+minimum_criteria:
+  - criterion_id: feasibility_evidence
+    description: Team, data, equipment and preliminary basis support feasibility.
+    required_evidence_surfaces: [feasibility_evidence]
+  - criterion_id: risk_controls
+    description: Material risks have triggers, mitigations and fallback plans.
+    required_evidence_surfaces: [risk_evidence]
+required_evidence_surfaces: [feasibility_evidence, risk_evidence]
+required_artifacts: [{kind: feasibility_risk_register}]
+failure_modes: [resource_gap, unmitigated_risk]
+reviewer_roles: [feasibility_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 3
+no_progress_limit: 2
+recommended_model_effort: high
+prerequisite_stage_ids: [technical_route]
+advance_condition: Feasibility evidence and all material risk controls pass.
+stop_condition: A critical unmitigated feasibility constraint remains.
+---
+schema_version: stage_acceptance_contract.v1
+contract_id: proposal_development.proposal_writing
+version: 1
+mission_policy_id: proposal_development
+workspace_type: proposal
+stage_id: proposal_writing
+stage_goal: Produce a compliant, evidence-aligned and reviewable proposal package.
+minimum_criteria:
+  - criterion_id: evaluation_alignment
+    description: Each section answers a stated evaluation dimension.
+  - criterion_id: claim_evidence_binding
+    description: Need, innovation and foundation claims retain evidence links.
+    required_evidence_surfaces: [citation_strength, claim_evidence_alignment]
+  - criterion_id: reviewable_package
+    description: Changes and attachments are previewable before save.
+    required_evidence_surfaces: [review_packet_completeness]
+required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, review_packet_completeness]
+required_artifacts: [{kind: proposal_draft}]
+failure_modes: [criterion_omission, unsupported_claim, unreviewable_package]
+reviewer_roles: [proposal_panel_reviewer]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+max_revision_attempts: 5
+no_progress_limit: 2
+recommended_model_effort: xhigh
+prerequisite_stage_ids: [feasibility_risk]
+advance_condition: Compliance, evidence and reviewability criteria all pass.
+stop_condition: Required call criteria or evidence cannot be satisfied.

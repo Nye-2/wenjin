@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       POSTGRES_DB: wenjin
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -73,7 +73,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
     command: ["python", "-m", "src.database.migration_bootstrap"]
@@ -93,7 +93,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - ENVIRONMENT=${ENVIRONMENT:-production}
@@ -119,7 +119,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
     command: ["python", "-m", "uvicorn", "src.dataservice_app.app:app", "--host", "0.0.0.0", "--port", "8080"]
@@ -143,7 +143,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
@@ -158,22 +158,22 @@ services:
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
-      - WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=${WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS:-900}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
-      - /var/run/docker.sock:/var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID:-0}"
     depends_on:
       bootstrap-admin:
         condition: service_completed_successfully
       dataservice:
         condition: service_healthy
       worker:
+        condition: service_healthy
+      mission-worker:
+        condition: service_healthy
+      celery-beat:
         condition: service_healthy
       texlive:
         condition: service_completed_successfully
@@ -186,14 +186,14 @@ services:
     networks:
       - wenjin-network
 
-  worker:
+  worker: &worker-base
     image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-worker
     restart: unless-stopped
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
@@ -208,17 +208,26 @@ services:
       - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-worker
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
-      - WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=${WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS:-900}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
-    command: ["python", "-m", "src.task.worker", "1", "--queues", "long_running,default,priority"]
+    command:
+      [
+        "python",
+        "-m",
+        "src.sandbox.preflight",
+        "--strip-sandbox-env",
+        "--exec",
+        "python",
+        "-m",
+        "src.task.worker",
+        "1",
+        "--queues",
+        "default,priority",
+      ]
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json:ro
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
-      - /var/run/docker.sock:/var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID:-0}"
     depends_on:
       bootstrap-admin:
         condition: service_completed_successfully
@@ -239,6 +248,108 @@ services:
     networks:
       - wenjin-network
 
+  mission-worker:
+    <<: *worker-base
+    container_name: wenjin-mission-worker
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
+      - REDIS_ENABLED=true
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
+      - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
+      - CELERY_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - PROMETHEUS_WORKER_PORT=${PROMETHEUS_WORKER_PORT:-9153}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-worker
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+      - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
+      - SANDBOX_PROVIDER=docker
+      - SANDBOX_DEPLOYMENT_MODE=production
+      - SANDBOX_ROOT_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/sandbox
+    volumes:
+      - uploads:/app/uploads
+      - ./backend/skills:/app/skills:ro
+      - ./backend/extensions_config.json:/app/extensions_config.json:ro
+      - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
+      - ${SANDBOX_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    group_add:
+      - "${SANDBOX_DOCKER_GID:?SANDBOX_DOCKER_GID must match the container-visible Docker socket group}"
+    command:
+      [
+        "python",
+        "-m",
+        "src.sandbox.preflight",
+        "--release",
+        "--exec",
+        "python",
+        "-m",
+        "src.task.worker",
+        "1",
+        "--queues",
+        "long_running",
+        "--prefetch-multiplier",
+        "1",
+        "--require-mission-model-profile",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "grep -qx 'gpt-5.5' /tmp/wenjin-worker-ready && curl -fsS http://127.0.0.1:${PROMETHEUS_WORKER_PORT:-9153}/metrics >/dev/null",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Single scheduler for durable Mission reconciliation and other periodic tasks.
+  celery-beat:
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
+    container_name: wenjin-celery-beat
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
+      - REDIS_ENABLED=true
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+    command:
+      [
+        "sh",
+        "-c",
+        "rm -f /tmp/celerybeat.pid /tmp/celerybeat-schedule* && exec celery -A src.task.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule --pidfile=/tmp/celerybeat.pid",
+      ]
+    depends_on:
+      bootstrap-admin:
+        condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -s /tmp/celerybeat.pid && kill -0 $$(cat /tmp/celerybeat.pid)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - wenjin-network
+
   memory-worker:
     image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-memory-worker
@@ -246,7 +357,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
@@ -289,7 +400,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379/0
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
@@ -303,16 +414,12 @@ services:
       - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
-      - WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=${WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS:-900}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json:ro
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
-      - /var/run/docker.sock:/var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID:-0}"
     depends_on:
       migrate:
         condition: service_completed_successfully

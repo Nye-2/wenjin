@@ -9,16 +9,19 @@ from src.database.models.model_catalog import (
     ModelCatalogEntry,
     ModelCategory,
     ModelHealthStatus,
-    ModelProviderProtocol,
     ModelTrustLevel,
 )
 from src.database.models.pricing_policy import PricingPolicy, PricingPolicyKind
 from src.database.models.user import User
+from src.models.capability_profile import (
+    GenerationAPI,
+    unverified_capability_assessment,
+)
 
 
 def test_model_catalog_entry_contract() -> None:
     assert ModelCatalogEntry.__tablename__ == "model_catalog_entries"
-    assert ModelProviderProtocol.OPENAI_COMPATIBLE.value == "openai_compatible"
+    assert GenerationAPI.CHAT_COMPLETIONS.value == "chat_completions"
     assert ModelCategory.LLM.value == "llm"
     assert ModelCategory.IMAGE.value == "image"
     assert ModelTrustLevel.CUSTOM.value == "custom"
@@ -28,10 +31,16 @@ def test_model_catalog_entry_contract() -> None:
     assert "ix_model_catalog_enabled_category" in index_names
     assert "ix_model_catalog_default_category" in index_names
 
+    assessment = unverified_capability_assessment(
+        model_id="default-model",
+        model_name="provider-model",
+        base_url="https://api.example.com/v1",
+        generation_api=GenerationAPI.CHAT_COMPLETIONS,
+    )
     entry = ModelCatalogEntry(
         model_id="default-model",
         display_name="Default Model",
-        provider_protocol=ModelProviderProtocol.OPENAI_COMPATIBLE,
+        generation_api=GenerationAPI.CHAT_COMPLETIONS,
         provider_name="Custom",
         category=ModelCategory.LLM,
         model_name="provider-model",
@@ -39,12 +48,19 @@ def test_model_catalog_entry_contract() -> None:
         encrypted_api_key="ciphertext",
         api_key_last4="abcd",
         api_key_fingerprint="fingerprint",
+        capability_profile_json=assessment.profile.model_dump(mode="json"),
+        capability_probe_json=assessment.evidence.model_dump(mode="json"),
+        capability_probe_hash=assessment.profile.probe_hash,
+        capability_observed_at=assessment.profile.observed_at,
     )
 
     assert entry.enabled is None or entry.enabled is True
     assert entry.is_default is None or entry.is_default is False
-    assert entry.supports_streaming is None or entry.supports_streaming is True
-    assert entry.supports_tools is None or entry.supports_tools is False
+    assert entry.capability_probe_hash == assessment.profile.probe_hash
+    assert "provider_protocol" not in ModelCatalogEntry.__table__.columns
+    assert "supports_tools" not in ModelCatalogEntry.__table__.columns
+    assert ModelCatalogEntry.__table__.columns["capability_probe_hash"].nullable is False
+    assert ModelCatalogEntry.__table__.columns["capability_observed_at"].nullable is False
     assert entry.config_version is None or entry.config_version == 1
 
 
@@ -52,7 +68,7 @@ def test_pricing_policy_contract() -> None:
     assert PricingPolicy.__tablename__ == "pricing_policies"
     assert PricingPolicyKind.GLOBAL_CREDIT.value == "global_credit"
     assert PricingPolicyKind.MODEL_USAGE.value == "model_usage"
-    assert PricingPolicyKind.CAPABILITY.value == "capability"
+    assert PricingPolicyKind.MISSION.value == "mission"
     assert PricingPolicyKind.TOOL.value == "tool"
     assert PricingPolicyKind.SANDBOX.value == "sandbox"
 
@@ -72,7 +88,7 @@ def test_pricing_policy_contract() -> None:
 
 def test_credit_reservation_contract() -> None:
     assert CreditReservation.__tablename__ == "credit_reservations"
-    assert CreditReservationScope.FEATURE_EXECUTION.value == "feature_execution"
+    assert CreditReservationScope.MISSION.value == "mission"
     assert CreditReservationScope.SANDBOX_OPERATION.value == "sandbox_operation"
     assert CreditReservationScope.THREAD_TURN.value == "thread_turn"
     assert CreditReservationStatus.RESERVED.value == "reserved"
@@ -82,13 +98,13 @@ def test_credit_reservation_contract() -> None:
 
     index_names = {idx.name for idx in CreditReservation.__table__.indexes}
     assert "ix_credit_reservations_user_status" in index_names
-    assert "ix_credit_reservations_execution" in index_names
+    assert "ix_credit_reservations_mission" in index_names
 
     reservation = CreditReservation(
         user_id="user-1",
-        scope=CreditReservationScope.FEATURE_EXECUTION,
+        scope=CreditReservationScope.MISSION,
         reserved_credits=500,
-        idempotency_key="feature:exec-1",
+        idempotency_key="mission:mission-1",
     )
 
     assert reservation.status is None or reservation.status == CreditReservationStatus.RESERVED

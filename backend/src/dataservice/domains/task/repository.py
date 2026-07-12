@@ -29,9 +29,7 @@ class TaskRepository:
         return record
 
     async def get_task_record(self, task_id: str) -> Any | None:
-        result = await self.session.execute(
-            select(self.record_model).where(self.record_model.id == task_id)
-        )
+        result = await self.session.execute(select(self.record_model).where(self.record_model.id == task_id))
         return result.scalar_one_or_none()
 
     async def list_user_tasks(
@@ -42,8 +40,6 @@ class TaskRepository:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ) -> list[Any]:
         query = select(self.record_model).where(self.record_model.user_id == user_id)
 
@@ -52,25 +48,14 @@ class TaskRepository:
             if normalized_status:
                 query = query.where(self.record_model.status == normalized_status)
         elif isinstance(status, (list, tuple)):
-            normalized_statuses = [
-                str(item).strip()
-                for item in status
-                if isinstance(item, str) and str(item).strip()
-            ]
+            normalized_statuses = [str(item).strip() for item in status if isinstance(item, str) and str(item).strip()]
             if normalized_statuses:
                 query = query.where(self.record_model.status.in_(normalized_statuses))
         if task_type:
             query = query.where(self.record_model.task_type == task_type)
         if workspace_id is not None:
             query = query.where(self.record_model.workspace_id == workspace_id)
-        if feature_id is not None:
-            query = query.where(self.record_model.feature_id == feature_id)
-        if action is not None:
-            query = query.where(self.record_model.action == action)
-
-        result = await self.session.execute(
-            query.order_by(self.record_model.created_at.desc()).limit(limit)
-        )
+        result = await self.session.execute(query.order_by(self.record_model.created_at.desc()).limit(limit))
         return list(result.scalars().all())
 
     async def count_tasks(

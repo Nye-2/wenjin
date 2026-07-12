@@ -72,10 +72,7 @@ class McpConfigUpdateRequest(BaseModel):
 
 
 def _serialize_mcp_servers(config: ExtensionsConfig) -> dict[str, McpServerConfigResponse]:
-    return {
-        name: McpServerConfigResponse(**server.model_dump())
-        for name, server in config.mcp_servers.items()
-    }
+    return {name: McpServerConfigResponse(**server.model_dump()) for name, server in config.mcp_servers.items()}
 
 
 @router.get("/mcp/config", response_model=McpConfigResponse)
@@ -102,10 +99,7 @@ async def update_mcp_configuration(
 
         current_config = get_extensions_config()
         config_data = current_config.model_dump(by_alias=True, exclude_none=True)
-        config_data["mcpServers"] = {
-            name: server.model_dump(exclude_none=True)
-            for name, server in request.mcp_servers.items()
-        }
+        config_data["mcpServers"] = {name: server.model_dump(exclude_none=True) for name, server in request.mcp_servers.items()}
         candidate_config = ExtensionsConfig.model_validate(config_data)
 
         validation_manager = MCPManager(config_path=str(config_path))

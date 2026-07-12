@@ -37,7 +37,8 @@ class ProvenanceLinkRecord(Base, UUIDMixin, TimestampMixin):
         Index("ix_provenance_links_workspace_created", "workspace_id", "created_at"),
         Index("ix_provenance_links_source", "source_id"),
         Index("ix_provenance_links_target", "target_domain", "target_kind", "target_id"),
-        Index("ix_provenance_links_review_item", "review_item_id"),
+        Index("ix_provenance_links_mission_review_item", "mission_review_item_id"),
+        Index("ix_provenance_links_mission_commit", "mission_commit_id"),
     )
 
     workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"))
@@ -51,6 +52,19 @@ class ProvenanceLinkRecord(Base, UUIDMixin, TimestampMixin):
     citation_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     claim_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    review_item_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    mission_review_item_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_review_items.review_item_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    mission_commit_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_commits.commit_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    mission_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")

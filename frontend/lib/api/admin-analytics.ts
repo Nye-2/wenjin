@@ -21,14 +21,14 @@ export interface UserGrowthResponse {
   time_series: UserGrowthTimePoint[];
 }
 
-export interface ExecutionKPIs {
+export interface MissionKPIs {
   total: number;
   success: number;
   failed: number;
   success_rate: number;
 }
 
-export interface ExecutionTimePoint {
+export interface MissionTimePoint {
   date: string;
   by_type: Record<string, number>;
   by_status: Record<string, number>;
@@ -39,9 +39,9 @@ export interface WorkspaceTypeCount {
   count: number;
 }
 
-export interface ExecutionStatsResponse {
-  kpis: ExecutionKPIs;
-  time_series: ExecutionTimePoint[];
+export interface MissionStatsResponse {
+  kpis: MissionKPIs;
+  time_series: MissionTimePoint[];
   by_workspace_type: WorkspaceTypeCount[];
 }
 
@@ -86,13 +86,13 @@ export async function getUserGrowth(params?: {
   return response.data;
 }
 
-export async function getExecutionStats(params?: {
+export async function getMissionStats(params?: {
   range?: string;
   granularity?: "day" | "week";
   cache_bust?: boolean;
-}): Promise<ExecutionStatsResponse> {
+}): Promise<MissionStatsResponse> {
   const response = await apiClient.get(
-    "/dashboard/admin/analytics/execution-stats",
+    "/dashboard/admin/analytics/mission-stats",
     { params }
   );
   return response.data;

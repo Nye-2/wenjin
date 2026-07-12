@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,7 +16,7 @@ class TaskRecord(Base):
     Attributes:
         id: UUID primary key
         user_id: ID of the user who owns this task
-        task_type: Type of task (e.g., 'execution', 'reference_preprocess')
+        task_type: Infrastructure task type (for example, 'reference_preprocess')
         status: Current status (pending, running, completed, failed, cancelled)
         priority: Task priority (1-10, higher = more important)
         payload: Task request payload as JSON
@@ -41,10 +41,13 @@ class TaskRecord(Base):
 
     # Structured context fields — populated from payload at task creation
     workspace_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    feature_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     thread_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    action: Mapped[str | None] = mapped_column(String, nullable=True)
+    mission_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     status: Mapped[str] = mapped_column(
         String(20),
@@ -84,27 +87,6 @@ class TaskRecord(Base):
         Index("ix_task_records_user_status", "user_id", "status"),
         Index("ix_task_records_user_created", "user_id", "created_at"),
         Index("ix_task_records_created_at", "created_at"),
-        Index("ix_task_workspace_feature_status", "workspace_id", "feature_id", "status"),
-        Index(
-            "ix_task_records_dedupe_lookup",
-            "user_id",
-            "task_type",
-            "workspace_id",
-            "feature_id",
-            "action",
-            "status",
-            "created_at",
-        ),
-        Index(
-            "ix_task_records_active_dedupe_lookup",
-            "user_id",
-            "task_type",
-            "workspace_id",
-            "feature_id",
-            "action",
-            "created_at",
-            postgresql_where=text("status IN ('pending', 'running')"),
-        ),
         CheckConstraint(
             "progress >= 0 AND progress <= 100",
             name="ck_task_records_progress_range",

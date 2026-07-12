@@ -1,324 +1,81 @@
-"""Catalog endpoints for DataService internal API."""
+"""Internal Mission policy catalog API."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
-from src.dataservice.domains.catalog.seed_loader import DataServiceCatalogSeedLoader
-from src.dataservice.domains.catalog.service import DataServiceCatalogService
+from src.dataservice.domains.catalog.service import MissionCatalogService
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
-from src.dataservice_client.contracts.catalog import (
-    AdminLogCreatePayload,
-    CatalogEnabledPayload,
-    CatalogSeedLoadPayload,
-    CatalogUpsertPayload,
-)
+from src.dataservice_client.contracts.catalog import CatalogSeedLoadPayload
 
 router = APIRouter(
     prefix="/internal/v1/catalog",
-    tags=["catalog"],
+    tags=["internal-catalog"],
     dependencies=[Depends(require_internal_token)],
 )
 
 
-@router.get("/capabilities")
-async def list_capabilities(
-    workspace_type: str | None = Query(default=None),
-    enabled_only: bool = Query(default=False),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    records = await service.list_capabilities(
-        workspace_type=workspace_type,
-        enabled_only=enabled_only,
-    )
-    return envelope_ok([record.model_dump(mode="json") for record in records])
+def _policy(row):
+    return {"id": row.id, "workspace_type": row.workspace_type, "schema_version": row.schema_version, "enabled": row.enabled, "policy_json": row.policy_json, "content_hash": row.content_hash, "source_path": row.source_path}
 
 
-@router.get("/capabilities/exists")
-async def has_capabilities(
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    return envelope_ok({"exists": await service.has_capabilities()})
+def _skill(row):
+    return {"id": row.id, "schema_version": row.schema_version, "enabled": row.enabled, "skill_json": row.skill_json, "content_hash": row.content_hash, "source_path": row.source_path}
 
 
-@router.get("/capabilities/{workspace_type}/{capability_id}")
-async def get_capability(
-    workspace_type: str,
-    capability_id: str,
-    enabled_only: bool = Query(default=False),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    record = await service.get_capability(
-        capability_id=capability_id,
-        workspace_type=workspace_type,
-        enabled_only=enabled_only,
-    )
-    return envelope_ok(record.model_dump(mode="json") if record else None)
+@router.get("/mission-policies")
+async def list_mission_policies(workspace_type: str | None = None, enabled_only: bool = Query(False), uow: DataServiceUnitOfWork = Depends(get_uow)):
+    service = MissionCatalogService(uow.required_session, autocommit=False)
+    return envelope_ok([_policy(item) for item in await service.list_policies(workspace_type=workspace_type, enabled_only=enabled_only)])
 
 
-@router.put("/capabilities/{workspace_type}/{capability_id}")
-async def upsert_capability(
-    workspace_type: str,
-    capability_id: str,
-    payload: CatalogUpsertPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    data = dict(payload.data)
-    data["id"] = capability_id
-    data["workspace_type"] = workspace_type
-    record = await service.upsert_capability(
-        data,
-        checksum=payload.checksum,
-        source_path=payload.source_path,
-    )
-    await uow.commit()
-    return envelope_ok(record.model_dump(mode="json"))
+@router.get("/mission-policies/exists")
+async def has_mission_policies(uow: DataServiceUnitOfWork = Depends(get_uow)):
+    return envelope_ok({"exists": await MissionCatalogService(uow.required_session, autocommit=False).has_policies()})
 
 
-@router.delete("/capabilities/{workspace_type}/{capability_id}")
-async def delete_capability(
-    workspace_type: str,
-    capability_id: str,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    deleted = await service.delete_capability(
-        capability_id=capability_id,
+@router.get("/mission-policies/{workspace_type}/{policy_id}")
+async def get_mission_policy(workspace_type: str, policy_id: str, uow: DataServiceUnitOfWork = Depends(get_uow)):
+    row = await MissionCatalogService(uow.required_session, autocommit=False).get_policy(
+        policy_id=policy_id,
         workspace_type=workspace_type,
     )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Mission policy not found")
+    return envelope_ok(_policy(row))
+
+
+@router.post("/mission-policies/seed-load")
+async def load_mission_policies(payload: CatalogSeedLoadPayload, uow: DataServiceUnitOfWork = Depends(get_uow)):
+    loaded = await MissionCatalogService(uow.required_session, autocommit=False).load_policies([item.model_dump(mode="json") for item in payload.items], overwrite=payload.overwrite)
     await uow.commit()
-    return envelope_ok({"deleted": deleted})
+    return envelope_ok({"loaded": loaded})
 
 
-@router.patch("/capabilities/{workspace_type}/{capability_id}/enabled")
-async def set_capability_enabled(
-    workspace_type: str,
-    capability_id: str,
-    payload: CatalogEnabledPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    record = await service.set_capability_enabled(
-        capability_id=capability_id,
-        workspace_type=workspace_type,
-        enabled=payload.enabled,
-    )
+@router.get("/worker-skills")
+async def list_worker_skills(enabled_only: bool = Query(False), uow: DataServiceUnitOfWork = Depends(get_uow)):
+    service = MissionCatalogService(uow.required_session, autocommit=False)
+    return envelope_ok([_skill(item) for item in await service.list_skills(enabled_only=enabled_only)])
+
+
+@router.get("/worker-skills/exists")
+async def has_worker_skills(uow: DataServiceUnitOfWork = Depends(get_uow)):
+    return envelope_ok({"exists": await MissionCatalogService(uow.required_session, autocommit=False).has_skills()})
+
+
+@router.get("/worker-skills/{skill_id}")
+async def get_worker_skill(skill_id: str, uow: DataServiceUnitOfWork = Depends(get_uow)):
+    row = await MissionCatalogService(uow.required_session, autocommit=False).get_skill(skill_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Worker skill not found")
+    return envelope_ok(_skill(row))
+
+
+@router.post("/worker-skills/seed-load")
+async def load_worker_skills(payload: CatalogSeedLoadPayload, uow: DataServiceUnitOfWork = Depends(get_uow)):
+    loaded = await MissionCatalogService(uow.required_session, autocommit=False).load_skills([item.model_dump(mode="json") for item in payload.items], overwrite=payload.overwrite)
     await uow.commit()
-    return envelope_ok(record.model_dump(mode="json") if record else None)
-
-
-@router.post("/capabilities/seed-load")
-async def load_capability_seed_items(
-    payload: CatalogSeedLoadPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    loader = DataServiceCatalogSeedLoader(service, payload.seed_root)
-    result = await loader.load_capability_items(
-        seed_root=payload.seed_root,
-        seed_items=[item.model_dump(mode="json") for item in payload.items],
-        overwrite=payload.overwrite,
-    )
-    await uow.commit()
-    return envelope_ok(result.model_dump(mode="json"))
-
-
-@router.get("/skills")
-async def list_skills(
-    enabled_only: bool = Query(default=False),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    records = await service.list_skills(enabled_only=enabled_only)
-    return envelope_ok([record.model_dump(mode="json") for record in records])
-
-
-@router.get("/skills/exists")
-async def has_skills(
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    return envelope_ok({"exists": await service.has_skills()})
-
-
-@router.get("/skills/{skill_id}")
-async def get_skill(
-    skill_id: str,
-    enabled_only: bool = Query(default=False),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    record = await service.get_skill(skill_id, enabled_only=enabled_only)
-    return envelope_ok(record.model_dump(mode="json") if record else None)
-
-
-@router.put("/skills/{skill_id}")
-async def upsert_skill(
-    skill_id: str,
-    payload: CatalogUpsertPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    data = dict(payload.data)
-    data["id"] = skill_id
-    record = await service.upsert_skill(
-        data,
-        checksum=payload.checksum,
-        source_path=payload.source_path,
-    )
-    await uow.commit()
-    return envelope_ok(record.model_dump(mode="json"))
-
-
-@router.delete("/skills/{skill_id}")
-async def delete_skill(
-    skill_id: str,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    deleted = await service.delete_skill(skill_id)
-    await uow.commit()
-    return envelope_ok({"deleted": deleted})
-
-
-@router.patch("/skills/{skill_id}/enabled")
-async def set_skill_enabled(
-    skill_id: str,
-    payload: CatalogEnabledPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    record = await service.set_skill_enabled(skill_id=skill_id, enabled=payload.enabled)
-    await uow.commit()
-    return envelope_ok(record.model_dump(mode="json") if record else None)
-
-
-@router.post("/skills/seed-load")
-async def load_skill_seed_items(
-    payload: CatalogSeedLoadPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    loader = DataServiceCatalogSeedLoader(service, payload.seed_root)
-    result = await loader.load_skill_items(
-        seed_root=payload.seed_root,
-        seed_items=[item.model_dump(mode="json") for item in payload.items],
-        overwrite=payload.overwrite,
-    )
-    await uow.commit()
-    return envelope_ok(result.model_dump(mode="json"))
-
-
-@router.get("/agent-templates")
-async def list_agent_templates(
-    enabled_only: bool = Query(default=False),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    records = await service.list_agent_templates(enabled_only=enabled_only)
-    return envelope_ok([record.model_dump(mode="json") for record in records])
-
-
-@router.get("/agent-templates/exists")
-async def has_agent_templates(
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    return envelope_ok({"exists": await service.has_agent_templates()})
-
-
-@router.get("/agent-templates/{template_id}")
-async def get_agent_template(
-    template_id: str,
-    enabled_only: bool = Query(default=False),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    record = await service.get_agent_template(template_id, enabled_only=enabled_only)
-    return envelope_ok(record.model_dump(mode="json") if record else None)
-
-
-@router.put("/agent-templates/{template_id}")
-async def upsert_agent_template(
-    template_id: str,
-    payload: CatalogUpsertPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    data = dict(payload.data)
-    data["id"] = template_id
-    record = await service.upsert_agent_template(
-        data,
-        checksum=payload.checksum,
-        source_path=payload.source_path,
-    )
-    await uow.commit()
-    return envelope_ok(record.model_dump(mode="json"))
-
-
-@router.delete("/agent-templates/{template_id}")
-async def delete_agent_template(
-    template_id: str,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    deleted = await service.delete_agent_template(template_id)
-    await uow.commit()
-    return envelope_ok({"deleted": deleted})
-
-
-@router.post("/agent-templates/seed-load")
-async def load_agent_template_seed_items(
-    payload: CatalogSeedLoadPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    loader = DataServiceCatalogSeedLoader(service, payload.seed_root)
-    result = await loader.load_agent_template_items(
-        seed_root=payload.seed_root,
-        seed_items=[item.model_dump(mode="json") for item in payload.items],
-        overwrite=payload.overwrite,
-    )
-    await uow.commit()
-    return envelope_ok(result.model_dump(mode="json"))
-
-
-@router.post("/admin-logs")
-async def record_admin_log(
-    payload: AdminLogCreatePayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    record = await service.record_admin_log(**payload.model_dump())
-    await uow.commit()
-    return envelope_ok(record.model_dump(mode="json"))
-
-
-@router.get("/admin-logs")
-async def list_admin_logs(
-    action: str | None = Query(default=None),
-    target_user_id: str | None = Query(default=None),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=200),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceCatalogService(uow.required_session, autocommit=False)
-    records, total = await service.list_admin_logs(
-        action=action,
-        target_user_id=target_user_id,
-        offset=offset,
-        limit=limit,
-    )
-    return envelope_ok(
-        {
-            "items": [record.model_dump(mode="json") for record in records],
-            "total": total,
-        }
-    )
+    return envelope_ok({"loaded": loaded})

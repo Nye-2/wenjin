@@ -1,0 +1,229 @@
+"""Canonical Mission tool registrations and policy-group mapping."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from src.agents.harness.command_audit import CommandAuditPolicy, SandboxCommandAuditor
+from src.dataservice_client import AsyncDataServiceClient
+from src.sandbox import SandboxOperationKind, SandboxRuntime, compiler_fingerprints, get_sandbox_settings
+from src.sandbox.providers import DockerSandboxProvider
+from src.tools.mission.contracts import (
+    CreateArtifactCandidateInput,
+    ImportSourceCandidateInput,
+    InstallDependenciesToolInput,
+    ListSourceCodeFilesInput,
+    ListWorkspaceAssetsInput,
+    ListWorkspaceDocumentsInput,
+    ReadMissionReviewCandidateInput,
+    ReadSandboxOutputInput,
+    ReadSourceCodeFileInput,
+    ReadWorkspaceAssetInput,
+    ReadWorkspaceDocumentInput,
+    RegisterArtifactToolInput,
+    RegisterDatasetToolInput,
+    RunNotebookToolInput,
+    RunPythonToolInput,
+    SearchWorkspaceSourceTextInput,
+    SmokeCheckToolInput,
+)
+from src.tools.mission.runtime import MissionToolHandlers
+from src.tools.orchestrator import (
+    SideEffectClass,
+    ToolCallerKind,
+    ToolKind,
+    ToolRegistration,
+    build_tool_registration,
+)
+
+WORKSPACE_READ_TOOL_IDS = (
+    "workspace.list_assets",
+    "workspace.read_asset",
+    "workspace.list_documents",
+    "workspace.read_document",
+    "workspace.search_source_text",
+    "mission.read_review_candidate",
+)
+SOURCE_IMPORT_TOOL_IDS = ("source.import_candidate",)
+SOURCE_CODE_READ_TOOL_IDS = ("source_code.list_files", "source_code.read_file")
+SANDBOX_COMPUTE_TOOL_IDS = (
+    "sandbox.run_python",
+    "sandbox.run_notebook",
+    "sandbox.smoke_check",
+    "sandbox.install_dependencies",
+    "sandbox.register_dataset",
+    "sandbox.register_artifact",
+    "sandbox.read_output_ref",
+)
+ARTIFACT_RENDER_TOOL_IDS = ("artifact.create_candidate",)
+
+MISSION_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
+    "workspace_read": WORKSPACE_READ_TOOL_IDS,
+    "source_import": SOURCE_IMPORT_TOOL_IDS,
+    "source_code_read": SOURCE_CODE_READ_TOOL_IDS,
+    "sandbox_compute": SANDBOX_COMPUTE_TOOL_IDS,
+    "artifact_render": ARTIFACT_RENDER_TOOL_IDS,
+}
+
+_CALLERS = (ToolCallerKind.WORKSPACE_AGENT, ToolCallerKind.SUBAGENT)
+
+
+class LazyProductionSandbox:
+    """Create the hardened Docker runtime only when a sandbox tool is invoked."""
+
+    def __init__(self, *, lease_guard, receipt_store) -> None:
+        self._lease_guard = lease_guard
+        self._receipt_store = receipt_store
+        self._runtime: SandboxRuntime | None = None
+
+    def _get(self) -> SandboxRuntime:
+        if self._runtime is not None:
+            return self._runtime
+        settings = get_sandbox_settings()
+        image_digest = settings.docker.image_digest
+        if image_digest is None:
+            raise RuntimeError("SANDBOX_DOCKER__IMAGE_DIGEST is required for Mission sandbox execution")
+        provider = DockerSandboxProvider(
+            settings.docker,
+            sandbox_root=settings.root_dir,
+            preflight_mode=("release" if settings.deployment_mode == "production" else "development"),
+        )
+        audit_operations = frozenset(
+            {
+                SandboxOperationKind.RUN_PYTHON,
+                SandboxOperationKind.RUN_NOTEBOOK,
+                SandboxOperationKind.SMOKE_CHECK,
+                SandboxOperationKind.INSTALL_DEPENDENCIES,
+            }
+        )
+        self._runtime = SandboxRuntime(
+            provider=provider,
+            command_auditor=SandboxCommandAuditor(
+                CommandAuditPolicy(
+                    allowed_operations=audit_operations,
+                    compiler_fingerprints=compiler_fingerprints(),
+                    allow_package_install=True,
+                )
+            ),
+            lease_guard=self._lease_guard,
+            sandbox_root=settings.root_dir,
+            image_reference=settings.docker.image_reference,
+            image_digest=image_digest,
+            output_ref_ttl_seconds=settings.output_ref_ttl_seconds,
+            receipt_store_factory=lambda _workspace: self._receipt_store,
+        )
+        return self._runtime
+
+    def build_request(self, **kwargs):
+        return self._get().build_request(**kwargs)
+
+    async def execute(self, request):
+        return await self._get().execute(request)
+
+
+def build_mission_tool_registrations(
+    *,
+    dataservice: AsyncDataServiceClient,
+    lease_guard,
+    receipt_store,
+    sandbox_runtime: SandboxRuntime | None = None,
+) -> tuple[ToolRegistration, ...]:
+    sandbox = sandbox_runtime or LazyProductionSandbox(
+        lease_guard=lease_guard,
+        receipt_store=receipt_store,
+    )
+    handlers = MissionToolHandlers(dataservice=dataservice, sandbox=sandbox)  # type: ignore[arg-type]
+    read = _registration_factory(ToolKind.READ, SideEffectClass.NONE)
+    mutation = _registration_factory(ToolKind.SANDBOX_MUTATION, SideEffectClass.IDEMPOTENT)
+    return (
+        read("workspace.list_assets", ListWorkspaceAssetsInput, handlers.list_workspace_assets, "workspace_read"),
+        read("workspace.read_asset", ReadWorkspaceAssetInput, handlers.read_workspace_asset, "workspace_read"),
+        read("workspace.list_documents", ListWorkspaceDocumentsInput, handlers.list_workspace_documents, "workspace_read"),
+        read("workspace.read_document", ReadWorkspaceDocumentInput, handlers.read_workspace_document, "workspace_read"),
+        read("workspace.search_source_text", SearchWorkspaceSourceTextInput, handlers.search_workspace_source_text, "workspace_read"),
+        read("mission.read_review_candidate", ReadMissionReviewCandidateInput, handlers.read_review_candidate, "workspace_read"),
+        _build(
+            "source.import_candidate",
+            ToolKind.WRITE_CANDIDATE,
+            ImportSourceCandidateInput,
+            handlers.import_source_candidate,
+            SideEffectClass.IDEMPOTENT,
+            "source_import",
+            provenance=("workspace_scope", "verification_ref", "mission_receipt"),
+        ),
+        read("source_code.list_files", ListSourceCodeFilesInput, handlers.list_source_code_files, "source_code_read"),
+        read("source_code.read_file", ReadSourceCodeFileInput, handlers.read_source_code_file, "source_code_read"),
+        mutation("sandbox.run_python", RunPythonToolInput, handlers.sandbox_run_python, "sandbox_compute"),
+        mutation("sandbox.run_notebook", RunNotebookToolInput, handlers.sandbox_run_notebook, "sandbox_compute"),
+        mutation("sandbox.smoke_check", SmokeCheckToolInput, handlers.sandbox_smoke_check, "sandbox_compute"),
+        _build(
+            "sandbox.install_dependencies",
+            ToolKind.SANDBOX_MUTATION,
+            InstallDependenciesToolInput,
+            handlers.sandbox_install_dependencies,
+            SideEffectClass.IDEMPOTENT,
+            "sandbox_compute",
+            network_profile="package_index_only",
+            provenance=("mission_permission", "sandbox_receipt"),
+            timeout=1800,
+        ),
+        mutation("sandbox.register_dataset", RegisterDatasetToolInput, handlers.sandbox_register_dataset, "sandbox_compute"),
+        mutation("sandbox.register_artifact", RegisterArtifactToolInput, handlers.sandbox_register_artifact, "sandbox_compute"),
+        read("sandbox.read_output_ref", ReadSandboxOutputInput, handlers.sandbox_read_output, "sandbox_compute"),
+        _build(
+            "artifact.create_candidate",
+            ToolKind.WRITE_CANDIDATE,
+            CreateArtifactCandidateInput,
+            handlers.create_artifact_candidate,
+            SideEffectClass.IDEMPOTENT,
+            "artifact_render",
+            provenance=("source_refs", "mission_receipt"),
+        ),
+    )
+
+
+def _registration_factory(kind: ToolKind, side_effect: SideEffectClass):
+    def factory(tool_id, input_model, handler, permission):
+        return _build(tool_id, kind, input_model, handler, side_effect, permission)
+
+    return factory
+
+
+def _build(
+    tool_id: str,
+    kind: ToolKind,
+    input_model,
+    handler: Callable,
+    side_effect: SideEffectClass,
+    permission: str,
+    *,
+    network_profile: str = "none",
+    provenance: tuple[str, ...] = ("workspace_scope", "mission_receipt"),
+    timeout: float = 120,
+) -> ToolRegistration:
+    return build_tool_registration(
+        tool_id=tool_id,
+        tool_version="1.0.0",
+        kind=kind,
+        input_model=input_model,
+        handler=handler,
+        side_effect_class=side_effect,
+        allowed_callers=_CALLERS,
+        required_permissions=(permission,),
+        network_profile=network_profile,
+        budget_class="mission_standard",
+        default_timeout_seconds=timeout,
+        payload_limit_bytes=131_072,
+        provenance_requirements=provenance,
+    )
+
+
+__all__ = [
+    "ARTIFACT_RENDER_TOOL_IDS",
+    "MISSION_TOOL_GROUPS",
+    "SANDBOX_COMPUTE_TOOL_IDS",
+    "SOURCE_CODE_READ_TOOL_IDS",
+    "SOURCE_IMPORT_TOOL_IDS",
+    "WORKSPACE_READ_TOOL_IDS",
+    "build_mission_tool_registrations",
+]

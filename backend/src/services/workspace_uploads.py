@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from urllib.parse import quote
 
-from src.execution.path_utils import normalize_thread_id
+from src.services.path_safety import normalize_path_component
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,8 @@ def workspace_upload_dir(
     root: Path = DEFAULT_WORKSPACE_UPLOAD_ROOT,
 ) -> Path:
     """Resolve a workspace-scoped upload directory."""
-    workspace_component = normalize_thread_id(workspace_id)
-    bucket_component = normalize_thread_id(bucket)
+    workspace_component = normalize_path_component(workspace_id)
+    bucket_component = normalize_path_component(bucket)
     target = Path(root) / workspace_component / bucket_component
     target.mkdir(parents=True, exist_ok=True)
     return target
@@ -91,7 +91,7 @@ def workspace_upload_root(
     root: Path = DEFAULT_WORKSPACE_UPLOAD_ROOT,
 ) -> Path:
     """Resolve the workspace-level canonical upload root."""
-    workspace_component = normalize_thread_id(workspace_id)
+    workspace_component = normalize_path_component(workspace_id)
     return Path(root) / workspace_component
 
 
@@ -116,7 +116,7 @@ def _is_workspace_root_prefixed_relative_path(
     if root_path.is_absolute():
         return False
     try:
-        candidate.relative_to(root_path / normalize_thread_id(workspace_id))
+        candidate.relative_to(root_path / normalize_path_component(workspace_id))
         return True
     except ValueError:
         return False

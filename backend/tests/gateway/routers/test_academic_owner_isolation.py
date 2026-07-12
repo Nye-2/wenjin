@@ -59,13 +59,9 @@ def _make_artifact(artifact_id: str, workspace_id: str):
 @pytest.fixture
 def mock_artifact_service():
     service = AsyncMock()
-    service.create = AsyncMock(
-        return_value=_make_artifact("550e8400-e29b-41d4-a716-446655440010", WORKSPACE_ID)
-    )
+    service.create = AsyncMock(return_value=_make_artifact("550e8400-e29b-41d4-a716-446655440010", WORKSPACE_ID))
     service.list_by_workspace = AsyncMock(return_value=[])
-    service.get = AsyncMock(
-        return_value=_make_artifact("550e8400-e29b-41d4-a716-446655440011", WORKSPACE_ID)
-    )
+    service.get = AsyncMock(return_value=_make_artifact("550e8400-e29b-41d4-a716-446655440011", WORKSPACE_ID))
     service.get_lineage = AsyncMock(return_value=[])
     return service
 
@@ -96,9 +92,7 @@ def client(mock_artifact_service):
     return TestClient(app)
 
 
-def test_list_artifacts_invokes_workspace_owner_check(
-    client, mock_artifact_service, monkeypatch
-):
+def test_list_artifacts_invokes_workspace_owner_check(client, mock_artifact_service, monkeypatch):
     get_owned_workspace = AsyncMock()
     monkeypatch.setattr(
         "src.gateway.routers.artifacts.get_owned_workspace",
@@ -116,9 +110,7 @@ def test_list_artifacts_invokes_workspace_owner_check(
     )
 
 
-def test_create_artifact_invokes_workspace_owner_check(
-    client, mock_artifact_service, monkeypatch
-):
+def test_create_artifact_invokes_workspace_owner_check(client, mock_artifact_service, monkeypatch):
     get_owned_workspace = AsyncMock()
     monkeypatch.setattr(
         "src.gateway.routers.artifacts.get_owned_workspace",
@@ -166,9 +158,7 @@ def test_get_artifact_requires_workspace_match(client, mock_artifact_service, mo
         )
     )
 
-    response = client.get(
-        f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440012"
-    )
+    response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440012")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Artifact not found"
@@ -186,9 +176,7 @@ def test_lineage_requires_workspace_match(client, mock_artifact_service, monkeyp
         )
     )
 
-    response = client.get(
-        f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440013/lineage"
-    )
+    response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts/550e8400-e29b-41d4-a716-446655440013/lineage")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Artifact not found"

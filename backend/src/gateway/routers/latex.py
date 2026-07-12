@@ -6,19 +6,10 @@ from fastapi import APIRouter
 
 from src.gateway.contracts.latex import (
     LatexCompileRequest,
-    LatexFileChangeActionRequest,
-    LatexFileChangeApplyRequest,
-    LatexFileChangeRevertRequest,
     LatexUpdateProjectRequest,
 )
 from src.gateway.routers.latex_compile import router as compile_router
 from src.gateway.routers.latex_feedback import router as feedback_router
-from src.gateway.routers.latex_files import (
-    apply_project_file_change,
-    discard_project_file_change,
-    preview_project_file_change,
-    revert_project_file_change,
-)
 from src.gateway.routers.latex_files import (
     router as files_router,
 )
@@ -49,9 +40,6 @@ router.include_router(templates_router)
 __all__ = [
     "router",
     "LatexCompileRequest",
-    "LatexFileChangeActionRequest",
-    "LatexFileChangeApplyRequest",
-    "LatexFileChangeRevertRequest",
     "LatexUpdateProjectRequest",
     "_candidate_risk_level",
     "_collect_archive_upload_payload",
@@ -61,8 +49,4 @@ __all__ = [
     "_normalize_upload_relative_path",
     "_profiled_comment",
     "_read_upload_bytes_with_limit",
-    "apply_project_file_change",
-    "discard_project_file_change",
-    "preview_project_file_change",
-    "revert_project_file_change",
 ]

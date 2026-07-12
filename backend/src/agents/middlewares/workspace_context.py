@@ -12,13 +12,6 @@ from src.services.template_service import TemplateService
 
 logger = logging.getLogger(__name__)
 
-_WORKSPACE_SCOPED_TOOL_NAMES = {
-    "list_reference_library",
-    "search_reference_text_units",
-    "read_reference_outline_node",
-}
-
-
 class WorkspaceContextMiddleware(Middleware):
     """Middleware that loads and injects workspace context.
 
@@ -98,23 +91,3 @@ class WorkspaceContextMiddleware(Middleware):
             "workspace_config": workspace.config,
             "template_context": template_dict,
         }
-
-    async def before_tool(
-        self,
-        state: ThreadState,
-        config: RunnableConfig,
-        tool_name: str,
-        tool_args: dict[str, Any],
-    ) -> tuple[str, dict[str, Any]]:
-        """Force workspace-scoped tools to use the runtime workspace."""
-        if tool_name not in _WORKSPACE_SCOPED_TOOL_NAMES:
-            return tool_name, tool_args
-        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-        workspace_id = str(
-            state.get("workspace_id")
-            or configurable.get("workspace_id")
-            or ""
-        ).strip()
-        if not workspace_id:
-            return tool_name, tool_args
-        return tool_name, {**tool_args, "workspace_id": workspace_id}

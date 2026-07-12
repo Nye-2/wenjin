@@ -1,0 +1,25 @@
+schema_version: worker_skill.v1
+id: compliance-reviewer
+version: 1
+enabled: true
+role_hint: Document requirement and cross-file consistency reviewer
+instructions:
+  - Compare outputs only against supplied, versioned templates, rules and user constraints.
+  - Check required sections, field consistency, protected content and disclosure obligations.
+  - Distinguish verified requirement failures from missing requirement information.
+  - Return review findings and repair targets; never invent institutional or legal rules.
+allowed_tool_groups: [workspace_read]
+input_contract: {type: object}
+output_contract:
+  type: object
+  required: [summary, evidence_refs, artifact_refs, warnings]
+  properties:
+    summary: {type: string}
+    evidence_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, items: {type: string}}
+    warnings: {type: array, items: {type: string}}
+    compliance_findings: {type: array, items: {type: object}}
+quality_focus: [requirement_provenance, completeness, cross_file_consistency, protected_content]
+examples:
+  - task: Check a submission pack against a supplied template.
+    strong_output_characteristics: [requirement refs, exact affected locations, no invented rules]

@@ -1,131 +1,147 @@
-"""Sandbox abstract base class and data classes."""
+"""Provider-neutral sandbox runtime ports.
+
+The public sandbox boundary is operation-based.  It deliberately has no
+acquire/release session API and exposes no container identity.
+"""
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
+from pathlib import Path
+from typing import Protocol
+
+from src.sandbox.contracts import (
+    CommandAuditEvidence,
+    CompiledSandboxCommand,
+    SandboxMissionProvenance,
+    SandboxNetworkProfile,
+    SandboxOperationRequest,
+    SandboxOperationResult,
+    SandboxPreflightReport,
+)
 
 
-@dataclass
-class CommandResult:
-    """Result of command execution in sandbox.
+class ProviderEffectState(StrEnum):
+    NOT_STARTED = "not_started"
+    CONFIRMED = "confirmed"
+    UNCERTAIN = "uncertain"
 
-    Attributes:
-        stdout: Standard output from the command.
-        stderr: Standard error from the command.
-        exit_code: Exit code of the command (0 = success).
-        timed_out: Whether the command timed out.
-    """
 
-    stdout: str
-    stderr: str
-    exit_code: int
+@dataclass(frozen=True, slots=True)
+class SandboxMount:
+    """One explicit host-to-operation-container mount."""
+
+    source: Path
+    target: str
+    read_only: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderNetworkConfig:
+    """Enforced provider network attachment, never model-authored config."""
+
+    profile: SandboxNetworkProfile = SandboxNetworkProfile.NONE
+    network_name: str | None = None
+    proxy_url: str | None = None
+    package_index_url: str | None = None
+    allowed_hosts: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSandboxJob:
+    """Fully validated and audited provider input."""
+
+    request: SandboxOperationRequest
+    sandbox_job_id: str
+    command: CompiledSandboxCommand
+    command_audit: CommandAuditEvidence
+    mounts: tuple[SandboxMount, ...]
+    network: ProviderNetworkConfig
+    image_reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderExecutionResult:
+    """Bounded provider receipt without Docker-specific public identity."""
+
+    exit_code: int | None
+    stdout: bytes = b""
+    stderr: bytes = b""
     timed_out: bool = False
-
-    @property
-    def success(self) -> bool:
-        """Check if command executed successfully."""
-        return self.exit_code == 0 and not self.timed_out
-
-
-@dataclass
-class FileInfo:
-    """Information about a file or directory.
-
-    Attributes:
-        name: Name of the file or directory.
-        path: Absolute path to the file or directory.
-        is_dir: Whether this is a directory.
-        size: File size in bytes (None for directories).
-    """
-
-    name: str
-    path: str
-    is_dir: bool
-    size: int | None = None
+    stdout_capture_truncated: bool = False
+    stderr_capture_truncated: bool = False
+    effect_state: ProviderEffectState = ProviderEffectState.CONFIRMED
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    diagnostics: tuple[str, ...] = ()
 
 
-class Sandbox(ABC):
-    """Abstract base class for sandbox environments.
-
-    A sandbox provides isolated execution environment with:
-    - Command execution
-    - File system operations
-    - Path isolation
-    """
-
-    def __init__(self, id: str):
-        """Initialize sandbox with unique identifier.
-
-        Args:
-            id: Unique sandbox identifier (e.g., thread_id).
-        """
-        self._id = id
-
-    @property
-    def sandbox_id(self) -> str:
-        """Get sandbox identifier."""
-        return self._id
+class SandboxOperationProvider(ABC):
+    """Provider SPI for one short-lived operation container."""
 
     @abstractmethod
-    async def execute_command(
+    async def execute(self, job: PreparedSandboxJob) -> ProviderExecutionResult:
+        """Execute exactly one prepared operation and remove its container."""
+
+    @abstractmethod
+    async def preflight(self, *, release_gate: bool) -> SandboxPreflightReport:
+        """Verify daemon, image and security controls for the requested gate."""
+
+
+class CommandAuditPort(Protocol):
+    """Mandatory policy port implemented by the harness command auditor."""
+
+    def audit(
         self,
-        command: str,
-        timeout: int = 300,
+        command: CompiledSandboxCommand,
+        request: SandboxOperationRequest,
+    ) -> CommandAuditEvidence: ...
+
+
+class MissionLeaseGuard(Protocol):
+    """MissionRuntime fencing port; stale drivers cannot start effects."""
+
+    async def assert_current(self, provenance: SandboxMissionProvenance) -> None: ...
+
+
+class SandboxReceiptState(StrEnum):
+    CLAIMED = "claimed"
+    TERMINAL = "terminal"
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxReceiptClaim:
+    """Atomic operation-key claim outcome."""
+
+    state: SandboxReceiptState
+    acquired: bool
+    existing_result: SandboxOperationResult | None = None
+    claimed_at: datetime | None = None
+
+
+class SandboxReceiptStore(Protocol):
+    """Durable operation-key receipt port owned by the sandbox domain."""
+
+    async def claim(
+        self,
+        request: SandboxOperationRequest,
         *,
-        network_profile: str = "none",
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
-    ) -> CommandResult:
-        """Execute a shell command in the sandbox.
+        sandbox_job_id: str,
+    ) -> SandboxReceiptClaim: ...
 
-        Args:
-            command: Shell command to execute.
-            timeout: Maximum execution time in seconds.
-            network_profile: Requested network policy for this command.
-            cwd: Optional workspace virtual cwd for this command.
-            env: Optional extra environment variables for this command.
+    async def finalize(self, result: SandboxOperationResult) -> None: ...
 
-        Returns:
-            CommandResult with stdout, stderr, and exit code.
-        """
-        pass
-
-    @abstractmethod
-    async def read_file(self, path: str) -> str:
-        """Read file contents.
-
-        Args:
-            path: Absolute path to the file.
-
-        Returns:
-            File contents as string.
-        """
-        pass
-
-    @abstractmethod
-    async def write_file(
+    async def get(
         self,
-        path: str,
-        content: str,
-        append: bool = False,
-    ) -> None:
-        """Write content to a file.
+        mission_id: str,
+        operation_key: str,
+    ) -> SandboxOperationResult | None: ...
 
-        Args:
-            path: Absolute path to the file.
-            content: Content to write.
-            append: Whether to append to existing file.
-        """
-        pass
-
-    @abstractmethod
-    async def list_dir(self, path: str, max_depth: int = 2) -> list[FileInfo]:
-        """List directory contents.
-
-        Args:
-            path: Absolute path to directory.
-            max_depth: Maximum depth to traverse.
-
-        Returns:
-            List of FileInfo for directory contents.
-        """
-        pass
+    async def inspect(
+        self,
+        mission_id: str,
+        operation_key: str,
+    ) -> SandboxReceiptClaim | None: ...

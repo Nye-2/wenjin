@@ -57,7 +57,7 @@
 - Modify: `backend/seed/skills/claim-verifier.yaml`
 - Modify: `backend/seed/skills/citation-auditor.yaml`
 - Modify: `backend/seed/capabilities/sci/research_question_to_paper.yaml`
-- Test: `backend/tests/services/test_capability_schema.py`
+- Test: `backend/tests/services/test_mission_policy_schema.py`
 - Test: `backend/tests/services/test_skill_loader.py`
 
 - [x] Strengthen claim/citation item schemas with required fields that the Evidence Ledger can render.
@@ -95,7 +95,7 @@
 
 ### Baseline Evidence
 
-- Backend baseline: `cd backend && .venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py tests/services/test_capability_schema.py -q` -> 30 passed.
+- Backend baseline: `cd backend && .venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py tests/services/test_mission_policy_schema.py -q` -> 30 passed.
 - Frontend baseline: `cd frontend && ./node_modules/.bin/vitest run tests/unit/stores/chat-store.test.ts tests/unit/v2/live-workflow-view-model.test.ts tests/unit/v2/ChatPanel.test.tsx` -> 34 passed.
 
 ### Final Verification

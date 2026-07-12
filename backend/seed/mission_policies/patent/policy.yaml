@@ -1,0 +1,72 @@
+schema_version: mission_policy.v1
+id: patent_development
+version: 1
+workspace_type: patent
+enabled: true
+visibility: route_hint
+display:
+  name: 专利研发与撰写任务
+  description: 从发明交底、现有技术和权利要求策略推进到可复核申请稿
+routing:
+  when_to_use:
+    - 用户需要梳理发明、检索现有技术、设计权利要求或撰写申请稿。
+    - 任务涉及技术特征、支持关系、实施例和附图的一致性。
+  not_for:
+    - 普通法律常识问答或与技术发明无关的文本修改。
+    - 论文、数模、软著或课题申报任务。
+  positive_examples:
+    - 帮我把这份发明交底整理成专利策略。
+    - 检索并比较相关现有技术，找出可保护边界。
+    - 检查权利要求是否有说明书和实施例支持。
+  negative_examples:
+    - 专利保护期多久？
+    - 帮我润色这一句话。
+    - 没有交底材料，直接替我编一项发明。
+mission:
+  objective: Produce inventor-grounded, prior-art-aware and reviewable patent materials without legal or technical fabrication.
+  target_outcomes: [invention_brief, prior_art_matrix, claim_strategy, enablement_map, patent_draft]
+  hard_constraints:
+    - Technical facts and inventor decisions cannot be invented.
+    - Claims require explicit support and prior-art comparison.
+    - Patent claim changes always require item-level user review.
+  forbidden_outcomes: [invented_feature, invented_prior_art, unsupported_claim, legal_certainty]
+minimum_context:
+  invention_disclosure:
+    requirement: required
+    ask: 请先说明技术问题、核心方案和已有交底材料。
+  inventor_confirmed_facts:
+    requirement: optional
+  target_jurisdiction:
+    requirement: optional
+stage_contract_refs:
+  - {contract_id: patent_development.invention_scope, schema_version: stage_acceptance_contract.v1, sha256: 573fb10316f2625c2afe9f4b4217ce3e58cadf2685d6f0a81f66df91154c2bb4}
+  - {contract_id: patent_development.prior_art, schema_version: stage_acceptance_contract.v1, sha256: 779c33692d94bf3104943d9341bc2c78570e606a2737462e2533f4f0190288eb}
+  - {contract_id: patent_development.claim_strategy, schema_version: stage_acceptance_contract.v1, sha256: cd304dfdaf6170730e2c90d865ebf192d296d5ef972eb06c8d6566d05dbf9b44}
+  - {contract_id: patent_development.enablement, schema_version: stage_acceptance_contract.v1, sha256: 18ea3641dd9d2b902dd115473481214ece614e67928cc4b0aa5ae68713d3e988}
+  - {contract_id: patent_development.patent_draft, schema_version: stage_acceptance_contract.v1, sha256: c05241af4712b5ba0cee1ee19e506fe08e7564368372e97c3fee81fcab4e9b56}
+tool_policy:
+  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, artifact_render, draft_stage]
+  denied_tools: [room_direct_write, unrestricted_shell]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, claim-strategist, patent-drafter, compliance-reviewer, quality-critic]
+review_policy:
+  default_mode: review_all
+  allowed_modes: [review_all, balanced_default, auto_draft]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+sandbox_policy_ref: {policy_id: sandbox.research, version: 1}
+examples:
+  - example_id: patent.claim_strategy.excellent.v1
+    input_summary: 以发明人确认事实和逐特征现有技术比较设计分层保护范围
+    expected_characteristics: [独立权利要求只含必要特征, 从属项形成回退层级, 每个特征有交底支持, 不确定事实请求确认]
+anti_examples:
+  - description: 为追求宽保护范围而添加交底中不存在的功能或参数。
+    failure_reason: 权利要求缺乏支持并引入技术事实造假。
+completion_contract:
+  default_target: claim_strategy
+  target_stage_sets:
+    prior_art: [invention_scope, prior_art]
+    claim_strategy: [invention_scope, prior_art, claim_strategy]
+    full_draft: [invention_scope, prior_art, claim_strategy, enablement, patent_draft]
+  terminal_outputs: [invention_disclosure_brief, prior_art_matrix, claim_strategy, enablement_map, patent_draft]
+  allow_safe_partial_outputs: true
+delivery_profile_refs:
+  - {profile_id: patent_application, version: 1}

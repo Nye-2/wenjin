@@ -1,0 +1,89 @@
+schema_version: mission_policy.v1
+id: sci_research
+version: 1
+workspace_type: sci
+enabled: true
+visibility: route_hint
+display:
+  name: SCI 研究任务
+  description: 从文献定位、研究问题、方法与实验设计推进到可复核论文内容
+routing:
+  when_to_use:
+    - 用户希望系统性推进 SCI/EI 选题、文献、方法、实验或论文写作。
+    - 任务需要多个证据步骤、审稿式质量检查或长期研究状态。
+  not_for:
+    - 单个概念解释、短句润色或不需要研究证据的即时问答。
+    - 数学建模、专利、软著、课题申报或学位论文的专属任务。
+  positive_examples:
+    - 帮我梳理联邦学习结合大模型微调的研究空白。
+    - 把这个研究方向收敛成可验证的 SCI 研究问题。
+    - 基于已有材料设计方法、实验并推进论文初稿。
+  negative_examples:
+    - 联邦学习是什么意思？
+    - 帮我润色这一句话。
+    - 推荐几个不需要分析的期刊名称。
+mission:
+  objective: Produce evidence-grounded, falsifiable and reviewable SCI research outputs at the user's requested stopping point.
+  target_outcomes: [literature_positioning, research_question, methodology, experiment_design, manuscript_change]
+  hard_constraints:
+    - A stage advances only after its StageAcceptanceContract passes.
+    - Citations, claims, statistics, reproducibility and structural writes always require review.
+    - Provider prose, invented references and unmanifested experiment artifacts are not evidence.
+  forbidden_outcomes: [fabricated_citation, fabricated_data, unsupported_contribution, direct_workspace_write]
+minimum_context:
+  topic_or_question:
+    requirement: required
+    ask: 你希望研究哪个具体主题或问题？
+  target_outcome:
+    requirement: optional
+  existing_materials:
+    requirement: optional
+stage_contract_refs:
+  - contract_id: sci_research.scope_topic
+    schema_version: stage_acceptance_contract.v1
+    sha256: c970d894bb25094e148fc213b6ee82fb7b5b31f073488b8741640b85179539f1
+  - contract_id: sci_research.literature_positioning
+    schema_version: stage_acceptance_contract.v1
+    sha256: dc2b60aca221b66c5c5675cfed222030ccf1b4c06c24927c4e24b4d0b42e16ae
+  - contract_id: sci_research.research_question
+    schema_version: stage_acceptance_contract.v1
+    sha256: 85e3e524954a05bac2642a110a2c8e12928f3afb3361bfcd8a0da2c04f3c9590
+  - contract_id: sci_research.method_design
+    schema_version: stage_acceptance_contract.v1
+    sha256: 87bd9bbd1d50d87573824fa1ab2ff5015272e039d437152a94a2f22810ed2263
+  - contract_id: sci_research.experiment_design
+    schema_version: stage_acceptance_contract.v1
+    sha256: 7caf36bd2753166e361a6f4e4092185d4777eb5797e7691c06711db140e0c530
+  - contract_id: sci_research.writing_or_revision
+    schema_version: stage_acceptance_contract.v1
+    sha256: e4586949a1b26f62d66105258bb53ccc944b4ef674ddf9f39512f4e3fb487a9f
+tool_policy:
+  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, artifact_render, draft_stage]
+  denied_tools: [room_direct_write, unrestricted_shell]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, experiment-analyst, manuscript-writer, citation-auditor, reproducibility-auditor, quality-critic]
+review_policy:
+  default_mode: balanced_default
+  allowed_modes: [review_all, balanced_default, auto_draft]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+sandbox_policy_ref: {policy_id: sandbox.research, version: 1}
+examples:
+  - example_id: sci.research_question.excellent.v1
+    input_summary: 围绕明确对象、场景和约束形成可证伪研究问题
+    expected_characteristics:
+      - gap由可核验文献支持
+      - 研究问题边界明确且可证伪
+      - 贡献与可执行实验一一对应
+anti_examples:
+  - description: 把两个热门术语拼接成题目后直接宣称创新。
+    failure_reason: 缺少真实 gap、可证伪问题和证据路径。
+completion_contract:
+  default_target: literature_positioning
+  target_stage_sets:
+    literature_positioning: [scope_topic, literature_positioning]
+    research_question: [scope_topic, literature_positioning, research_question]
+    method_and_experiment: [scope_topic, literature_positioning, research_question, method_design, experiment_design]
+    full_manuscript: [scope_topic, literature_positioning, research_question, method_design, experiment_design, writing_or_revision]
+  terminal_outputs: [research_brief, literature_matrix, gap_map, research_question_brief, methodology_plan, experiment_plan, manuscript_draft]
+  allow_safe_partial_outputs: true
+delivery_profile_refs:
+  - {profile_id: academic_manuscript, version: 1}

@@ -111,6 +111,37 @@ async def test_different_users_share_workspace_cache_entry():
 
 
 @pytest.mark.asyncio
+async def test_different_objectives_do_not_share_reviewed_memory_context():
+    """A staleness decision for one objective must not leak into another."""
+    mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=300)
+    state = {"messages": [], "workspace_id": "ws-1"}
+    config_a = {
+        "configurable": {
+            "workspace_id": "ws-1",
+            "mission_objective": "目标期刊是 IEEE Access",
+        }
+    }
+    config_b = {
+        "configurable": {
+            "workspace_id": "ws-1",
+            "mission_objective": "目标期刊改为 TNNLS",
+        }
+    }
+
+    with patch(
+        "src.agents.middlewares.memory.build_workspace_memory_context",
+        new_callable=AsyncMock,
+        side_effect=["current-A", "conflicting-B"],
+    ) as mock_build:
+        result_a = await mw.before_model(state, config_a)
+        result_b = await mw.before_model(state, config_b)
+
+    assert mock_build.call_count == 2
+    assert result_a["memory_context"] == "current-A"
+    assert result_b["memory_context"] == "conflicting-B"
+
+
+@pytest.mark.asyncio
 async def test_cache_evicts_oldest_entry_at_capacity():
     """When cache reaches max_cache_size, the oldest entry is evicted (LRU)."""
     mw = MemoryMiddleware(enabled=True, inject_enabled=True, cache_ttl=300, max_cache_size=2)

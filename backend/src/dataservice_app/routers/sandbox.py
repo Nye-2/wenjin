@@ -29,7 +29,7 @@ router = APIRouter(
 
 
 class SandboxArtifactMaterializeRequest(BaseModel):
-    review_item_id: str | None = None
+    mission_commit_id: str
 
 
 @router.post("/environments")
@@ -104,7 +104,7 @@ async def create_job(
 async def list_jobs(
     workspace_id: str = Query(),
     sandbox_environment_id: str | None = Query(default=None),
-    execution_id: str | None = Query(default=None),
+    mission_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     uow: DataServiceUnitOfWork = Depends(get_uow),
@@ -113,7 +113,7 @@ async def list_jobs(
     records = await service.list_jobs(
         workspace_id=workspace_id,
         sandbox_environment_id=sandbox_environment_id,
-        execution_id=execution_id,
+        mission_id=mission_id,
         status=status,
         limit=limit,
     )
@@ -185,7 +185,7 @@ async def mark_artifact_materialized(
     service = SandboxDataDomainService(uow.required_session, autocommit=False)
     record = await service.mark_artifact_materialized(
         artifact_id,
-        review_item_id=command.review_item_id,
+        mission_commit_id=command.mission_commit_id,
     )
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)

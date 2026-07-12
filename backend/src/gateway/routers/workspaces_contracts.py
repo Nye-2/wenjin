@@ -47,7 +47,8 @@ class WorkspaceActivityItemResponse(BaseModel):
     thread_id: str | None = None
     task_id: str | None = None
     artifact_id: str | None = None
-    feature_id: str | None = None
+    mission_id: str | None = None
+    mission_policy_id: str | None = None
     skill: str | None = None
     skill_name: str | None = None
     created_by_skill: str | None = None
@@ -76,7 +77,8 @@ class WorkspaceSummaryProgressResponse(BaseModel):
 class WorkspaceSummaryPhaseResponse(BaseModel):
     """Current workspace phase summary."""
 
-    feature_id: str | None = None
+    mission_id: str | None = None
+    mission_policy_id: str | None = None
     title: str
     status: str
     description: str | None = None
@@ -85,7 +87,8 @@ class WorkspaceSummaryPhaseResponse(BaseModel):
 class WorkspaceSummaryActionResponse(BaseModel):
     """Recommended action for the workspace cockpit."""
 
-    feature_id: str
+    mission_id: str
+    mission_policy_id: str | None = None
     title: str
     description: str | None = None
     reason: str | None = None
@@ -122,30 +125,6 @@ class WorkspaceSummaryResponse(BaseModel):
     recommended_actions: list[WorkspaceSummaryActionResponse] = Field(default_factory=list)
     risk_items: list[WorkspaceSummaryRiskResponse] = Field(default_factory=list)
     recent_activity: WorkspaceSummaryRecentActivityResponse | None = None
-
-
-class WorkspaceExecutionsResponse(BaseModel):
-    """Execution record list for a workspace."""
-
-    items: list[dict[str, Any]]
-    count: int
-
-
-class ResolveCapabilityActionRequest(BaseModel):
-    """Resolve canonical follow-up / rerun routing for a workspace capability."""
-
-    orchestration_params: dict[str, Any] | None = None
-    source_artifact_id: str | None = None
-
-
-class ResolveCapabilityActionResponse(BaseModel):
-    """Resolved capability action state returned to the frontend."""
-
-    source_artifact_id: str | None = None
-    follow_up_prompt: str
-    route_params: dict[str, Any] = Field(default_factory=dict)
-    rerun_params: dict[str, Any] | None = None
-    rerun_unavailable_reason: str | None = None
 
 
 class WorkspacePrismEnsureResponse(BaseModel):

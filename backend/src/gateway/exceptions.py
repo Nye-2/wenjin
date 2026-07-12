@@ -16,10 +16,7 @@ class NotFoundError(WenjinException):
     """Resource not found."""
 
     def __init__(self, resource: str, identifier: str):
-        super().__init__(
-            f"{resource} with id '{identifier}' not found",
-            code="NOT_FOUND"
-        )
+        super().__init__(f"{resource} with id '{identifier}' not found", code="NOT_FOUND")
 
 
 class ValidationError(WenjinException):
@@ -33,10 +30,7 @@ class DuplicateError(WenjinException):
     """Duplicate resource."""
 
     def __init__(self, resource: str, field: str, value: str):
-        super().__init__(
-            f"{resource} with {field} '{value}' already exists",
-            code="DUPLICATE"
-        )
+        super().__init__(f"{resource} with {field} '{value}' already exists", code="DUPLICATE")
 
 
 class AuthenticationError(WenjinException):
@@ -69,6 +63,7 @@ class ServiceUnavailableError(WenjinException):
 
 
 # ============ Domain-Specific Exceptions ============
+
 
 class LiteratureError(WenjinException):
     """Base exception for literature module."""

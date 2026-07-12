@@ -44,7 +44,7 @@ def test_release_gate_passes_when_core_gate_passed_even_if_extended_not_run():
 
 def test_release_gate_keeps_core_go_when_extended_gate_failed():
     extended_results = _all_extended_passed()
-    extended_results["integration_http_client"] = False
+    extended_results["backend_full_suite"] = False
 
     report = evaluate_release_gate(
         core_results=_all_core_passed(),
@@ -56,4 +56,4 @@ def test_release_gate_keeps_core_go_when_extended_gate_failed():
     assert report["core_gate"]["status"] == "passed"
     assert report["extended_gate"]["status"] == "failed"
     assert report["extended_gate"]["failed"] == 1
-    assert any("integration_http_client" in item for item in report["recommendations"])
+    assert any("backend_full_suite" in item for item in report["recommendations"])

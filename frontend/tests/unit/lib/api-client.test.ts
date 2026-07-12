@@ -33,8 +33,8 @@ describe("api client URL normalization", () => {
       "http://localhost:8001/api/workspaces/ws-1/thread",
     );
     expect(
-      normalizeAuthorizedFetchInput("/api/capabilities?workspace_type=sci"),
-    ).toBe("http://localhost:8001/api/capabilities?workspace_type=sci");
+      normalizeAuthorizedFetchInput("/api/missions/mission-1?include=items"),
+    ).toBe("http://localhost:8001/api/missions/mission-1?include=items");
   });
 
   it("keeps non-api and absolute fetch targets unchanged", async () => {

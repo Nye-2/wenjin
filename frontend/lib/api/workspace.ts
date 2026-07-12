@@ -13,13 +13,11 @@ import type {
   TaskStatus,
   Workspace,
   WorkspaceActivityResponse,
-  WorkspaceCapability,
   WorkspaceCreate,
   WorkspacePrismFileContent,
   WorkspacePrismFileWrite,
   WorkspacePrismEnsureResponse,
   WorkspacePrismSurfaceResponse,
-  WorkspaceExecutionsResponse,
   WorkspaceSummaryData,
   WorkspaceTemplate,
 } from "@/lib/api/types";
@@ -415,8 +413,6 @@ export async function listTasks(params?: {
   status?: string;
   task_type?: string;
   workspace_id?: string;
-  feature_id?: string;
-  action?: string;
   limit?: number;
 }): Promise<{ tasks: TaskStatus[]; count: number }> {
   const response = await apiClient.get("/tasks", { params });
@@ -446,16 +442,6 @@ export async function getWorkspaceActivity(
   limit: number = 40
 ): Promise<WorkspaceActivityResponse> {
   const response = await apiClient.get(`/workspaces/${workspaceId}/activity`, {
-    params: { limit },
-  });
-  return response.data;
-}
-
-export async function getWorkspaceExecutions(
-  workspaceId: string,
-  limit: number = 20
-): Promise<WorkspaceExecutionsResponse> {
-  const response = await apiClient.get(`/workspaces/${workspaceId}/executions`, {
     params: { limit },
   });
   return response.data;
@@ -504,36 +490,4 @@ export async function deleteWorkspaceTemplate(
   templateId: string
 ): Promise<void> {
   await apiClient.delete(`/workspaces/${workspaceId}/templates/${templateId}`);
-}
-
-export interface FeatureActionResolutionResponse {
-  source_artifact_id: string | null;
-  follow_up_prompt: string;
-  route_params: Record<string, unknown>;
-  rerun_params: Record<string, unknown> | null;
-  rerun_unavailable_reason: string | null;
-}
-
-export async function resolveFeatureAction(
-  workspaceId: string,
-  capabilityId: string,
-  data: {
-    orchestration_params?: Record<string, unknown> | null;
-    source_artifact_id?: string | null;
-  }
-): Promise<FeatureActionResolutionResponse> {
-  const response = await apiClient.post(
-    `/workspaces/${workspaceId}/capabilities/${capabilityId}/resolve-action`,
-    data
-  );
-  return response.data;
-}
-
-export async function getWorkspaceFeatures(
-  workspaceId: string
-): Promise<{ features: WorkspaceCapability[] }> {
-  const response = await apiClient.get(
-    `/workspaces/${workspaceId}/capabilities`
-  );
-  return response.data;
 }

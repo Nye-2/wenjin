@@ -13,7 +13,8 @@ class WorkspaceMemoryRewritePayload(BaseModel):
     content_markdown: str
     update_reason: str = "manual"
     updated_by: str = "system"
-    source_execution_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_commit_id: str | None = None
     source_thread_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -27,9 +28,10 @@ class WorkspaceMemoryItemPayload(BaseModel):
 class WorkspaceMemoryMergePayload(BaseModel):
     workspace_id: str
     items: list[WorkspaceMemoryItemPayload] = Field(default_factory=list)
-    update_reason: str = "execution_commit"
+    update_reason: str = "mission_commit"
     updated_by: str = "system"
-    source_execution_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_commit_id: str | None = None
     source_thread_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -41,7 +43,8 @@ class WorkspaceMemoryDocumentPayload(BaseModel):
     content_hash: str
     revision: int
     updated_by: str
-    source_execution_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_commit_id: str | None = None
     source_thread_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
@@ -56,7 +59,8 @@ class WorkspaceMemoryRevisionPayload(BaseModel):
     content_markdown: str
     content_hash: str
     update_reason: str
-    source_execution_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_commit_id: str | None = None
     source_thread_id: str | None = None
     created_by: str
     created_at: datetime | None = None

@@ -65,7 +65,14 @@ class CreditTransaction(Base, UUIDMixin):
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    feature_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    mission_policy_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    mission_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    operation_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
     workspace_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("workspaces.id", ondelete="SET NULL"),

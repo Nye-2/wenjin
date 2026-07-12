@@ -1,30 +1,122 @@
-"""Tests for deployment bootstrap catalog seeding behavior."""
+"""Deployment bootstrap tests for the canonical Mission catalog."""
 
-from pathlib import Path
+from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-def test_bootstrap_admin_syncs_capability_seed_updates_incrementally() -> None:
-    source = Path("src/database/bootstrap_admin.py").read_text(encoding="utf-8")
+import pytest
 
-    capability_section = source.split("from src.services.capability_loader import CapabilityLoader", maxsplit=1)[1]
-    capability_section = capability_section.split("except Exception as cap_exc", maxsplit=1)[0]
-    assert "loader.sync_seed_updates()" in capability_section
-    assert "loader.load_seeds_if_empty()" not in capability_section
-
-
-def test_bootstrap_admin_syncs_agent_template_seed_updates_incrementally() -> None:
-    source = Path("src/database/bootstrap_admin.py").read_text(encoding="utf-8")
-
-    template_section = source.split("from src.services.agent_template_loader import AgentTemplateLoader", maxsplit=1)[1]
-    template_section = template_section.split("except Exception as template_exc", maxsplit=1)[0]
-    assert "template_loader.sync_seed_updates()" in template_section
-    assert "template_loader.load_seeds_if_empty()" not in template_section
+from src.database import bootstrap_admin
+from src.services.mission_policy_loader import MissionPolicyLoader
+from src.services.skill_loader import SkillLoader
 
 
-def test_bootstrap_admin_syncs_skill_seed_updates_incrementally() -> None:
-    source = Path("src/database/bootstrap_admin.py").read_text(encoding="utf-8")
+class FakeSession:
+    bind = SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
 
-    skill_section = source.split("from src.services.skill_loader import SkillLoader", maxsplit=1)[1]
-    skill_section = skill_section.split("except Exception as skill_exc", maxsplit=1)[0]
-    assert "skill_loader.sync_seed_updates()" in skill_section
-    assert "skill_loader.load_seeds_if_empty()" not in skill_section
+    def __init__(self) -> None:
+        self.commit = AsyncMock()
+
+
+class FakeCatalog:
+    _skill_items = SkillLoader().read_seed_items()
+    skills = [
+        SimpleNamespace(
+            id=item["data"]["id"],
+            skill_json=item["data"],
+            content_hash=item["data"]["content_hash"],
+        )
+        for item in _skill_items
+    ]
+    _policy_items = MissionPolicyLoader().read_seed_items()
+    policies = [
+        SimpleNamespace(
+            id=item["data"]["id"],
+            workspace_type=item["data"]["workspace_type"],
+            content_hash=item["data"]["content_hash"],
+            policy_json=item["data"],
+        )
+        for item in _policy_items
+    ]
+
+    def __init__(self, _session, *, autocommit: bool) -> None:
+        assert autocommit is False
+
+    async def list_skills(self, *, enabled_only: bool = False):
+        assert enabled_only is True
+        return list(self.skills)
+
+    async def list_policies(self, *, enabled_only: bool = False):
+        assert enabled_only is True
+        return list(self.policies)
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_seeds_skills_before_policies_and_validates_all_workspaces(
+    monkeypatch,
+) -> None:
+    order: list[str] = []
+    monkeypatch.setattr(bootstrap_admin, "MissionCatalogService", FakeCatalog)
+    monkeypatch.setattr(
+        bootstrap_admin.SkillLoader,
+        "sync_with_service",
+        AsyncMock(side_effect=lambda _service: order.append("skills") or 15),
+    )
+    monkeypatch.setattr(
+        bootstrap_admin.MissionPolicyLoader,
+        "sync_with_service",
+        AsyncMock(side_effect=lambda _service: order.append("policies") or 6),
+    )
+    session = FakeSession()
+
+    assert await bootstrap_admin.seed_mission_catalog(session) == (15, 6)
+    assert order == ["skills", "policies"]
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_empty_catalog_is_a_fatal_bootstrap_error(monkeypatch) -> None:
+    class EmptyCatalog(FakeCatalog):
+        skills = []
+        policies = []
+
+    monkeypatch.setattr(bootstrap_admin, "MissionCatalogService", EmptyCatalog)
+    monkeypatch.setattr(
+        bootstrap_admin.SkillLoader,
+        "sync_with_service",
+        AsyncMock(return_value=0),
+    )
+    monkeypatch.setattr(
+        bootstrap_admin.MissionPolicyLoader,
+        "sync_with_service",
+        AsyncMock(return_value=0),
+    )
+
+    with pytest.raises(RuntimeError, match="no enabled policy"):
+        await bootstrap_admin.seed_mission_catalog(FakeSession())
+
+
+@pytest.mark.asyncio
+async def test_concurrent_bootstrap_calls_are_idempotent(monkeypatch) -> None:
+    monkeypatch.setattr(bootstrap_admin, "MissionCatalogService", FakeCatalog)
+    skill_sync = AsyncMock(side_effect=[15, 0])
+    policy_sync = AsyncMock(side_effect=[6, 0])
+    monkeypatch.setattr(bootstrap_admin.SkillLoader, "sync_with_service", skill_sync)
+    monkeypatch.setattr(bootstrap_admin.MissionPolicyLoader, "sync_with_service", policy_sync)
+
+    results = await asyncio.gather(
+        bootstrap_admin.seed_mission_catalog(FakeSession()),
+        bootstrap_admin.seed_mission_catalog(FakeSession()),
+    )
+
+    assert sorted(results) == [(0, 0), (15, 6)]
+
+
+def test_bootstrap_has_no_retired_catalog_loader() -> None:
+    source = bootstrap_admin.__file__
+    text = open(source, encoding="utf-8").read()
+    assert "CapabilityLoader" not in text
+    assert "AgentTemplateLoader" not in text
+    assert "WARN: skill seed failed" not in text

@@ -3,6 +3,8 @@
 import ast
 import importlib
 import inspect
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -58,13 +60,10 @@ class TestRouterRegistration:
         expected_routers = [
             "artifacts",
             "auth",
-            "capabilities",
-            "compute",
             "dashboard",
-            "execution_commit",
-            "executions",
             "latex",
             "mcp",
+            "missions",
             "models",
             "references",
             "runs",
@@ -80,6 +79,9 @@ class TestRouterRegistration:
             assert router_name in app_source, (
                 f"Router '{router_name}' not found in app.py imports"
             )
+
+        for removed_router in ("capabilities", "execution_commit", "executions"):
+            assert f"{removed_router}.router" not in app_source
 
 
 class TestAuthDependency:
@@ -133,3 +135,48 @@ def test_application_handlers_have_no_http_imports():
         "Application handlers must not import HTTP/gateway modules:\n"
         + "\n".join(violations)
     )
+
+
+@pytest.mark.parametrize(
+    ("relative_root", "forbidden"),
+    [
+        ("agents/workspace_agent", ("src.agents.lead_agent", "src.execution", "src.gateway")),
+        ("mission_runtime", ("src.agents.lead_agent", "src.execution", "fastapi", "src.gateway")),
+        ("tools/orchestrator", ("src.execution", "fastapi", "src.gateway")),
+        ("review_commit_runtime", ("src.execution", "fastapi", "src.gateway")),
+    ],
+)
+def test_mission_runtime_layers_do_not_depend_on_removed_or_http_layers(
+    relative_root: str,
+    forbidden: tuple[str, ...],
+) -> None:
+    root = Path(__file__).parents[2] / "src" / relative_root
+    assert root.is_dir()
+    violations: list[str] = []
+    for path in root.rglob("*.py"):
+        for imported in _collect_imports(path):
+            if any(imported == item or imported.startswith(item + ".") for item in forbidden):
+                violations.append(f"{path.relative_to(root)}: imports {imported}")
+    assert not violations, "Mission architecture boundary violations:\n" + "\n".join(violations)
+
+
+def test_mission_policy_contract_is_framework_independent() -> None:
+    path = Path(__file__).parents[2] / "src" / "contracts" / "mission_policy.py"
+    imports = _collect_imports(path)
+    assert not any(
+        imported.startswith(("fastapi", "sqlalchemy", "src.gateway", "src.database"))
+        for imported in imports
+    )
+
+
+def test_mission_production_composition_imports_in_fresh_interpreter() -> None:
+    backend_root = Path(__file__).parents[2]
+    completed = subprocess.run(
+        [sys.executable, "-c", "import src.mission_runtime.production"],
+        cwd=backend_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert completed.returncode == 0, completed.stderr

@@ -68,7 +68,7 @@ def build_compact_academic_workspace_map_summary(
 
 def _topic_hints(workspace_data: dict[str, Any], related_documents: list[Any]) -> list[str]:
     hints: list[str] = []
-    for key in ("topic", "research_topic", "capability_goal"):
+    for key in ("topic", "research_topic"):
         value = str(workspace_data.get(key) or "").strip()
         if value:
             hints.append(value)
@@ -241,4 +241,3 @@ def _dedupe(items: list[str], *, limit: int, max_chars: int) -> list[str]:
         if len(result) >= limit:
             break
     return result
-

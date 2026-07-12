@@ -1,4 +1,4 @@
-"""AdminAnalyticsService -- 4 aggregation methods for admin analytics panels."""
+"""Admin analytics for account, credit, and workspace panels."""
 
 from __future__ import annotations
 
@@ -64,21 +64,7 @@ class AdminAnalyticsService:
         }
 
     # ------------------------------------------------------------------
-    # 2. Execution stats
-    # ------------------------------------------------------------------
-    async def execution_stats(
-        self, *, range_days: int, granularity: Granularity = "day"
-    ) -> dict[str, Any]:
-        now = datetime.now(UTC)
-        since = now - timedelta(days=range_days)
-        async with self._client() as client:
-            return await client.aggregate_execution_stats(
-                created_since=since,
-                granularity=granularity,
-            )
-
-    # ------------------------------------------------------------------
-    # 3. Credit consumption
+    # 2. Credit consumption
     # ------------------------------------------------------------------
     async def credit_consumption_stats(
         self, *, range_days: int, granularity: Granularity = "day"
@@ -93,7 +79,7 @@ class AdminAnalyticsService:
         return stats.model_dump(mode="json")
 
     # ------------------------------------------------------------------
-    # 4. Workspace adoption
+    # 3. Workspace adoption
     # ------------------------------------------------------------------
     async def workspace_adoption_stats(self) -> dict[str, Any]:
         async with self._client() as client:

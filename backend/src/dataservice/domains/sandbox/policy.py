@@ -50,9 +50,7 @@ _SAFE_PACKAGE_RE = re.compile(
 def validate_sandbox_policy(policy: dict[str, Any]) -> None:
     """Reject policy snapshots that would allow host/container/server control."""
 
-    enabled_forbidden_flags = [
-        key for key in FORBIDDEN_POLICY_FLAGS if bool(policy.get(key))
-    ]
+    enabled_forbidden_flags = [key for key in FORBIDDEN_POLICY_FLAGS if bool(policy.get(key))]
     if enabled_forbidden_flags:
         raise DataServiceValidationError(
             "Sandbox policy enables forbidden host/container controls",
@@ -90,14 +88,7 @@ def validate_package_specs(package_specs: list[str]) -> list[str]:
     normalized_specs: list[str] = []
     for raw in package_specs:
         value = " ".join(str(raw or "").strip().split())
-        if (
-            not value
-            or "://" in value
-            or value.startswith(("-", ".", "/"))
-            or "@" in value
-            or ";" in value
-            or any(ch in value for ch in ("|", "&", "`", "$", "\\"))
-        ):
+        if not value or "://" in value or value.startswith(("-", ".", "/")) or "@" in value or ";" in value or any(ch in value for ch in ("|", "&", "`", "$", "\\")):
             raise DataServiceValidationError(
                 "Unsafe sandbox package spec",
                 detail={"package": raw},

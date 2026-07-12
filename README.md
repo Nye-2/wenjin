@@ -1,6 +1,6 @@
 # 问津 Wenjin
 
-更新时间：2026-06-30
+更新时间：2026-07-12
 
 问津是一个面向科研工作的 AI 工作台，服务从选题、文献、实验、写作到成果管理的完整研究流程。它不是通用聊天机器人，也不是单点论文润色工具，而是以 workspace 为核心的科研生产系统：用户在一个研究工作区里沉淀资料、决策、实验、主稿和团队协作记录，AI 研究团队在同一个上下文中持续推进任务。
 
@@ -12,41 +12,40 @@
 - 文献工作台：围绕主题组织检索、证据、引用、综述矩阵和创新点
 - 实验工作台：每个 workspace 绑定一个 sandbox，支持代码、数据、图表和实验产物连续沉淀
 - 写作工作台：围绕 LaTeX 主稿进行起草、改写、批注、编译、PDF 对照和版本化修改
-- 专家团队：Lead Agent 根据 capability 动态招募实名专家成员，按任务分工产出过程摘要和交付物
-- 审阅闭环：AI 产物先进入候选结果，用户通过 review gate 决定是否写入资料库、记忆、文档或主稿
+- 自主研究团队：WorkspaceAgent 按目标动态派遣隔离 worker，在统一 Mission 上沉淀过程与交付物
+- 审阅闭环：受保护的证据、论断、记忆和文档变更进入逐项复核，确认后才写入工作区
 
 ## 核心形态
 
 - 六类科研 workspace：`sci`、`thesis`、`proposal`、`software_copyright`、`math_modeling`、`patent`
-- 左侧 Chat Agent：负责对话、意图识别、需求确认和 capability 启动
-- 右侧 Research Workbench：展示专家团队、关键进展、证据预览、候选结果和运行历史
+- 左侧 Chat：WorkspaceAgent 统一负责对话、任务判断、Mission 启动和动态调整
+- 右侧 Mission Console：默认关闭，按需展示 worker、关键进展、证据、候选结果和历史
 - Wenjin Prism：面向论文主稿的 LaTeX 编辑、编译、PDF 对照和 AI 改稿界面
-- Wenjin Harness：为科研 agent 提供 sandbox 文件读写、代码执行、实验产物发现和安全边界
-- DataService：统一管理 workspace 数据、capability、专家模板、模型目录、积分和 review item
-- Admin Console：管理模型、定价、积分、capability 与系统运行配置
+- Wenjin Harness：为科研 agent 提供受控工具、Docker sandbox、阶段验收和可复现收据
+- DataService：拥有 Mission、workspace、模型目录、积分、来源、记忆和复核提交的数据库事务
+- Admin Console：管理模型、定价、积分与系统运行配置
 
 ## 架构概览
 
-主链路已经收敛为 execution-first：
+主链路已经收敛为 chat-native Mission runtime：
 
 ```text
 Workspace Chat
-  -> Chat Agent
-  -> launch_feature
-  -> ExecutionRecord
-  -> LeadAgentRuntime
-  -> TeamKernel / ReactSubagent
-  -> Wenjin Harness / DataService
-  -> TaskReport / Review Item
-  -> RunView / ResultCard / Prism / Workspace Rooms
+  -> WorkspaceAgent
+  -> MissionRuntime
+  -> SubagentRuntime / ToolOrchestrator / SandboxRuntime
+  -> StageAcceptance
+  -> MissionReviewItem / MissionCommit
+  -> MissionView / Prism / Workspace Rooms
 ```
 
 关键原则：
 
-- Chat 是统一入口，不绕过 chat_agent -> lead_agent 主链路
-- capability 数据驱动，YAML seed + DB 配置共同构成运行时能力目录
-- 专家团队、sandbox、result card、workspace rooms 都围绕同一个 execution 记录投影
-- 默认不展示 raw log，把过程压缩成用户可理解的专家进度、证据和候选结果
+- WorkspaceAgent 是唯一任务导航 agent，不存在独立 conversational/leader 层
+- MissionPolicy 约束目标、质量、工具和权限；WorkerSkill 只提供紧凑方法指导，内部计划由 agent loop 决定
+- `MissionRun`、`MissionItem`、`MissionReviewItem`、`MissionCommit` 是长任务唯一持久模型
+- Chat 与 Mission Console 共享服务端 `MissionView`，前端不拼接第二套运行事实
+- 高风险写入逐项复核；Sandbox、工具和模型能力均以结构化收据或探针证据为准
 - Docker Compose 是唯一标准启动方式，旧的本地一键启动脚本已移除
 
 ## 技术栈
@@ -106,15 +105,17 @@ npm run dev
 
 ## 关键目录
 
-- `backend/src/agents/chat_agent/`：Chat Agent、block 协议、意图与 capability 启动
-- `backend/src/agents/lead_agent/v2/`：Lead Agent runtime、TeamKernel、专家编排
-- `backend/src/agents/harness/`：sandbox 工具、文件策略、执行记录、产物发现
+- `backend/src/agents/workspace_agent/`：统一对话、Mission 启动和 agent loop
+- `backend/src/mission_runtime/`：Mission 生命周期、驱动、恢复和投影
+- `backend/src/subagent_runtime/`：隔离 worker 生命周期
+- `backend/src/tools/orchestrator/`：规范工具目录、调用状态、租约和收据
+- `backend/src/sandbox/`：Docker-only sandbox、安全策略和可复现收据
 - `backend/src/dataservice_app/`：DataService API
-- `backend/seed/capabilities/`：workspace capability seed
-- `backend/seed/skills/`：capability skill seed
+- `backend/seed/mission_policies/`：各 workspace 的 MissionPolicy 与阶段验收合同
+- `backend/seed/skills/`：WorkerSkill 指导与示例
 - `backend/seed/latex_templates/`：Prism LaTeX 模板注册表与内置模板包
 - `frontend/app/(workbench)/workspaces/[id]/`：科研工作台主界面
-- `frontend/lib/execution-run-view.ts`：执行状态统一投影
+- `frontend/lib/mission-view.ts`：Mission 服务端投影规范化
 - `deploy/env/`：Docker Compose 环境模板
 - `docs/current/`：当前事实源文档
 
@@ -123,8 +124,8 @@ npm run dev
 - 全量导航：`docs/current/documentation-map.md`
 - 当前架构：`docs/current/architecture.md`
 - 工作区状态：`docs/current/workspace-current-state.md`
-- 前后端契约：`docs/current/frontend-feature-plugin-contract.md`
-- capability 目录：`docs/current/workspace-feature-catalog.md`
+- 前后端契约：`docs/current/frontend-mission-contract.md`
+- MissionPolicy/WorkerSkill 目录：`docs/current/workspace-mission-catalog.md`
 - UI/UX 规范：`docs/current/wenjin-research-navigation-uiux.md`
 - 部署手册：`docs/current/deployment-runbook.md`
 - 排障手册：`docs/current/troubleshooting.md`

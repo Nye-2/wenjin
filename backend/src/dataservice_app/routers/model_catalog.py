@@ -11,6 +11,7 @@ from src.dataservice.domains.model_catalog.service import DataServiceModelCatalo
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
 from src.dataservice_client.contracts.model_catalog import (
+    ModelCapabilityAssessmentPayload,
     ModelCatalogCreatePayload,
     ModelCatalogHealthPayload,
     ModelCatalogUpdatePayload,
@@ -46,6 +47,16 @@ async def list_runtime_models(
     service = DataServiceModelCatalogService(uow.required_session, autocommit=False)
     records = await service.list_runtime_models(category=category)
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/models/{model_id}/runtime")
+async def get_runtime_model(
+    model_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceModelCatalogService(uow.required_session, autocommit=False)
+    record = await service.get_runtime_model(model_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
 @router.get("/models/{model_id}")
@@ -108,6 +119,22 @@ async def update_model_health(
         model_id,
         status=payload.status,
         error_message=payload.error_message,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/models/{model_id}/capability-assessment")
+async def update_model_capability_assessment(
+    model_id: str,
+    payload: ModelCapabilityAssessmentPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceModelCatalogService(uow.required_session, autocommit=False)
+    record = await service.update_capability_assessment(
+        model_id,
+        profile=payload.profile,
+        evidence=payload.evidence,
     )
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)

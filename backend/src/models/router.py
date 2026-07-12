@@ -4,54 +4,48 @@ from collections.abc import Iterable
 
 from src.config import get_all_models, get_default_model_id, get_model_config, resolve_model_id
 from src.config.llm_config import ModelConfig
+from src.models.capability_profile import ModelCapabilityProfile, assess_profile_freshness
 
 _ALL_CATEGORIES: tuple[str, ...] = ("llm", "image")
-_VISION_HINT_TAGS: tuple[str, ...] = ("vision", "vl")
-_THINKING_HINT_PREFIXES: tuple[str, ...] = ("claude", "deepseek-")
-_REASONING_HINT_TAGS: tuple[str, ...] = ("gpt-5", "doubao")
 
 
 class InvalidRequestedModelError(ValueError):
     """Raised when an explicit user-selected model id is unknown or disallowed."""
 
 
-def _supports_vision_raw(raw_model: str) -> bool:
-    normalized = raw_model.lower().strip()
-    if not normalized:
-        return False
-    return any(tag in normalized for tag in _VISION_HINT_TAGS)
-
-
-def _supports_thinking_raw(raw_model: str) -> bool:
-    normalized = raw_model.lower().strip()
-    if not normalized:
-        return False
-    return normalized.startswith(_THINKING_HINT_PREFIXES)
-
-
-def _supports_reasoning_effort_raw(raw_model: str) -> bool:
-    normalized = raw_model.lower().strip()
-    if not normalized:
-        return False
-    return any(tag in normalized for tag in _REASONING_HINT_TAGS)
+def _current_profile(model: ModelConfig) -> ModelCapabilityProfile | None:
+    profile = model.capability_profile
+    evidence = model.capability_probe
+    if profile is None or evidence is None:
+        return None
+    freshness = assess_profile_freshness(
+        profile,
+        evidence,
+        model_id=model.id,
+        model_name=model.model,
+        base_url=model.base_url,
+        generation_api=model.generation_api,
+    )
+    return profile if freshness.current else None
 
 
 def _supports_vision(model: ModelConfig) -> bool:
-    if getattr(model, "supports_vision", False):
-        return True
-    raw_model = (model.model or "").lower()
-    return _supports_vision_raw(raw_model)
+    profile = _current_profile(model)
+    return bool(profile and profile.vision)
 
 
 def _supports_thinking(model: ModelConfig) -> bool:
-    if getattr(model, "supports_thinking", False):
-        return True
-    raw_model = (model.model or "").lower()
-    return _supports_thinking_raw(raw_model)
+    profile = _current_profile(model)
+    return bool(profile and profile.reasoning_efforts)
 
 
 def _supports_reasoning_effort(model: ModelConfig) -> bool:
-    return bool(getattr(model, "supports_reasoning_effort", False))
+    return _supports_thinking(model)
+
+
+def _supports_strict_tools(model: ModelConfig) -> bool:
+    profile = _current_profile(model)
+    return bool(profile and profile.has_strict_tools())
 
 
 def model_supports_vision(model_id_or_name: str | None) -> bool:
@@ -64,7 +58,7 @@ def model_supports_vision(model_id_or_name: str | None) -> bool:
     if model is not None:
         return _supports_vision(model)
 
-    return _supports_vision_raw(normalized)
+    return False
 
 
 def model_supports_thinking(model_id_or_name: str | None) -> bool:
@@ -77,7 +71,7 @@ def model_supports_thinking(model_id_or_name: str | None) -> bool:
     if model is not None:
         return _supports_thinking(model)
 
-    return _supports_thinking_raw(normalized)
+    return False
 
 
 def model_supports_reasoning_effort(model_id_or_name: str | None) -> bool:
@@ -90,7 +84,7 @@ def model_supports_reasoning_effort(model_id_or_name: str | None) -> bool:
     if model is not None:
         return _supports_reasoning_effort(model)
 
-    return _supports_reasoning_effort_raw(normalized)
+    return False
 
 
 def _grouped_models() -> dict[str, list[ModelConfig]]:
@@ -146,32 +140,28 @@ def validate_requested_model(
     requested = (raw_model_id or "").strip()
     if not requested:
         return None
-    if requested == "default":
-        return requested
+    try:
+        resolved = resolve_model_id(requested)
+    except ValueError as exc:
+        raise InvalidRequestedModelError(f"Unknown model id: {requested}") from exc
 
-    model = get_model_config(requested)
+    model = get_model_config(resolved)
     if model is None:
         raise InvalidRequestedModelError(f"Unknown model id: {requested}")
 
     grouped = _grouped_models()
-    category = _category_map(grouped).get(requested)
+    category = _category_map(grouped).get(resolved)
 
     normalized_allowed = set(allowed_categories)
-    is_image_task = normalized_allowed == {"image"}
-    is_llm_task = "llm" in normalized_allowed
-
-    if is_image_task and category != "image":
+    if category not in normalized_allowed:
+        expected = ", ".join(sorted(normalized_allowed)) or "no categories"
         raise InvalidRequestedModelError(
-            f"Model '{requested}' is not an image model and cannot be used for image tasks"
-        )
-    if is_llm_task and category == "image":
-        raise InvalidRequestedModelError(
-            f"Model '{requested}' is an image model and cannot be used for non-image tasks"
+            f"Model '{requested}' is category '{category}' but this request allows: {expected}"
         )
 
-    if require_tools and not model.supports_tools:
+    if require_tools and not _supports_strict_tools(model):
         raise InvalidRequestedModelError(
-            f"Model '{requested}' does not support required tool execution"
+            f"Model '{requested}' has no current strict-tool capability probe"
         )
 
     if require_vision and not _supports_vision(model):
@@ -227,9 +217,13 @@ def route_model(
 ) -> str:
     """Route to an effective model id using category and capability constraints."""
     grouped = _grouped_models()
-    allowed = {c for c in allowed_categories if c in _ALL_CATEGORIES}
-    if not allowed:
+    ordered_allowed = _ordered_allowed_categories(
+        preferred_categories=preferred_categories,
+        allowed_categories=allowed_categories,
+    )
+    if not ordered_allowed:
         raise ValueError("No allowed model categories configured for routing")
+    allowed = set(ordered_allowed)
 
     category_by_id = _category_map(grouped)
 
@@ -239,7 +233,16 @@ def route_model(
         category_by_id=category_by_id,
     )
     if resolved_requested:
+        _require_verified_capabilities(
+            resolved_requested,
+            require_tools=require_tools,
+            require_vision=require_vision,
+        )
         return resolved_requested
+    if str(requested_model or "").strip():
+        raise InvalidRequestedModelError(
+            f"Requested model is unknown or outside the allowed categories: {requested_model}"
+        )
 
     resolved_thread = _resolve_allowed_model_id(
         thread_model,
@@ -247,24 +250,75 @@ def route_model(
         category_by_id=category_by_id,
     )
     if resolved_thread:
+        _require_verified_capabilities(
+            resolved_thread,
+            require_tools=require_tools,
+            require_vision=require_vision,
+        )
         return resolved_thread
+    if str(thread_model or "").strip():
+        raise InvalidRequestedModelError(
+            f"Thread model is unavailable or outside the allowed categories: {thread_model}"
+        )
 
     # Pick the first model from allowed categories that satisfies constraints
-    for category in allowed:
+    for category in ordered_allowed:
         for model in grouped.get(category, []):
-            if require_tools and not model.supports_tools:
+            if require_tools and not _supports_strict_tools(model):
                 continue
             if require_vision and not _supports_vision(model):
                 continue
             return model.id
 
-    # Fallback to default model if it belongs to an allowed category
+    # Use the default only when it satisfies the same verified constraints.
     fallback = get_default_model_id()
     fallback_category = category_by_id.get(fallback)
-    if fallback_category in allowed:
+    fallback_model = get_model_config(fallback)
+    if (
+        fallback_category in allowed
+        and fallback_model is not None
+        and (not require_tools or _supports_strict_tools(fallback_model))
+        and (not require_vision or _supports_vision(fallback_model))
+    ):
         return fallback
 
     raise ValueError("No models configured for required routing categories")
+
+
+def _ordered_allowed_categories(
+    *,
+    preferred_categories: Iterable[str],
+    allowed_categories: Iterable[str],
+) -> tuple[str, ...]:
+    allowed = {
+        category
+        for category in allowed_categories
+        if category in _ALL_CATEGORIES
+    }
+    ordered: list[str] = []
+    for category in (*preferred_categories, *_ALL_CATEGORIES):
+        if category in allowed and category not in ordered:
+            ordered.append(category)
+    return tuple(ordered)
+
+
+def _require_verified_capabilities(
+    model_id: str,
+    *,
+    require_tools: bool,
+    require_vision: bool,
+) -> None:
+    model = get_model_config(model_id)
+    if model is None:
+        raise InvalidRequestedModelError(f"Unknown model id: {model_id}")
+    if require_tools and not _supports_strict_tools(model):
+        raise InvalidRequestedModelError(
+            f"Model '{model_id}' has no current strict-tool capability probe"
+        )
+    if require_vision and not _supports_vision(model):
+        raise InvalidRequestedModelError(
+            f"Model '{model_id}' has no current vision capability probe"
+        )
 
 
 def route_chat_model(

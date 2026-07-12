@@ -69,6 +69,20 @@ class FakeSourceRepository:
         self.sources[source_id] = record
         return record
 
+    async def get_source_by_mission_commit(
+        self,
+        mission_commit_id: str,
+    ) -> SimpleNamespace | None:
+        return next(
+            (
+                source
+                for source in self.sources.values()
+                if getattr(source, "ingest_mission_commit_id", None)
+                == mission_commit_id
+            ),
+            None,
+        )
+
     def create_outline_node(self, values: dict[str, Any]) -> SimpleNamespace:
         record = _record({"id": values.pop("id", f"node-{len(self.outline_nodes) + 1}"), **values})
         self.outline_nodes.append(record)
@@ -383,7 +397,7 @@ class FakeProvenanceRepository:
         target_domain: str | None = None,
         target_kind: str | None = None,
         target_id: str | None = None,
-        review_item_id: str | None = None,
+        mission_review_item_id: str | None = None,
         relation_kind: str | None = None,
         limit: int = 50,
     ) -> list[SimpleNamespace]:
@@ -396,8 +410,8 @@ class FakeProvenanceRepository:
             records = [record for record in records if record.target_kind == target_kind]
         if target_id is not None:
             records = [record for record in records if record.target_id == target_id]
-        if review_item_id is not None:
-            records = [record for record in records if record.review_item_id == review_item_id]
+        if mission_review_item_id is not None:
+            records = [record for record in records if record.mission_review_item_id == mission_review_item_id]
         if relation_kind is not None:
             records = [record for record in records if record.relation_kind == relation_kind]
         return records[:limit]
@@ -410,7 +424,7 @@ class FakeProvenanceRepository:
         target_domain: str | None = None,
         target_kind: str | None = None,
         target_id: str | None = None,
-        review_item_id: str | None = None,
+        mission_review_item_id: str | None = None,
         relation_kind: str | None = None,
     ) -> int:
         before = len(self.links)
@@ -420,7 +434,7 @@ class FakeProvenanceRepository:
             target_domain=target_domain,
             target_kind=target_kind,
             target_id=target_id,
-            review_item_id=review_item_id,
+            mission_review_item_id=mission_review_item_id,
             relation_kind=relation_kind,
             limit=len(self.links) or 1,
         )
@@ -621,7 +635,7 @@ async def test_source_service_upserts_external_ids_into_detail() -> None:
         source_id=source.id,
         external_ids=[
             SourceExternalIdCreateCommand(
-                provider="semantic_scholar",
+                provider="model_web_search",
                 external_id="paper-1",
                 url="https://example.test/paper-1",
             )
@@ -632,7 +646,7 @@ async def test_source_service_upserts_external_ids_into_detail() -> None:
         source_id=source.id,
         external_ids=[
             SourceExternalIdCreateCommand(
-                provider="semantic_scholar",
+                provider="model_web_search",
                 external_id="paper-1",
                 metadata_json={"source_label": "verified"},
             )
@@ -663,12 +677,12 @@ async def test_source_service_imports_and_dedupes_by_external_id() -> None:
             authors_json=["Ada"],
             year=2026,
             doi="https://doi.org/10.1000/example",
-            ingest_kind="semantic_scholar",
+            ingest_kind="model_web_search",
             library_status="candidate",
             evidence_level="external_verified",
             external_ids=[
                 SourceExternalIdCreateCommand(
-                    provider="semantic_scholar",
+                    provider="model_web_search",
                     external_id="paper-1",
                 )
             ],
@@ -682,12 +696,12 @@ async def test_source_service_imports_and_dedupes_by_external_id() -> None:
             authors_json=["Ada"],
             year=2026,
             doi="10.1000/example",
-            ingest_kind="semantic_scholar",
+            ingest_kind="model_web_search",
             library_status="included",
             evidence_level="external_verified",
             external_ids=[
                 SourceExternalIdCreateCommand(
-                    provider="semantic_scholar",
+                    provider="model_web_search",
                     external_id="paper-1",
                     url="https://example.test/paper-1",
                 )
@@ -700,6 +714,27 @@ async def test_source_service_imports_and_dedupes_by_external_id() -> None:
     assert second.source.id == first.source.id
     assert second.source.library_status == "included"
     assert second.external_ids[0]["url"] == "https://example.test/paper-1"
+    assert len(repository.sources) == 1
+
+
+@pytest.mark.asyncio
+async def test_source_import_replays_by_mission_commit_without_duplicate_write() -> None:
+    service = SourceDataDomainService(FakeSession(), autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+    base = dict(
+        workspace_id="ws-1",
+        citation_key="commit2026",
+        ingest_kind="model_web_search",
+        ingest_mission_commit_id="commit-1",
+    )
+
+    first = await service.import_source(SourceImportCommand(title="Original", **base))
+    replay = await service.import_source(SourceImportCommand(title="Tampered retry", **base))
+
+    assert replay.created is False
+    assert replay.source.id == first.source.id
+    assert replay.source.title == "Original"
     assert len(repository.sources) == 1
 
 

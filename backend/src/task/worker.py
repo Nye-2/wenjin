@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from collections.abc import Awaitable, Callable, Coroutine
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from celery.signals import worker_process_init, worker_process_shutdown
@@ -30,6 +32,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _worker_runner: asyncio.Runner | None = None
+_require_mission_model_profile = False
+
+CANONICAL_MISSION_MODEL_ID = "gpt-5.5"
+WORKER_READINESS_FILE = Path("/tmp/wenjin-worker-ready")
 
 
 def parse_worker_cli_args(argv: list[str]) -> argparse.Namespace:
@@ -45,6 +51,17 @@ def parse_worker_cli_args(argv: list[str]) -> argparse.Namespace:
         "--queues",
         default="",
         help="Comma-separated Celery queues to consume.",
+    )
+    parser.add_argument(
+        "--prefetch-multiplier",
+        type=int,
+        default=None,
+        help="Per-worker prefetch override; mission workers must use 1.",
+    )
+    parser.add_argument(
+        "--require-mission-model-profile",
+        action="store_true",
+        help="Fail startup unless the canonical Mission model profile is usable.",
     )
     parsed = parser.parse_args(argv)
     parsed.queues = [
@@ -121,7 +138,27 @@ def close_worker_runner() -> None:
     _worker_runner = None
 
 
-async def _bootstrap_worker_runtime() -> None:
+def _worker_readiness_file() -> Path:
+    configured = os.environ.get("WORKER_READINESS_FILE", "").strip()
+    return Path(configured) if configured else WORKER_READINESS_FILE
+
+
+def _clear_worker_readiness() -> None:
+    _worker_readiness_file().unlink(missing_ok=True)
+
+
+def _mark_worker_ready(*, mission_model_id: str | None = None) -> None:
+    marker = mission_model_id or "ready"
+    _worker_readiness_file().write_text(f"{marker}\n", encoding="utf-8")
+
+
+def _validate_canonical_mission_model_profile() -> None:
+    from src.mission_runtime.production import require_mission_model_profile
+
+    require_mission_model_profile(CANONICAL_MISSION_MODEL_ID)
+
+
+async def _bootstrap_worker_runtime(*, require_mission_model_profile: bool = False) -> None:
     """Initialize worker-process runtime dependencies before task execution."""
     (
         init_sentry,
@@ -142,11 +179,17 @@ async def _bootstrap_worker_runtime() -> None:
     try:
         await _refresh_worker_model_catalog_cache()
     except Exception as exc:
+        if require_mission_model_profile:
+            raise RuntimeError(
+                "Canonical Mission model catalog warmup failed"
+            ) from exc
         logger.warning(
             "Worker model catalog runtime cache warmup skipped: %s",
             exc,
             exc_info=True,
         )
+    if require_mission_model_profile:
+        _validate_canonical_mission_model_profile()
     manager, _ = await activate_mcp_runtime(
         extensions_config=get_extensions_config(),
         warmup=True,
@@ -199,11 +242,25 @@ def run_worker_coroutine[T](coro: Coroutine[Any, Any, T]) -> T:
 def _on_worker_process_init(**_kwargs: object) -> None:
     """Bootstrap runtime inside each Celery worker process."""
     try:
-        _run_async(_bootstrap_worker_runtime())
+        _run_async(
+            _bootstrap_worker_runtime(
+                require_mission_model_profile=_require_mission_model_profile,
+            )
+        )
+        _mark_worker_ready(
+            mission_model_id=(
+                CANONICAL_MISSION_MODEL_ID
+                if _require_mission_model_profile
+                else None
+            )
+        )
         logger.info("Worker process runtime bootstrap completed")
-    except Exception:
+    except Exception as exc:
+        _clear_worker_readiness()
         logger.exception("Worker process runtime bootstrap failed")
-        raise
+        # Celery's signal dispatcher catches Exception, so use SystemExit to
+        # prevent a bootstrap-failed process from consuming queued work.
+        raise SystemExit(1) from exc
 
 
 def _on_worker_process_shutdown(**_kwargs: object) -> None:
@@ -230,6 +287,8 @@ def start_worker(
     concurrency: int | None = None,
     loglevel: str = "info",
     queues: list[str] | None = None,
+    prefetch_multiplier: int | None = None,
+    require_mission_model_profile: bool = False,
 ) -> None:
     """Start a Celery worker.
 
@@ -237,12 +296,17 @@ def start_worker(
         concurrency: Number of worker processes/threads
         loglevel: Logging level (debug, info, warning, error)
         queues: List of queues to consume (default: all queues)
+        prefetch_multiplier: Optional worker-specific prefetch override.
     """
+    global _require_mission_model_profile
+
     from src.observability.prometheus import (
         prepare_worker_prometheus,
         start_worker_prometheus_server,
     )
 
+    _require_mission_model_profile = require_mission_model_profile
+    _clear_worker_readiness()
     prepare_worker_prometheus()
     start_worker_prometheus_server()
 
@@ -274,6 +338,10 @@ def start_worker(
 
     if queues:
         argv.extend(["-Q", ",".join(queues)])
+    if prefetch_multiplier is not None:
+        if prefetch_multiplier < 1:
+            raise ValueError("prefetch_multiplier must be at least 1")
+        argv.append(f"--prefetch-multiplier={prefetch_multiplier}")
 
     celery_app.worker_main(argv=argv)
 
@@ -292,4 +360,9 @@ def start_flower(port: int = 5555) -> None:
 
 if __name__ == "__main__":
     args = parse_worker_cli_args(sys.argv[1:])
-    start_worker(concurrency=args.concurrency, queues=args.queues or None)
+    start_worker(
+        concurrency=args.concurrency,
+        queues=args.queues or None,
+        prefetch_multiplier=args.prefetch_multiplier,
+        require_mission_model_profile=args.require_mission_model_profile,
+    )

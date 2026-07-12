@@ -263,10 +263,10 @@ async def test_record_consumption_replays_existing_idempotent_charge() -> None:
         transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
         amount=-3,
         balance_after=7,
-        tx_metadata={"idempotency_key": "feature_token_billing:exec-1"},
+        tx_metadata={"idempotency_key": "mission_token_billing:exec-1"},
     )
     repository.idempotent_transactions[
-        ("user-1", CreditTransactionType.WORKFLOW_CONSUME, "feature_token_billing:exec-1")
+        ("user-1", CreditTransactionType.WORKFLOW_CONSUME, "mission_token_billing:exec-1")
     ] = existing
     service = DataServiceCreditService(MagicMock(), autocommit=False)
     service.repository = repository
@@ -278,7 +278,7 @@ async def test_record_consumption_replays_existing_idempotent_charge() -> None:
         amount=3,
         description="feature token billing",
         metadata={
-            "idempotency_key": "feature_token_billing:exec-1",
+            "idempotency_key": "mission_token_billing:exec-1",
             "policy": {"max_overdraft_credits": 100},
         },
     )
@@ -301,11 +301,11 @@ async def test_create_reservation_holds_spendable_balance() -> None:
 
     reservation = await service.create_reservation(
         user_id="user-1",
-        scope=CreditReservationScope.FEATURE_EXECUTION,
+        scope=CreditReservationScope.MISSION,
         reserved_credits=4,
-        idempotency_key="feature:exec-1",
+        idempotency_key="mission:-1",
         workspace_id="ws-1",
-        execution_id="exec-1",
+        mission_id="exec-1",
     )
 
     assert reservation.reserved_credits == 4
@@ -325,15 +325,15 @@ async def test_create_reservation_replays_by_idempotency_key() -> None:
 
     first = await service.create_reservation(
         user_id="user-1",
-        scope=CreditReservationScope.FEATURE_EXECUTION,
+        scope=CreditReservationScope.MISSION,
         reserved_credits=4,
-        idempotency_key="feature:exec-1",
+        idempotency_key="mission:-1",
     )
     second = await service.create_reservation(
         user_id="user-1",
-        scope=CreditReservationScope.FEATURE_EXECUTION,
+        scope=CreditReservationScope.MISSION,
         reserved_credits=4,
-        idempotency_key="feature:exec-1",
+        idempotency_key="mission:-1",
     )
 
     assert second is first
@@ -352,9 +352,9 @@ async def test_create_reservation_rejects_when_spendable_balance_is_insufficient
     with pytest.raises(CreditOverdraftLimitError, match="insufficient spendable credits"):
         await service.create_reservation(
             user_id="user-1",
-            scope=CreditReservationScope.FEATURE_EXECUTION,
+            scope=CreditReservationScope.MISSION,
             reserved_credits=3,
-            idempotency_key="feature:exec-1",
+            idempotency_key="mission:-1",
         )
 
     assert user.reserved_credits == 3
@@ -370,20 +370,20 @@ async def test_settle_reservation_creates_final_transaction_and_releases_remaind
     service._finish = AsyncMock()
     reservation = await service.create_reservation(
         user_id="user-1",
-        scope=CreditReservationScope.FEATURE_EXECUTION,
+        scope=CreditReservationScope.MISSION,
         reserved_credits=10,
-        idempotency_key="feature:exec-1",
+        idempotency_key="mission:-1",
         workspace_id="ws-1",
-        execution_id="exec-1",
-        metadata={"type": "feature_reservation"},
+        mission_id="exec-1",
+        metadata={"type": "mission_reservation"},
     )
 
     settled, tx = await service.settle_reservation(
         reservation_id=reservation.id,
         settled_credits=6,
-        description="feature settlement",
-        feature_id="deep_research",
-        task_id="exec-1",
+        description="mission settlement",
+        mission_policy_id="deep_research",
+        mission_id="exec-1",
         metadata={"actual_credits": 6},
     )
 
@@ -431,9 +431,9 @@ async def test_release_expired_reservations_returns_held_credits() -> None:
     now = datetime.now(UTC)
     reservation = await service.create_reservation(
         user_id="user-1",
-        scope=CreditReservationScope.FEATURE_EXECUTION,
+        scope=CreditReservationScope.MISSION,
         reserved_credits=8,
-        idempotency_key="feature:exec-1",
+        idempotency_key="mission:-1",
         expires_at=now - timedelta(minutes=1),
     )
 

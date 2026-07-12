@@ -33,7 +33,6 @@ import type {
 } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { useChatStoreV2 } from "@/stores/chat-store";
-import { useExecutionStore } from "@/stores/execution-store";
 import { useLatexStore } from "@/stores/latex";
 
 interface LatexEditorShellProps {
@@ -56,8 +55,6 @@ export function LatexEditorShell({
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const sendChatMessage = useChatStoreV2((state) => state.sendMessage);
   const isChatSending = useChatStoreV2((state) => state.isSending);
-  const executions = useExecutionStore((state) => state.executions);
-  const upsertExecution = useExecutionStore((state) => state.upsertExecution);
   const {
     project,
     tree,
@@ -173,8 +170,6 @@ export function LatexEditorShell({
   const prismOptimization = usePrismOptimizationJobs({
     workspaceId,
     projectId,
-    executions,
-    upsertExecution,
     loadProject,
     onReviewStateChanged,
     onFeedbackStatus: setFeedbackStatus,
@@ -447,8 +442,7 @@ export function LatexEditorShell({
         open={prismOptimization.isTraceOpen}
         activeJob={prismOptimization.activeJob}
         jobs={prismOptimization.jobs}
-        activeRecord={prismOptimization.activeRecord}
-        activePhases={prismOptimization.activePhases}
+        activeMission={prismOptimization.activeMission}
         fileChangesCount={fileChanges.length}
         onOpenChange={prismOptimization.setTraceOpen}
         onSelectJob={prismOptimization.setActiveJobId}

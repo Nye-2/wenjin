@@ -32,8 +32,6 @@ async def list_user_tasks(
     task_type: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=200),
     workspace_id: str | None = Query(default=None),
-    feature_id: str | None = Query(default=None),
-    action: str | None = Query(default=None),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     records = await TaskDataService(
@@ -45,8 +43,6 @@ async def list_user_tasks(
         task_type=task_type,
         limit=limit,
         workspace_id=workspace_id,
-        feature_id=feature_id,
-        action=action,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
 

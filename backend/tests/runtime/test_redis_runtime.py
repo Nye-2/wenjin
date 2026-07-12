@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from src.runtime.runs import ConflictError, RunManager, RunStatus
+from src.runtime.chat_turns import ChatTurnConflictError, ChatTurnRunManager, ChatTurnRunStatus
 from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL, RedisStreamBridge
 
 
@@ -170,16 +170,16 @@ class FakeRedisBackend:
 @pytest.mark.asyncio
 async def test_run_manager_hydrates_from_redis_and_recovers_inflight_runs():
     backend = FakeRedisBackend()
-    manager = RunManager(redis_backend=backend, run_ttl_seconds=3600)
+    manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     created = await manager.create_or_reject("thread-1")
-    await manager.set_status(created.run_id, RunStatus.running)
+    await manager.set_status(created.run_id, ChatTurnRunStatus.running)
 
-    recovered = RunManager(redis_backend=backend, run_ttl_seconds=3600)
-    await recovered.hydrate_recent_runs(limit=50)
+    recovered = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
+    await recovered.hydrate_recent(limit=50)
 
     loaded = recovered.get(created.run_id)
     assert loaded is not None
-    assert loaded.status == RunStatus.interrupted
+    assert loaded.status == ChatTurnRunStatus.interrupted
     assert loaded.error is not None
     assert "restarted" in loaded.error.lower()
 
@@ -187,78 +187,78 @@ async def test_run_manager_hydrates_from_redis_and_recovers_inflight_runs():
 @pytest.mark.asyncio
 async def test_run_manager_refresh_updates_stale_in_memory_record():
     backend = FakeRedisBackend()
-    manager = RunManager(redis_backend=backend, run_ttl_seconds=3600)
+    manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     created = await manager.create_or_reject("thread-1")
 
     # Simulate another process updating terminal status in Redis only.
-    run_key = f"runtime:runs:{created.run_id}"
-    backend._hashes[run_key]["status"] = RunStatus.success.value
+    run_key = f"runtime:chat_turns:{created.run_id}"
+    backend._hashes[run_key]["status"] = ChatTurnRunStatus.success.value
     backend._hashes[run_key]["updated_at"] = "2026-04-15T00:00:00+00:00"
 
     stale = manager.get(created.run_id)
     assert stale is not None
-    assert stale.status == RunStatus.pending
+    assert stale.status == ChatTurnRunStatus.pending
 
     refreshed = await manager.get_or_load(created.run_id, refresh=True)
     assert refreshed is not None
-    assert refreshed.status == RunStatus.success
+    assert refreshed.status == ChatTurnRunStatus.success
 
 
 @pytest.mark.asyncio
 async def test_run_manager_cancel_respects_refreshed_terminal_status():
     backend = FakeRedisBackend()
-    manager = RunManager(redis_backend=backend, run_ttl_seconds=3600)
+    manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     created = await manager.create_or_reject("thread-1")
 
     # Mark success in Redis before cancel attempt to emulate remote completion.
-    run_key = f"runtime:runs:{created.run_id}"
-    backend._hashes[run_key]["status"] = RunStatus.success.value
+    run_key = f"runtime:chat_turns:{created.run_id}"
+    backend._hashes[run_key]["status"] = ChatTurnRunStatus.success.value
     backend._hashes[run_key]["updated_at"] = "2026-04-15T00:00:00+00:00"
 
     cancelled = await manager.cancel(created.run_id)
     assert cancelled is False
     latest = await manager.get_or_load(created.run_id, refresh=True)
     assert latest is not None
-    assert latest.status == RunStatus.success
+    assert latest.status == ChatTurnRunStatus.success
 
 
 @pytest.mark.asyncio
 async def test_list_by_thread_refreshes_existing_cached_status():
     backend = FakeRedisBackend()
-    manager = RunManager(redis_backend=backend, run_ttl_seconds=3600)
+    manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     created = await manager.create_or_reject("thread-1")
 
-    run_key = f"runtime:runs:{created.run_id}"
-    backend._hashes[run_key]["status"] = RunStatus.success.value
+    run_key = f"runtime:chat_turns:{created.run_id}"
+    backend._hashes[run_key]["status"] = ChatTurnRunStatus.success.value
     backend._hashes[run_key]["updated_at"] = "2026-04-15T00:00:00+00:00"
 
     listed = await manager.list_by_thread("thread-1")
     assert listed
-    assert listed[0].status == RunStatus.success
+    assert listed[0].status == ChatTurnRunStatus.success
 
 
 @pytest.mark.asyncio
 async def test_create_or_reject_checks_redis_thread_index_for_inflight_conflict():
     backend = FakeRedisBackend()
-    first_manager = RunManager(redis_backend=backend, run_ttl_seconds=3600)
+    first_manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     created = await first_manager.create_or_reject("thread-1")
-    await first_manager.set_status(created.run_id, RunStatus.running)
+    await first_manager.set_status(created.run_id, ChatTurnRunStatus.running)
 
     # New process-local manager with empty memory should still see conflict.
-    second_manager = RunManager(redis_backend=backend, run_ttl_seconds=3600)
-    with pytest.raises(ConflictError):
+    second_manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
+    with pytest.raises(ChatTurnConflictError):
         await second_manager.create_or_reject("thread-1", multitask_strategy="reject")
 
 
 @pytest.mark.asyncio
 async def test_create_or_reject_rejects_when_thread_scheduling_lock_is_held():
     backend = FakeRedisBackend()
-    await backend.set("runtime:runs:lock:thread:thread-1", "busy-token", nx=True, ex=5)
-    manager = RunManager(redis_backend=backend, run_ttl_seconds=3600)
+    await backend.set("runtime:chat_turns:lock:thread:thread-1", "busy-token", nx=True, ex=5)
+    manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     manager._thread_lock_wait_seconds = 0.05
     manager._thread_lock_retry_seconds = 0.01
 
-    with pytest.raises(ConflictError, match="busy with run scheduling"):
+    with pytest.raises(ChatTurnConflictError, match="busy with run scheduling"):
         await manager.create_or_reject("thread-1")
 
 

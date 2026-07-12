@@ -26,7 +26,7 @@ class ProvenanceDataService:
         target_domain: str | None = None,
         target_kind: str | None = None,
         target_id: str | None = None,
-        review_item_id: str | None = None,
+        mission_review_item_id: str | None = None,
         relation_kind: str | None = None,
         limit: int = 50,
     ) -> list[ProvenanceLinkProjection]:
@@ -36,7 +36,7 @@ class ProvenanceDataService:
             target_domain=target_domain,
             target_kind=target_kind,
             target_id=target_id,
-            review_item_id=review_item_id,
+            mission_review_item_id=mission_review_item_id,
             relation_kind=relation_kind,
             limit=limit,
         )
@@ -49,7 +49,7 @@ class ProvenanceDataService:
         target_domain: str | None = None,
         target_kind: str | None = None,
         target_id: str | None = None,
-        review_item_id: str | None = None,
+        mission_review_item_id: str | None = None,
         relation_kind: str | None = None,
     ) -> int:
         return await self._domain.delete_links(
@@ -58,6 +58,6 @@ class ProvenanceDataService:
             target_domain=target_domain,
             target_kind=target_kind,
             target_id=target_id,
-            review_item_id=review_item_id,
+            mission_review_item_id=mission_review_item_id,
             relation_kind=relation_kind,
         )

@@ -18,7 +18,7 @@ class PricingPolicyKind(StrEnum):
 
     GLOBAL_CREDIT = "global_credit"
     MODEL_USAGE = "model_usage"
-    CAPABILITY = "capability"
+    MISSION = "mission"
     TOOL = "tool"
     SANDBOX = "sandbox"
 

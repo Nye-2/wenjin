@@ -1,0 +1,417 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from src.mission_runtime.production import StrictToolExecutionGuard
+from src.sandbox.contracts import (
+    SandboxOperationRequest,
+    SandboxOperationResult,
+    SandboxOperationStatus,
+    SandboxRetryDisposition,
+)
+from src.services.search import MODEL_NATIVE_SEARCH_TOOL_ID
+from src.tools.mission import MISSION_TOOL_GROUPS, MissionToolHandlers, build_mission_tool_registrations
+from src.tools.mission.contracts import (
+    CreateArtifactCandidateInput,
+    ImportSourceCandidateInput,
+    ListSourceCodeFilesInput,
+    ReadSourceCodeFileInput,
+    ReadWorkspaceAssetInput,
+    SmokeCheckToolInput,
+)
+from src.tools.orchestrator import (
+    ResearchToolOutcome,
+    SourceReference,
+    ToolCallerKind,
+    ToolCatalog,
+    ToolDispatchError,
+    ToolInvocationContext,
+    ToolOperation,
+    ToolOrchestrator,
+    ToolOutcomeStatus,
+    ToolPolicy,
+    VerificationStatus,
+)
+
+IMAGE_DIGEST = f"sha256:{'a' * 64}"
+
+
+def _operation(*, lease_epoch: int = 4) -> ToolOperation:
+    return ToolOperation(
+        mission_id="mission-1",
+        operation_id="op-1",
+        operation_key="operation-key-1",
+        command_id="command-1",
+        stage_id="stage-1",
+        caller_id="workspace-agent",
+        caller_kind="workspace_agent",
+        tool_id="workspace.list_assets",
+        tool_version="1.0.0",
+        descriptor_schema_hash="a" * 64,
+        args_hash="args-hash",
+        policy_snapshot_ref="policy@hash",
+        lease_epoch=lease_epoch,
+        attempt=1,
+    )
+
+
+class _Missions:
+    def __init__(self, items=()) -> None:
+        self.items = list(items)
+
+    async def get(self, mission_id: str):
+        assert mission_id == "mission-1"
+        return SimpleNamespace(workspace_id="workspace-1")
+
+    async def list_items(self, mission_id: str, **_kwargs):
+        assert mission_id == "mission-1"
+        after_seq = int(_kwargs.get("after_seq") or 0)
+        limit = int(_kwargs.get("limit") or 100)
+        return [item for index, item in enumerate(self.items, start=1) if int(getattr(item, "seq", index)) > after_seq][:limit]
+
+
+class _DataService:
+    def __init__(self, *, asset=None, mission_items=()) -> None:
+        self.missions = _Missions(mission_items)
+        self.asset = asset
+        self.import_source = AsyncMock()
+
+    async def get_asset(self, asset_id: str):
+        assert asset_id == "asset-1"
+        return self.asset
+
+    async def resolve_asset_download(self, asset_id: str):
+        assert asset_id == "asset-1"
+        return SimpleNamespace(
+            asset=self.asset,
+            storage_backend="local",
+            storage_path=self.asset.storage_path,
+        )
+
+
+class _Sandbox:
+    def __init__(self) -> None:
+        self.requests: list[SandboxOperationRequest] = []
+
+    def build_request(self, **kwargs) -> SandboxOperationRequest:
+        return SandboxOperationRequest.build(
+            provenance=kwargs["provenance"],
+            operation_input=kwargs["operation_input"],
+            image_digest=IMAGE_DIGEST,
+            policy_version=kwargs["policy_version"],
+            network_profile=kwargs["network_profile"],
+            network_grant=kwargs["network_grant"],
+        )
+
+    async def execute(self, request: SandboxOperationRequest) -> SandboxOperationResult:
+        self.requests.append(request)
+        now = datetime.now(UTC)
+        return SandboxOperationResult(
+            operation_key=request.operation_key,
+            sandbox_job_id="sandbox-job-1",
+            provenance=request.provenance,
+            operation=request.operation,
+            image_digest=request.image_digest,
+            policy_version=request.policy_version,
+            command_schema_version=request.command_schema_version,
+            status=SandboxOperationStatus.SUCCEEDED,
+            retry_disposition=SandboxRetryDisposition.REUSE_RECEIPT,
+            exit_code=0,
+            stdout_preview="ok",
+            started_at=now,
+            finished_at=now,
+        )
+
+
+def test_every_policy_group_has_canonical_registrations_and_narrow_permissions() -> None:
+    registrations = build_mission_tool_registrations(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        lease_guard=object(),
+        receipt_store=object(),
+        sandbox_runtime=_Sandbox(),  # type: ignore[arg-type]
+    )
+    by_id = {item.descriptor.tool_id: item.descriptor for item in registrations}
+
+    assert all(tool_ids for tool_ids in MISSION_TOOL_GROUPS.values())
+    assert {tool_id for ids in MISSION_TOOL_GROUPS.values() for tool_id in ids} == set(by_id)
+    for group, tool_ids in MISSION_TOOL_GROUPS.items():
+        for tool_id in tool_ids:
+            assert by_id[tool_id].required_permissions == (group,)
+    assert by_id["sandbox.install_dependencies"].network_profile == "package_index_only"
+    assert all(descriptor.network_profile == "none" for tool_id, descriptor in by_id.items() if tool_id != "sandbox.install_dependencies")
+
+
+@pytest.mark.asyncio
+async def test_source_code_read_is_owner_scoped_and_single_file_cannot_escape(tmp_path) -> None:
+    upload_root = tmp_path / "uploads"
+    workspace_root = upload_root / "workspace-1"
+    workspace_root.mkdir(parents=True)
+    allowed = workspace_root / "main.py"
+    sibling = workspace_root / "secret.py"
+    allowed.write_text("print('allowed')", encoding="utf-8")
+    sibling.write_text("print('secret')", encoding="utf-8")
+    asset = SimpleNamespace(
+        id="asset-1",
+        workspace_id="workspace-1",
+        deleted_at=None,
+        storage_path=str(allowed),
+        title="main.py",
+        name="main.py",
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(asset=asset),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        asset_root=upload_root,
+    )
+
+    listing = await handlers.list_source_code_files(_operation(), ListSourceCodeFilesInput(asset_id="asset-1"))
+    assert listing.evidence_refs[0].metadata["files"] == ["main.py"]
+    read = await handlers.read_source_code_file(
+        _operation(),
+        ReadSourceCodeFileInput(asset_id="asset-1", relative_path="main.py"),
+    )
+    assert "allowed" in read.evidence_refs[0].metadata["content"]
+    with pytest.raises(ToolDispatchError):
+        await handlers.read_source_code_file(
+            _operation(),
+            ReadSourceCodeFileInput(asset_id="asset-1", relative_path="secret.py"),
+        )
+
+    foreign = SimpleNamespace(**{**asset.__dict__, "workspace_id": "workspace-2"})
+    foreign_handlers = MissionToolHandlers(
+        dataservice=_DataService(asset=foreign),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        asset_root=upload_root,
+    )
+    with pytest.raises(ToolDispatchError):
+        await foreign_handlers.list_source_code_files(_operation(), ListSourceCodeFilesInput(asset_id="asset-1"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tampered_path", ["/etc/passwd", "../workspace-2/secret.py"])
+async def test_workspace_asset_rejects_tampered_database_paths(tmp_path, tampered_path: str) -> None:
+    upload_root = tmp_path / "uploads"
+    (upload_root / "workspace-1").mkdir(parents=True)
+    asset = SimpleNamespace(
+        id="asset-1",
+        workspace_id="workspace-1",
+        deleted_at=None,
+        storage_path=tampered_path,
+        title="tampered",
+        name="tampered.txt",
+        mime_type="text/plain",
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(asset=asset),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        asset_root=upload_root,
+    )
+
+    with pytest.raises(ToolDispatchError):
+        await handlers.read_workspace_asset(
+            _operation(),
+            ReadWorkspaceAssetInput(asset_id="asset-1"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_workspace_asset_rejects_symlink_escape(tmp_path) -> None:
+    upload_root = tmp_path / "uploads"
+    workspace_root = upload_root / "workspace-1"
+    workspace_root.mkdir(parents=True)
+    link = workspace_root / "outside.txt"
+    link.symlink_to("/etc/passwd")
+    asset = SimpleNamespace(
+        id="asset-1",
+        workspace_id="workspace-1",
+        deleted_at=None,
+        storage_path=str(link),
+        title="outside",
+        name="outside.txt",
+        mime_type="text/plain",
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(asset=asset),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        asset_root=upload_root,
+    )
+
+    with pytest.raises(ToolDispatchError):
+        await handlers.read_workspace_asset(_operation(), ReadWorkspaceAssetInput(asset_id="asset-1"))
+
+
+@pytest.mark.asyncio
+async def test_source_url_import_requires_current_mission_search_receipt() -> None:
+    url = "https://example.org/paper"
+    outcome = ResearchToolOutcome(
+        operation_id="search-op",
+        operation_key="search-operation-key",
+        producer="research.search_web",
+        tool_id=MODEL_NATIVE_SEARCH_TOOL_ID,
+        tool_version="1.0.0",
+        status=ToolOutcomeStatus.SUCCESS,
+        observed_at=datetime.now(UTC),
+        summary="search complete",
+        source_refs=(
+            SourceReference(
+                source_id="provider-source-1",
+                canonical_url=url,
+                title="Paper",
+                observed_at=datetime.now(UTC),
+                verification_status=VerificationStatus.PROVIDER_RECEIPT,
+            ),
+        ),
+        verification_status=VerificationStatus.PROVIDER_RECEIPT,
+    )
+    item = SimpleNamespace(
+        seq=101,
+        payload_json={
+            "operation_key": outcome.operation_key,
+            "outcome": outcome.model_dump(mode="json"),
+        },
+    )
+    filler = [
+        SimpleNamespace(
+            seq=index,
+            payload_json={"operation_key": f"other-{index}", "outcome": {}},
+        )
+        for index in range(1, 101)
+    ]
+    dataservice = _DataService(mission_items=[*filler, item])
+    dataservice.import_source.return_value = SimpleNamespace(
+        source=SimpleNamespace(id="source-1", title="Paper", url=url, citation_key="Paper2026"),
+        created=True,
+    )
+    handlers = MissionToolHandlers(
+        dataservice=dataservice,  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+    args = ImportSourceCandidateInput(
+        title="Paper",
+        citation_key="Paper2026",
+        verification_ref="search-receipt:search-operation-key#provider-source-1",
+        url=url,
+    )
+
+    result = await handlers.import_source_candidate(_operation(), args)
+
+    assert result.payload_ref == "source:source-1"
+    dataservice.import_source.assert_awaited_once()
+
+    missing_handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(ToolDispatchError, match="search receipt"):
+        await missing_handlers.import_source_candidate(_operation(), args)
+
+
+@pytest.mark.asyncio
+async def test_sandbox_tool_binds_mission_workspace_and_lease_receipt() -> None:
+    sandbox = _Sandbox()
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+    )
+
+    result = await handlers.sandbox_smoke_check(_operation(lease_epoch=9), SmokeCheckToolInput())
+
+    assert result.summary == "ok"
+    [request] = sandbox.requests
+    assert request.provenance.workspace_id == "workspace-1"
+    assert request.provenance.mission_id == "mission-1"
+    assert request.provenance.lease_epoch == 9
+    assert request.operation_key.startswith("sbxop_")
+
+
+@pytest.mark.asyncio
+async def test_artifact_render_only_emits_review_candidate_manifest() -> None:
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+    result = await handlers.create_artifact_candidate(
+        _operation(),
+        CreateArtifactCandidateInput(
+            title="Result chart",
+            artifact_kind="chart",
+            source_refs=("sandbox-artifact:abc",),
+            mime_type="image/png",
+            sandbox_artifact_path="/workspace/outputs/chart.png",
+        ),
+    )
+
+    [candidate] = result.artifact_refs
+    assert candidate.kind == "artifact_candidate"
+    assert candidate.metadata["materialized"] is False
+    assert candidate.metadata["mission_id"] == "mission-1"
+
+
+class _Journal:
+    def __init__(self) -> None:
+        self.terminal = None
+
+    async def load_terminal(self, _operation):
+        return self.terminal
+
+    async def claim_started(self, _operation):
+        return True
+
+    async def record_terminal(self, _operation, outcome):
+        self.terminal = outcome
+        return True
+
+
+class _Fence:
+    async def assert_current(self, _operation):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_pinned_group_permission_passes_catalog_preflight_end_to_end() -> None:
+    registrations = build_mission_tool_registrations(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        lease_guard=object(),
+        receipt_store=object(),
+        sandbox_runtime=_Sandbox(),  # type: ignore[arg-type]
+    )
+    orchestrator = ToolOrchestrator(
+        catalog=ToolCatalog(registrations).freeze(),
+        journal=_Journal(),
+        lease_fence=_Fence(),
+        guard=StrictToolExecutionGuard(),
+    )
+    context = ToolInvocationContext(
+        mission_id="mission-1",
+        workspace_id="workspace-1",
+        command_id="command-1",
+        stage_id="stage-1",
+        caller_id="workspace-agent",
+        caller_kind=ToolCallerKind.WORKSPACE_AGENT,
+        lease_epoch=4,
+    )
+    policy = ToolPolicy(
+        policy_ref="policy@hash",
+        allowed_tool_ids=("artifact.create_candidate",),
+        granted_permissions=("artifact_render",),
+    )
+
+    outcome = await orchestrator.invoke(
+        "artifact.create_candidate",
+        {
+            "title": "Chart",
+            "artifact_kind": "chart",
+            "source_refs": ["sandbox-artifact:abc"],
+            "mime_type": "image/png",
+            "sandbox_artifact_path": "/workspace/outputs/chart.png",
+        },
+        context=context,
+        policy=policy,
+    )
+
+    assert outcome.status is ToolOutcomeStatus.SUCCESS
+    assert outcome.artifact_refs

@@ -1,5 +1,9 @@
 # Super Workflow Intake Spec for Software Copyright and Math Modeling
 
+Status: Superseded for runtime topology by `docs/superpowers/specs/mission-runtime-overview.md` and `docs/superpowers/specs/mission-runtime/`.
+
+Note: spec-first intake ideas remain useful. Any implementation must route through WorkspaceAgent -> MissionRuntime and MissionPolicy, not launch_feature, ExecutionRecord, or a separate Lead Agent execution boundary.
+
 ## Goal
 
 Turn the two priority one-shot workspaces into a spec-first workflow:

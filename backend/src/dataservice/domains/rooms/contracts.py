@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -17,8 +16,9 @@ class DecisionSetCommand(BaseModel):
     extracted_by: str = Field(min_length=1, max_length=100)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     source_message_id: str | None = Field(default=None, max_length=36)
-    source_review_batch_id: str | None = Field(default=None, max_length=36)
-    source_review_item_id: str | None = Field(default=None, max_length=36)
+    source_mission_id: str | None = Field(default=None, max_length=36)
+    source_mission_item_seq: int | None = Field(default=None, ge=1)
+    source_mission_commit_id: str | None = Field(default=None, max_length=36)
 
 
 class WorkspaceTaskCreateCommand(BaseModel):
@@ -29,10 +29,11 @@ class WorkspaceTaskCreateCommand(BaseModel):
     description: str | None = None
     status: str = Field(default="pending", max_length=20)
     priority: int = 0
-    related_execution_ids: list[str] = Field(default_factory=list)
+    related_mission_ids: list[str] = Field(default_factory=list)
     created_by: str = Field(default="system", min_length=1, max_length=100)
-    source_review_batch_id: str | None = Field(default=None, max_length=36)
-    source_review_item_id: str | None = Field(default=None, max_length=36)
+    source_mission_id: str | None = Field(default=None, max_length=36)
+    source_mission_item_seq: int | None = Field(default=None, ge=1)
+    source_mission_commit_id: str | None = Field(default=None, max_length=36)
 
 
 class WorkspaceTaskUpdateCommand(BaseModel):
@@ -42,7 +43,7 @@ class WorkspaceTaskUpdateCommand(BaseModel):
     description: str | None = None
     status: str | None = Field(default=None, max_length=20)
     priority: int | None = None
-    related_execution_ids: list[str] | None = None
+    related_mission_ids: list[str] | None = None
 
 
 class DecisionProjection(BaseModel):
@@ -56,8 +57,9 @@ class DecisionProjection(BaseModel):
     source_message_id: str | None = None
     extracted_by: str
     superseded_by: str | None = None
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_item_seq: int | None = None
+    source_mission_commit_id: str | None = None
     created_at: datetime | None = None
     deleted_at: datetime | None = None
 
@@ -71,31 +73,12 @@ class WorkspaceTaskProjection(BaseModel):
     description: str | None = None
     status: str
     priority: int
-    related_execution_ids: list[str] = Field(default_factory=list)
+    related_mission_ids: list[str] = Field(default_factory=list)
     created_by: str
-    source_review_batch_id: str | None = None
-    source_review_item_id: str | None = None
+    source_mission_id: str | None = None
+    source_mission_item_seq: int | None = None
+    source_mission_commit_id: str | None = None
     completed_at: datetime | None = None
     deleted_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-
-class RoomCandidateCommand(BaseModel):
-    """One execution-produced candidate room write."""
-
-    source_item_id: str | None = None
-    target_kind: str = Field(pattern="^(decision|workspace_task)$")
-    title: str
-    summary: str | None = None
-    payload_json: dict[str, Any] = Field(default_factory=dict)
-    preview_json: dict[str, Any] = Field(default_factory=dict)
-    provenance_json: dict[str, Any] = Field(default_factory=dict)
-
-
-class RoomCandidateApplyResult(BaseModel):
-    """Result of staging and applying selected room candidates."""
-
-    review_batch_id: str | None = None
-    counts: dict[str, int] = Field(default_factory=dict)
-    item_results: list[dict[str, Any]] = Field(default_factory=list)

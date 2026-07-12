@@ -1,4 +1,5 @@
 """DELETE /runs/{id} removes canonical runtime run records."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -8,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.gateway.routers import runs
-from src.runtime.runs import DisconnectMode, RunRecord, RunStatus
+from src.runtime.chat_turns import ChatTurnDisconnectMode, ChatTurnRunRecord, ChatTurnRunStatus
 
 
 @pytest.fixture
@@ -20,13 +21,13 @@ def client():
     return TestClient(app)
 
 
-def _run_record(run_id: str) -> RunRecord:
-    return RunRecord(
+def _run_record(run_id: str) -> ChatTurnRunRecord:
+    return ChatTurnRunRecord(
         run_id=run_id,
         thread_id="thread-1",
         assistant_id=None,
-        status=RunStatus.running,
-        on_disconnect=DisconnectMode.continue_,
+        status=ChatTurnRunStatus.running,
+        on_disconnect=ChatTurnDisconnectMode.continue_,
         metadata={"_owner_id": "user-1"},
     )
 
@@ -37,7 +38,7 @@ def test_delete_run_calls_run_manager_cleanup(client):
     manager.get_or_load = AsyncMock(return_value=_run_record("run-x"))
     manager.cleanup = AsyncMock()
     thread_service = MagicMock()
-    client.app.dependency_overrides[runs.get_run_manager] = lambda: manager
+    client.app.dependency_overrides[runs.get_chat_turn_run_manager] = lambda: manager
     client.app.dependency_overrides[runs.get_thread_service] = lambda: thread_service
 
     r = client.delete("/runs/run-x")
@@ -54,7 +55,7 @@ def test_delete_run_returns_404_for_unknown_id(client):
     manager = MagicMock()
     manager.get_or_load = AsyncMock(return_value=None)
     manager.cleanup = AsyncMock()
-    client.app.dependency_overrides[runs.get_run_manager] = lambda: manager
+    client.app.dependency_overrides[runs.get_chat_turn_run_manager] = lambda: manager
     client.app.dependency_overrides[runs.get_thread_service] = lambda: MagicMock()
 
     r = client.delete("/runs/never-existed")

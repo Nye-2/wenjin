@@ -33,7 +33,6 @@ class ArtifactCreatePayloadValidator(BaseModel):
     content: dict[str, Any]
     created_by_skill: Annotated[str, Field(max_length=100)] | None = None
     parent_artifact_id: str | None = None
-    execution_id: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -64,6 +63,7 @@ class ArtifactCreatePayloadValidator(BaseModel):
             return None
         # Allow only alphanumeric, underscore, and hyphen
         import re
+
         sanitized = sanitize_string(v, max_length=100)
         if sanitized and not re.match(r"^[a-zA-Z0-9_-]+$", sanitized):
             raise ValueError("Skill name can only contain alphanumeric characters, underscores, and hyphens")
@@ -76,15 +76,6 @@ class ArtifactCreatePayloadValidator(BaseModel):
         if v is None:
             return None
         return validate_uuid(v)
-
-    @field_validator("execution_id")
-    @classmethod
-    def validate_execution_link_id(cls, v: str | None) -> str | None:
-        """Validate execution linkage IDs if provided."""
-        if v is None:
-            return None
-        return validate_uuid(v)
-
 
 class CreateArtifactValidator(ArtifactCreatePayloadValidator):
     """Validator for artifact creation requests."""

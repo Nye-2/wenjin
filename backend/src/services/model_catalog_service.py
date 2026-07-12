@@ -7,11 +7,14 @@ from typing import Any, Literal
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.model_catalog import (
+    ModelCapabilityAssessmentPayload,
     ModelCatalogCreatePayload,
     ModelCatalogHealthPayload,
     ModelCatalogPayload,
     ModelCatalogUpdatePayload,
 )
+from src.models.capability_probe import ModelProbeTarget, probe_model_capabilities
+from src.models.capability_profile import GenerationAPI
 from src.services.model_catalog_cache import refresh_model_catalog_cache
 
 logger = logging.getLogger(__name__)
@@ -85,17 +88,16 @@ class ModelCatalogService:
 
     async def test_model(self, model_id: str) -> ModelCatalogPayload | None:
         try:
-            snapshot = await refresh_model_catalog_cache(self.dataservice)
-            runtime = snapshot.by_id.get(model_id)
+            runtime = await self.dataservice.get_model_catalog_runtime_model(model_id)
             if runtime is None:
                 return await self.dataservice.update_model_catalog_health(
                     model_id,
                     ModelCatalogHealthPayload(
                         status="failed",
-                        error_message="model is disabled or unavailable to runtime",
+                        error_message="model configuration was not found",
                     ),
                 )
-            if not runtime.api_key or not runtime.base_url or not runtime.model:
+            if not runtime.api_key or not runtime.base_url or not runtime.model_name:
                 return await self.dataservice.update_model_catalog_health(
                     model_id,
                     ModelCatalogHealthPayload(
@@ -103,6 +105,25 @@ class ModelCatalogService:
                         error_message="runtime model configuration is incomplete",
                     ),
                 )
+            if not isinstance(runtime.generation_api, GenerationAPI):
+                return await self.dataservice.update_model_catalog_health(
+                    model_id,
+                    ModelCatalogHealthPayload(
+                        status="failed",
+                        error_message="runtime model has no language generation API",
+                    ),
+                )
+            assessment = await probe_model_capabilities(
+                ModelProbeTarget(
+                    model_id=runtime.model_id,
+                    model_name=runtime.model_name,
+                    base_url=runtime.base_url,
+                    api_key=runtime.api_key,
+                    generation_api=runtime.generation_api,
+                    default_headers=runtime.default_headers,
+                    timeout_seconds=runtime.timeout_seconds or 30.0,
+                )
+            )
         except Exception as exc:
             return await self.dataservice.update_model_catalog_health(
                 model_id,
@@ -111,10 +132,15 @@ class ModelCatalogService:
                     error_message=str(exc),
                 ),
             )
-        return await self.dataservice.update_model_catalog_health(
+        record = await self.dataservice.update_model_capability_assessment(
             model_id,
-            ModelCatalogHealthPayload(status="healthy"),
+            ModelCapabilityAssessmentPayload(
+                profile=assessment.profile,
+                evidence=assessment.evidence,
+            ),
         )
+        await self._refresh_runtime_cache_best_effort()
+        return record
 
     async def list_public_models(self, *, purpose: ModelPurpose = "chat") -> list[ModelCatalogPayload]:
         category = _purpose_category(purpose)

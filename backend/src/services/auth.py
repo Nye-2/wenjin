@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
 from uuid import uuid4
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel
 
 from src.config.app_config import jwt_settings
@@ -37,10 +37,6 @@ async def _account_client(
     async with dataservice_client() as client:
         yield client
 
-# 密码哈希上下文
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 class TokenData(BaseModel):
     """令牌数据"""
     user_id: str
@@ -59,7 +55,10 @@ class Token(BaseModel):
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return bool(pwd_context.verify(plain_password, hashed_password))
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("ascii"))
+    except (TypeError, ValueError):
+        return False
 
 
 def hash_password(password: str) -> str:
@@ -81,13 +80,13 @@ def hash_password(password: str) -> str:
     password = password.strip()
 
     # 检查密码长度
-    password_bytes = password.encode('utf-8')
+    password_bytes = password.encode("utf-8")
     if len(password_bytes) > 72:
         raise ValueError("密码过长，请使用不超过72字节的密码")
     if len(password) < 8:
         raise ValueError("密码过短，请使用至少8个字符的密码")
 
-    return cast(str, pwd_context.hash(password))
+    return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("ascii")
 
 
 def hash_token(token: str) -> str:

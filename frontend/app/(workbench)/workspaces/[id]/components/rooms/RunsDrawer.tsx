@@ -1,413 +1,103 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { listRuns, type RunRecord } from "@/lib/api/v2/runs";
-import {
-  mergeRunViews,
-  runViewFromExecution,
-  runViewFromRunRecord,
-  type RunView,
-  type RunViewStatus,
-} from "@/lib/execution-run-view";
-import { useExecutionStore } from "@/stores/execution-store";
-import { useRunUiStore } from "@/stores/run-ui-store";
-import { useRoomRefreshStore } from "@/stores/room-refresh-store";
-import { WorkspaceActionLink } from "../WorkspaceActionLink";
+import { Check, CircleDot, Clock3, Search, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
-interface RunsDrawerProps {
+import { listWorkspaceMissions } from "@/lib/api/missions";
+import type { MissionSummary } from "@/lib/api/mission-types";
+import { formatMissionDuration, missionStatusTone } from "@/lib/mission-view";
+import { useMissionUiStore } from "@/stores/mission-ui-store";
+
+interface MissionHistoryDrawerProps {
   workspaceId: string;
   open: boolean;
-  onClose: () => void;
+  onClose(): void;
 }
 
-const STATUS_COLORS: Record<RunViewStatus, string> = {
-  launching: "var(--wjn-blue)",
-  queued: "var(--wjn-text-muted)",
-  completed: "var(--wjn-success)",
-  failed_partial: "var(--wjn-review)",
-  failed: "var(--wjn-error)",
-  cancelled: "var(--wjn-text-muted)",
-  running: "var(--wjn-blue)",
-};
-
-const STATUS_BG: Record<RunViewStatus, string> = {
-  launching: "var(--wjn-accent-soft)",
-  queued: "rgba(100, 100, 120, 0.08)",
-  completed: "rgba(34, 197, 94, 0.1)",
-  failed_partial: "rgba(198, 138, 26, 0.12)",
-  failed: "rgba(239, 68, 68, 0.1)",
-  cancelled: "rgba(100, 100, 120, 0.08)",
-  running: "var(--wjn-accent-soft)",
-};
-
-const STATUS_LABELS: Record<RunViewStatus, string> = {
-  launching: "启动中",
-  queued: "排队中",
-  completed: "已完成",
-  failed_partial: "部分完成",
-  failed: "失败",
-  cancelled: "已取消",
-  running: "处理中",
-};
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString("zh-CN", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatDuration(
-  started: string,
-  completed?: string,
-): string | null {
-  if (!completed) return null;
-  const ms =
-    new Date(completed).getTime() - new Date(started).getTime();
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)} 秒`;
-  return `${(ms / 60000).toFixed(1)} 分钟`;
-}
-
-export function RunsDrawer({
-  workspaceId,
-  open,
-  onClose,
-}: RunsDrawerProps) {
-  const [items, setItems] = useState<RunRecord[]>([]);
+export function MissionHistoryDrawer({ workspaceId, open, onClose }: MissionHistoryDrawerProps) {
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<MissionSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [visible, setVisible] = useState(false);
-  const highlightedRunId = useRunUiStore((state) => state.highlightedRunId);
-  const focusRun = useRunUiStore((state) => state.focusRun);
-  const refreshCounter = useRoomRefreshStore(
-    (state) => state.countersByWorkspace[workspaceId]?.runs ?? 0,
-  );
-  const executionRecords = useExecutionStore(
-    useShallow((state) => Array.from(state.executions.values())),
-  );
+  const focusMission = useMissionUiStore((state) => state.focusMission);
+  const highlightedMissionId = useMissionUiStore((state) => state.highlightedMissionId);
 
   useEffect(() => {
-    if (open) setVisible(true);
-  }, [open]);
-
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await listRuns(workspaceId);
-      setItems(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "运行记录加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
-
-  useEffect(() => {
-    if (open) fetchItems();
-  }, [open, fetchItems, refreshCounter]);
-
-  function handleClose() {
-    setVisible(false);
-    setTimeout(onClose, 200);
-  }
-
-  const runViews = useMemo(() => {
-    const historical = new Map<string, RunView>();
-    for (const item of items) {
-      historical.set(item.id, runViewFromRunRecord(item, workspaceId));
-    }
-
-    for (const record of executionRecords) {
-      if (record.workspace_id && record.workspace_id !== workspaceId) {
-        continue;
-      }
-      const live = runViewFromExecution(record);
-      const existing = historical.get(live.id) ?? null;
-      historical.set(live.id, mergeRunViews(live, existing));
-    }
-
-    return Array.from(historical.values()).sort((left, right) => {
-      if (left.id === highlightedRunId) return -1;
-      if (right.id === highlightedRunId) return 1;
-      return (right.startedAt || "").localeCompare(left.startedAt || "");
-    });
-  }, [executionRecords, highlightedRunId, items, workspaceId]);
-
-  const filtered = search
-    ? runViews.filter((item) =>
-        item.title.toLowerCase().includes(search.toLowerCase()),
-      )
-    : runViews;
+    if (!open) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setLoading(true);
+      listWorkspaceMissions(workspaceId, query)
+        .then((missions) => {
+          if (!cancelled) {
+            setItems(missions);
+            setError(null);
+          }
+        })
+        .catch((reason) => {
+          if (!cancelled) setError(reason instanceof Error ? reason.message : "任务记录加载失败");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, query ? 180 : 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, query, workspaceId]);
 
   if (!open) return null;
-
   return (
-    <div
-      style={{
-        position: "absolute",
-        right: 0,
-        top: 0,
-        bottom: 0,
-        width: "min(420px, 100%)",
-        background: "var(--wjn-surface)",
-        borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
-        boxShadow: "var(--wjn-shadow-md)",
-        display: "flex",
-        flexDirection: "column",
-        zIndex: 10,
-        transform: visible ? "translateX(0)" : "translateX(100%)",
-        transition: "transform 200ms cubic-bezier(0.16, 1, 0.3, 1)",
-        fontFamily: "var(--wjn-font-sans)",
-        fontSize: 13,
-      }}
-      data-testid="runs-drawer"
-      role="dialog"
-      aria-modal="true"
-      aria-label="运行记录"
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          height: 48,
-          padding: "0 16px",
-          borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
-        }}
-      >
-        <span
-          style={{
-            fontWeight: 600,
-            fontSize: 15,
-            color: "var(--wjn-text)",
-          }}
-        >
-          运行记录
-        </span>
-        <button
-          type="button"
-          onClick={handleClose}
-          data-testid="drawer-close"
-          aria-label="关闭运行记录"
-          style={{
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            fontSize: 16,
-            color: "var(--wjn-text-muted)",
-            lineHeight: 1,
-            padding: 4,
-          }}
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* Search */}
-      <div style={{ padding: "12px 16px" }}>
-        <input
-          type="text"
-          placeholder="按任务搜索"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          data-testid="drawer-search"
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            padding: "8px 12px",
-            borderRadius: "var(--wjn-radius-md)",
-            border: "1px solid rgba(20, 20, 30, 0.08)",
-            background: "var(--wjn-surface-raised)",
-            fontSize: 13,
-            fontFamily: "var(--wjn-font-sans)",
-            color: "var(--wjn-text)",
-            outline: "none",
-          }}
-        />
-      </div>
-
-      {/* Content */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "0 16px 16px",
-        }}
-      >
-        {loading && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "40px 0",
-              color: "var(--wjn-text-muted)",
-            }}
-            data-testid="drawer-loading"
-          >
-            正在加载运行记录...
+    <div className="fixed inset-0 z-40 bg-black/15" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <aside className="absolute bottom-0 right-0 top-0 flex w-full max-w-[430px] flex-col border-l border-[var(--wjn-line)] bg-[var(--wjn-surface)] shadow-[var(--wjn-shadow-lg)]" aria-label="研究任务记录">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--wjn-line)] px-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">研究任务记录</h2>
+            <p className="text-[11px] text-[var(--wjn-text-muted)]">只展示完整研究任务，不包含对话轮次。</p>
           </div>
-        )}
-
-        {error && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "16px",
-              color: "var(--wjn-error)",
-            }}
-            data-testid="drawer-error"
-          >
-            {error}
+          <button type="button" onClick={onClose} aria-label="关闭任务记录" className="flex h-8 w-8 items-center justify-center rounded-[var(--wjn-radius)] hover:bg-[var(--wjn-surface-subtle)]"><X size={15} /></button>
+        </header>
+        <div className="p-4 pb-2">
+          <label className="flex h-9 items-center gap-2 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] px-3 focus-within:border-[var(--wjn-accent-line)]">
+            <Search size={14} className="text-[var(--wjn-text-muted)]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="查找研究任务" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--wjn-text-muted)]" />
+          </label>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          {loading && !items.length ? <p className="py-10 text-center text-xs text-[var(--wjn-text-muted)]">正在加载…</p> : null}
+          {error ? <p className="py-10 text-center text-xs text-[var(--wjn-error)]">{error}</p> : null}
+          {!loading && !error && !items.length ? <div className="py-14 text-center"><Clock3 size={21} className="mx-auto text-[var(--wjn-text-muted)]" /><p className="mt-3 text-sm font-medium">还没有研究任务</p><p className="mt-1 text-xs text-[var(--wjn-text-secondary)]">在对话中描述目标，问津会在需要时创建任务。</p></div> : null}
+          <div className="divide-y divide-[var(--wjn-line)]">
+            {items.map((item) => {
+              const tone = missionStatusTone(item.executionStatus);
+              return (
+                <button
+                  key={item.missionId}
+                  type="button"
+                  onClick={() => {
+                    focusMission(item.missionId, item.pendingReviewCount ? "review" : "progress");
+                    onClose();
+                  }}
+                  className={`w-full py-4 text-left ${highlightedMissionId === item.missionId ? "bg-[var(--wjn-accent-soft)]" : "hover:bg-[var(--wjn-surface-subtle)]"}`}
+                >
+                  <div className="flex items-start gap-3 px-2">
+                    <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${tone === "success" ? "bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]" : tone === "active" ? "bg-[var(--wjn-accent-soft)] text-[var(--wjn-accent)]" : "bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text-muted)]"}`}>{tone === "success" ? <Check size={13} /> : <CircleDot size={13} />}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-[var(--wjn-text)]">{item.title}</span>
+                      <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--wjn-text-muted)]">
+                        <span>{item.statusLabel}</span>
+                        <span>{formatMissionDuration(item.durationSeconds)}</span>
+                        {item.pendingReviewCount ? <span className="text-[var(--wjn-review)]">{item.pendingReviewCount} 项待确认</span> : null}
+                      </span>
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        )}
-
-        {!loading && !error && filtered.length === 0 && (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "40px 0",
-              color: "var(--wjn-text-muted)",
-            }}
-            data-testid="drawer-empty"
-          >
-            {search ? "没有匹配的运行记录" : "暂无运行记录"}
-          </div>
-        )}
-
-        {!loading &&
-          !error &&
-          filtered.map((item) => (
-            <div
-              key={item.id}
-              data-testid="run-item"
-              onMouseEnter={() => focusRun(item.id)}
-              style={{
-                background: "var(--wjn-surface-raised)",
-                borderRadius: "var(--wjn-radius-md)",
-                border:
-                  item.id === highlightedRunId
-                    ? "1px solid var(--wjn-accent-line)"
-                    : "1px solid rgba(20, 20, 30, 0.06)",
-                padding: 12,
-                marginBottom: 8,
-                boxShadow:
-                  item.id === highlightedRunId
-                    ? "0 0 0 3px var(--wjn-accent-soft)"
-                    : "none",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 6,
-                }}
-              >
-                <span
-                  style={{
-                    fontWeight: 600,
-                    color: "var(--wjn-text)",
-                  }}
-                >
-                  {item.title}
-                </span>
-                <span
-                  data-testid="run-status"
-                  style={{
-                    display: "inline-block",
-                    padding: "2px 10px",
-                    borderRadius: 10,
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: STATUS_COLORS[item.status],
-                    background: STATUS_BG[item.status],
-                  }}
-                >
-                  {STATUS_LABELS[item.status]}
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--wjn-text-secondary)",
-                  marginBottom: 4,
-                }}
-              >
-                {item.summary}
-              </div>
-              {item.hasPrismChanges ? (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--wjn-blue)",
-                    marginBottom: 6,
-                    fontWeight: 600,
-                  }}
-                >
-                  写作台有 {item.prismReviewCount ?? 1} 项待复核修改
-                </div>
-              ) : null}
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  fontSize: 11,
-                  color: "var(--wjn-text-muted)",
-                }}
-              >
-                {item.startedAt ? <span>{formatTime(item.startedAt)}</span> : null}
-                {item.completedAt && (
-                  <span>
-                    {formatDuration(item.startedAt || "", item.completedAt)}
-                  </span>
-                )}
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 10,
-                  marginTop: 8,
-                }}
-              >
-                <WorkspaceActionLink
-                  href={`/workspaces/${workspaceId}`}
-                  style={actionLinkStyle}
-                >
-                  查看进展
-                </WorkspaceActionLink>
-                {item.hasPrismChanges ? (
-                  <WorkspaceActionLink
-                    href={`/workspaces/${workspaceId}/prism`}
-                    style={actionLinkStyle}
-                  >
-                    打开写作台
-                  </WorkspaceActionLink>
-                ) : null}
-                <WorkspaceActionLink
-                  href={`/workspaces/${workspaceId}?feature=${encodeURIComponent(item.capabilityId ?? "")}&entry=resume&execution_id=${encodeURIComponent(item.id)}`}
-                  style={actionLinkStyle}
-                >
-                  继续提问
-                </WorkspaceActionLink>
-              </div>
-            </div>
-          ))}
-      </div>
+        </div>
+      </aside>
     </div>
   );
 }
-
-const actionLinkStyle = {
-  color: "var(--wjn-blue)",
-  fontSize: 12,
-  fontWeight: 600,
-  textDecoration: "none",
-};

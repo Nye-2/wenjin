@@ -1,119 +1,72 @@
-"""Tests for sandbox configuration."""
+from __future__ import annotations
 
-from src.sandbox.config import (
-    AcademicToolsConfig,
-    CodeExecutionConfig,
-    DockerSandboxConfig,
-    LaTeXConfig,
-    LocalSandboxConfig,
-    SandboxSettings,
-)
+import pytest
+from pydantic import ValidationError
+
+from src.sandbox.config import DockerEgressConfig, DockerSandboxConfig, SandboxSettings
 
 
-class TestLocalSandboxConfig:
-    def test_default_base_dir(self):
-        """Should have default base directory."""
-        config = LocalSandboxConfig()
-        assert config.base_dir == ".wenjin/threads"
+def test_sandbox_settings_expose_only_docker_provider(tmp_path) -> None:
+    settings = SandboxSettings(provider="docker", root_dir=tmp_path)
 
-    def test_custom_base_dir(self):
-        """Should accept custom base directory."""
-        config = LocalSandboxConfig(base_dir="/custom/path")
-        assert config.base_dir == "/custom/path"
+    assert settings.provider == "docker"
+    assert settings.root_dir == tmp_path
+
+    with pytest.raises(ValidationError):
+        SandboxSettings(provider="local", root_dir=tmp_path)
 
 
-class TestDockerSandboxConfig:
-    def test_default_image(self):
-        """Should have default Docker image."""
-        config = DockerSandboxConfig()
-        assert "wenjin" in config.image
+def test_docker_image_reference_is_digest_pinned_when_digest_is_configured() -> None:
+    digest = f"sha256:{'a' * 64}"
+    config = DockerSandboxConfig(image="registry.example/sandbox:2", image_digest=digest)
 
-    def test_default_timeout(self):
-        """Should have default timeout."""
-        config = DockerSandboxConfig()
-        assert config.timeout == 300
+    assert config.image_reference == f"registry.example/sandbox:2@{digest}"
 
-    def test_custom_settings(self):
-        """Should accept custom settings."""
-        config = DockerSandboxConfig(
-            image="custom/sandbox:v1",
-            timeout=600,
-            memory="4g",
-            cpu_limit=4,
+
+def test_unconfined_seccomp_is_invalid() -> None:
+    with pytest.raises(ValidationError, match="unconfined"):
+        DockerSandboxConfig(seccomp_profile="unconfined")
+
+
+def test_egress_configuration_must_be_complete() -> None:
+    with pytest.raises(ValidationError, match="configured together"):
+        DockerEgressConfig(network_name="network-only")
+
+
+def test_package_index_must_be_https_and_allowlisted() -> None:
+    with pytest.raises(ValidationError, match="HTTPS"):
+        DockerEgressConfig(
+            network_name="egress",
+            proxy_url="http://proxy:3128",
+            package_index_url="http://pypi.org/simple",
         )
-        assert config.image == "custom/sandbox:v1"
-        assert config.timeout == 600
-        assert config.memory == "4g"
-        assert config.cpu_limit == 4
+    with pytest.raises(ValidationError, match="allowlisted"):
+        DockerEgressConfig(
+            network_name="egress",
+            proxy_url="http://proxy:3128",
+            package_index_url="https://packages.example.org/simple",
+        )
 
 
-class TestLaTeXConfig:
-    def test_default_enabled(self):
-        """Should enable LaTeX by default."""
-        config = LaTeXConfig()
-        assert config.enabled is True
-
-    def test_default_engine(self):
-        """Should use xelatex as default engine."""
-        config = LaTeXConfig()
-        assert config.engine == "xelatex"
-
-
-class TestCodeExecutionConfig:
-    def test_default_enabled(self):
-        """Should enable code execution by default."""
-        config = CodeExecutionConfig()
-        assert config.enabled is True
-
-    def test_default_languages(self):
-        """Should support python and r by default."""
-        config = CodeExecutionConfig()
-        assert "python" in config.languages
-        assert "r" in config.languages
+def test_package_allowlist_rejects_ip_literals_and_proxy_credentials() -> None:
+    with pytest.raises(ValidationError, match="public DNS"):
+        DockerEgressConfig(allowed_package_hosts=("169.254.169.254",))
+    with pytest.raises(ValidationError, match="credentials"):
+        DockerEgressConfig(
+            network_name="egress",
+            proxy_url="http://user:pass@proxy:3128",
+            package_index_url="https://pypi.org/simple",
+        )
+    with pytest.raises(ValidationError, match="isolated proxy container"):
+        DockerEgressConfig(
+            network_name="egress",
+            proxy_url="http://127.0.0.1:3128",
+            package_index_url="https://pypi.org/simple",
+        )
 
 
-class TestAcademicToolsConfig:
-    def test_default_latex(self):
-        """Should have default LaTeX config."""
-        config = AcademicToolsConfig()
-        assert config.latex.enabled is True
-
-    def test_default_code_execution(self):
-        """Should have default code execution config."""
-        config = AcademicToolsConfig()
-        assert config.code_execution.enabled is True
-
-
-class TestSandboxSettings:
-    def test_default_mode(self):
-        """Should use local mode by default."""
-        settings = SandboxSettings()
-        assert settings.mode == "local"
-
-    def test_default_timeout(self):
-        """Should have default timeout settings."""
-        settings = SandboxSettings()
-        assert settings.default_timeout == 300
-        assert settings.max_timeout == 900
-
-    def test_local_config(self):
-        """Should have local config."""
-        settings = SandboxSettings()
-        assert settings.local is not None
-        assert settings.local.base_dir == ".wenjin/threads"
-
-    def test_docker_config(self):
-        """Should have docker config."""
-        settings = SandboxSettings()
-        assert settings.docker is not None
-
-    def test_academic_config(self):
-        """Should have academic tools config."""
-        settings = SandboxSettings()
-        assert settings.academic is not None
-        assert settings.academic.latex.enabled is True
-
-    def test_docker_mode(self):
-        """Should support docker mode."""
-        settings = SandboxSettings(mode="docker")
-        assert settings.mode == "docker"
+def test_container_identity_cannot_be_root() -> None:
+    with pytest.raises(ValidationError):
+        DockerSandboxConfig(user_uid=0)
+    with pytest.raises(ValidationError):
+        DockerSandboxConfig(user_gid=0)

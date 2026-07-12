@@ -67,7 +67,7 @@ class SourceProjectionService:
                 {
                     "source_type": source.ingest_kind,
                     "source_label": source.ingest_label,
-                    "source_run_id": source.ingest_execution_id,
+                    "source_run_id": source.ingest_mission_id,
                     "verified_at": source.verified_at.isoformat() if source.verified_at else None,
                 }
             ],
@@ -236,17 +236,10 @@ class SourceProjectionService:
         for index, item in enumerate(outline[:30], start=1):
             source = item["source"]
             assert isinstance(source, dict)
-            lines.append(
-                f"### [{index}] {source['title']} "
-                f"({source.get('year') or 'n.d.'}, key={source['citation_key']})"
-            )
+            lines.append(f"### [{index}] {source['title']} ({source.get('year') or 'n.d.'}, key={source['citation_key']})")
             nodes = item.get("outline") or []
             if isinstance(nodes, list) and nodes:
-                toc = "; ".join(
-                    f"{node['section_path']} {node['title']}"
-                    for node in nodes[:12]
-                    if isinstance(node, dict)
-                )
+                toc = "; ".join(f"{node['section_path']} {node['title']}" for node in nodes[:12] if isinstance(node, dict))
                 lines.append(f"- Outline: {toc}")
             else:
                 status = source.get("fulltext_status")

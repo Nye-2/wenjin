@@ -1,0 +1,72 @@
+schema_version: mission_policy.v1
+id: proposal_development
+version: 1
+workspace_type: proposal
+enabled: true
+visibility: route_hint
+display:
+  name: 项目申报研究任务
+  description: 从指南对齐和立项依据推进到技术路线、可行性与申报书
+routing:
+  when_to_use:
+    - 用户需要撰写或修订科研项目、基金或课题申报材料。
+    - 任务需要对齐申报指南、评审指标、技术路线和可行性证据。
+  not_for:
+    - 普通知识问答或不涉及申报的短文本修改。
+    - 学位论文、SCI、数模、软著或专利任务。
+  positive_examples:
+    - 根据这份指南帮我规划申报书。
+    - 检查立项依据和创新点是否有证据。
+    - 把技术路线、里程碑和风险方案做扎实。
+  negative_examples:
+    - 项目管理是什么？
+    - 帮我润色一句项目介绍。
+    - 根据发明写专利申请。
+mission:
+  objective: Produce a call-aligned, evidence-backed and feasible proposal package.
+  target_outcomes: [proposal_brief, evidence_case, technical_route, risk_register, proposal_draft]
+  hard_constraints:
+    - Call rules and applicant facts must be supplied or verified.
+    - Innovation, foundation and feasibility claims require evidence.
+    - Reviewable drafts cannot be committed without user decision.
+  forbidden_outcomes: [invented_applicant_fact, invented_call_rule, unsupported_innovation, direct_workspace_write]
+minimum_context:
+  proposal_goal:
+    requirement: required
+    ask: 你准备申报什么项目，目标和指南是什么？
+  call_document:
+    requirement: optional
+  applicant_materials:
+    requirement: optional
+stage_contract_refs:
+  - {contract_id: proposal_development.scope, schema_version: stage_acceptance_contract.v1, sha256: 4e5966f6992f4fce20c184bd98991b4d8de2b09df60bb2f5c7634ece027af162}
+  - {contract_id: proposal_development.evidence_case, schema_version: stage_acceptance_contract.v1, sha256: 722f0894b539392545d905e70c5e8d0cb8a23c8e50ca094793edda339374d1f0}
+  - {contract_id: proposal_development.technical_route, schema_version: stage_acceptance_contract.v1, sha256: 46c84e85adea30f82516f050bbde4410fb1d054033c1ba24ab42322ef087d42b}
+  - {contract_id: proposal_development.feasibility_risk, schema_version: stage_acceptance_contract.v1, sha256: abdb794f78a7f0aec40ef2877e36ccb23322106a189274b378fcffb66180a425}
+  - {contract_id: proposal_development.proposal_writing, schema_version: stage_acceptance_contract.v1, sha256: 1658671d4f5e909dd238a8e6e9a27d26dc9c50b940612355d4c2e21ab15e0c11}
+tool_policy:
+  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, draft_stage]
+  denied_tools: [room_direct_write, unrestricted_shell]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, proposal-writer, citation-auditor, compliance-reviewer, quality-critic]
+review_policy:
+  default_mode: balanced_default
+  allowed_modes: [review_all, balanced_default, auto_draft]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+sandbox_policy_ref: {policy_id: sandbox.research, version: 1}
+examples:
+  - example_id: proposal.route.excellent.v1
+    input_summary: 将指南要求、目标、方法、里程碑、预算和风险形成闭环
+    expected_characteristics: [逐项对应评审指标, 创新有证据边界, 里程碑可验收, 风险有触发器和替代路线]
+anti_examples:
+  - description: 堆叠宏大目标和热门技术，却没有资源、证据和验收路径。
+    failure_reason: 无法证明可行性，也无法回应评审维度。
+completion_contract:
+  default_target: technical_plan
+  target_stage_sets:
+    evidence_case: [scope, evidence_case]
+    technical_plan: [scope, evidence_case, technical_route, feasibility_risk]
+    full_proposal: [scope, evidence_case, technical_route, feasibility_risk, proposal_writing]
+  terminal_outputs: [proposal_brief, evidence_case, technical_route, feasibility_risk_register, proposal_draft]
+  allow_safe_partial_outputs: true
+delivery_profile_refs:
+  - {profile_id: proposal_call_template, version: 1}

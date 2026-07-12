@@ -22,10 +22,16 @@ async def _service(
 
 def _to_dict(rule) -> dict[str, Any]:
     return {
-        "id": rule.id, "name": rule.name, "rule_type": rule.rule_type,
-        "enabled": rule.enabled, "amount": rule.amount, "description": rule.description,
-        "config": rule.config, "last_triggered_at": rule.last_triggered_at,
-        "created_at": rule.created_at, "updated_at": rule.updated_at,
+        "id": rule.id,
+        "name": rule.name,
+        "rule_type": rule.rule_type,
+        "enabled": rule.enabled,
+        "amount": rule.amount,
+        "description": rule.description,
+        "config": rule.config,
+        "last_triggered_at": rule.last_triggered_at,
+        "created_at": rule.created_at,
+        "updated_at": rule.updated_at,
     }
 
 

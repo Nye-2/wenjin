@@ -1,0 +1,26 @@
+schema_version: worker_skill.v1
+id: methodology-designer
+version: 1
+enabled: true
+role_hint: Method and modeling design specialist
+instructions:
+  - Define variables, assumptions, mechanisms, objectives, constraints and expected outputs.
+  - Map every method component to a research question or testable hypothesis.
+  - Identify implementation detail, failure conditions and threats to validity.
+  - Prefer the simplest design that can distinguish the proposed contribution.
+  - Return a method artifact and unresolved design risks; do not claim the stage passed.
+allowed_tool_groups: [workspace_read]
+input_contract: {type: object}
+output_contract:
+  type: object
+  required: [summary, evidence_refs, artifact_refs, warnings]
+  properties:
+    summary: {type: string}
+    evidence_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, items: {type: string}}
+    warnings: {type: array, items: {type: string}}
+    method_spec: {type: object}
+quality_focus: [question_method_fit, explicit_assumptions, implementability, falsifiability]
+examples:
+  - task: Design a method for communication-efficient federated LoRA under non-IID data.
+    strong_output_characteristics: [defined mechanism, justified components, executable algorithm, planned ablations]

@@ -5,14 +5,24 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.models.capability_profile import (
+    GenerationAPI,
+    ModelCapabilityProbeEvidence,
+    ModelCapabilityProfile,
+)
 
 
-class ModelCatalogPayload(BaseModel):
+class _StrictContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ModelCatalogPayload(_StrictContract):
     id: str | None = None
     model_id: str
     display_name: str
-    provider_protocol: str = "openai_compatible"
+    generation_api: GenerationAPI | None
     provider_name: str = "Custom"
     category: str = "llm"
     model_name: str
@@ -20,12 +30,10 @@ class ModelCatalogPayload(BaseModel):
     api_key_redacted: str | None = None
     enabled: bool = True
     is_default: bool = False
-    supports_streaming: bool = True
-    supports_tools: bool = False
-    supports_json_mode: bool = True
-    supports_json_schema: bool = False
-    supports_vision: bool = False
-    supports_reasoning_effort: bool = False
+    capability_profile: ModelCapabilityProfile
+    capability_probe: ModelCapabilityProbeEvidence
+    capability_probe_hash: str
+    capability_observed_at: datetime
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout_seconds: float | None = None
@@ -43,22 +51,20 @@ class ModelCatalogPayload(BaseModel):
     updated_at: datetime | None = None
 
 
-class ModelRuntimeConfigPayload(BaseModel):
+class ModelRuntimeConfigPayload(_StrictContract):
     model_id: str
     display_name: str
-    provider_protocol: str = "openai_compatible"
+    generation_api: GenerationAPI | None
     provider_name: str = "Custom"
     category: str = "llm"
     model_name: str
     base_url: str
     api_key: str
     is_default: bool = False
-    supports_streaming: bool = True
-    supports_tools: bool = False
-    supports_json_mode: bool = True
-    supports_json_schema: bool = False
-    supports_vision: bool = False
-    supports_reasoning_effort: bool = False
+    capability_profile: ModelCapabilityProfile
+    capability_probe: ModelCapabilityProbeEvidence
+    capability_probe_hash: str
+    capability_observed_at: datetime
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout_seconds: float | None = None
@@ -69,10 +75,10 @@ class ModelRuntimeConfigPayload(BaseModel):
     default_headers: dict[str, Any] = Field(default_factory=dict)
 
 
-class ModelCatalogCreatePayload(BaseModel):
+class ModelCatalogCreatePayload(_StrictContract):
     model_id: str
     display_name: str
-    provider_protocol: str = "openai_compatible"
+    generation_api: GenerationAPI | None = None
     provider_name: str = "Custom"
     category: str = "llm"
     model_name: str
@@ -80,12 +86,6 @@ class ModelCatalogCreatePayload(BaseModel):
     api_key: str
     enabled: bool = True
     is_default: bool = False
-    supports_streaming: bool = True
-    supports_tools: bool = False
-    supports_json_mode: bool = True
-    supports_json_schema: bool = False
-    supports_vision: bool = False
-    supports_reasoning_effort: bool = False
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout_seconds: float | None = None
@@ -96,10 +96,10 @@ class ModelCatalogCreatePayload(BaseModel):
     admin_id: str | None = None
 
 
-class ModelCatalogUpdatePayload(BaseModel):
+class ModelCatalogUpdatePayload(_StrictContract):
     model_id: str | None = None
     display_name: str | None = None
-    provider_protocol: str | None = None
+    generation_api: GenerationAPI | None = None
     provider_name: str | None = None
     category: str | None = None
     model_name: str | None = None
@@ -107,12 +107,6 @@ class ModelCatalogUpdatePayload(BaseModel):
     api_key: str | None = None
     enabled: bool | None = None
     is_default: bool | None = None
-    supports_streaming: bool | None = None
-    supports_tools: bool | None = None
-    supports_json_mode: bool | None = None
-    supports_json_schema: bool | None = None
-    supports_vision: bool | None = None
-    supports_reasoning_effort: bool | None = None
     max_tokens: int | None = None
     temperature: float | None = None
     timeout_seconds: float | None = None
@@ -123,6 +117,13 @@ class ModelCatalogUpdatePayload(BaseModel):
     admin_id: str | None = None
 
 
-class ModelCatalogHealthPayload(BaseModel):
+class ModelCatalogHealthPayload(_StrictContract):
     status: str
     error_message: str | None = None
+
+
+class ModelCapabilityAssessmentPayload(_StrictContract):
+    """Internal command produced only by the explicit probe runner."""
+
+    profile: ModelCapabilityProfile
+    evidence: ModelCapabilityProbeEvidence

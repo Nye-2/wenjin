@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from src.dataservice_client.contracts.mission import (
+    MissionCommitPayload,
+    MissionCommitStatus,
+    MissionReviewItemPayload,
+    MissionRunPayload,
+)
+from src.review_commit_runtime.contracts import (
+    CommitOutcome,
+    ReviewAction,
+    ReviewDecision,
+    TargetSnapshot,
+)
+from src.review_commit_runtime.materializer import MissionDomainWriter
+from src.review_commit_runtime.runtime import ReviewCommitRuntime
+
+
+def _membership() -> SimpleNamespace:
+    return SimpleNamespace(require_active_member=AsyncMock())
+
+
+def _run(*, version: int = 1) -> MissionRunPayload:
+    now = datetime.now(UTC)
+    return MissionRunPayload(
+        mission_id="mission-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        user_id="user-1",
+        workspace_type="sci",
+        title="Research",
+        objective="Research well",
+        status="completed",
+        review_mode="balanced_default",
+        model_id="gpt-5.5",
+        reasoning_effort="xhigh",
+        pending_review_count=2,
+        evidence_count=0,
+        artifact_count=0,
+        active_subagent_count=0,
+        last_command_seq=0,
+        last_applied_command_seq=0,
+        lease_epoch=0,
+        state_version=version,
+        last_item_seq=0,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _item(
+    item_id: str,
+    *,
+    risk: str = "low",
+    kind: str = "document",
+    status: str = "pending",
+    target_ref: str | None = None,
+    base_hash: str | None = None,
+    base_revision: str | None = None,
+    expires_at: datetime | None = None,
+) -> MissionReviewItemPayload:
+    now = datetime.now(UTC)
+    preview = {
+        "materialization": {
+            "operation": "documents.upsert_prism_file",
+            "payload": {"content_inline": "x", "content_hash": "new-hash"},
+        }
+    }
+    preview_hash = hashlib.sha256(
+        json.dumps(preview, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    explicit = risk == "high" or kind == "citation"
+    return MissionReviewItemPayload(
+        review_item_id=item_id,
+        mission_id="mission-1",
+        source_item_seq=1,
+        target_kind=kind,
+        target_room="documents",
+        target_ref=target_ref,
+        base_revision_ref=base_revision,
+        base_hash=base_hash,
+        title=item_id,
+        risk_level=risk,
+        status=status,
+        preview_json=preview,
+        preview_hash=preview_hash,
+        preview_expires_at=expires_at or now + timedelta(hours=1),
+        requires_explicit_review=explicit,
+        batch_acceptable=not explicit,
+        suggested_selected=not explicit,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.mark.asyncio
+async def test_bulk_accept_skips_trust_bearing_item_but_applies_low_risk_item() -> None:
+    missions = SimpleNamespace(
+        list_review_items=AsyncMock(
+            return_value=[
+                _item("high", risk="high", kind="citation"),
+                _item("low"),
+            ]
+        ),
+        get=AsyncMock(return_value=_run()),
+        apply_review_decisions=AsyncMock(
+            return_value=SimpleNamespace(
+                mission=_run(version=2),
+                items=[_item("low", status="accepted")],
+            )
+        ),
+    )
+    runtime = ReviewCommitRuntime(
+        missions=missions,
+        target_writer=AsyncMock(),
+        membership=_membership(),
+    )
+
+    result = await runtime.decide(
+        "mission-1",
+        actor_user_id="user-1",
+        decision_id="decision-1",
+        bulk=True,
+        decisions=[
+            ReviewDecision(review_item_id="high", action=ReviewAction.ACCEPT),
+            ReviewDecision(review_item_id="low", action=ReviewAction.ACCEPT),
+        ],
+    )
+
+    assert result.partial is True
+    assert result.outcomes[0].reason_code == "explicit_review_required"
+    assert result.outcomes[1].status == "accepted"
+    missions.apply_review_decisions.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stale_existing_target_fails_before_commit_or_write() -> None:
+    item = _item(
+        "item-1",
+        status="accepted",
+        target_ref="file-1",
+        base_hash="old-hash",
+        base_revision="version-1",
+    )
+    missions = SimpleNamespace(
+        get=AsyncMock(return_value=_run()),
+        list_review_items=AsyncMock(return_value=[item]),
+        commit=AsyncMock(),
+    )
+    writer = SimpleNamespace(
+        read_target=AsyncMock(
+            return_value=TargetSnapshot(
+                target_ref="file-1",
+                revision_ref="version-2",
+                content_hash="newer-hash",
+            )
+        ),
+        apply=AsyncMock(),
+    )
+    runtime = ReviewCommitRuntime(
+        missions=missions, target_writer=writer, membership=_membership()
+    )
+
+    with pytest.raises(ValueError, match="stale_target_precondition"):
+        await runtime.commit_one(
+            "mission-1",
+            actor_user_id="user-1",
+            review_item_id="item-1",
+            commit_key="commit-key",
+        )
+
+    missions.commit.assert_not_awaited()
+    writer.apply.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_commit_many_returns_partial_success_without_rolling_back_siblings() -> None:
+    runtime = ReviewCommitRuntime(
+        missions=AsyncMock(),
+        target_writer=AsyncMock(),
+        membership=_membership(),
+    )
+    committed = MissionCommitPayload(
+        commit_id="commit-1",
+        mission_id="mission-1",
+        review_item_id="item-1",
+        commit_key="key-1",
+        status=MissionCommitStatus.COMMITTED,
+        actor_user_id="user-1",
+        attempt_count=1,
+        created_at=datetime.now(UTC),
+    )
+    runtime.commit_one = AsyncMock(
+        side_effect=[
+            CommitOutcome(
+                review_item_id="item-1",
+                commit=committed,
+                committed=True,
+                reason_code=None,
+            ),
+            ValueError("stale_target_precondition"),
+        ]
+    )
+
+    result = await runtime.commit_many(
+        "mission-1",
+        actor_user_id="user-1",
+        review_item_ids=["item-1", "item-2"],
+        request_id="batch-1",
+    )
+
+    assert result.partial is True
+    assert [item.committed for item in result.outcomes] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_expired_preview_fails_before_target_read() -> None:
+    item = _item(
+        "item-1",
+        status="accepted",
+        expires_at=datetime.now(UTC) - timedelta(seconds=1),
+    )
+    missions = SimpleNamespace(
+        get=AsyncMock(return_value=_run()),
+        list_review_items=AsyncMock(return_value=[item]),
+    )
+    writer = SimpleNamespace(read_target=AsyncMock(), apply=AsyncMock())
+    runtime = ReviewCommitRuntime(
+        missions=missions, target_writer=writer, membership=_membership()
+    )
+
+    with pytest.raises(ValueError, match="review_preview_expired"):
+        await runtime.commit_one(
+            "mission-1",
+            actor_user_id="user-1",
+            review_item_id="item-1",
+            commit_key="key-1",
+        )
+    writer.read_target.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_revoked_membership_blocks_review_before_mutation() -> None:
+    membership = SimpleNamespace(
+        require_active_member=AsyncMock(
+            side_effect=PermissionError("active_workspace_membership_required")
+        )
+    )
+    missions = SimpleNamespace(
+        get=AsyncMock(return_value=_run()),
+        list_review_items=AsyncMock(return_value=[_item("item-1")]),
+        apply_review_decisions=AsyncMock(),
+    )
+    runtime = ReviewCommitRuntime(
+        missions=missions,
+        target_writer=AsyncMock(),
+        membership=membership,
+    )
+
+    with pytest.raises(PermissionError, match="active_workspace_membership_required"):
+        await runtime.decide(
+            "mission-1",
+            actor_user_id="user-1",
+            decision_id="decision-1",
+            decisions=[ReviewDecision(review_item_id="item-1", action="accept")],
+        )
+    missions.apply_review_decisions.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tampered_preview_fails_before_materialization() -> None:
+    item = _item("item-1", status="accepted")
+    item.preview_json["materialization"]["payload"]["content_inline"] = "tampered"
+    missions = SimpleNamespace(
+        get=AsyncMock(return_value=_run()),
+        list_review_items=AsyncMock(return_value=[item]),
+    )
+    writer = SimpleNamespace(read_target=AsyncMock(), apply=AsyncMock())
+    runtime = ReviewCommitRuntime(
+        missions=missions,
+        target_writer=writer,
+        membership=_membership(),
+    )
+
+    with pytest.raises(ValueError, match="review_preview_integrity_failed"):
+        await runtime.commit_one(
+            "mission-1",
+            actor_user_id="user-1",
+            review_item_id="item-1",
+            commit_key="key-1",
+        )
+    writer.read_target.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_domain_writer_attaches_mission_commit_provenance() -> None:
+    decision = SimpleNamespace(
+        id="decision-1",
+        model_dump=lambda **_: {"id": "decision-1", "value": "IEEE"},
+    )
+    dataservice = SimpleNamespace(set_room_decision=AsyncMock(return_value=decision))
+    item = _item("item-1", status="accepted", kind="decision")
+    item.preview_json = {
+        "materialization": {
+            "operation": "decisions.set",
+            "payload": {"key": "citation_style", "value": "IEEE"},
+        }
+    }
+
+    receipt = await MissionDomainWriter(dataservice).apply(
+        item,
+        workspace_id="workspace-1",
+        mission_commit_id="commit-1",
+        actor_user_id="user-1",
+    )
+
+    command = dataservice.set_room_decision.await_args.args[0]
+    assert command.source_mission_id == "mission-1"
+    assert command.source_mission_item_seq == 1
+    assert command.source_mission_commit_id == "commit-1"
+    assert receipt.provenance["mission_commit_id"] == "commit-1"

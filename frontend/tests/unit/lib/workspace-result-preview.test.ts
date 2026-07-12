@@ -217,11 +217,12 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
     expect(previews[0]?.metadataLines.join(" ")).toContain("证据 1");
     expect(previews[1]).toMatchObject({
       kind: "warning",
-      badge: "阻断",
+      badge: "需补充",
       previewMode: "plain_text",
       canCommit: false,
     });
-    expect(previews[1]?.metadataLines.join(" ")).toContain("状态 阻断");
+    expect(previews[1]?.metadataLines.join(" ")).toContain("状态 需补充");
+    expect(previews[1]?.metadataLines.join(" ")).toContain("确认级别 需人工确认");
   });
 
   it("projects review packet document diffs as readable diff previews", () => {

@@ -76,7 +76,7 @@ class TestCitationValidation:
 
         result = await middleware.after_model(
             state,
-            {"configurable": {"execution_id": "exec-1", "task_id": "task-1"}},
+            {"configurable": {"mission_id": "mission-1", "task_id": "task-1"}},
         )
 
         assert result["cited_references"] == []
@@ -98,7 +98,7 @@ class TestCitationValidation:
 
         result = await middleware.after_model(
             state,
-            {"configurable": {"execution_id": "exec-1", "task_id": "task-1"}},
+            {"configurable": {"mission_id": "mission-1", "task_id": "task-1"}},
         )
 
         assert result["cited_references"] == ["source-1"]
@@ -106,7 +106,7 @@ class TestCitationValidation:
         command = reference_service.record_citation_usage.await_args.args[0]
         assert command.workspace_id == "ws-1"
         assert command.citation_keys == ["source2026"]
-        assert command.execution_id == "exec-1"
+        assert command.mission_id == "mission-1"
         assert command.task_id == "task-1"
 
 

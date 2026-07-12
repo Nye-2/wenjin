@@ -20,10 +20,8 @@ from src.dataservice_client.contracts.task import (
 )
 from src.dataservice_client.provider import dataservice_client
 from src.runtime.serialization import dumps_json
-from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_contracts import (
     build_task_activity_item,
-    build_task_result_next_actions,
     serialize_activity_item,
 )
 from src.task.registry import TaskStatus
@@ -188,8 +186,6 @@ class TaskStore:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ) -> list[TaskRecordPayload]:
         """List tasks for a user."""
         async with self._client() as client:
@@ -199,8 +195,6 @@ class TaskStore:
                 task_type=task_type,
                 limit=limit,
                 workspace_id=workspace_id,
-                feature_id=feature_id,
-                action=action,
             )
 
     async def count_active_tasks(self, user_id: str) -> int:
@@ -213,42 +207,18 @@ class TaskStore:
             )
 
     async def mark_task_started(self, task_id: str, worker_id: str | None = None) -> None:
-        """Mark task as started.
-
-        DataService owns the task record; execution lifecycle is mirrored through
-        ``ExecutionService`` using the same DataService client when available.
-        """
+        """Mark an auxiliary task as started."""
         started_at = datetime.now(UTC)
         async with self._client() as client:
             record = await client.mark_task_record_started(
                 task_id,
                 TaskRecordStartedPayload(started_at=started_at),
             )
-            if record and record.execution_id:
-                await ExecutionService(
-                    dataservice=client,
-                ).apply_task_transition(
-                    record.execution_id,
-                    commit=False,
-                    status=TaskStatus.RUNNING.value,
-                    started_at=started_at,
-                    next_actions=[],
-                    advisory_code=None,
-                    last_error=None,
-                )
         if not record:
             return
 
         # Redis runtime cache (always derived from committed DB state)
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
-
-        # Post-commit: touch compute projection
-        if record.execution_id:
-            from src.compute.session_service import ComputeSessionService
-
-            await ComputeSessionService().touch_session_by_execution(
-                record.execution_id
-            )
 
         payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
@@ -259,12 +229,11 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_id": record.execution_id,
+                        "mission_id": record.mission_id,
                         "task_type": record.task_type,
                         "status": TaskStatus.RUNNING.value,
                         "progress": record.progress,
                         "message": record.message,
-                        "feature_id": payload.get("feature_id"),
                         "thread_id": payload.get("thread_id"),
                         "metadata": None,
                     },
@@ -287,10 +256,7 @@ class TaskStore:
             )
 
     async def persist_runtime_state(self, task_id: str, metadata: dict[str, Any] | None) -> None:
-        """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery.
-
-        Runtime state is carried by the execution stream for canonical executions.
-        """
+        """Persist auxiliary task runtime metadata for reconnect recovery."""
         runtime_state: dict[str, Any] | None = None
         if isinstance(metadata, dict):
             runtime_candidate = metadata.get("runtime")
@@ -302,26 +268,8 @@ class TaskStore:
                 task_id,
                 TaskRecordRuntimeStatePayload(runtime_state=runtime_state),
             )
-            if record and record.execution_id and runtime_state is not None:
-                await ExecutionService(
-                    dataservice=client,
-                ).apply_task_transition(
-                    record.execution_id,
-                    commit=False,
-                    status=record.status,
-                    runtime_state=runtime_state,
-                    started_at=record.started_at,
-                )
         if not record:
             return
-
-        # Post-commit: touch compute projection and broadcast task.updated.
-        if record.execution_id and runtime_state is not None:
-            from src.compute.session_service import ComputeSessionService
-
-            await ComputeSessionService().touch_session_by_execution(
-                record.execution_id
-            )
 
         payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
@@ -332,12 +280,11 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_id": record.execution_id,
+                        "mission_id": record.mission_id,
                         "task_type": record.task_type,
                         "status": record.status,
                         "progress": record.progress,
                         "message": record.message,
-                        "feature_id": payload.get("feature_id"),
                         "thread_id": payload.get("thread_id"),
                         "metadata": runtime_state,
                     }
@@ -351,10 +298,7 @@ class TaskStore:
         result: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> None:
-        """Mark task as completed (success or failed).
-
-        Completion is mirrored into the canonical execution record.
-        """
+        """Mark an auxiliary task as completed."""
         record = await self.get_task_record(task_id)
         if not record:
             return
@@ -365,28 +309,8 @@ class TaskStore:
         final_message = error or runtime_state.get("message") if runtime_state else error
         completed_at = datetime.now(UTC)
 
-        # Derive result_summary, artifact_ids, next_actions before the tx
-        result_summary = final_message if isinstance(final_message, str) and final_message else None
-        artifact_ids: list[str] = []
         payload = record.payload if isinstance(record.payload, dict) else {}
-        next_actions = build_task_result_next_actions(
-            payload=payload,
-            result=result if isinstance(result, dict) else None,
-        )
-        if isinstance(result, dict):
-            raw_artifact_ids = result.get("artifact_ids")
-            if isinstance(raw_artifact_ids, list):
-                artifact_ids = [str(item) for item in raw_artifact_ids if str(item).strip()]
-            if result_summary is None:
-                raw_summary = result.get("summary")
-                if isinstance(raw_summary, str) and raw_summary.strip():
-                    result_summary = raw_summary.strip()
-
-        runtime_snapshot = (
-            runtime_state.get("metadata", {}).get("runtime")
-            if runtime_state and isinstance(runtime_state.get("metadata"), dict)
-            else None
-        )
+        runtime_snapshot = runtime_state.get("metadata", {}).get("runtime") if runtime_state and isinstance(runtime_state.get("metadata"), dict) else None
 
         async with self._client() as client:
             record = await client.mark_task_record_completed(
@@ -401,26 +325,6 @@ class TaskStore:
                     runtime_state=runtime_snapshot,
                 ),
             )
-            if record and record.execution_id:
-                await ExecutionService(
-                    dataservice=client,
-                ).apply_task_transition(
-                    record.execution_id,
-                    commit=False,
-                    status=(TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value),
-                    result=result if isinstance(result, dict) else None,
-                    error=error,
-                    runtime_state=runtime_snapshot,
-                    result_summary=result_summary,
-                    artifact_ids=artifact_ids,
-                    next_actions=next_actions,
-                    advisory_code=None,
-                    last_error=error,
-                    started_at=record.started_at,
-                    completed_at=completed_at,
-                    message=final_message,
-                    progress=final_progress,
-                )
         if not record:
             return
 
@@ -433,14 +337,6 @@ class TaskStore:
             metadata=runtime_state.get("metadata") if runtime_state else None,
         )
 
-        # Post-commit: touch compute projection
-        if record.execution_id:
-            from src.compute.session_service import ComputeSessionService
-
-            await ComputeSessionService().touch_session_by_execution(
-                record.execution_id
-            )
-
         workspace_id = str(payload.get("workspace_id")) if payload.get("workspace_id") else None
         if workspace_id:
             await publish_workspace_event(
@@ -449,12 +345,11 @@ class TaskStore:
                 {
                     "task": {
                         "task_id": task_id,
-                        "execution_id": record.execution_id,
+                        "mission_id": record.mission_id,
                         "task_type": record.task_type,
                         "status": status,
                         "progress": final_progress,
                         "message": final_message,
-                        "feature_id": payload.get("feature_id"),
                         "thread_id": payload.get("thread_id"),
                         "metadata": runtime_state.get("metadata") if runtime_state else None,
                         "result": result,

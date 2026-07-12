@@ -1,8 +1,10 @@
 # Chat-Driven Mission Console Design
 
 Date: 2026-07-07
-Status: Approved direction, pending implementation plan
+Status: Superseded for runtime topology by `docs/superpowers/specs/mission-runtime-overview.md` and `docs/superpowers/specs/mission-runtime/`
 Owner: Wenjin workspace experience
+
+Note: chat-first product direction and Mission Console UX remain useful. Runtime references to `launch_feature`, ExecutionRecord projection, capability.v2 execution, or Lead Agent/TeamKernel as product topology must be read as historical and replaced by WorkspaceAgent, MissionRuntime, MissionPolicy, MissionView, and MissionReviewItem.
 
 ## Summary
 

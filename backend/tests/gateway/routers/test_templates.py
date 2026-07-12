@@ -86,9 +86,12 @@ def client(app: FastAPI) -> TestClient:
 
 def test_upload_template_persists_into_workspace_upload_root(client: TestClient) -> None:
     upload_root = client.app.state.temp_root / "workspace_uploads"
-    with patch("src.gateway.routers.templates._TEMPLATE_UPLOAD_ROOT", upload_root), patch(
-        "src.gateway.routers.templates.parse_template_content",
-        AsyncMock(return_value={}),
+    with (
+        patch("src.gateway.routers.templates._TEMPLATE_UPLOAD_ROOT", upload_root),
+        patch(
+            "src.gateway.routers.templates.parse_template_content",
+            AsyncMock(return_value={}),
+        ),
     ):
         response = client.post(
             "/api/workspaces/ws-1/templates/upload",
@@ -104,9 +107,12 @@ def test_upload_template_persists_into_workspace_upload_root(client: TestClient)
 
 def test_upload_template_allocates_unique_path_for_duplicate_filename(client: TestClient) -> None:
     upload_root = client.app.state.temp_root / "workspace_uploads"
-    with patch("src.gateway.routers.templates._TEMPLATE_UPLOAD_ROOT", upload_root), patch(
-        "src.gateway.routers.templates.parse_template_content",
-        AsyncMock(return_value={}),
+    with (
+        patch("src.gateway.routers.templates._TEMPLATE_UPLOAD_ROOT", upload_root),
+        patch(
+            "src.gateway.routers.templates.parse_template_content",
+            AsyncMock(return_value={}),
+        ),
     ):
         first = client.post(
             "/api/workspaces/ws-1/templates/upload",

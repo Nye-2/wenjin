@@ -94,8 +94,6 @@ class TaskDataService:
         task_type: str | None = None,
         limit: int = 20,
         workspace_id: str | None = None,
-        feature_id: str | None = None,
-        action: str | None = None,
     ) -> list[TaskRecordProjection]:
         return await self._domain.list_user_tasks(
             user_id=user_id,
@@ -103,8 +101,6 @@ class TaskDataService:
             task_type=task_type,
             limit=limit,
             workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=action,
         )
 
     async def count_active_tasks(

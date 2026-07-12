@@ -1,144 +1,32 @@
-from __future__ import annotations
+import pytest
 
 from src.agents.harness.research_eval_surfaces import (
-    required_surface_requirements_from_capability_policy,
-    required_surfaces_from_capability_policy,
+    KNOWN_RESEARCH_SURFACES,
+    normalize_research_surfaces,
     validate_research_surface_enforcement,
+    validate_research_surfaces,
 )
 
 
-def test_required_surfaces_from_capability_policy_reads_research_evidence_contract() -> None:
-    surfaces = required_surfaces_from_capability_policy(
-        {
-            "research_evidence": {
-                "required_surfaces": [
-                    "literature",
-                    "experiment",
-                    "workflow_trace",
-                    "output_ref_reuse",
-                    "output_ref_reuse",
-                    "",
-                ]
-            }
-        }
-    )
-
-    assert surfaces == (
-        "literature",
-        "experiment",
-        "workflow_trace",
-        "output_ref_reuse",
-    )
-
-
-def test_required_surfaces_from_capability_policy_uses_default_when_contract_missing() -> None:
-    assert required_surfaces_from_capability_policy({}) == (
-        "literature",
-        "citation_strength",
-        "paper_relevance",
-        "experiment",
-        "writing",
-    )
-
-
-def test_required_surfaces_from_capability_policy_rejects_unknown_surfaces() -> None:
-    try:
-        required_surfaces_from_capability_policy(
-            {"research_evidence": {"required_surfaces": ["workflow_trace", "unknown_surface"]}}
-        )
-    except ValueError as exc:
-        assert "unknown research evidence surfaces" in str(exc)
-        assert "unknown_surface" in str(exc)
-    else:
-        raise AssertionError("unknown research evidence surface should fail")
-
-
-def test_research_surface_registry_accepts_academic_harness_v1_surfaces() -> None:
-    surfaces = required_surfaces_from_capability_policy(
-        {
-            "research_evidence": {
-                "required_surfaces": [
-                    "claim_evidence_alignment",
-                    "experiment_reproducibility",
-                    "figure_data_consistency",
-                    "review_packet_completeness",
-                ]
-            }
-        }
-    )
-
-    assert surfaces == (
+def test_research_surface_vocabulary_contains_academic_trust_surfaces() -> None:
+    assert {
         "claim_evidence_alignment",
+        "statistical_robustness",
         "experiment_reproducibility",
         "figure_data_consistency",
         "review_packet_completeness",
-    )
+    } <= KNOWN_RESEARCH_SURFACES
 
 
-def test_research_surface_registry_accepts_cross_workspace_domain_surfaces() -> None:
-    surfaces = required_surfaces_from_capability_policy(
-        {
-            "research_evidence": {
-                "required_surfaces": [
-                    "argument_chain",
-                    "protected_section_safety",
-                    "prior_art_provenance",
-                    "claim_support",
-                    "enablement_support",
-                    "drawing_consistency",
-                    "feasibility_evidence",
-                    "risk_evidence",
-                    "milestone_realism",
-                    "source_provenance",
-                    "screenshot_provenance",
-                    "non_fabrication_evidence",
-                    "ai_use_disclosure",
-                ]
-            }
-        }
-    )
-
-    assert surfaces == (
-        "argument_chain",
-        "protected_section_safety",
-        "prior_art_provenance",
-        "claim_support",
-        "enablement_support",
-        "drawing_consistency",
-        "feasibility_evidence",
-        "risk_evidence",
-        "milestone_realism",
-        "source_provenance",
-        "screenshot_provenance",
-        "non_fabrication_evidence",
-        "ai_use_disclosure",
-    )
+def test_normalize_research_surfaces_is_ordered_and_unique() -> None:
+    assert normalize_research_surfaces(["literature", "claim_evidence_alignment", "literature", ""]) == ["literature", "claim_evidence_alignment"]
 
 
-def test_surface_enforcement_levels_are_parsed_per_surface() -> None:
-    requirements = required_surface_requirements_from_capability_policy(
-        {
-            "research_evidence": {
-                "required_surfaces": ["workflow_trace", "review_packet_completeness"],
-                "surface_enforcement": {
-                    "workflow_trace": "required_runtime",
-                    "review_packet_completeness": "required_final",
-                },
-            }
-        }
-    )
-
-    assert [(item.surface, item.enforcement) for item in requirements] == [
-        ("workflow_trace", "required_runtime"),
-        ("review_packet_completeness", "required_final"),
-    ]
+def test_unknown_surface_fails_closed() -> None:
+    with pytest.raises(ValueError, match="unknown research evidence surfaces"):
+        validate_research_surfaces(["literature", "model_said_it_is_fine"])
 
 
 def test_surface_enforcement_rejects_unknown_level() -> None:
-    try:
-        validate_research_surface_enforcement({"workflow_trace": "hard_block"})
-    except ValueError as exc:
-        assert "unknown research surface enforcement" in str(exc)
-        assert "hard_block" in str(exc)
-    else:
-        raise AssertionError("unknown enforcement level should fail")
+    with pytest.raises(ValueError, match="unknown research surface enforcement"):
+        validate_research_surface_enforcement({"literature": "best_effort"})

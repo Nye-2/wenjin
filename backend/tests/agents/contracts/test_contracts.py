@@ -1,4 +1,4 @@
-"""Tests for TaskBrief and TaskReport Pydantic contracts."""
+"""Tests for structured research task report contracts."""
 
 import pytest
 from pydantic import ValidationError
@@ -13,79 +13,10 @@ from src.agents.contracts import (
     MemoryFactData,
     MemoryFactOutput,
     ResultError,
-    TaskBrief,
     TaskData,
     TaskOutput,
     TaskReport,
 )
-
-# ---------------------------------------------------------------------------
-# TaskBrief tests
-# ---------------------------------------------------------------------------
-
-
-class TestTaskBrief:
-    def test_valid_minimal(self):
-        brief = TaskBrief(
-            capability_id="scholar_search",
-            raw_message="Search for papers on transformers",
-            workspace_id="ws-001",
-        )
-        assert brief.capability_id == "scholar_search"
-        assert brief.raw_message == "Search for papers on transformers"
-        assert brief.workspace_id == "ws-001"
-        assert brief.user_id == ""
-        assert brief.brief == {}
-        assert brief.decisions == {}
-
-    def test_capability_id_non_empty(self):
-        with pytest.raises(ValidationError):
-            TaskBrief(
-                capability_id="",
-                raw_message="Some message",
-                workspace_id="ws-001",
-            )
-
-    def test_raw_message_non_empty(self):
-        with pytest.raises(ValidationError):
-            TaskBrief(
-                capability_id="scholar_search",
-                raw_message="",
-                workspace_id="ws-001",
-            )
-
-    def test_with_brief_and_decisions(self):
-        brief = TaskBrief(
-            capability_id="outline",
-            brief={"topic": "LLM alignment", "depth": 3},
-            raw_message="Create an outline",
-            decisions={"style": "academic", "language": "en"},
-            workspace_id="ws-999",
-        )
-        assert brief.brief["topic"] == "LLM alignment"
-        assert brief.decisions["style"] == "academic"
-
-    def test_workspace_id_defaults_to_empty_string(self):
-        brief = TaskBrief(
-            capability_id="cap",
-            raw_message="msg",
-        )
-        assert brief.workspace_id == ""
-
-    def test_decisions_default_empty_dict(self):
-        brief = TaskBrief(capability_id="cap", raw_message="msg")
-        assert brief.decisions == {}
-
-    def test_serialisation_round_trip(self):
-        brief = TaskBrief(
-            capability_id="cap",
-            raw_message="msg",
-            user_id="user-1",
-            decisions={"k": "v"},
-        )
-        restored = TaskBrief.model_validate(brief.model_dump())
-        assert restored == brief
-
 
 # ---------------------------------------------------------------------------
 # TaskReport tests
@@ -95,8 +26,8 @@ class TestTaskBrief:
 class TestTaskReport:
     def _make_report(self, **kwargs):
         defaults = dict(
-            execution_id="exec-abc",
-            capability_id="scholar_search",
+            mission_id="mission-abc",
+            skill_id="scholar_search",
             status="completed",
             duration_seconds=42,
             narrative="Found 3 papers.",
@@ -106,7 +37,7 @@ class TestTaskReport:
 
     def test_valid_minimal(self):
         report = self._make_report()
-        assert report.execution_id == "exec-abc"
+        assert report.mission_id == "mission-abc"
         assert report.status == "completed"
         assert report.outputs == []
         assert report.errors == []

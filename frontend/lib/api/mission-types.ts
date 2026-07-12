@@ -1,0 +1,223 @@
+export type MissionExecutionStatus =
+  | "created"
+  | "planning"
+  | "running"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type MissionReviewMode =
+  | "review_all"
+  | "balanced_default"
+  | "auto_draft";
+
+export type MissionReasoningEffort = "low" | "medium" | "high" | "xhigh";
+export type MissionRiskLevel = "low" | "medium" | "high";
+export type MissionItemPhase =
+  | "started"
+  | "progress"
+  | "completed"
+  | "failed"
+  | "cancelled";
+export type MissionReviewStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "needs_more_evidence"
+  | "committed"
+  | "superseded";
+export type MissionCommitStatus =
+  | "pending"
+  | "applying"
+  | "committed"
+  | "failed"
+  | "cancelled";
+
+export interface MissionStageView {
+  id: string;
+  title: string;
+  status: "pending" | "active" | "passed" | "revising" | "waiting";
+  summary?: string | null;
+}
+
+export interface MissionSubagentView {
+  id: string;
+  name: string;
+  role: string;
+  status: "queued" | "working" | "done" | "needs_input";
+  summary?: string | null;
+}
+
+export interface MissionEvidenceView {
+  id: string;
+  title: string;
+  sourceType: "paper" | "web_page" | "dataset" | "upload";
+  sourceLabel?: string | null;
+  summary?: string | null;
+  citation?: string | null;
+  verified: boolean;
+}
+
+export interface MissionArtifactView {
+  id: string;
+  title: string;
+  kind: string;
+  summary?: string | null;
+  previewAvailable: boolean;
+  committed: boolean;
+}
+
+export interface MissionReviewItemView {
+  id: string;
+  title: string;
+  summary?: string | null;
+  targetKind: string;
+  riskLevel: MissionRiskLevel;
+  status: MissionReviewStatus;
+  suggestedSelected: boolean;
+  batchAcceptable: boolean;
+  reasonLabel?: string | null;
+  preview?: Record<string, unknown> | null;
+  commitStatus?: MissionCommitStatus | null;
+}
+
+export interface MissionReviewSummary {
+  pending: number;
+  needsMoreEvidence: number;
+  accepted: number;
+  committed: number;
+}
+
+export interface MissionCommitSummary {
+  pending: number;
+  applying: number;
+  committed: number;
+  failed: number;
+}
+
+export interface MissionAttentionInput {
+  id: string;
+  label: string;
+  description?: string | null;
+  inputType: "text" | "file" | "confirmation" | "credits";
+  required: boolean;
+}
+
+export interface MissionAttentionAction {
+  id: string;
+  label: string;
+  actionType: "reply_in_chat" | "upload_file" | "open_review";
+  primary: boolean;
+}
+
+export interface MissionAttentionRequest {
+  requestId: string;
+  reason: string;
+  title: string;
+  summary: string;
+  impact: string;
+  requiredInputs: MissionAttentionInput[];
+  actions: MissionAttentionAction[];
+}
+
+export interface MissionView {
+  missionId: string;
+  workspaceId: string;
+  threadId?: string | null;
+  title: string;
+  objective?: string | null;
+  executionStatus: MissionExecutionStatus;
+  statusLabel: string;
+  attentionRequest: MissionAttentionRequest | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationSeconds?: number | null;
+  activeStage?: MissionStageView | null;
+  stages: MissionStageView[];
+  requiredStageIds: string[];
+  teamSummary?: string | null;
+  subagents: MissionSubagentView[];
+  evidenceItems: MissionEvidenceView[];
+  artifactItems: MissionArtifactView[];
+  evidenceNextCursor?: number | null;
+  artifactNextCursor?: number | null;
+  evidenceCount: number;
+  artifactCount: number;
+  reviewItems: MissionReviewItemView[];
+  reviewSummary: MissionReviewSummary;
+  reviewMode: MissionReviewMode;
+  reviewPolicy: {
+    protectedOutputsRequireConfirmation: boolean;
+    draftOutputsMayBeAutomatic: boolean;
+  };
+  reviewSelectionRevision: number;
+  commitSummary: MissionCommitSummary;
+  qualityHighlights: string[];
+  lastItemSeq: number;
+  stateVersion: number;
+}
+
+export interface MissionSummary {
+  missionId: string;
+  title: string;
+  executionStatus: MissionExecutionStatus;
+  statusLabel: string;
+  updatedAt: string;
+  durationSeconds?: number | null;
+  activeStage?: string | null;
+  pendingReviewCount: number;
+  evidenceCount: number;
+  artifactCount: number;
+}
+
+export interface MissionItem {
+  id: string;
+  missionId: string;
+  seq: number;
+  itemType: string;
+  phase: MissionItemPhase;
+  stageId?: string | null;
+  producer?: string | null;
+  summary?: string | null;
+  createdAt: string;
+  detailAvailable?: boolean;
+}
+
+export interface MissionPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+export interface MissionReviewDecision {
+  reviewItemId: string;
+  decision: "accepted" | "rejected" | "needs_more_evidence";
+}
+
+export interface MissionEventHint {
+  type:
+    | "mission.created"
+    | "mission.updated"
+    | "mission.item.appended"
+    | "mission.review.updated"
+    | "mission.commit.updated"
+    | "mission.terminal"
+    | "mission.snapshot.changed";
+  missionId: string;
+  stateVersion: number;
+  lastItemSeq: number;
+  replayRequired: boolean;
+  cursor: string;
+}
+
+export interface ModelCapabilityProfile {
+  version: string;
+  generationApi: string | null;
+  strictToolCalls: boolean;
+  streaming: boolean;
+  reasoningEfforts: MissionReasoningEffort[];
+  vision: boolean;
+  nativeWebSearch: boolean;
+}
