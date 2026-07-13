@@ -1074,11 +1074,38 @@ async def test_committed_review_makes_nonterminal_mission_durably_runnable(
             ],
         ),
     )
+    planning = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=staged.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=staged.mission.lease_epoch,
+            patch=MissionRunPatchPayload(status="planning"),
+        ),
+    )
+    _running = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=planning.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=planning.mission.lease_epoch,
+            patch=MissionRunPatchPayload(status="running"),
+        ),
+    )
+    paused = await store.pause_run(
+        mission_id,
+        MissionPausePayload(
+            request_id="pause-runnable",
+            reason="approval",
+            pending_request={"review_item_id": "review-runnable"},
+            producer="mission_runtime",
+        ),
+    )
     decided = await store.apply_review_decisions(
         mission_id,
         MissionReviewDecisionsPayload(
             decision_id="decision-runnable",
-            expected_state_version=staged.mission.state_version,
+            expected_state_version=paused.mission.state_version,
             actor_user_id="user-1",
             decisions=[
                 MissionReviewDecisionPayload(
@@ -1088,6 +1115,7 @@ async def test_committed_review_makes_nonterminal_mission_durably_runnable(
             ],
         ),
     )
+    assert decided.mission.status == "waiting"
     recorded = await store.record_commit(
         mission_id,
         MissionCommitCreatePayload(
@@ -1114,8 +1142,9 @@ async def test_committed_review_makes_nonterminal_mission_durably_runnable(
         ),
     )
 
-    assert committed.mission.status not in {"completed", "failed", "cancelled"}
+    assert committed.mission.status == "planning"
     assert committed.mission.next_wakeup_at is not None
+    assert "pending_request" not in committed.mission.snapshot_json
 
 
 @pytest.mark.asyncio
@@ -1143,12 +1172,39 @@ async def test_revision_decision_makes_nonterminal_mission_durably_runnable(
             ],
         ),
     )
+    planning = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=staged.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=staged.mission.lease_epoch,
+            patch=MissionRunPatchPayload(status="planning"),
+        ),
+    )
+    _running = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=planning.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=planning.mission.lease_epoch,
+            patch=MissionRunPatchPayload(status="running"),
+        ),
+    )
+    paused = await store.pause_run(
+        mission_id,
+        MissionPausePayload(
+            request_id="pause-revise",
+            reason="approval",
+            pending_request={"review_item_id": "review-revise"},
+            producer="mission_runtime",
+        ),
+    )
 
     decided = await store.apply_review_decisions(
         mission_id,
         MissionReviewDecisionsPayload(
             decision_id="decision-revise",
-            expected_state_version=staged.mission.state_version,
+            expected_state_version=paused.mission.state_version,
             actor_user_id="user-1",
             decisions=[
                 MissionReviewDecisionPayload(
@@ -1160,6 +1216,8 @@ async def test_revision_decision_makes_nonterminal_mission_durably_runnable(
     )
 
     assert decided.mission.next_wakeup_at is not None
+    assert decided.mission.status == "planning"
+    assert "pending_request" not in decided.mission.snapshot_json
 
 
 def test_snapshot_rejects_scalar_duplication_and_oversize() -> None:

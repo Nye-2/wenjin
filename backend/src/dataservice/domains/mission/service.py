@@ -345,6 +345,30 @@ class MissionStore:
             run.dispatch_expires_at = None
             run.completed_at = now
 
+    @classmethod
+    def _resolve_review_wait(
+        cls,
+        run: MissionRunRecord,
+        *,
+        review_item_id: str,
+        next_action: str,
+        now: datetime,
+    ) -> bool:
+        if run.status != MissionStatus.WAITING.value:
+            return False
+        snapshot = dict(run.snapshot_json or {})
+        pending_request = snapshot.get("pending_request")
+        if not isinstance(pending_request, dict):
+            return False
+        if str(pending_request.get("review_item_id") or "") != review_item_id:
+            return False
+        snapshot.pop("waiting_reason", None)
+        snapshot.pop("pending_request", None)
+        snapshot["next_actions"] = [next_action]
+        run.snapshot_json = validate_mission_snapshot(snapshot)
+        cls._transition_status(run, MissionStatus.PLANNING, now=now)
+        return True
+
     @staticmethod
     def _apply_patch(
         run: MissionRunRecord,
@@ -1372,9 +1396,20 @@ class MissionStore:
                 )
             )
         self._append_drafts(run, audit_drafts, now=now)
-        if run.status not in TERMINAL_MISSION_STATUSES and any(
-            decision.status.value != "accepted" for decision in command.decisions
-        ):
+        revision_ids = [
+            decision.review_item_id
+            for decision in command.decisions
+            if decision.status.value != "accepted"
+        ]
+        for review_item_id in revision_ids:
+            if self._resolve_review_wait(
+                run,
+                review_item_id=review_item_id,
+                next_action="revise_current_stage",
+                now=now,
+            ):
+                break
+        if run.status not in TERMINAL_MISSION_STATUSES and revision_ids:
             run.next_wakeup_at = now
         self._touch(run, now)
         await self._finish()
@@ -1568,6 +1603,12 @@ class MissionStore:
             review_item.status = "committed"
             review_item.updated_at = now
             if run.status not in TERMINAL_MISSION_STATUSES:
+                self._resolve_review_wait(
+                    run,
+                    review_item_id=review_item.review_item_id,
+                    next_action="plan_or_replan",
+                    now=now,
+                )
                 run.next_wakeup_at = now
         phase = {
             "committed": "completed",
