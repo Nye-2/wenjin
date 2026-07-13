@@ -98,13 +98,18 @@ Canonical mission groups currently include:
 - `source_code_read`;
 - `sandbox_compute`;
 - `artifact_render`;
+- `academic_visual_render`;
 - the port-backed `draft_stage` review candidate operation.
 
-Main generation uses GPT-5.5 through Chat Completions. Native search is a separate Responses SSE tool transport, not a second general generation protocol. Search is available only when a current probe proves a completed `web_search_call`, source receipts, URL citations, and the accepted completion boundary. A policy requiring search fails closed when those receipts cannot be verified.
+Main generation uses the GPT-5.6 Sol/Terra/Luna family through Chat Completions. Native search is a separate Responses SSE tool transport, not a second general generation protocol. Search is available only when a current probe proves a completed `web_search_call`, source receipts, URL citations, and the accepted completion boundary. A policy requiring search fails closed when those receipts cannot be verified.
 
 ## 7. Model profile
 
-The current language-model baseline is one model id: `gpt-5.5`. Chat, mission loop, subagents, and review use the same model. Supported reasoning effort values are `low`, `medium`, `high`, and `xhigh`; the deployment default is `xhigh`. Requests disable provider response storage.
+The current language-model baseline is `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`, with Terra as the catalog default. A Mission pins the user-selected model across its loop, subagents, and review. Supported reasoning effort values are `low`, `medium`, `high`, and `xhigh`; the deployment default is `xhigh`. Requests disable provider response storage.
+
+The image-generation catalog contains `gpt-image-2` only. It uses the standard OpenAI Images API; no legacy image model or transparent-background fallback is enabled.
+
+`academic_visual.render_candidate` is the single visual entry point. It routes evidence charts and structured diagrams to the digest-pinned Docker Sandbox, explanatory illustrations to `gpt-image-2`, and exact-label illustrations to a deterministic overlay. Candidate bytes enter the transient Mission preview store and become a `WorkspaceAsset` only through review and commit.
 
 Static `supports_*` flags are not trusted. `model_catalog_entries` stores `generation_api`, a versioned `ModelCapabilityProfile`, probe evidence/hash, and observation time. Endpoint, model, API, or probe hash drift makes the profile stale. Strict structured tool calls and clean generation streaming are release requirements.
 

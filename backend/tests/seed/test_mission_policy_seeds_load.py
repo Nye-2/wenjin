@@ -45,6 +45,18 @@ def test_all_policy_worker_skills_exist() -> None:
         assert set(policy["allowed_worker_skills"]) <= skill_ids
 
 
+def test_all_policies_expose_only_the_new_academic_visual_seed_surface() -> None:
+    skill_ids = {item["data"]["id"] for item in SkillLoader().read_seed_items()}
+
+    assert "academic-visual-engineer" in skill_ids
+    assert "figure-table-engineer" not in skill_ids
+    for policy in _policies():
+        assert "academic_visual_render" in policy["tool_policy"]["allowed_tool_groups"]
+        assert "academic-visual-engineer" in policy["allowed_worker_skills"]
+        assert "figure-table-engineer" not in policy["allowed_worker_skills"]
+        assert "visual_output" in policy["review_policy"]["non_bypassable_risks"]
+
+
 def test_sci_stage_contracts_cover_full_research_chain() -> None:
     policy = next(item for item in _policies() if item["workspace_type"] == "sci")
     stage_ids = {item["stage_id"] for item in policy["resolved_stage_contracts"]}

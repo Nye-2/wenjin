@@ -789,7 +789,7 @@ def start_request(**overrides: Any) -> MissionStartRequest:
         "title": "Federated PEFT study",
         "objective": "Map research gaps for federated LLM fine-tuning",
         "mission_idempotency_key": "start-1",
-        "model_id": "gpt-5.5",
+        "model_id": "gpt-5.6-sol",
         "reasoning_effort": "xhigh",
     }
     values.update(overrides)

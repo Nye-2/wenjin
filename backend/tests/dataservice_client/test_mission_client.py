@@ -32,7 +32,7 @@ def _mission_payload() -> dict:
         "status": "created",
         "review_mode": "balanced_default",
         "active_stage_id": None,
-        "model_id": "gpt-5.5",
+        "model_id": "gpt-5.6-sol",
         "reasoning_effort": "xhigh",
         "snapshot_json": {},
         "runtime_context_json": {},
@@ -62,7 +62,7 @@ async def test_root_client_exposes_composed_mission_domain_and_typed_create() ->
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/internal/v1/missions"
         body = json.loads(request.content)
-        assert body["model_id"] == "gpt-5.5"
+        assert body["model_id"] == "gpt-5.6-sol"
         assert body["reasoning_effort"] == "xhigh"
         assert "execution_id" not in body
         return httpx.Response(
@@ -88,7 +88,7 @@ async def test_root_client_exposes_composed_mission_domain_and_typed_create() ->
                 mission_policy_id="sci.research",
                 title="Research gap",
                 objective="Find a gap",
-                model_id="gpt-5.5",
+                model_id="gpt-5.6-sol",
                 reasoning_effort="xhigh",
                 mission_idempotency_key="mission-create-1",
             )
@@ -193,7 +193,7 @@ def test_mission_contract_rejects_execution_record_fields() -> None:
             workspace_type="sci",
             title="Research gap",
             objective="Find a gap",
-            model_id="gpt-5.5",
+            model_id="gpt-5.6-sol",
             reasoning_effort="xhigh",
             execution_id="execution-1",  # type: ignore[call-arg]
         )

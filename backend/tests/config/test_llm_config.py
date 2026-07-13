@@ -33,9 +33,9 @@ def _gpt_seed() -> str:
     return json.dumps(
         [
             {
-                "id": "gpt-5.5",
-                "name": "GPT-5.5",
-                "model": "gpt-5.5",
+                "id": "gpt-5.6-sol",
+                "name": "GPT-5.6 Sol",
+                "model": "gpt-5.6-sol",
                 "api_key": "sk-test",
                 "base_url": "https://api.nainai.love/v1",
                 "generation_api": "chat_completions",
@@ -48,13 +48,13 @@ def _gpt_seed() -> str:
 def test_env_seed_parses_generation_api_without_capability_flags() -> None:
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.5"},
+        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.6-sol"},
         clear=False,
     ):
         reload_models()
         models = get_llm_models()
 
-    assert [model.id for model in models] == ["gpt-5.5"]
+    assert [model.id for model in models] == ["gpt-5.6-sol"]
     assert models[0].generation_api is GenerationAPI.CHAT_COMPLETIONS
     assert models[0].capability_profile is not None
     assert models[0].capability_profile.protocol_conformance is False
@@ -100,22 +100,22 @@ def test_image_seed_remains_available_without_language_generation_api() -> None:
 def test_full_config_exposes_typed_assessment_not_mirrored_booleans() -> None:
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.5"},
+        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.6-sol"},
         clear=False,
     ):
         reload_models()
-        config = get_model_full_config("gpt-5.5")
+        config = get_model_full_config("gpt-5.6-sol")
 
     assert config["generation_api"] is GenerationAPI.CHAT_COMPLETIONS
-    assert config["capability_profile"].model_id == "gpt-5.5"
-    assert config["capability_probe"].model_id == "gpt-5.5"
+    assert config["capability_profile"].model_id == "gpt-5.6-sol"
+    assert config["capability_probe"].model_id == "gpt-5.6-sol"
     assert not any(key.startswith("supports_") for key in config)
 
 
 def test_unknown_model_is_not_rerouted() -> None:
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.5"},
+        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.6-sol"},
         clear=False,
     ):
         reload_models()

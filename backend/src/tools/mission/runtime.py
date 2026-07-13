@@ -9,6 +9,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from src.academic_visual_runtime import (
+    AcademicVisualExecutionContext,
+    AcademicVisualRenderInput,
+    AcademicVisualRuntime,
+    AcademicVisualRuntimeError,
+)
+from src.config import get_settings
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.source import SourceImportPayload
 from src.sandbox import (
@@ -28,7 +35,7 @@ from src.sandbox.contracts import (
     SmokeCheckInput,
 )
 from src.services.search import MODEL_NATIVE_SEARCH_TOOL_ID
-from src.services.workspace_uploads import DEFAULT_WORKSPACE_UPLOAD_ROOT, workspace_upload_root
+from src.services.workspace_uploads import workspace_upload_root
 from src.tools.mission.contracts import (
     CreateArtifactCandidateInput,
     ImportSourceCandidateInput,
@@ -105,11 +112,13 @@ class MissionToolHandlers:
         *,
         dataservice: AsyncDataServiceClient,
         sandbox: SandboxRuntime,
-        asset_root: Path = DEFAULT_WORKSPACE_UPLOAD_ROOT,
+        academic_visual: AcademicVisualRuntime | None = None,
+        asset_root: Path | None = None,
     ) -> None:
         self.dataservice = dataservice
         self.sandbox = sandbox
-        self.asset_root = asset_root
+        self.academic_visual = academic_visual
+        self.asset_root = Path(asset_root or get_settings().workspace_asset_root)
 
     async def list_workspace_assets(self, operation: ToolOperation, args: ListWorkspaceAssetsInput) -> ToolHandlerResult:
         assets = await self.dataservice.list_assets(
@@ -367,6 +376,121 @@ class MissionToolHandlers:
             payload_ref=ref.ref_id,
         )
 
+    async def render_academic_visual_candidate(
+        self,
+        operation: ToolOperation,
+        args: AcademicVisualRenderInput,
+    ) -> ToolHandlerResult:
+        if self.academic_visual is None:
+            raise ToolDispatchError(ToolErrorType.TOOL_UNAVAILABLE, "Academic visual runtime is not configured.")
+        workspace_id = await self._workspace_id(operation)
+        prism_context_text, prism_context_hash = await self._resolve_visual_prism_context(
+            workspace_id,
+            args,
+        )
+        try:
+            receipt = await self.academic_visual.render_candidate(
+                args,
+                context=AcademicVisualExecutionContext(
+                    workspace_id=workspace_id,
+                    mission_id=operation.mission_id,
+                    caller_id=operation.caller_id,
+                    caller_kind=operation.caller_kind.value,
+                    lease_epoch=operation.lease_epoch,
+                    policy_version=operation.policy_snapshot_ref,
+                    prism_context_text=prism_context_text,
+                    prism_context_hash=prism_context_hash,
+                ),
+            )
+        except AcademicVisualRuntimeError as exc:
+            raise ToolDispatchError(
+                _academic_visual_error(exc.code),
+                str(exc),
+                recoverable_by_model=exc.recoverable,
+                retry_after_seconds=exc.retry_after_seconds,
+            ) from exc
+        candidate = receipt.candidate
+        metadata = receipt.model_dump(mode="json", by_alias=True)
+        ref = ToolReference(
+            ref_id=f"academic-visual:{candidate.candidate_id}",
+            kind="academic_visual_candidate",
+            title=args.brief.figure_spec.title,
+            metadata=metadata,
+        )
+        evidence_refs: tuple[ToolReference, ...] = ()
+        if candidate.sandbox_artifact_ref is not None:
+            evidence_refs = (
+                ToolReference(
+                    ref_id=candidate.sandbox_artifact_ref,
+                    kind="sandbox_artifact_manifest",
+                    title=f"Reproducibility receipt: {args.brief.figure_spec.title}",
+                    metadata={
+                        "content_hash": candidate.content_hash,
+                        "preview_hash": candidate.preview_hash,
+                        "reproducibility_ref": candidate.reproducibility_ref,
+                        "dataset_refs": list(candidate.dataset_refs),
+                        "surfaces": [
+                            "figure_data_consistency",
+                            "experiment_reproducibility",
+                        ],
+                    },
+                ),
+            )
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary="Prepared an academic visual candidate for review; no workspace asset or document was changed.",
+            evidence_refs=evidence_refs,
+            artifact_refs=(ref,),
+            verification_status=VerificationStatus.VERIFIED,
+            risk_level="medium",
+            payload_ref=candidate.review_preview_ref,
+        )
+
+    async def _resolve_visual_prism_context(
+        self,
+        workspace_id: str,
+        args: AcademicVisualRenderInput,
+    ) -> tuple[str | None, str | None]:
+        context_ref = args.brief.prism_context_ref
+        if context_ref is None:
+            return None, None
+        if context_ref.workspace_id != workspace_id:
+            raise ToolDispatchError(
+                ToolErrorType.PERMISSION_DENIED,
+                "The Prism selection belongs to a different workspace.",
+            )
+        surface = await self.dataservice.get_prism_surface(workspace_id)
+        if surface is None or surface.project.id != context_ref.prism_project_id:
+            raise ToolDispatchError(ToolErrorType.NO_RESULTS, "The Prism project is unavailable.")
+        result = await self.dataservice.get_prism_workspace_file(workspace_id, context_ref.file_id)
+        if result is None or result.file.deleted_at is not None:
+            raise ToolDispatchError(ToolErrorType.NO_RESULTS, "The Prism file is unavailable.")
+        version = result.current_version
+        if version is None or version.id != context_ref.base_revision_ref:
+            raise ToolDispatchError(
+                ToolErrorType.PROVENANCE_MISSING,
+                "The Prism selection is stale; read the current document revision before rendering.",
+            )
+        if version.content_inline is None:
+            raise ToolDispatchError(
+                ToolErrorType.NO_RESULTS,
+                "The selected Prism content is not available inline.",
+            )
+        start, end = context_ref.selection_range
+        if end > len(version.content_inline) or end - start > 16_000:
+            raise ToolDispatchError(
+                ToolErrorType.INVALID_INPUT,
+                "The Prism selection is outside the current file or exceeds the visual context limit.",
+            )
+        selection = version.content_inline[start:end]
+        selection_hash = f"sha256:{hashlib.sha256(selection.encode()).hexdigest()}"
+        if selection_hash != context_ref.selection_hash:
+            raise ToolDispatchError(
+                ToolErrorType.PROVENANCE_MISSING,
+                "The Prism selection changed; read the current selection before rendering.",
+            )
+        return selection, selection_hash
+
     async def _workspace_id(self, operation: ToolOperation) -> str:
         mission = await self.dataservice.missions.get(operation.mission_id)
         if mission is None or not mission.workspace_id:
@@ -535,6 +659,29 @@ def _success(
         payload_ref=payload_ref,
         risk_level=risk,
     )
+
+
+def _academic_visual_error(code: str) -> ToolErrorType:
+    if code in {"invalid_figure_strategy", "insufficient_visual_context", "provider_invalid_payload"}:
+        return ToolErrorType.INVALID_INPUT
+    if code in {
+        "reference_asset_unavailable",
+        "dataset_unavailable",
+        "expected_output_missing",
+        "sandbox_artifact_unavailable",
+    }:
+        return ToolErrorType.NO_RESULTS
+    if code in {"provider_rate_limited"}:
+        return ToolErrorType.RATE_LIMITED
+    if code in {"provider_auth_or_config"}:
+        return ToolErrorType.AUTH_REQUIRED
+    if code in {"provider_timeout"}:
+        return ToolErrorType.TIMEOUT
+    if code in {"image_decode_failed", "image_policy_rejected", "quality_gate_failed"}:
+        return ToolErrorType.UNSAFE_OUTPUT
+    if code in {"reproducibility_manifest_invalid"}:
+        return ToolErrorType.PROVENANCE_MISSING
+    return ToolErrorType.TOOL_UNAVAILABLE
 
 
 def _read_bounded_file(path: Path, *, offset: int, max_bytes: int) -> tuple[str, bool]:

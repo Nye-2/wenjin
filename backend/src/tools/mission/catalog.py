@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from src.academic_visual_runtime import (
+    AcademicVisualRuntime,
+    ConfiguredGptImage2Provider,
+)
 from src.agents.harness.command_audit import CommandAuditPolicy, SandboxCommandAuditor
 from src.dataservice_client import AsyncDataServiceClient
+from src.review_commit_runtime.composition import get_mission_preview_store
 from src.sandbox import SandboxOperationKind, SandboxRuntime, compiler_fingerprints, get_sandbox_settings
 from src.sandbox.providers import DockerSandboxProvider
 from src.tools.mission.contracts import (
+    AcademicVisualRenderInput,
     CreateArtifactCandidateInput,
     ImportSourceCandidateInput,
     InstallDependenciesToolInput,
@@ -56,6 +62,7 @@ SANDBOX_COMPUTE_TOOL_IDS = (
     "sandbox.read_output_ref",
 )
 ARTIFACT_RENDER_TOOL_IDS = ("artifact.create_candidate",)
+ACADEMIC_VISUAL_RENDER_TOOL_IDS = ("academic_visual.render_candidate",)
 
 MISSION_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "workspace_read": WORKSPACE_READ_TOOL_IDS,
@@ -63,6 +70,7 @@ MISSION_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "source_code_read": SOURCE_CODE_READ_TOOL_IDS,
     "sandbox_compute": SANDBOX_COMPUTE_TOOL_IDS,
     "artifact_render": ARTIFACT_RENDER_TOOL_IDS,
+    "academic_visual_render": ACADEMIC_VISUAL_RENDER_TOOL_IDS,
 }
 
 _CALLERS = (ToolCallerKind.WORKSPACE_AGENT, ToolCallerKind.SUBAGENT)
@@ -120,6 +128,9 @@ class LazyProductionSandbox:
     async def execute(self, request):
         return await self._get().execute(request)
 
+    async def read_artifact_bytes(self, **kwargs):
+        return await self._get().read_artifact_bytes(**kwargs)
+
 
 def build_mission_tool_registrations(
     *,
@@ -127,12 +138,22 @@ def build_mission_tool_registrations(
     lease_guard,
     receipt_store,
     sandbox_runtime: SandboxRuntime | None = None,
+    academic_visual_runtime: AcademicVisualRuntime | None = None,
 ) -> tuple[ToolRegistration, ...]:
     sandbox = sandbox_runtime or LazyProductionSandbox(
         lease_guard=lease_guard,
         receipt_store=receipt_store,
     )
-    handlers = MissionToolHandlers(dataservice=dataservice, sandbox=sandbox)  # type: ignore[arg-type]
+    academic_visual = academic_visual_runtime or AcademicVisualRuntime(
+        sandbox=sandbox,  # type: ignore[arg-type]
+        image_provider=ConfiguredGptImage2Provider(),
+        preview_store=get_mission_preview_store(),
+    )
+    handlers = MissionToolHandlers(
+        dataservice=dataservice,
+        sandbox=sandbox,  # type: ignore[arg-type]
+        academic_visual=academic_visual,
+    )
     read = _registration_factory(ToolKind.READ, SideEffectClass.NONE)
     mutation = _registration_factory(ToolKind.SANDBOX_MUTATION, SideEffectClass.IDEMPOTENT)
     return (
@@ -179,6 +200,18 @@ def build_mission_tool_registrations(
             "artifact_render",
             provenance=("source_refs", "mission_receipt"),
         ),
+        _build(
+            "academic_visual.render_candidate",
+            ToolKind.WRITE_CANDIDATE,
+            AcademicVisualRenderInput,
+            handlers.render_academic_visual_candidate,
+            SideEffectClass.IDEMPOTENT,
+            "academic_visual_render",
+            network_profile="academic_visual_scoped",
+            provenance=("workspace_scope", "mission_receipt", "visual_manifest"),
+            timeout=300,
+            payload_limit_bytes=524_288,
+        ),
     )
 
 
@@ -200,6 +233,7 @@ def _build(
     network_profile: str = "none",
     provenance: tuple[str, ...] = ("workspace_scope", "mission_receipt"),
     timeout: float = 120,
+    payload_limit_bytes: int = 131_072,
 ) -> ToolRegistration:
     return build_tool_registration(
         tool_id=tool_id,
@@ -213,12 +247,13 @@ def _build(
         network_profile=network_profile,
         budget_class="mission_standard",
         default_timeout_seconds=timeout,
-        payload_limit_bytes=131_072,
+        payload_limit_bytes=payload_limit_bytes,
         provenance_requirements=provenance,
     )
 
 
 __all__ = [
+    "ACADEMIC_VISUAL_RENDER_TOOL_IDS",
     "ARTIFACT_RENDER_TOOL_IDS",
     "MISSION_TOOL_GROUPS",
     "SANDBOX_COMPUTE_TOOL_IDS",

@@ -4,7 +4,7 @@ This module parses model configurations from environment variables
 (LLM_MODELS, LLM_IMAGE_MODELS) and provides access functions.
 
 Configuration format (.env file):
-    LLM_MODELS=[{"id":"gpt-5.5","model":"gpt-5.5","api_key":"sk-xxx","base_url":"https://api.example/v1","generation_api":"chat_completions"}]
+    LLM_MODELS=[{"id":"gpt-5.6-sol","model":"gpt-5.6-sol","api_key":"sk-xxx","base_url":"https://api.example/v1","generation_api":"chat_completions"}]
     LLM_IMAGE_MODELS=[{"id":"image-model","model":"image-model","api_key":"sk-xxx","base_url":"https://images.example/v1"}]
 
 Required fields: id, model, api_key, base_url

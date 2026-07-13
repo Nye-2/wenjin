@@ -29,7 +29,7 @@ Wenjin (问津) is a chat-native AI workbench for academic research and writing.
 
 ## Model and search
 
-- Only `gpt-5.5` is enabled for chat, Mission loop, workers, and review.
+- Only `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` are enabled for chat, Mission loop, workers, and review; Terra is the default.
 - Main generation uses Chat Completions with `store=false`.
 - Reasoning efforts are exactly `low`, `medium`, `high`, and `xhigh`; default is `xhigh`.
 - Model capability is probe-backed and hash-bound, not controlled by static support flags.

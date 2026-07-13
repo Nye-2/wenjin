@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import {
   commitMissionReviews,
   decideMissionReviews,
@@ -43,6 +44,8 @@ import {
   suggestedReviewSelection,
 } from "@/lib/mission-view";
 import { useMissionUiStore } from "@/stores/mission-ui-store";
+
+import { AcademicVisualReviewPreview } from "./AcademicVisualReviewPreview";
 
 interface MissionConsoleProps {
   view: MissionView;
@@ -429,7 +432,7 @@ function ReviewSurface({
       {pending.length ? (
         <div className="divide-y divide-[var(--wjn-line)]">
           {pending.map((item) => {
-            const protectedItem = reviewContract(item).requiresExplicitReview;
+            const protectedItem = item.requiresExplicitReview;
             return (
               <label key={item.id} className="flex cursor-pointer gap-3 py-4">
                 <input
@@ -456,7 +459,7 @@ function ReviewSurface({
                       {item.reasonLabel}
                     </span>
                   ) : null}
-                  <ReviewPreview item={item} />
+                  <ReviewPreview missionId={view.missionId} item={item} />
                   {!item.batchAcceptable ? (
                     <span className="mt-2 flex gap-2">
                       <button
@@ -562,37 +565,40 @@ function ReviewSurface({
   );
 }
 
-function ReviewPreview({ item }: { item: MissionView["reviewItems"][number] }) {
-  const { previewRef } = reviewContract(item);
+function ReviewPreview({ missionId, item }: { missionId: string; item: MissionView["reviewItems"][number] }) {
+  if (item.visual) {
+    return <AcademicVisualReviewPreview missionId={missionId} item={item} />;
+  }
   const hasInlinePreview = Boolean(item.preview && Object.keys(item.preview).length);
-  if (!hasInlinePreview && !previewRef) return null;
+  const markdownPreview = reviewMarkdownPreview(item.preview);
+  if (!hasInlinePreview) return null;
 
   return (
     <details className="mt-2 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] px-3 py-2">
       <summary className="cursor-pointer text-[11px] font-medium text-[var(--wjn-accent-strong)]">
         查看内容预览
       </summary>
-      {hasInlinePreview ? (
+      {markdownPreview ? (
+        <MarkdownRenderer
+          content={markdownPreview}
+          className="prose-chat mt-2 max-h-72 overflow-auto text-xs leading-5 text-[var(--wjn-text-secondary)]"
+        />
+      ) : hasInlinePreview ? (
         <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-[var(--wjn-text-secondary)]">
           {JSON.stringify(item.preview, null, 2)}
         </pre>
-      ) : (
-        <p className="mt-2 break-all font-mono text-[11px] leading-5 text-[var(--wjn-text-secondary)]">
-          {previewRef}
-        </p>
-      )}
+      ) : null}
     </details>
   );
 }
 
-function reviewContract(item: MissionView["reviewItems"][number]): {
-  requiresExplicitReview: boolean;
-  previewRef?: string | null;
-} {
-  return item as MissionView["reviewItems"][number] & {
-    requiresExplicitReview: boolean;
-    previewRef?: string | null;
-  };
+function reviewMarkdownPreview(preview: MissionView["reviewItems"][number]["preview"]): string | null {
+  if (!preview) return null;
+  for (const field of ["body", "content", "markdown"] as const) {
+    const value = preview[field];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
 }
 
 function ReviewModeSelect({ view, onViewChange }: { view: MissionView; onViewChange(view: MissionView): void }) {

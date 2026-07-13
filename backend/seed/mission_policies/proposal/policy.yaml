@@ -45,13 +45,13 @@ stage_contract_refs:
   - {contract_id: proposal_development.feasibility_risk, schema_version: stage_acceptance_contract.v1, sha256: abdb794f78a7f0aec40ef2877e36ccb23322106a189274b378fcffb66180a425}
   - {contract_id: proposal_development.proposal_writing, schema_version: stage_acceptance_contract.v1, sha256: 1658671d4f5e909dd238a8e6e9a27d26dc9c50b940612355d4c2e21ab15e0c11}
 tool_policy:
-  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, draft_stage]
+  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell]
-allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, proposal-writer, citation-auditor, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, academic-visual-engineer, proposal-writer, citation-auditor, compliance-reviewer, quality-critic]
 review_policy:
   default_mode: balanced_default
   allowed_modes: [review_all, balanced_default, auto_draft]
-  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory, visual_output]
 sandbox_policy_ref: {policy_id: sandbox.research, version: 1}
 examples:
   - example_id: proposal.route.excellent.v1

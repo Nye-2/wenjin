@@ -94,7 +94,7 @@ Accepted commits may materialize into Documents/Prism, Library, Decisions, Memor
 - Leases and versions fence duplicate workers.
 - Redis/Celery delivery and SSE are non-authoritative hints.
 - Due waiting/running missions can be reconciled after worker loss.
-- The model baseline is GPT-5.5; reasoning efforts are `low`, `medium`, `high`, `xhigh`.
+- The model baseline is GPT-5.6 Sol/Terra/Luna, with Terra as default; reasoning efforts are `low`, `medium`, `high`, `xhigh`.
 
 ## Current limitations
 

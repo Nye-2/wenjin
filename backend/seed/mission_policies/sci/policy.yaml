@@ -58,13 +58,13 @@ stage_contract_refs:
     schema_version: stage_acceptance_contract.v1
     sha256: e4586949a1b26f62d66105258bb53ccc944b4ef674ddf9f39512f4e3fb487a9f
 tool_policy:
-  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, artifact_render, draft_stage]
+  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell]
-allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, experiment-analyst, manuscript-writer, citation-auditor, reproducibility-auditor, quality-critic]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, experiment-analyst, academic-visual-engineer, manuscript-writer, citation-auditor, reproducibility-auditor, quality-critic]
 review_policy:
   default_mode: balanced_default
   allowed_modes: [review_all, balanced_default, auto_draft]
-  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory, visual_output]
 sandbox_policy_ref: {policy_id: sandbox.research, version: 1}
 examples:
   - example_id: sci.research_question.excellent.v1

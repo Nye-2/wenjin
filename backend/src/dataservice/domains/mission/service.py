@@ -1958,12 +1958,10 @@ def _project_quality_highlights(run: MissionRunRecord) -> list[str]:
 
 
 def _canonical_preview(draft) -> tuple[dict, str]:
-    if draft.preview_ref is not None:
-        raise DataServiceValidationError(
-            "preview_ref is unsupported until a durable preview object store is configured"
-        )
     if not draft.preview_json:
-        raise DataServiceValidationError("review preview must contain inline content")
+        raise DataServiceValidationError("review preview must contain bounded display metadata")
+    if draft.preview_ref is not None and draft.preview_expires_at is None:
+        raise DataServiceValidationError("external review preview requires preview_expires_at")
     encoded = json.dumps(
         draft.preview_json,
         ensure_ascii=False,

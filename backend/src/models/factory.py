@@ -68,7 +68,7 @@ def create_chat_model(
         ValueError: If the model is not found in the configuration
 
     Example:
-        >>> model = create_chat_model("gpt-5.5", reasoning_effort="xhigh")
+        >>> model = create_chat_model("gpt-5.6-sol", reasoning_effort="xhigh")
     """
     # Resolve the configured/default alias and get full model configuration
     resolved_model_id = resolve_model_id(model_id)

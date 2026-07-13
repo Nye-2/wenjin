@@ -55,6 +55,7 @@ ReviewRiskCategory = Literal[
     "prism_structure",
     "patent_claim",
     "long_term_memory",
+    "visual_output",
     "ordinary_draft",
 ]
 
@@ -75,6 +76,7 @@ NON_BYPASSABLE_REVIEW_RISKS = frozenset(
         "prism_structure",
         "patent_claim",
         "long_term_memory",
+        "visual_output",
     }
 )
 DEFAULT_RESEARCH_SURFACES: tuple[ResearchSurface, ...] = (

@@ -26,8 +26,8 @@ function view(): MissionView {
     evidenceCount: 0,
     artifactCount: 0,
     reviewItems: [
-      { id: "r-low", title: "研究摘要", targetKind: "document", riskLevel: "low", status: "pending", suggestedSelected: true, batchAcceptable: true },
-      { id: "r-claim", title: "核心论断", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false },
+      { id: "r-low", title: "研究摘要", targetKind: "document", riskLevel: "low", status: "pending", suggestedSelected: true, batchAcceptable: true, requiresExplicitReview: false, previewAvailable: false },
+      { id: "r-claim", title: "核心论断", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false, requiresExplicitReview: true, previewAvailable: false },
     ],
     reviewSummary: { pending: 2, needsMoreEvidence: 0, accepted: 0, committed: 0 },
     reviewMode: "balanced_default",

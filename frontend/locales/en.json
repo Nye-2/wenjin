@@ -264,6 +264,7 @@
       "thesis": "Thesis structure and chapter drafts",
       "proposal": "Application draft and experiment design brief",
       "software_copyright": "Material checklist and technical description",
+      "math_modeling": "Modeling paper, solver code, and result validation",
       "patent": "Patent structure and delivery checklist"
     },
     "nextSteps": {
@@ -271,6 +272,7 @@
       "thesis": "Complete the opening background and advance the body structure",
       "proposal": "Consolidate background research and continue experiment design",
       "software_copyright": "Complete the materials list and continue the technical description",
+      "math_modeling": "Upload or confirm the problem, then continue modeling and validation",
       "patent": "Continue prior art search and sharpen the novelty points"
     },
     "card": {

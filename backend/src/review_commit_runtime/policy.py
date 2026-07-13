@@ -21,6 +21,7 @@ _NON_BYPASS_KINDS = frozenset(
         "patent_claim",
         "long_term_memory",
         "memory_fact",
+        "workspace_asset",
     }
 )
 _NON_BYPASS_ROOMS = frozenset({"library", "memory"})

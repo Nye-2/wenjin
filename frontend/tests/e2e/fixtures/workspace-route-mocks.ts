@@ -29,6 +29,7 @@ type MockOptions = {
   missions?: Array<Record<string, unknown>>;
   missionViews?: Record<string, Record<string, unknown>>;
   missionItems?: Record<string, Array<Record<string, unknown>>>;
+  missionReviewPreviews?: Record<string, { bodyBase64: string; mimeType: string }>;
   missionEventBodies?: string[];
   prismReview?: {
     projectId?: string;
@@ -81,8 +82,8 @@ export async function installWorkspaceRouteMocks(
   const workspaceType = options.workspaceType ?? "sci";
   const models = options.models ?? [
     {
-      name: "gpt-5.5",
-      display_name: "GPT-5.5 (Default)",
+      name: "gpt-5.6-sol",
+      display_name: "GPT-5.6 Sol (Default)",
       category: "chat",
       provider: "openai-compatible",
       max_tokens: 128000,
@@ -100,6 +101,7 @@ export async function installWorkspaceRouteMocks(
   const missions = options.missions ?? [];
   const missionViews = structuredClone(options.missionViews ?? {});
   const missionItems = options.missionItems ?? {};
+  const missionReviewPreviews = options.missionReviewPreviews ?? {};
   const missionEventBodies = options.missionEventBodies ?? [""];
   let missionEventCallCount = 0;
   const thread = options.thread ?? { id: "thread-1", messages: [] };
@@ -306,6 +308,24 @@ export async function installWorkspaceRouteMocks(
     const missionReviewMatch = pathname.match(
       /^\/api\/missions\/([^/]+)\/review-decisions$/,
     );
+
+    const missionReviewPreviewMatch = pathname.match(
+      /^\/api\/missions\/([^/]+)\/review-items\/([^/]+)\/preview$/,
+    );
+    if (missionReviewPreviewMatch && request.method() === "GET") {
+      const reviewItemId = decodeURIComponent(missionReviewPreviewMatch[2]);
+      const preview = missionReviewPreviews[reviewItemId];
+      if (!preview) {
+        await route.fulfill({ status: 404, body: "Preview not found" });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: preview.mimeType,
+        body: Buffer.from(preview.bodyBase64, "base64"),
+      });
+      return;
+    }
     if (missionReviewMatch && request.method() === "POST") {
       const id = decodeURIComponent(missionReviewMatch[1]);
       const current = missionViews[id];

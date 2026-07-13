@@ -11,7 +11,7 @@ from src.dataservice_client.contracts.model_catalog import ModelCatalogPayload
 from src.gateway.routers import models as models_router
 from src.models.capability_profile import (
     GenerationAPI,
-    gpt55_release_assessment,
+    gpt56_release_assessment,
     unverified_capability_assessment,
 )
 
@@ -20,12 +20,12 @@ def _model_payload(**overrides: Any) -> ModelCatalogPayload:
     verified = bool(overrides.pop("_verified", True))
     data = {
         "id": "row-1",
-        "model_id": "gpt-5.5",
-        "display_name": "GPT-5.5",
+        "model_id": "gpt-5.6-sol",
+        "display_name": "GPT-5.6 Sol",
         "generation_api": "chat_completions",
         "provider_name": "OpenAI",
         "category": "llm",
-        "model_name": "gpt-5.5",
+        "model_name": "gpt-5.6-sol",
         "base_url": "https://api.nainai.love/v1",
         "api_key_redacted": "sk-****abcd",
         "enabled": True,
@@ -33,8 +33,8 @@ def _model_payload(**overrides: Any) -> ModelCatalogPayload:
         "max_tokens": 8192,
     }
     data.update(overrides)
-    if verified and data["model_id"] == "gpt-5.5":
-        assessment = gpt55_release_assessment()
+    if verified and data["model_id"] == "gpt-5.6-sol":
+        assessment = gpt56_release_assessment("gpt-5.6-sol")
     else:
         generation_api = GenerationAPI(data["generation_api"]) if data.get("generation_api") else None
         assessment = unverified_capability_assessment(
@@ -70,7 +70,7 @@ class _FakeModelCatalogService:
                 )
             ]
         return [
-            _model_payload(model_id="gpt-5.5", is_default=True),
+            _model_payload(model_id="gpt-5.6-sol", is_default=True),
             _model_payload(
                 model_id="qwen-max",
                 model_name="qwen-max",
@@ -98,7 +98,7 @@ def test_list_models_uses_dataservice_catalog_and_marks_default() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "models" in payload
-    assert [model["name"] for model in payload["models"]] == ["gpt-5.5", "qwen-max"]
+    assert [model["name"] for model in payload["models"]] == ["gpt-5.6-sol", "qwen-max"]
     assert payload["models"][0]["is_default"] is True
     assert payload["models"][0]["strict_tool_calls"] is True
     assert payload["models"][0]["reasoning_efforts"] == [

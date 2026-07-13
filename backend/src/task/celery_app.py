@@ -47,6 +47,7 @@ celery_app.conf.update(
         "src.task.tasks.drive_mission": {"queue": "long_running"},
         "src.task.tasks.reconcile_missions": {"queue": "default"},
         "src.task.tasks.capture_memory": {"queue": "memory"},
+        "credit_periodic.process_credit_grant_rules": {"queue": "default"},
     },
 
     # Queue definitions

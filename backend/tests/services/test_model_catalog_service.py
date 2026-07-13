@@ -12,7 +12,7 @@ from src.dataservice_client.contracts.model_catalog import (
 )
 from src.models.capability_profile import (
     GenerationAPI,
-    gpt55_release_assessment,
+    gpt56_release_assessment,
     unverified_capability_assessment,
 )
 from src.services.model_catalog_cache import reset_model_catalog_cache
@@ -215,15 +215,15 @@ async def test_test_model_records_probe_backed_assessment(monkeypatch) -> None:
     dataservice = _FakeDataService()
     dataservice.runtime_items = [
         _runtime_payload(
-            model_id="gpt-5.5",
-            display_name="GPT-5.5",
+            model_id="gpt-5.6-sol",
+            display_name="GPT-5.6 Sol",
             provider_name="OpenAI",
-            model_name="gpt-5.5",
+            model_name="gpt-5.6-sol",
             base_url="https://api.nainai.love/v1",
         )
     ]
     service = ModelCatalogService(dataservice=dataservice)  # type: ignore[arg-type]
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
 
     async def _probe(_target):
         return assessment
@@ -233,7 +233,7 @@ async def test_test_model_records_probe_backed_assessment(monkeypatch) -> None:
         _probe,
     )
 
-    record = await service.test_model("gpt-5.5")
+    record = await service.test_model("gpt-5.6-sol")
 
     assert record is not None
     assert record.health_status == "healthy"
@@ -248,14 +248,14 @@ async def test_test_model_can_probe_a_disabled_catalog_entry(monkeypatch) -> Non
     dataservice.runtime_items = [
         _runtime_payload(
             model_id="disabled-model",
-            display_name="GPT-5.5",
+            display_name="GPT-5.6 Sol",
             provider_name="OpenAI",
-            model_name="gpt-5.5",
+            model_name="gpt-5.6-sol",
             base_url="https://api.nainai.love/v1",
         )
     ]
     service = ModelCatalogService(dataservice=dataservice)  # type: ignore[arg-type]
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
 
     async def _probe(_target):
         return assessment

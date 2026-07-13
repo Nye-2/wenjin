@@ -5,7 +5,54 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.contracts.figure_generation import FigureArtifactManifest, FigureSpec
+from src.contracts.figure_generation import (
+    AcademicFigureBrief,
+    AcademicVisualCandidate,
+    AcademicVisualRenderInput,
+    ExactVisualLabel,
+    FigureArtifactManifest,
+    FigureSpec,
+    PrismContextRef,
+    VisualCandidateRef,
+)
+
+
+def _manifest(**updates) -> FigureArtifactManifest:
+    payload = {
+        "figure_id": "figure-1",
+        "figure_type": "method_flow",
+        "strategy": "graphviz",
+        "evidence_level": "explanatory",
+        "candidate": VisualCandidateRef(
+            kind="sandbox_artifact",
+            ref="sandbox-artifact:figure-1",
+            content_hash="sha256:figure",
+        ),
+        "renderer_id": "graphviz",
+        "renderer_version": "2.42.2",
+    }
+    payload.update(updates)
+    return FigureArtifactManifest.model_validate(payload)
+
+
+def _generative_brief(**updates) -> AcademicFigureBrief:
+    payload = {
+        "figure_spec": FigureSpec(
+            figure_id="visual-1",
+            title="Visual",
+            figure_type="conceptual_illustration",
+            strategy="llm_image",
+            purpose="Explain the concept without representing empirical evidence",
+            output_targets=["/workspace/outputs/figures/visual-1/figure.png"],
+        ),
+        "intended_use": "manuscript",
+        "audience": "Computer science researchers",
+        "target_language": "English",
+        "aspect_ratio": "3:2",
+        "composition": "A left-to-right conceptual composition",
+    }
+    payload.update(updates)
+    return AcademicFigureBrief.model_validate(payload)
 
 
 def test_data_plot_rejects_llm_image_strategy() -> None:
@@ -33,55 +80,6 @@ def test_evidence_level_rejects_llm_image_strategy() -> None:
         )
 
 
-def test_ui_screenshot_requires_playwright_or_uploaded_source() -> None:
-    with pytest.raises(ValidationError, match="ui screenshots require"):
-        FigureSpec(
-            figure_id="software_dashboard",
-            title="Software Dashboard Screenshot",
-            figure_type="ui_screenshot",
-            strategy="matplotlib",
-            evidence_level="evidence",
-            purpose="Capture the dashboard operation step",
-            output_targets=["/workspace/outputs/screenshots/software_copyright/dashboard.png"],
-        )
-
-
-def test_ui_screenshot_accepts_playwright_screenshot_outputs() -> None:
-    spec = FigureSpec(
-        figure_id="software_dashboard",
-        title="Software Dashboard Screenshot",
-        figure_type="ui_screenshot",
-        strategy="playwright_screenshot",
-        evidence_level="evidence",
-        visual_profile_id="software_copyright_cn_default",
-        purpose="Capture the dashboard operation step",
-        output_targets=["/workspace/outputs/screenshots/software_copyright/dashboard.png"],
-        reproducibility_command="node /workspace/scripts/software_copyright_prototype/capture.js",
-    )
-
-    assert spec.figure_type == "ui_screenshot"
-    assert spec.strategy == "playwright_screenshot"
-    assert spec.evidence_level == "evidence"
-    assert spec.output_targets == ["/workspace/outputs/screenshots/software_copyright/dashboard.png"]
-
-
-def test_ui_screenshot_accepts_uploaded_artifact_source() -> None:
-    screenshot_path = "/workspace/outputs/screenshots/software_copyright/uploaded_dashboard.png"
-    spec = FigureSpec(
-        figure_id="uploaded_dashboard",
-        title="Uploaded Dashboard Screenshot",
-        figure_type="ui_screenshot",
-        strategy="uploaded_artifact",
-        evidence_level="evidence",
-        purpose="Use a real uploaded screenshot as software copyright evidence",
-        source_artifact_paths=[screenshot_path],
-        output_targets=[screenshot_path],
-    )
-
-    assert spec.strategy == "uploaded_artifact"
-    assert spec.source_artifact_paths == [screenshot_path]
-
-
 def test_python_schematic_accepts_geometric_schematic() -> None:
     spec = FigureSpec(
         figure_id="model_geometry",
@@ -93,7 +91,6 @@ def test_python_schematic_accepts_geometric_schematic() -> None:
         palette_id="okabe_ito_print_safe",
         purpose="Show the geometry used by the optimization model",
         output_targets=["/workspace/outputs/figures/math_modeling/model_geometry/figure.svg"],
-        reproducibility_command="python /workspace/scripts/figures.py",
     )
 
     assert spec.figure_type == "geometric_schematic"
@@ -118,12 +115,7 @@ def test_matplotlib_figure_spec_accepts_workspace_output() -> None:
 
 def test_manifest_requires_reviewable_workspace_path() -> None:
     with pytest.raises(ValidationError, match="reviewable workspace artifact"):
-        FigureArtifactManifest(
-            figure_id="bad",
-            figure_type="graphical_abstract",
-            strategy="llm_image",
-            primary_path="/workspace/.wenjin/cache/secret.png",
-        )
+        _manifest(intended_output_targets=("/workspace/.wenjin/cache/secret.png",))
 
 
 def test_conceptual_llm_image_spec_is_accepted() -> None:
@@ -176,7 +168,7 @@ def test_structured_figures_reject_llm_image_strategies(
         )
 
 
-@pytest.mark.parametrize("strategy", ["mermaid", "graphviz", "tikz"])
+@pytest.mark.parametrize("strategy", ["graphviz"])
 def test_data_figures_reject_non_chart_code_strategies(strategy: str) -> None:
     with pytest.raises(ValidationError, match="data figures must use chart code"):
         FigureSpec(
@@ -195,7 +187,7 @@ def test_output_targets_outside_outputs_or_reports_are_rejected() -> None:
             figure_id="bad_target",
             title="Bad Target",
             figure_type="method_flow",
-            strategy="mermaid",
+            strategy="graphviz",
             purpose="Show the method flow",
             output_targets=["/workspace/tmp/figures/bad_target/figure.png"],
         )
@@ -251,20 +243,15 @@ def test_output_targets_reject_terminal_wenjin_segments() -> None:
             figure_id="terminal_wenjin_output",
             title="Terminal Wenjin Output",
             figure_type="method_flow",
-            strategy="mermaid",
+            strategy="graphviz",
             purpose="Show method flow",
             output_targets=["/workspace/outputs/.wenjin"],
         )
 
 
-def test_manifest_primary_path_rejects_terminal_wenjin_segments() -> None:
+def test_manifest_intended_output_rejects_terminal_wenjin_segments() -> None:
     with pytest.raises(ValidationError, match="reviewable workspace artifact"):
-        FigureArtifactManifest(
-            figure_id="terminal_wenjin_primary",
-            figure_type="method_flow",
-            strategy="mermaid",
-            primary_path="/workspace/outputs/.wenjin",
-        )
+        _manifest(intended_output_targets=("/workspace/outputs/.wenjin",))
 
 
 @pytest.mark.parametrize(
@@ -281,28 +268,23 @@ def test_output_targets_reject_protected_artifact_paths(output_target: str) -> N
             figure_id="protected_output",
             title="Protected Output",
             figure_type="method_flow",
-            strategy="mermaid",
+            strategy="graphviz",
             purpose="Show method flow",
             output_targets=[output_target],
         )
 
 
 @pytest.mark.parametrize(
-    "primary_path",
+    "intended_output",
     [
         "/workspace/outputs/.env",
         "/workspace/outputs/secret.pem",
         "/workspace/outputs/secret.key",
     ],
 )
-def test_manifest_primary_path_rejects_protected_artifact_paths(primary_path: str) -> None:
+def test_manifest_intended_output_rejects_protected_artifact_paths(intended_output: str) -> None:
     with pytest.raises(ValidationError, match="reviewable workspace artifact"):
-        FigureArtifactManifest(
-            figure_id="protected_primary",
-            figure_type="method_flow",
-            strategy="mermaid",
-            primary_path=primary_path,
-        )
+        _manifest(intended_output_targets=(intended_output,))
 
 
 @pytest.mark.parametrize(
@@ -325,4 +307,239 @@ def test_dataset_paths_reject_protected_and_internal_paths(dataset_path: str) ->
             purpose="Show benchmark trend",
             output_targets=["/workspace/outputs/figures/protected_dataset/figure.png"],
             dataset_paths=[dataset_path],
+        )
+
+
+@pytest.mark.parametrize(
+    "figure_type",
+    [
+        "conceptual_illustration",
+        "experimental_setup_illustration",
+        "academic_cover",
+        "educational_explainer",
+    ],
+)
+def test_new_generative_figure_types_accept_llm_image(figure_type: str) -> None:
+    spec = FigureSpec(
+        figure_id="generated-visual",
+        title="Generated Visual",
+        figure_type=figure_type,
+        strategy="llm_image",
+        purpose="Create a non-evidentiary academic illustration",
+        output_targets=["/workspace/outputs/figures/generated-visual/figure.png"],
+    )
+
+    assert spec.figure_type == figure_type
+
+
+def test_llm_image_is_rejected_for_non_generative_other_type() -> None:
+    with pytest.raises(ValidationError, match="limited to generative figure types"):
+        FigureSpec(
+            figure_id="other-visual",
+            title="Other Visual",
+            figure_type="other",
+            strategy="llm_image",
+            purpose="Attempt an unclassified generated visual",
+            output_targets=["/workspace/outputs/figures/other-visual/figure.png"],
+        )
+
+
+def test_generative_type_rejects_deterministic_chart_strategy() -> None:
+    with pytest.raises(ValidationError, match="require llm_image or hybrid"):
+        FigureSpec(
+            figure_id="concept",
+            title="Concept",
+            figure_type="conceptual_illustration",
+            strategy="matplotlib",
+            purpose="Explain a concept",
+            output_targets=["/workspace/outputs/figures/concept/figure.png"],
+        )
+
+
+@pytest.mark.parametrize("figure_type", ["geometric_schematic", "simulation_snapshot"])
+def test_schematic_types_reject_non_schematic_strategy(figure_type: str) -> None:
+    with pytest.raises(ValidationError, match="python_schematic"):
+        FigureSpec(
+            figure_id="schematic",
+            title="Schematic",
+            figure_type=figure_type,
+            strategy="graphviz",
+            purpose="Render exact geometry",
+            output_targets=["/workspace/outputs/figures/schematic/figure.svg"],
+        )
+
+
+def test_exact_labels_require_hybrid_for_generative_figure() -> None:
+    with pytest.raises(ValidationError, match="exact labels require hybrid"):
+        _generative_brief(exact_labels=(ExactVisualLabel(key="server", text="Global model", semantic_anchor="center"),))
+
+    brief = _generative_brief(
+        figure_spec=FigureSpec(
+            figure_id="visual-1",
+            title="Visual",
+            figure_type="conceptual_illustration",
+            strategy="hybrid",
+            purpose="Explain the concept with exact terminology",
+            output_targets=["/workspace/outputs/figures/visual-1/figure.png"],
+        ),
+        exact_labels=(ExactVisualLabel(key="server", text="Global model", semantic_anchor="center"),),
+    )
+
+    assert brief.figure_spec.strategy == "hybrid"
+
+
+def test_prism_context_requires_canonical_hash_and_selection_range() -> None:
+    selection_hash = f"sha256:{'a' * 64}"
+    context = PrismContextRef(
+        workspace_id="ws-1",
+        prism_project_id="project-1",
+        file_id="file-1",
+        base_revision_ref="revision-3",
+        selection_hash=selection_hash,
+        selection_range=(10, 42),
+    )
+
+    assert context.selection_range == (10, 42)
+    with pytest.raises(ValidationError, match="selection_range"):
+        PrismContextRef(
+            workspace_id="ws-1",
+            prism_project_id="project-1",
+            file_id="file-1",
+            base_revision_ref="revision-3",
+            selection_hash=selection_hash,
+        )
+    with pytest.raises(ValidationError, match="selection_hash"):
+        PrismContextRef(
+            workspace_id="ws-1",
+            prism_project_id="project-1",
+            file_id="file-1",
+            base_revision_ref="revision-3",
+            selection_hash="sha256:not-a-digest",
+            selection_range=(10, 42),
+        )
+
+
+@pytest.mark.parametrize(
+    ("strategy", "figure_type", "render"),
+    [
+        (
+            "matplotlib",
+            "data_plot",
+            {"kind": "code", "source_code": "print('plot')", "script_path": "/workspace/scripts/plot.py"},
+        ),
+        (
+            "seaborn",
+            "experiment_plot",
+            {"kind": "code", "source_code": "print('plot')", "script_path": "/workspace/scripts/plot.py"},
+        ),
+        ("graphviz", "architecture_diagram", {"kind": "structured", "source": "digraph { A -> B }", "output_format": "svg"}),
+        (
+            "python_schematic",
+            "geometric_schematic",
+            {"kind": "code", "source_code": "print('shape')", "script_path": "/workspace/scripts/shape.py"},
+        ),
+        ("llm_image", "graphical_abstract", {"kind": "generative", "size": "1536x1024"}),
+        ("hybrid", "academic_cover", {"kind": "generative", "size": "1024x1536"}),
+    ],
+)
+def test_render_contract_routes_supported_strategies(strategy: str, figure_type: str, render: dict[str, object]) -> None:
+    brief = _generative_brief(
+        figure_spec=FigureSpec(
+            figure_id="routed-visual",
+            title="Routed Visual",
+            figure_type=figure_type,
+            strategy=strategy,
+            purpose="Exercise the canonical strategy route",
+            output_targets=["/workspace/outputs/figures/routed-visual/figure.png"],
+        )
+    )
+
+    request = AcademicVisualRenderInput.model_validate({"brief": brief, "render": render})
+
+    assert request.render.kind == render["kind"]
+
+
+def test_render_payload_must_match_strategy() -> None:
+    with pytest.raises(ValidationError, match="requires generative render payload"):
+        AcademicVisualRenderInput.model_validate(
+            {
+                "brief": _generative_brief(),
+                "render": {"kind": "structured", "source": "flowchart LR; A-->B", "output_format": "svg"},
+            }
+        )
+
+
+def test_candidate_requires_one_primary_ref_and_image2_for_generative_output() -> None:
+    payload = {
+        "candidate_id": "candidate-1",
+        "figure_id": "visual-1",
+        "figure_type": "conceptual_illustration",
+        "strategy": "llm_image",
+        "evidence_level": "explanatory",
+        "preview_ref": "preview:visual-1",
+        "review_preview_ref": "preview:visual-1",
+        "preview_hash": "sha256:preview",
+        "content_hash": "sha256:content",
+        "mime_type": "image/png",
+        "width": 1536,
+        "height": 1024,
+        "renderer_id": "openai-images",
+        "renderer_version": "v1",
+        "provider_model": "gpt-image-2",
+        "context_hash": "sha256:context",
+    }
+    candidate = AcademicVisualCandidate.model_validate(payload)
+    assert candidate.preview_ref == "preview:visual-1"
+
+    with pytest.raises(ValidationError, match="exactly one primary"):
+        AcademicVisualCandidate.model_validate({**payload, "sandbox_artifact_ref": "artifact:visual-1"})
+    with pytest.raises(ValidationError, match="provider_model gpt-image-2"):
+        AcademicVisualCandidate.model_validate({**payload, "provider_model": None})
+
+
+def test_manifest_v2_uses_candidate_ref_and_rejects_v1_primary_path() -> None:
+    manifest = _manifest(intended_output_targets=("/workspace/outputs/figures/flow/figure.svg",))
+
+    assert manifest.schema == "wenjin.figure_generation.artifact.v2"
+    assert manifest.candidate.kind == "sandbox_artifact"
+    with pytest.raises(ValidationError):
+        FigureArtifactManifest.model_validate(
+            {
+                "schema": "wenjin.figure_generation.artifact.v1",
+                "figure_id": "legacy",
+                "figure_type": "method_flow",
+                "strategy": "graphviz",
+                "primary_path": "/workspace/outputs/figures/legacy.svg",
+            }
+        )
+
+
+def test_candidate_and_manifest_cannot_bypass_canonical_strategy_route() -> None:
+    with pytest.raises(ValidationError, match="data figures must use code"):
+        AcademicVisualCandidate.model_validate(
+            {
+                "candidate_id": "invalid-candidate",
+                "figure_id": "results",
+                "figure_type": "data_plot",
+                "strategy": "llm_image",
+                "evidence_level": "explanatory",
+                    "preview_ref": "preview:results",
+                    "review_preview_ref": "preview:results",
+                "preview_hash": "sha256:preview",
+                "content_hash": "sha256:content",
+                "mime_type": "image/png",
+                "renderer_id": "openai-images",
+                "renderer_version": "v1",
+                "provider_model": "gpt-image-2",
+                "context_hash": "sha256:context",
+            }
+        )
+
+    with pytest.raises(ValidationError, match="requires sandbox_artifact candidate ref"):
+        _manifest(
+            candidate=VisualCandidateRef(
+                kind="transient_preview",
+                ref="preview:flow",
+                content_hash="sha256:flow",
+            )
         )

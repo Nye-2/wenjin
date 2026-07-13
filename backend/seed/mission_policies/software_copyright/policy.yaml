@@ -44,13 +44,13 @@ stage_contract_refs:
   - {contract_id: software_copyright_application.evidence_alignment, schema_version: stage_acceptance_contract.v1, sha256: 7bbfdb0063293fa618013f78a8864e9e64526adec7ad1b0917e0b45762776426}
   - {contract_id: software_copyright_application.application_pack, schema_version: stage_acceptance_contract.v1, sha256: 49536421ef735e09de394464b131189b90741f628c93e1495d05736963414362}
 tool_policy:
-  allowed_tool_groups: [workspace_read, source_code_read, sandbox_compute, artifact_render, draft_stage]
+  allowed_tool_groups: [workspace_read, source_code_read, sandbox_compute, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell, synthetic_screenshot_generation]
-allowed_worker_skills: [task-scope-planner, software-documenter, figure-table-engineer, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, software-documenter, academic-visual-engineer, compliance-reviewer, quality-critic]
 review_policy:
   default_mode: balanced_default
   allowed_modes: [review_all, balanced_default, auto_draft]
-  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory, visual_output]
 sandbox_policy_ref: {policy_id: sandbox.software_evidence, version: 1}
 examples:
   - example_id: software_copyright.pack.excellent.v1

@@ -9,16 +9,21 @@
 
 | Variable | Meaning |
 |---|---|
-| `LLM_MODELS` | bootstrap/test seed; current LLM list contains GPT-5.5 only |
-| `LLM_DEFAULT_MODEL` | bootstrap default, currently `gpt-5.5` |
+| `LLM_MODELS` | bootstrap/test seed; current LLM list contains GPT-5.6 Sol/Terra/Luna only |
+| `LLM_IMAGE_MODELS` | bootstrap/test seed; current image list contains `gpt-image-2` only |
+| `LLM_DEFAULT_MODEL` | bootstrap default, currently `gpt-5.6-terra` |
 | `LLM_TIMEOUT` | provider request timeout |
 | `LLM_MAX_RETRIES` | bounded transport retry count |
 | `LLM_AGENT_TIMEOUT` | bounded agent-turn timeout |
 | `LLM_TOOL_TIMEOUT` | per-tool timeout |
 | `LLM_TOOL_OUTPUT_MAX_CHARS` | inline tool-output budget |
 | `MODEL_SECRET_KEY` / `MODEL_SECRET_KEY_FILE` | stable 32-byte key for encrypted model credentials |
+| `MISSION_PREVIEW_ROOT` | private filesystem root for expiring Mission review previews |
+| `MISSION_PREVIEW_TTL_SECONDS` | preview lifetime before cleanup |
+| `MISSION_PREVIEW_MAX_BYTES` | maximum accepted preview object size |
+| `WORKSPACE_ASSET_ROOT` | controlled root for accepted WorkspaceAsset bytes |
 
-Runtime model discovery is DataService-backed. `LLM_MODELS` is not a runtime fallback. Its GPT-5.5 row must use `generation_api: "chat_completions"`, the `/v1` provider base URL, a model-usage pricing policy, and response storage disabled by runtime request construction.
+Runtime model discovery is DataService-backed. `LLM_MODELS` and `LLM_IMAGE_MODELS` are bootstrap seeds, not runtime fallbacks. GPT-5.6 rows use `generation_api: "chat_completions"`; `gpt-image-2` uses the Images API adapter. Both use the `/v1` provider base URL, a model-usage pricing policy, and disabled response storage where the protocol supports it.
 
 The independent native-search transport derives its Responses endpoint from the verified model config. There is no separate search-provider API key or alternate research provider. Availability comes from receipt-backed probe evidence, not an environment boolean.
 
@@ -92,7 +97,7 @@ Production must replace `JWT_SECRET_KEY`, `ADMIN_PASSWORD`, `DB_PASSWORD`, `DATA
 ## Validation rules
 
 1. No secrets in git, logs, Mission items, or model probe payloads.
-2. One enabled default LLM: GPT-5.5.
+2. Three enabled LLMs: GPT-5.6 Sol/Terra/Luna, with Terra as the sole default.
 3. Model profile hash must match endpoint/model/API configuration.
 4. Native search cannot be enabled by configuration alone.
 5. Production sandbox must pass preflight before readiness is healthy.

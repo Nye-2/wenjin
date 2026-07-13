@@ -78,7 +78,7 @@ async def test_readiness_rejects_enabled_policy_with_unverified_search(
     monkeypatch.setattr(
         health,
         "get_default_runtime_model_id",
-        lambda: "gpt-5.5",
+        lambda: "gpt-5.6-sol",
     )
     monkeypatch.setattr(
         health,

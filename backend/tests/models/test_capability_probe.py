@@ -55,8 +55,8 @@ class _ProbeTransport:
 
 def _target() -> ModelProbeTarget:
     return ModelProbeTarget(
-        model_id="gpt-5.5",
-        model_name="gpt-5.5",
+        model_id="gpt-5.6-sol",
+        model_name="gpt-5.6-sol",
         base_url="https://api.example/v1",
         api_key="sk-test-secret",
         generation_api=GenerationAPI.CHAT_COMPLETIONS,

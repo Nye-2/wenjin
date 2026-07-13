@@ -14,7 +14,7 @@ from src.models.capability_profile import (
     WebSearchAPI,
     build_profile_from_probe,
     endpoint_fingerprint,
-    gpt55_release_assessment,
+    gpt56_release_assessment,
     native_search_endpoint_fingerprint,
 )
 from src.services.model_catalog_cache import RuntimeModelConfig
@@ -78,7 +78,7 @@ def _operation() -> ToolOperation:
         stage_id="stage-1",
         caller_id="agent-1",
         caller_kind="workspace_agent",
-        model_id="gpt-5.5",
+        model_id="gpt-5.6-sol",
         tool_id="research.search_web",
         tool_version="1.0.0",
         descriptor_schema_hash="b" * 64,
@@ -91,11 +91,11 @@ def _operation() -> ToolOperation:
 
 def _runtime(assessment) -> RuntimeModelConfig:
     return RuntimeModelConfig(
-        id="gpt-5.5",
-        name="GPT-5.5",
+        id="gpt-5.6-sol",
+        name="GPT-5.6 Sol",
         category="llm",
         provider="OpenAI",
-        model="gpt-5.5",
+        model="gpt-5.6-sol",
         api_key="sk-test",
         base_url="https://api.nainai.love/v1",
         generation_api=GenerationAPI.CHAT_COMPLETIONS,
@@ -155,7 +155,7 @@ async def test_current_release_returns_gap_when_sse_boundary_probe_failed() -> N
         executor_called = True
         return _provider_response()
 
-    runtime = _runtime(gpt55_release_assessment())
+    runtime = _runtime(gpt56_release_assessment("gpt-5.6-sol"))
     handler = ModelNativeSearchHandler(
         executor=executor,
         model_resolver=lambda _model_id: runtime,
@@ -175,11 +175,11 @@ async def test_current_release_returns_gap_when_sse_boundary_probe_failed() -> N
 def _search_capable_assessment():
     observed_at = datetime.now(UTC)
     evidence = ModelCapabilityProbeEvidence(
-        model_id="gpt-5.5",
-        model_name="gpt-5.5",
+        model_id="gpt-5.6-sol",
+        model_name="gpt-5.6-sol",
         generation_api=GenerationAPI.CHAT_COMPLETIONS,
         endpoint_fingerprint=endpoint_fingerprint(
-            model_name="gpt-5.5",
+            model_name="gpt-5.6-sol",
             base_url="https://api.nainai.love/v1",
             generation_api=GenerationAPI.CHAT_COMPLETIONS,
         ),

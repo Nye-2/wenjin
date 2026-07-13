@@ -364,6 +364,28 @@ class AppConfig(BaseSettings):
     # Paths
     config_path: str | None = None
     skills_path: str = "./skills/public"
+    mission_preview_root: Path = Field(
+        default=Path(".wenjin/mission_previews"),
+        alias="MISSION_PREVIEW_ROOT",
+        description="Private filesystem root for short-lived Mission preview objects",
+    )
+    mission_preview_ttl_seconds: int = Field(
+        default=86400,
+        alias="MISSION_PREVIEW_TTL_SECONDS",
+        ge=300,
+        le=604800,
+    )
+    mission_preview_max_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        alias="MISSION_PREVIEW_MAX_BYTES",
+        ge=1024,
+        le=200 * 1024 * 1024,
+    )
+    workspace_asset_root: Path = Field(
+        default=Path(".wenjin/workspace_uploads"),
+        alias="WORKSPACE_ASSET_ROOT",
+        description="Filesystem root for materialized local WorkspaceAssets",
+    )
 
     @field_validator("debug", mode="before")
     @classmethod

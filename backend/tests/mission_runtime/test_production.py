@@ -21,7 +21,7 @@ from src.mission_runtime.production import (
     require_mission_model_profile,
     require_native_search_capability,
 )
-from src.models.capability_profile import WebSearchAPI, gpt55_release_assessment
+from src.models.capability_profile import WebSearchAPI, gpt56_release_assessment
 from src.services.mission_policy_loader import MissionPolicyLoader
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
@@ -279,13 +279,13 @@ def routing_context(policy_id: str) -> dict[str, str]:
 
 
 def verified_runtime_model() -> RuntimeModelConfig:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
-        id="gpt-5.5",
-        name="GPT-5.5",
+        id="gpt-5.6-sol",
+        name="GPT-5.6 Sol",
         category="llm",
         provider="OpenAI",
-        model="gpt-5.5",
+        model="gpt-5.6-sol",
         api_key="sk-test",
         base_url="https://api.nainai.love/v1",
         generation_api=assessment.profile.generation_api,
@@ -330,6 +330,8 @@ async def test_start_context_pins_policy_stages_tools_and_profile(monkeypatch) -
         "literature_positioning",
     ]
     assert "research.search_web" in runtime["tool_policy"]["allowed_tool_ids"]
+    assert "academic_visual.render_candidate" in runtime["tool_policy"]["allowed_tool_ids"]
+    assert "academic_visual_scoped" in runtime["tool_policy"]["allowed_network_profiles"]
     assert set(runtime["required_stage_ids"]).issubset(runtime["stage_contracts"])
     assert set(runtime["worker_skill_snapshots"]) == set(
         policy_record("sci_research").to_contract().allowed_worker_skills
@@ -640,7 +642,7 @@ def test_base_model_profile_does_not_require_search(monkeypatch) -> None:
         "src.mission_runtime.production.get_runtime_model_config",
         lambda _model_id: model,
     )
-    assert require_mission_model_profile("gpt-5.5") is model
+    assert require_mission_model_profile("gpt-5.6-sol") is model
 
 
 def test_search_requirement_fails_closed_without_search_receipts() -> None:
@@ -682,4 +684,62 @@ async def test_pinned_resolvers_never_silently_allow_missing_contracts() -> None
 async def test_review_builder_requires_atomic_preview() -> None:
     request = SimpleNamespace(candidate_json={"items": []})
     with pytest.raises(MissionProductionConfigurationError, match="atomic preview"):
+        await StrictReviewCandidateBuilder().build_candidates(request)
+
+
+@pytest.mark.asyncio
+async def test_review_builder_compiles_document_materialization_from_preview() -> None:
+    request = SimpleNamespace(
+        candidate_json={
+            "items": [
+                {
+                    "review_item_id": "review-document-1",
+                    "target_kind": "document",
+                    "target_room": None,
+                    "title": "问题理解",
+                    "risk_level": "medium",
+                    "preview_json": {
+                        "artifact_kind": "modeling_problem_brief",
+                        "body": "# 问题理解\n\n完整正文。",
+                    },
+                }
+            ]
+        }
+    )
+
+    batch = await StrictReviewCandidateBuilder().build_candidates(request)
+    item = batch.items[0]
+    descriptor = item.preview_json["materialization"]
+
+    assert item.target_kind == "document"
+    assert item.target_room == "documents"
+    assert descriptor["operation"] == "documents.upsert_prism_file"
+    assert descriptor["payload"]["path"] == "问题理解.md"
+    assert descriptor["payload"]["content_inline"] == "# 问题理解\n\n完整正文。"
+    assert len(descriptor["payload"]["content_hash"]) == 64
+
+
+@pytest.mark.asyncio
+async def test_review_builder_rejects_semantic_type_as_unmaterializable_target() -> None:
+    request = SimpleNamespace(
+        candidate_json={
+            "items": [
+                {
+                    "review_item_id": "review-semantic-1",
+                    "target_kind": "modeling_problem_brief",
+                    "title": "问题理解",
+                    "risk_level": "medium",
+                    "preview_json": {
+                        "artifact_kind": "modeling_problem_brief",
+                        "body": "# 问题理解",
+                    },
+                }
+            ]
+        }
+    )
+
+    with pytest.raises(
+        MissionProductionConfigurationError,
+        match="canonical materialization descriptor",
+    ):
         await StrictReviewCandidateBuilder().build_candidates(request)

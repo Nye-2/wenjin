@@ -86,7 +86,7 @@ async def test_orm_rejects_mutating_an_appended_mission_item() -> None:
             objective="objective",
             status="created",
             review_mode="balanced_default",
-            model_id="gpt-5.5",
+            model_id="gpt-5.6-sol",
             reasoning_effort="xhigh",
             snapshot_json={},
             runtime_context_json={},

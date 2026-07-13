@@ -78,7 +78,7 @@ Review modes are presented as user choices, but their semantics come from backen
 
 ## Model menu
 
-The current model list contains GPT-5.5 only. The combined menu presents model and reasoning effort; there is no speed option. Effort values are `low`, `medium`, `high`, and `xhigh`. Display labels may be localized, but wire values must remain exact.
+The current model list contains GPT-5.6 Sol, Terra, and Luna, with Terra as default. The combined menu presents model and reasoning effort; there is no speed option. Effort values are `low`, `medium`, `high`, and `xhigh`. Display labels may be localized, but wire values must remain exact.
 
 ## Admin boundary
 

@@ -12,12 +12,12 @@ from src.models.capability_profile import (
     ModelCapabilityProfile,
     ProbeCheckStatus,
     assess_profile_freshness,
-    gpt55_release_assessment,
+    gpt56_release_assessment,
 )
 
 
 def test_release_profile_is_probe_derived_and_search_is_fail_closed() -> None:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
 
     assert assessment.profile.has_strict_tools() is True
     assert assessment.profile.streaming is True
@@ -35,17 +35,29 @@ def test_release_profile_is_probe_derived_and_search_is_fail_closed() -> None:
         for item in assessment.profile.transport_observations
     }
     assert observations[GenerationAPI.CHAT_COMPLETIONS] is True
-    assert observations[GenerationAPI.RESPONSES] is False
+    assert GenerationAPI.RESPONSES not in observations
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+)
+def test_release_profile_is_bound_to_each_gpt56_model(model_id: str) -> None:
+    assessment = gpt56_release_assessment(model_id)
+
+    assert assessment.profile.model_id == model_id
+    assert assessment.evidence.model_name == model_id
+    assert assessment.profile.has_strict_tools() is True
 
 
 def test_profile_becomes_stale_when_endpoint_identity_changes() -> None:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
 
     freshness = assess_profile_freshness(
         assessment.profile,
         assessment.evidence,
-        model_id="gpt-5.5",
-        model_name="gpt-5.5",
+        model_id="gpt-5.6-sol",
+        model_name="gpt-5.6-sol",
         base_url="https://different.example/v1",
         generation_api=GenerationAPI.CHAT_COMPLETIONS,
     )
@@ -55,7 +67,7 @@ def test_profile_becomes_stale_when_endpoint_identity_changes() -> None:
 
 
 def test_profile_becomes_stale_when_probe_hash_is_modified() -> None:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
     changed_evidence = ModelCapabilityProbeEvidence.model_validate(
         {
             **assessment.evidence.model_dump(mode="json"),
@@ -77,8 +89,8 @@ def test_profile_becomes_stale_when_probe_hash_is_modified() -> None:
     freshness = assess_profile_freshness(
         assessment.profile,
         changed_evidence,
-        model_id="gpt-5.5",
-        model_name="gpt-5.5",
+        model_id="gpt-5.6-sol",
+        model_name="gpt-5.6-sol",
         base_url="https://api.nainai.love/v1",
         generation_api=GenerationAPI.CHAT_COMPLETIONS,
     )
@@ -89,7 +101,7 @@ def test_profile_becomes_stale_when_probe_hash_is_modified() -> None:
 
 
 def test_assessment_rejects_a_manually_elevated_profile() -> None:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
     elevated = assessment.profile.model_copy(update={"native_web_search": True})
 
     with pytest.raises(ValidationError, match="native web search requires"):
@@ -97,15 +109,16 @@ def test_assessment_rejects_a_manually_elevated_profile() -> None:
 
 
 def test_profile_age_can_be_enforced_without_changing_hash_semantics() -> None:
-    assessment = gpt55_release_assessment(
+    assessment = gpt56_release_assessment(
+        "gpt-5.6-sol",
         observed_at=datetime(2026, 7, 1, tzinfo=UTC)
     )
 
     freshness = assess_profile_freshness(
         assessment.profile,
         assessment.evidence,
-        model_id="gpt-5.5",
-        model_name="gpt-5.5",
+        model_id="gpt-5.6-sol",
+        model_name="gpt-5.6-sol",
         base_url="https://api.nainai.love/v1",
         generation_api=GenerationAPI.CHAT_COMPLETIONS,
         now=datetime(2026, 7, 10, tzinfo=UTC),
@@ -117,7 +130,7 @@ def test_profile_age_can_be_enforced_without_changing_hash_semantics() -> None:
 
 
 def test_unknown_profile_and_probe_versions_are_rejected() -> None:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
 
     with pytest.raises(ValidationError, match="probe_version"):
         ModelCapabilityProbeEvidence.model_validate(

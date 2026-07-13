@@ -193,6 +193,8 @@ class PinnedMissionStartContext:
             network_profiles.append("model_provider_native_search")
         if "sandbox_compute" in policy.tool_policy.allowed_tool_groups:
             network_profiles.append("package_index_only")
+        if "academic_visual_render" in policy.tool_policy.allowed_tool_groups:
+            network_profiles.append("academic_visual_scoped")
         runtime_context = {
             **request.runtime_context_json,
             "policy_ref": f"{policy.id}@{record.content_hash}",
@@ -567,19 +569,85 @@ class StrictReviewCandidateBuilder:
         raw_items = request.candidate_json.get("items")
         if not isinstance(raw_items, list) or not raw_items:
             raise MissionProductionConfigurationError("Review action requires at least one atomic preview item")
-        items = [MissionReviewItemDraftPayload.model_validate(item) for item in raw_items]
-        for item in items:
+        items: list[MissionReviewItemDraftPayload] = []
+        for raw_item in raw_items:
+            item = MissionReviewItemDraftPayload.model_validate(raw_item)
             if not item.preview_ref and not item.preview_json:
                 raise MissionProductionConfigurationError("Review candidates must include a preview")
+            if item.preview_ref and item.preview_expires_at is None:
+                raise MissionProductionConfigurationError(
+                    "External review previews require preview_expires_at"
+                )
             artifact_kind = item.preview_json.get("artifact_kind")
             if not isinstance(artifact_kind, str) or not artifact_kind.strip():
                 raise MissionProductionConfigurationError(
                     "Review candidates require preview_json.artifact_kind"
                 )
+            if item.target_kind == "document":
+                item = _compile_document_review_candidate(item)
+            elif not _has_materialization_descriptor(item.preview_json):
+                raise MissionProductionConfigurationError(
+                    "Non-document review candidates require a canonical materialization descriptor"
+                )
+            items.append(item)
         summary = str(request.candidate_json.get("summary") or "").strip()
         if not summary:
             summary = f"Prepared {len(items)} reviewable change(s)"
         return ReviewCandidateBatch(items=items, summary=summary)
+
+
+def _compile_document_review_candidate(
+    item: MissionReviewItemDraftPayload,
+) -> MissionReviewItemDraftPayload:
+    if item.target_ref and (not item.base_revision_ref or not item.base_hash):
+        raise MissionProductionConfigurationError(
+            "Existing document candidates require base revision and hash"
+        )
+    preview = dict(item.preview_json)
+    body = next(
+        (
+            value
+            for key in ("body", "content", "markdown")
+            if isinstance((value := preview.get(key)), str) and value.strip()
+        ),
+        None,
+    )
+    if body is None:
+        raise MissionProductionConfigurationError(
+            "Document review candidates require a markdown body"
+        )
+    payload: dict[str, Any] = {
+        "content_inline": body,
+        "content_hash": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "mime_type": "text/markdown",
+    }
+    if item.target_ref is None:
+        path = str(preview.get("path") or _document_path(item.title)).strip()
+        payload["path"] = path
+    preview["materialization"] = {
+        "operation": "documents.upsert_prism_file",
+        "payload": payload,
+    }
+    return item.model_copy(
+        update={
+            "target_room": "documents",
+            "preview_json": preview,
+        }
+    )
+
+
+def _document_path(title: str) -> str:
+    safe_title = "".join("_" if char in {"/", "\\", "\0"} else char for char in title).strip(" .")
+    return f"{safe_title or '研究产物'}.md"
+
+
+def _has_materialization_descriptor(preview: dict[str, Any]) -> bool:
+    descriptor = preview.get("materialization")
+    if not isinstance(descriptor, dict):
+        return False
+    operation = descriptor.get("operation")
+    payload = descriptor.get("payload")
+    return isinstance(operation, str) and bool(operation.strip()) and isinstance(payload, dict)
 
 
 class MissionCreditBilling:

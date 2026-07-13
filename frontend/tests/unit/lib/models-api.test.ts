@@ -20,8 +20,8 @@ describe("model api wrappers", () => {
       data: {
         items: [
           {
-            name: "gpt-5.5",
-            display_name: "GPT-5.5",
+            name: "gpt-5.6-sol",
+            display_name: "GPT-5.6 Sol",
             provider: "openai",
             category: "llm",
             max_tokens: 128000,
@@ -41,8 +41,8 @@ describe("model api wrappers", () => {
     await expect(listModels("chat")).resolves.toEqual({
       models: [
         {
-          name: "gpt-5.5",
-          display_name: "GPT-5.5",
+          name: "gpt-5.6-sol",
+          display_name: "GPT-5.6 Sol",
           provider: "openai",
           category: "llm",
           max_tokens: 128000,

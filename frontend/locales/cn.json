@@ -264,6 +264,7 @@
       "thesis": "毕业论文结构与章节草稿",
       "proposal": "申报书初稿与实验设计说明",
       "software_copyright": "材料清单与技术说明书",
+      "math_modeling": "建模论文、求解代码与结果验证",
       "patent": "专利框架与交付清单"
     },
     "nextSteps": {
@@ -271,6 +272,7 @@
       "thesis": "补齐开题背景并推进正文结构设计",
       "proposal": "整理背景调研并继续实验设计",
       "software_copyright": "补全材料项并继续技术说明撰写",
+      "math_modeling": "上传或确认题目，继续模型构建与结果验证",
       "patent": "继续现有技术检索并提炼创新点"
     },
     "card": {

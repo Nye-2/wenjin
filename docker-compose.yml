@@ -159,6 +159,8 @@ services:
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
+      - MISSION_PREVIEW_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/mission_previews
+      - WORKSPACE_ASSET_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/workspace_uploads
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
@@ -269,6 +271,8 @@ services:
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
       - SANDBOX_PROVIDER=docker
+      - MISSION_PREVIEW_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/mission_previews
+      - WORKSPACE_ASSET_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/workspace_uploads
       - SANDBOX_DEPLOYMENT_MODE=production
       - SANDBOX_ROOT_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/sandbox
     volumes:
@@ -300,7 +304,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "grep -qx 'gpt-5.5' /tmp/wenjin-worker-ready && curl -fsS http://127.0.0.1:${PROMETHEUS_WORKER_PORT:-9153}/metrics >/dev/null",
+          "grep -Eq '^gpt-5\\.6-(sol|terra|luna)$$' /tmp/wenjin-worker-ready && curl -fsS http://127.0.0.1:${PROMETHEUS_WORKER_PORT:-9153}/metrics >/dev/null",
         ]
       interval: 30s
       timeout: 10s

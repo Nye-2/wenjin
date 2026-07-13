@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
 from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.mission import MissionReviewItemPayload
 from src.dataservice_client.contracts.prism import (
     PrismFileContentUpdatePayload,
@@ -15,15 +17,32 @@ from src.dataservice_client.contracts.prism import (
 from src.dataservice_client.contracts.rooms import DecisionSetPayload, WorkspaceTaskCreatePayload
 from src.dataservice_client.contracts.source import SourceImportPayload
 from src.dataservice_client.contracts.workspace_memory import WorkspaceMemoryMergePayload
+from src.services.path_safety import normalize_path_component
 
-from .contracts import MaterializationReceipt, TargetSnapshot
+from .contracts import MaterializationReceipt, PreviewObjectStore, TargetSnapshot
+from .preview_store import copy_preview_to_asset
+
+_ASSET_SUFFIX_BY_MIME = {
+    "application/pdf": ".pdf",
+    "image/png": ".png",
+    "image/svg+xml": ".svg",
+    "image/webp": ".webp",
+}
 
 
 class MissionDomainWriter:
     """Apply one normalized materialization descriptor to its owning domain."""
 
-    def __init__(self, dataservice: AsyncDataServiceClient) -> None:
+    def __init__(
+        self,
+        dataservice: AsyncDataServiceClient,
+        *,
+        preview_store: PreviewObjectStore | None = None,
+        workspace_asset_root: Path | None = None,
+    ) -> None:
         self._dataservice = dataservice
+        self._preview_store = preview_store
+        self._workspace_asset_root = Path(workspace_asset_root or ".wenjin/workspace_uploads")
 
     async def read_target(
         self,
@@ -164,7 +183,94 @@ class MissionDomainWriter:
                 manifest_ref=str(payload.get("manifest_ref") or "") or None,
                 provenance=provenance,
             )
+        if operation == "assets.create_from_preview":
+            return await self._create_asset_from_preview(
+                item,
+                workspace_id=workspace_id,
+                mission_commit_id=mission_commit_id,
+                actor_user_id=actor_user_id,
+                payload=payload,
+                provenance=provenance,
+            )
         raise ValueError("unknown_materialization_operation")
+
+    async def _create_asset_from_preview(
+        self,
+        item: MissionReviewItemPayload,
+        *,
+        workspace_id: str,
+        mission_commit_id: str,
+        actor_user_id: str,
+        payload: dict[str, Any],
+        provenance: dict[str, Any],
+    ) -> MaterializationReceipt:
+        if item.target_kind != "workspace_asset" or item.target_ref is not None:
+            raise ValueError("workspace_asset_materialization_requires_new_target")
+        if self._preview_store is None or item.preview_ref is None:
+            raise ValueError("workspace_asset_preview_unavailable")
+
+        existing = await self._dataservice.list_assets(
+            workspace_id=workspace_id,
+            source_kind="mission_review_item",
+            source_id=item.review_item_id,
+            limit=2,
+        )
+        if existing:
+            asset = existing[0]
+            if not asset.content_hash:
+                raise ValueError("workspace_asset_receipt_missing_hash")
+            return _receipt(
+                target_ref=asset.id,
+                content_hash=asset.content_hash,
+                manifest_ref=str(payload.get("manifest_ref") or "") or None,
+                provenance=provenance,
+            )
+
+        preview = await self._preview_store.read(item.preview_ref, workspace_id=workspace_id)
+        descriptor = preview.descriptor
+        expected_hash = str(payload.get("content_hash") or "")
+        if not expected_hash or expected_hash != descriptor.content_hash:
+            raise ValueError("workspace_asset_content_hash_mismatch")
+        requested_mime = str(payload.get("mime_type") or descriptor.mime_type)
+        if requested_mime != descriptor.mime_type or requested_mime not in _ASSET_SUFFIX_BY_MIME:
+            raise ValueError("workspace_asset_mime_type_mismatch")
+
+        suffix = _ASSET_SUFFIX_BY_MIME[requested_mime]
+        relative_path = Path("generated_visuals") / expected_hash[:2] / f"{expected_hash}{suffix}"
+        destination = self._workspace_asset_root / normalize_path_component(workspace_id) / relative_path
+        copy_preview_to_asset(preview.content, destination, expected_hash=expected_hash)
+        name = Path(str(payload.get("name") or descriptor.filename)).name
+        if not name or name in {".", ".."}:
+            name = descriptor.filename
+        metadata = {
+            **dict(payload.get("metadata_json") or {}),
+            **provenance,
+            "generated_by": "wenjin_academic_visual",
+            "preview_content_hash": descriptor.content_hash,
+        }
+        asset = await self._dataservice.register_asset(
+            WorkspaceAssetCreatePayload(
+                workspace_id=workspace_id,
+                asset_kind=str(payload.get("asset_kind") or "academic_visual"),
+                name=name,
+                title=str(payload.get("title") or "") or None,
+                mime_type=requested_mime,
+                storage_backend="local",
+                storage_path=relative_path.as_posix(),
+                size_bytes=descriptor.size_bytes,
+                content_hash=descriptor.content_hash,
+                created_by=actor_user_id,
+                source_kind="mission_review_item",
+                source_id=item.review_item_id,
+                metadata_json=metadata,
+            )
+        )
+        return _receipt(
+            target_ref=asset.id,
+            content_hash=descriptor.content_hash,
+            manifest_ref=str(payload.get("manifest_ref") or "") or None,
+            provenance=provenance,
+        )
 
     async def _write_prism(
         self,

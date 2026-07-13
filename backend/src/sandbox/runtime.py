@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -273,6 +274,29 @@ class SandboxRuntime:
             )
         await receipt_store.finalize(result)
         return result
+
+    async def read_artifact_bytes(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        expected_content_hash: str,
+        max_bytes: int,
+    ) -> bytes:
+        """Read one completed public artifact through the sandbox integrity boundary."""
+
+        if not is_artifact_path(path):
+            raise SandboxPathError("sandbox preview source must be a reviewable artifact path")
+
+        def read() -> bytes:
+            content = self._workspace(workspace_id).read_bytes(path)
+            if not content or len(content) > max_bytes:
+                raise SandboxPathError("sandbox preview source exceeds its byte boundary")
+            if content_hash_bytes(content) != expected_content_hash:
+                raise SandboxPathError("sandbox preview source changed after its operation receipt")
+            return content
+
+        return await asyncio.to_thread(read)
 
     async def preflight(self, *, release_gate: bool) -> SandboxPreflightReport:
         return await self.provider.preflight(release_gate=release_gate)

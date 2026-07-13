@@ -208,13 +208,13 @@ async def test_mission_worker_bootstrap_validates_canonical_profile(monkeypatch)
     monkeypatch.setattr(worker_module, "_refresh_worker_model_catalog_cache", _noop_async)
     monkeypatch.setattr(
         worker_module,
-        "_validate_canonical_mission_model_profile",
-        lambda: validated.append(worker_module.CANONICAL_MISSION_MODEL_ID),
+        "_validate_default_mission_model_profile",
+        lambda: validated.append("gpt-5.6-sol") or "gpt-5.6-sol",
     )
 
     await worker_module._bootstrap_worker_runtime(require_mission_model_profile=True)
 
-    assert validated == ["gpt-5.5"]
+    assert validated == ["gpt-5.6-sol"]
 
 
 def test_worker_process_exits_when_runtime_bootstrap_fails(monkeypatch):

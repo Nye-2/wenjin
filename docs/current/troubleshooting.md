@@ -72,7 +72,7 @@ Valid search requires a completed `web_search_call`, source receipts, URL citati
 
 Do not enable another provider or mark a static flag. Restore provider conformance, rerun the probe, and atomically update the model profile evidence.
 
-## 7. Main GPT-5.5 chat fails
+## 7. Main GPT-5.6 chat fails
 
 Verify the DataService model row is enabled/default and uses Chat Completions generation with the correct `/v1` base URL. Check decryption key stability and pricing policy. Then run the capability probe.
 

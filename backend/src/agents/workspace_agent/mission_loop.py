@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
@@ -83,6 +84,7 @@ class _ProviderReviewItem(BaseModel):
         description="JSON object containing a complete user-previewable candidate, usually markdown content."
     )
     preview_ref: str | None = Field(max_length=2048)
+    preview_expires_at: datetime | None = None
 
 
 class _ProviderQualityCriterion(BaseModel):

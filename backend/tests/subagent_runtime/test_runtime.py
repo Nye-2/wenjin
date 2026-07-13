@@ -20,7 +20,7 @@ def _job(job_id: str = "sj_one", **overrides: Any) -> SubagentJobSpec:
         "operation_id": "op-parent",
         "mission_id": "mission-1",
         "workspace_id": "workspace-1",
-        "model_id": "gpt-5.5",
+        "model_id": "gpt-5.6-sol",
         "lease_owner": "worker-1",
         "lease_epoch": 1,
         "stage_id": "literature",

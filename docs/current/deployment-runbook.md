@@ -11,7 +11,7 @@ Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable 
 - a rootless Docker socket for Sandbox vNext, or a reviewed userns-remap equivalent;
 - a pinned sandbox image digest;
 - PostgreSQL/Redis volumes with adequate space;
-- GPT-5.5 provider credentials;
+- GPT-5.6 Sol/Terra/Luna provider credentials;
 - production secrets in `.env`, never committed.
 
 ## 2. Required services
@@ -32,7 +32,7 @@ Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable 
 
 ## 3. Configure
 
-Start from `.env.example`. At minimum replace database/admin/JWT/DataService/model secrets and the sandbox digest. The only language model entry is GPT-5.5 with `generation_api=chat_completions`; set it as default. Do not add a second generation protocol as fallback.
+Start from `.env.example`. At minimum replace database/admin/JWT/DataService/model secrets and the sandbox digest. The language-model entries are GPT-5.6 Sol/Terra/Luna with `generation_api=chat_completions`; keep Terra as default unless the release decision changes. Do not add a second generation protocol as fallback.
 
 Production Sandbox requirements:
 
@@ -44,6 +44,15 @@ Production Sandbox requirements:
 - package-index egress proxy/network only when dependency install is enabled;
 - rootless socket or explicitly accepted equivalent.
 
+Build the academic visual Sandbox, record its immutable image id, and configure that digest before starting Mission workers:
+
+```bash
+docker build -f backend/Dockerfile.visual-sandbox -t wenjin-visual-sandbox:latest backend
+docker image inspect wenjin-visual-sandbox:latest --format '{{.Id}}'
+```
+
+Set `SANDBOX_DOCKER__IMAGE=wenjin-visual-sandbox:latest` and copy the returned `sha256:...` value into `SANDBOX_DOCKER__IMAGE_DIGEST`. The image contains pinned Matplotlib/Seaborn, Graphviz and fonts; do not install renderer packages during a Mission.
+
 ## 4. Validate configuration
 
 ```bash
@@ -53,7 +62,7 @@ cd backend && .venv/bin/python -m alembic heads
 cd backend && .venv/bin/python -m src.quality.mission_cutover_gate --project-root ..
 ```
 
-Alembic must report one head: `091_review_commit_consistency` until a later migration intentionally advances it. The cutover gate must report zero findings.
+Alembic must report one head: `096_mission_aggregate_references` until a later migration intentionally advances it. The cutover gate must report zero findings.
 
 ## 5. Start
 
@@ -85,7 +94,7 @@ Check that:
 - migration and bootstrap exited successfully;
 - DataService, Gateway, all three workers, and frontend are healthy;
 - worker inspection includes a consumer for `long_running`;
-- the model response contains GPT-5.5 only;
+- the model response contains GPT-5.6 Sol, Terra, and Luna only;
 - readiness reports DataService, Redis, task backend, and sandbox preflight correctly.
 
 ## 7. Model probes
@@ -94,7 +103,7 @@ Generation and native search are separate capability probes.
 
 ```bash
 cd backend
-.venv/bin/python -m src.models.capability_probe --model-id gpt-5.5
+.venv/bin/python -m src.models.capability_probe --model-id gpt-5.6-sol
 ```
 
 Generation readiness requires strict structured tool arguments, clean Chat Completions streaming termination, xhigh effort support, and response storage disabled.

@@ -39,7 +39,7 @@ const view = {
   commit_summary: { pending: 0, applying: 0, committed: 0, failed: 0 },
   review_items: [
     { review_item_id: "review-1", mission_id: MISSION_ID, title: "核心创新点", summary: "将异构性与自适应秩聚合联系起来", target_kind: "claim", risk_level: "high", status: "pending", review_required_reason: "涉及论文核心论断，需要逐项确认", preview_json: { claim: "异构性与自适应秩聚合存在可验证关联" }, preview_ref: null, requires_explicit_review: true, batch_acceptable: false, suggested_selected: false },
-    { review_item_id: "review-2", mission_id: MISSION_ID, title: "文献脉络草稿", summary: "整理方法演进与主要基线", target_kind: "document", risk_level: "medium", status: "pending", review_required_reason: "保存前建议确认", preview_json: {}, preview_ref: "mission-previews/review-2", requires_explicit_review: false, batch_acceptable: true, suggested_selected: true },
+    { review_item_id: "review-2", mission_id: MISSION_ID, title: "文献脉络草稿", summary: "整理方法演进与主要基线", target_kind: "document", risk_level: "medium", status: "pending", review_required_reason: "保存前建议确认", preview_json: {}, preview_url: null, requires_explicit_review: false, batch_acceptable: true, suggested_selected: true },
   ],
   commits: [],
   required_stage_ids: ["scope", "literature", "position"],
@@ -168,4 +168,63 @@ test("waiting mission explains the exact input needed", async ({ page, context }
   await expect(page.getByText("实验数据表")).toBeVisible();
   await expect(page.getByText("数据补齐前，问津会保留当前阶段和已有结果。")).toBeVisible();
   await expect(page.getByRole("button", { name: "添加材料" })).toBeVisible();
+});
+
+test("academic visual review loads authenticated preview bytes and supports zoom", async ({ page, context }) => {
+  const visualItem = {
+    review_item_id: "review-visual",
+    mission_id: MISSION_ID,
+    title: "联邦聚合机制图",
+    summary: "依据当前方法段生成的说明图",
+    target_kind: "workspace_asset",
+    risk_level: "medium",
+    status: "pending",
+    review_required_reason: "保存学术图前请确认",
+    preview_json: {
+      artifact_kind: "figure",
+      figure_type: "mechanism_illustration",
+      strategy: "llm_image",
+      evidence_level: "explanatory",
+      mime_type: "image/svg+xml",
+      caption: "联邦客户端向全局模型提交参数更新。",
+      alt_text: "三个客户端连接到中央聚合节点",
+      renderer_id: "gpt-image-2",
+      reproducibility_status: "not_applicable",
+    },
+    preview_url: `/api/missions/${MISSION_ID}/review-items/review-visual/preview`,
+    requires_explicit_review: true,
+    batch_acceptable: false,
+    suggested_selected: false,
+  };
+  const visualView: Record<string, unknown> = structuredClone(view);
+  visualView.review_items = [visualItem];
+  visualView.review_summary = { pending: 1, accepted: 0, needs_more_evidence: 0, committed: 0 };
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="white"/><circle cx="320" cy="180" r="54" fill="#d7eee9" stroke="#176b62"/><circle cx="100" cy="80" r="30" fill="#eef2f1"/><circle cx="100" cy="180" r="30" fill="#eef2f1"/><circle cx="100" cy="280" r="30" fill="#eef2f1"/><path d="M130 80 L270 160 M130 180 L266 180 M130 280 L270 200" stroke="#4b6460" stroke-width="4"/></svg>';
+
+  await installWorkspaceRouteMocks(page, context, {
+    workspaceId: "ws-mission-visual",
+    workspaceType: "sci",
+    missions: [{ ...summary, workspace_id: "ws-mission-visual", pending_review_count: 1 }],
+    missionViews: {
+      [MISSION_ID]: {
+        ...visualView,
+        mission: { ...summary, workspace_id: "ws-mission-visual", pending_review_count: 1 },
+      },
+    },
+    missionReviewPreviews: {
+      "review-visual": {
+        mimeType: "image/svg+xml",
+        bodyBase64: Buffer.from(svg).toString("base64"),
+      },
+    },
+  });
+
+  await page.goto("/workspaces/ws-mission-visual");
+  await page.getByRole("button", { name: "打开研究任务" }).click();
+  await page.getByRole("tab", { name: /确认/ }).click();
+  const preview = page.getByRole("img", { name: "三个客户端连接到中央聚合节点" });
+  await expect(preview).toBeVisible();
+  await expect(page.getByText("联邦客户端向全局模型提交参数更新。")).toBeVisible();
+  await page.getByRole("button", { name: "放大视觉预览" }).click();
+  await expect(page.getByRole("button", { name: "缩小视觉预览" })).toBeVisible();
 });

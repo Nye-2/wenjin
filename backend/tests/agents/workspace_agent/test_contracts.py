@@ -22,7 +22,7 @@ def _mission_payload() -> dict[str, object]:
         "mission_policy_id": "sci.research",
         "initial_params": [{"key": "topic", "value": "federated fine-tuning"}],
         "review_mode": "balanced_default",
-        "model_id": "gpt-5.5",
+        "model_id": "gpt-5.6-sol",
         "reasoning_effort": "xhigh",
         "model_capability_profile_hash": "sha256:profile-v1",
         "runtime_context_refs": ["prompt:workspace-agent-v1"],

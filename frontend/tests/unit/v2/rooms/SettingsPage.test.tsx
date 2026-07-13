@@ -29,7 +29,7 @@ function mockFetch(overrides?: Record<string, unknown>) {
     "/api/workspaces/ws-1/settings": {
       name: "Test Workspace",
       auto_compact_threshold: 0.8,
-      default_model: "gpt-5.5",
+      default_model: "gpt-5.6-sol",
       review_mode: "balanced_default",
     },
   };
@@ -69,8 +69,8 @@ describe("SettingsPage", () => {
     mockListModels.mockResolvedValue({
       models: [
         {
-          name: "gpt-5.5",
-          display_name: "GPT-5.5 (Default)",
+          name: "gpt-5.6-sol",
+          display_name: "GPT-5.6 Sol (Default)",
           provider: "sub2api",
           max_tokens: 128000,
           supports_thinking: false,
@@ -184,9 +184,9 @@ describe("SettingsPage", () => {
 
     await screen.findByTestId("settings-name");
     expect(screen.getByTestId("settings-default-model")).toHaveValue(
-      "gpt-5.5",
+      "gpt-5.6-sol",
     );
-    expect(screen.getByText("GPT-5.5 (Default)")).toBeInTheDocument();
+    expect(screen.getByText("GPT-5.6 Sol (Default)")).toBeInTheDocument();
     expect(screen.getByTestId("review-mode-balanced_default")).toHaveAttribute(
       "aria-checked",
       "true",
@@ -212,7 +212,7 @@ describe("SettingsPage", () => {
       body: JSON.stringify({
         name: "My Workspace",
         auto_compact_threshold: 0.8,
-        default_model: "gpt-5.5",
+        default_model: "gpt-5.6-sol",
         review_mode: "review_all",
       }),
     });

@@ -8,8 +8,7 @@ import pytest
 
 from src.mission_runtime.production import ResponsesSSESearchExecutor
 from src.models.capability_profile import (
-    gpt55_release_assessment,
-    native_search_endpoint_fingerprint,
+    gpt56_release_assessment,
 )
 from src.services.model_catalog_cache import RuntimeModelConfig
 from src.services.search import (
@@ -27,13 +26,13 @@ def _fixture(name: str) -> str:
 
 
 def _runtime_model() -> RuntimeModelConfig:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
-        id="gpt-5.5",
-        name="GPT-5.5",
+        id="gpt-5.6-sol",
+        name="GPT-5.6 Sol",
         category="llm",
         provider="OpenAI",
-        model="gpt-5.5",
+        model="gpt-5.6-sol",
         api_key="sk-test",
         base_url="https://api.nainai.love/v1",
         generation_api=assessment.profile.generation_api,
@@ -133,16 +132,11 @@ async def test_executor_closes_at_completed_boundary_before_peer_error() -> None
     assert stream.read_after_boundary is False
 
 
-def test_release_probe_records_failed_boundary_and_endpoint_fingerprint() -> None:
+def test_release_probe_keeps_native_search_disabled_until_separately_verified() -> None:
     model = _runtime_model()
     capability = native_search_capability(model)
-    boundary = next(
-        check
-        for check in model.capability_probe.checks
-        if check.name == "native_web_search_completed_event_boundary"
-    )
 
     assert capability.available is False
     assert capability.completed_event_boundary is False
+    assert "responses_search_not_probed" in capability.reason_codes
     assert "completed_event_boundary_not_verified" in capability.reason_codes
-    assert boundary.detail_code == native_search_endpoint_fingerprint(model.base_url)

@@ -50,7 +50,7 @@ Avoid infrastructure labels such as “blocked”, “high risk”, schema ids, 
 
 ## Model control
 
-Use one compact popover for model and reasoning effort. Current model is GPT-5.5. Effort choices are `low`, `medium`, `high`, and `xhigh`, localized in display if desired. Remove the speed submenu. Show an active indicator during generation without shifting the composer layout.
+Use one compact popover for model and reasoning effort. Current models are GPT-5.6 Sol/Terra/Luna, with Terra as default. Effort choices are `low`, `medium`, `high`, and `xhigh`, localized in display if desired. Remove the speed submenu. Show an active indicator during generation without shifting the composer layout.
 
 ## Visual system
 

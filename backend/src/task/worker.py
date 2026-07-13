@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 _worker_runner: asyncio.Runner | None = None
 _require_mission_model_profile = False
 
-CANONICAL_MISSION_MODEL_ID = "gpt-5.5"
 WORKER_READINESS_FILE = Path("/tmp/wenjin-worker-ready")
 
 
@@ -152,10 +151,13 @@ def _mark_worker_ready(*, mission_model_id: str | None = None) -> None:
     _worker_readiness_file().write_text(f"{marker}\n", encoding="utf-8")
 
 
-def _validate_canonical_mission_model_profile() -> None:
+def _validate_default_mission_model_profile() -> str:
     from src.mission_runtime.production import require_mission_model_profile
+    from src.services.model_catalog_cache import get_default_runtime_model_id
 
-    require_mission_model_profile(CANONICAL_MISSION_MODEL_ID)
+    model_id = get_default_runtime_model_id()
+    require_mission_model_profile(model_id)
+    return model_id
 
 
 async def _bootstrap_worker_runtime(*, require_mission_model_profile: bool = False) -> None:
@@ -189,7 +191,7 @@ async def _bootstrap_worker_runtime(*, require_mission_model_profile: bool = Fal
             exc_info=True,
         )
     if require_mission_model_profile:
-        _validate_canonical_mission_model_profile()
+        _validate_default_mission_model_profile()
     manager, _ = await activate_mcp_runtime(
         extensions_config=get_extensions_config(),
         warmup=True,
@@ -249,7 +251,7 @@ def _on_worker_process_init(**_kwargs: object) -> None:
         )
         _mark_worker_ready(
             mission_model_id=(
-                CANONICAL_MISSION_MODEL_ID
+                _validate_default_mission_model_profile()
                 if _require_mission_model_profile
                 else None
             )

@@ -8,6 +8,7 @@ from src.agents.workspace_agent.mission_loop import (
     mission_decision_tool,
     parse_mission_decision,
 )
+from src.agents.workspace_agent.prompts.mission import render_workspace_mission_prompt
 
 
 def test_mission_loop_never_parses_prose_or_multiple_frames() -> None:
@@ -97,6 +98,41 @@ def test_mission_loop_provider_schema_is_strict_recursively() -> None:
                 assert_strict_objects(value)
 
     assert_strict_objects(schema)
+
+
+def test_mission_prompt_projects_canonical_tool_schema_and_source_boundary() -> None:
+    prompt = render_workspace_mission_prompt(
+        {
+            "mission_policy_snapshot": {"id": "math_modeling_solution"},
+            "stage_contracts": {"problem_understanding": {"stage_id": "problem_understanding"}},
+            "tool_policy": {
+                "allowed_tool_ids": [
+                    "source.import_candidate",
+                    "sandbox.run_python",
+                ]
+            },
+            "worker_skill_snapshots": {},
+        }
+    )
+
+    assert "canonical_tool_contracts" in prompt
+    assert '"citation_key"' in prompt
+    assert '"verification_ref"' in prompt
+    assert '"script"' in prompt
+    assert "A user chat message" in prompt
+    assert "is Mission context, not a source candidate" in prompt
+
+
+def test_mission_prompt_rejects_tool_without_canonical_schema() -> None:
+    with pytest.raises(ValueError, match="no canonical input schema"):
+        render_workspace_mission_prompt(
+            {
+                "mission_policy_snapshot": {"id": "test"},
+                "stage_contracts": {"stage": {"stage_id": "stage"}},
+                "tool_policy": {"allowed_tool_ids": ["unknown.tool"]},
+                "worker_skill_snapshots": {},
+            }
+        )
 
 
 def test_mission_loop_maps_typed_subagent_jobs_to_runtime_scope() -> None:

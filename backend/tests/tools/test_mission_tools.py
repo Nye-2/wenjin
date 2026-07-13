@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -16,6 +17,8 @@ from src.sandbox.contracts import (
 from src.services.search import MODEL_NATIVE_SEARCH_TOOL_ID
 from src.tools.mission import MISSION_TOOL_GROUPS, MissionToolHandlers, build_mission_tool_registrations
 from src.tools.mission.contracts import (
+    MISSION_TOOL_INPUT_MODELS,
+    AcademicVisualRenderInput,
     CreateArtifactCandidateInput,
     ImportSourceCandidateInput,
     ListSourceCodeFilesInput,
@@ -38,6 +41,16 @@ from src.tools.orchestrator import (
 )
 
 IMAGE_DIGEST = f"sha256:{'a' * 64}"
+
+
+def test_every_mission_tool_group_id_has_one_canonical_input_model() -> None:
+    grouped_ids = {
+        tool_id
+        for tool_ids in MISSION_TOOL_GROUPS.values()
+        for tool_id in tool_ids
+    }
+
+    assert set(MISSION_TOOL_INPUT_MODELS) == grouped_ids
 
 
 def _operation(*, lease_epoch: int = 4) -> ToolOperation:
@@ -75,9 +88,11 @@ class _Missions:
 
 
 class _DataService:
-    def __init__(self, *, asset=None, mission_items=()) -> None:
+    def __init__(self, *, asset=None, mission_items=(), prism_surface=None, prism_file=None) -> None:
         self.missions = _Missions(mission_items)
         self.asset = asset
+        self.prism_surface = prism_surface
+        self.prism_file = prism_file
         self.import_source = AsyncMock()
 
     async def get_asset(self, asset_id: str):
@@ -91,6 +106,15 @@ class _DataService:
             storage_backend="local",
             storage_path=self.asset.storage_path,
         )
+
+    async def get_prism_surface(self, workspace_id: str):
+        assert workspace_id == "workspace-1"
+        return self.prism_surface
+
+    async def get_prism_workspace_file(self, workspace_id: str, file_id: str):
+        assert workspace_id == "workspace-1"
+        assert file_id == "file-1"
+        return self.prism_file
 
 
 class _Sandbox:
@@ -142,7 +166,154 @@ def test_every_policy_group_has_canonical_registrations_and_narrow_permissions()
         for tool_id in tool_ids:
             assert by_id[tool_id].required_permissions == (group,)
     assert by_id["sandbox.install_dependencies"].network_profile == "package_index_only"
-    assert all(descriptor.network_profile == "none" for tool_id, descriptor in by_id.items() if tool_id != "sandbox.install_dependencies")
+    assert by_id["academic_visual.render_candidate"].network_profile == "academic_visual_scoped"
+    assert by_id["academic_visual.render_candidate"].payload_limit_bytes == 524_288
+    assert all(
+        descriptor.network_profile == "none"
+        for tool_id, descriptor in by_id.items()
+        if tool_id not in {"sandbox.install_dependencies", "academic_visual.render_candidate"}
+    )
+
+
+def test_mission_tool_handlers_use_configured_workspace_asset_root(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "src.tools.mission.runtime.get_settings",
+        lambda: SimpleNamespace(workspace_asset_root=tmp_path / "configured-assets"),
+    )
+
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+
+    assert handlers.asset_root == tmp_path / "configured-assets"
+
+
+@pytest.mark.asyncio
+async def test_academic_visual_prism_context_is_revision_and_hash_bound() -> None:
+    content = "Method: aggregate low-rank updates under client heterogeneity."
+    selection = content[8:34]
+    selection_hash = f"sha256:{hashlib.sha256(selection.encode()).hexdigest()}"
+    dataservice = _DataService(
+        prism_surface=SimpleNamespace(project=SimpleNamespace(id="project-1")),
+        prism_file=SimpleNamespace(
+            file=SimpleNamespace(deleted_at=None),
+            current_version=SimpleNamespace(id="revision-3", content_inline=content),
+        ),
+    )
+    handlers = MissionToolHandlers(
+        dataservice=dataservice,  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+    request = AcademicVisualRenderInput.model_validate(
+        {
+            "brief": {
+                "figure_spec": {
+                    "figure_id": "federated-method",
+                    "title": "Federated adaptation mechanism",
+                    "figure_type": "conceptual_illustration",
+                    "strategy": "llm_image",
+                    "purpose": "Explain the method",
+                    "output_targets": ["/workspace/outputs/figures/federated-method.png"],
+                },
+                "intended_use": "manuscript",
+                "audience": "machine learning researchers",
+                "target_language": "English",
+                "aspect_ratio": "3:2",
+                "composition": "server and client update flow",
+                "prism_context_ref": {
+                    "workspace_id": "workspace-1",
+                    "prism_project_id": "project-1",
+                    "file_id": "file-1",
+                    "base_revision_ref": "revision-3",
+                    "selection_hash": selection_hash,
+                    "selection_range": [8, 34],
+                },
+            },
+            "render": {"kind": "generative", "size": "1536x1024"},
+        }
+    )
+
+    resolved, resolved_hash = await handlers._resolve_visual_prism_context("workspace-1", request)
+
+    assert resolved == selection
+    assert resolved_hash == selection_hash
+
+    stale = request.model_copy(
+        update={
+            "brief": request.brief.model_copy(
+                update={
+                    "prism_context_ref": request.brief.prism_context_ref.model_copy(
+                        update={"selection_hash": f"sha256:{'0' * 64}"}
+                    )
+                }
+            )
+        }
+    )
+    with pytest.raises(ToolDispatchError, match="selection changed"):
+        await handlers._resolve_visual_prism_context("workspace-1", stale)
+
+
+@pytest.mark.asyncio
+async def test_deterministic_academic_visual_exposes_reproducibility_evidence() -> None:
+    candidate = SimpleNamespace(
+        candidate_id="candidate-1",
+        sandbox_artifact_ref=f"sandbox-artifact:{'a' * 64}",
+        content_hash=f"sha256:{'a' * 64}",
+        preview_hash="b" * 64,
+        review_preview_ref="mpv1_abcdefghijklmnopqrstuvwxyzABCDEF",
+        reproducibility_ref="sandbox-operation:receipt-1",
+        dataset_refs=("/workspace/datasets/results.csv",),
+    )
+
+    class _AcademicVisual:
+        async def render_candidate(self, _request, *, context):
+            assert context.workspace_id == "workspace-1"
+            return SimpleNamespace(
+                candidate=candidate,
+                model_dump=lambda **_kwargs: {"candidate": {"candidate_id": candidate.candidate_id}},
+            )
+
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        academic_visual=_AcademicVisual(),  # type: ignore[arg-type]
+    )
+    request = AcademicVisualRenderInput.model_validate(
+        {
+            "brief": {
+                "figure_spec": {
+                    "figure_id": "result-chart",
+                    "title": "Result chart",
+                    "figure_type": "experiment_plot",
+                    "strategy": "matplotlib",
+                    "evidence_level": "evidence",
+                    "purpose": "Plot verified results",
+                    "dataset_paths": ["/workspace/datasets/results.csv"],
+                    "output_targets": ["/workspace/outputs/figures/result-chart.png"],
+                },
+                "intended_use": "manuscript",
+                "audience": "machine learning researchers",
+                "target_language": "English",
+                "aspect_ratio": "3:2",
+                "composition": "comparison chart",
+            },
+            "render": {
+                "kind": "code",
+                "source_code": "print('render')",
+                "script_path": "/workspace/scripts/result_chart.py",
+                "dataset_paths": ["/workspace/datasets/results.csv"],
+            },
+        }
+    )
+
+    outcome = await handlers.render_academic_visual_candidate(_operation(), request)
+
+    assert outcome.evidence_refs[0].ref_id == candidate.sandbox_artifact_ref
+    assert outcome.evidence_refs[0].metadata["surfaces"] == [
+        "figure_data_consistency",
+        "experiment_reproducibility",
+    ]
 
 
 @pytest.mark.asyncio

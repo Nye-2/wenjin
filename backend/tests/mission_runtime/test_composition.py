@@ -17,7 +17,7 @@ from src.mission_runtime.composition import (
     build_production_mission_runtime,
     compose_mission_runtime,
 )
-from src.models.capability_profile import gpt55_release_assessment
+from src.models.capability_profile import gpt56_release_assessment
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
     install_model_catalog_snapshot,
@@ -137,13 +137,13 @@ def test_composition_builds_every_runtime_port_from_one_store_bound_graph() -> N
 
 
 def _verified_model() -> RuntimeModelConfig:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
-        id="gpt-5.5",
-        name="GPT-5.5",
+        id="gpt-5.6-sol",
+        name="GPT-5.6 Sol",
         category="llm",
         provider="OpenAI",
-        model="gpt-5.5",
+        model="gpt-5.6-sol",
         api_key="sk-test",
         base_url="https://api.nainai.love/v1",
         generation_api=assessment.profile.generation_api,

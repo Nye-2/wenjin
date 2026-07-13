@@ -45,13 +45,13 @@ stage_contract_refs:
   - {contract_id: patent_development.enablement, schema_version: stage_acceptance_contract.v1, sha256: 18ea3641dd9d2b902dd115473481214ece614e67928cc4b0aa5ae68713d3e988}
   - {contract_id: patent_development.patent_draft, schema_version: stage_acceptance_contract.v1, sha256: c05241af4712b5ba0cee1ee19e506fe08e7564368372e97c3fee81fcab4e9b56}
 tool_policy:
-  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, artifact_render, draft_stage]
+  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell]
-allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, claim-strategist, patent-drafter, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, claim-strategist, patent-drafter, academic-visual-engineer, compliance-reviewer, quality-critic]
 review_policy:
   default_mode: review_all
   allowed_modes: [review_all, balanced_default, auto_draft]
-  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory, visual_output]
 sandbox_policy_ref: {policy_id: sandbox.research, version: 1}
 examples:
   - example_id: patent.claim_strategy.excellent.v1

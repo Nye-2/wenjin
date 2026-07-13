@@ -70,6 +70,7 @@ Remaining production-environment acceptance includes the independent native-sear
 | `11_mission_trace_run_history.md` | Summary/full history, trace, subagent ledger, replay surface | DataService Mission domain, workspace Runs drawer |
 | `12_tool_orchestrator.md` | Canonical tool catalog, model probes, operation lifecycle, native web search | `backend/src/tools/orchestrator`, `backend/src/tools/mission`, `backend/src/services/search/model_native.py` |
 | `13_migration_release_gate.md` | Cutover order, deleted paths, anti-compat scan, tests | whole repo |
+| `14_academic_visual_generation.md` | Chat-native multi-strategy academic visuals, Prism context, reproducibility, preview, review and commit | `backend/src/academic_visual_runtime`, Mission tools/review, Sandbox, Workspace assets, Prism, Mission Console |
 
 ## Cross-Spec Invariants
 
@@ -87,3 +88,4 @@ Remaining production-environment acceptance includes the independent native-sear
 12. Active drivers poll durable commands at every safe loop boundary; a lost Redis/Celery hint cannot hide steer, pause, resume, or cancel input.
 13. Native web search is exposed only after a live probe returns a real search receipt plus citation/source metadata.
 14. `auto_draft`, `regenerate`, and `save_draft_only` are policy/actions, not extra MissionReviewItem lifecycle statuses.
+15. Academic visuals route through the canonical `FigureSpec` and `AcademicVisualRuntime`; evidence-bearing figures cannot use generative image strategies.

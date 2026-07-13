@@ -51,7 +51,7 @@ async def _create_run(
             mission_policy_id="sci.research",
             title=f"Mission {index}",
             objective="Test stable Mission history pagination.",
-            model_id="gpt-5.5",
+            model_id="gpt-5.6-sol",
             reasoning_effort="xhigh",
             mission_idempotency_key=f"mission-history-{index}",
         )

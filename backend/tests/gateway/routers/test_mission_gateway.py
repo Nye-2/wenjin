@@ -49,7 +49,7 @@ def _run(
         objective="Find a defensible research gap",
         status=MissionStatus.RUNNING,
         review_mode=MissionReviewMode.BALANCED_DEFAULT,
-        model_id="gpt-5.5",
+        model_id="gpt-5.6-sol",
         reasoning_effort=MissionReasoningEffort.XHIGH,
         pending_review_count=0,
         evidence_count=2,

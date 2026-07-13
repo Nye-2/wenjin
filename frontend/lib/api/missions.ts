@@ -8,10 +8,12 @@ import type {
   MissionPage,
   MissionReviewDecision,
   MissionReviewItemView,
+  MissionReviewPreviewFile,
   MissionReviewMode,
   MissionStageView,
   MissionSummary,
   MissionView,
+  MissionVisualReviewMetadata,
 } from "./mission-types";
 
 const API = "/api";
@@ -63,7 +65,7 @@ interface MissionReviewWire {
   status: MissionReviewItemView["status"];
   review_required_reason?: string | null;
   preview_json?: Json;
-  preview_ref?: string | null;
+  preview_url?: string | null;
   requires_explicit_review: boolean;
   batch_acceptable: boolean;
   suggested_selected: boolean;
@@ -132,6 +134,65 @@ function missionItem(wire: MissionItemWire): MissionItem {
   return item;
 }
 
+function nonemptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const label = nonemptyString(item);
+    return label ? [label] : [];
+  });
+}
+
+export function projectMissionVisualReviewMetadata(
+  preview: Json | null | undefined,
+): MissionVisualReviewMetadata | null {
+  if (!preview) return null;
+  const artifactKind = nonemptyString(preview.artifact_kind);
+  if (artifactKind !== "figure" && artifactKind !== "chart" && artifactKind !== "table") {
+    return null;
+  }
+  const mimeType = nonemptyString(preview.mime_type);
+  if (!mimeType || !["image/png", "image/webp", "image/svg+xml", "application/pdf"].includes(mimeType)) {
+    return null;
+  }
+
+  const reproducibility =
+    preview.reproducibility && typeof preview.reproducibility === "object" && !Array.isArray(preview.reproducibility)
+      ? preview.reproducibility as Json
+      : null;
+  const sourceLabels = [
+    ...stringList(preview.source_refs),
+    ...stringList(preview.dataset_refs),
+  ];
+  for (const value of [preview.source_label, preview.source, preview.provider_model]) {
+    const label = nonemptyString(value);
+    if (label) sourceLabels.push(label);
+  }
+
+  return {
+    artifactKind,
+    mimeType,
+    figureType: nonemptyString(preview.figure_type),
+    strategy: nonemptyString(preview.strategy),
+    evidenceLevel: nonemptyString(preview.evidence_level),
+    caption: nonemptyString(preview.caption),
+    altText: nonemptyString(preview.alt_text),
+    rendererId: nonemptyString(preview.renderer_id),
+    reproducibilityStatus:
+      nonemptyString(preview.reproducibility_status)
+      ?? nonemptyString(reproducibility?.status)
+      ?? (reproducibility?.reproducible === true
+        ? "reproducible"
+        : reproducibility?.reproducible === false
+          ? "not_reproducible"
+          : null),
+    sourceLabels: [...new Set(sourceLabels)],
+  };
+}
+
 function projectView(wire: MissionViewWire): MissionView {
   const run = wire.mission;
   const stages = wire.stage_summaries.map((stage) => ({ id: stage.stage_id, title: stage.title, status: stage.status, summary: stage.summary }));
@@ -148,7 +209,9 @@ function projectView(wire: MissionViewWire): MissionView {
     requiresExplicitReview: item.requires_explicit_review,
     reasonLabel: item.review_required_reason,
     preview: item.preview_json,
-    previewRef: item.preview_ref,
+    previewAvailable: Boolean(item.preview_url),
+    previewUrl: item.preview_url,
+    visual: projectMissionVisualReviewMetadata(item.preview_json),
     commitStatus: commitsByItem.get(item.review_item_id) ?? null,
   }));
   const evidenceItems = wire.evidence_items.map((item) => ({ id: item.item_id, title: item.title, sourceType: item.source_type, sourceLabel: item.source_label, summary: item.summary, citation: item.citation, verified: item.verified }));
@@ -226,6 +289,25 @@ export async function listWorkspaceMissions(workspaceId: string, query?: string)
 export async function getMissionView(missionId: string): Promise<MissionView> {
   const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(missionId)}`);
   return projectView(await readJson<MissionViewWire>(response, "研究任务加载失败"));
+}
+
+export async function getMissionReviewPreview(options: {
+  missionId: string;
+  reviewItemId: string;
+}): Promise<MissionReviewPreviewFile> {
+  const response = await authorizedFetch(
+    `${API}/missions/${encodeURIComponent(options.missionId)}/review-items/${encodeURIComponent(options.reviewItemId)}/preview`,
+    { headers: { Accept: "image/png, image/webp, image/svg+xml, application/pdf" } },
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "视觉预览加载失败"));
+  }
+  const blob = await response.blob();
+  const mimeType = (response.headers.get("Content-Type") ?? blob.type)
+    .split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  return { blob, mimeType };
 }
 
 export async function listMissionItems(options: { missionId: string; cursor?: string | null; limit?: number }): Promise<MissionPage<MissionItem>> {

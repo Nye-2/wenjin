@@ -6,7 +6,7 @@ import pytest
 
 from src.models.capability_profile import (
     GenerationAPI,
-    gpt55_release_assessment,
+    gpt56_release_assessment,
     unverified_capability_assessment,
 )
 from src.models.router import (
@@ -29,15 +29,15 @@ from src.services.model_catalog_cache import (
 
 def _runtime_model(
     *,
-    model_id: str = "gpt-5.5",
+    model_id: str = "gpt-5.6-sol",
     category: str = "llm",
     is_default: bool = True,
     base_url: str = "https://api.nainai.love/v1",
     verified: bool = True,
 ) -> RuntimeModelConfig:
     if verified:
-        assessment = gpt55_release_assessment()
-        model_name = "gpt-5.5"
+        assessment = gpt56_release_assessment("gpt-5.6-sol")
+        model_name = "gpt-5.6-sol"
         generation_api = GenerationAPI.CHAT_COMPLETIONS
     else:
         model_name = model_id
@@ -94,8 +94,8 @@ def _catalog():
 
 
 def test_explicit_verified_chat_model_is_honored() -> None:
-    assert route_chat_model(requested_model="gpt-5.5") == "gpt-5.5"
-    assert validate_requested_model("gpt-5.5", require_tools=True) == "gpt-5.5"
+    assert route_chat_model(requested_model="gpt-5.6-sol") == "gpt-5.6-sol"
+    assert validate_requested_model("gpt-5.6-sol", require_tools=True) == "gpt-5.6-sol"
     assert validate_requested_model("default", require_tools=True) == "default"
 
 
@@ -125,14 +125,14 @@ def test_unverified_tool_model_is_rejected_instead_of_using_default() -> None:
 
 def test_capabilities_are_not_inferred_from_unknown_model_names() -> None:
     assert model_supports_vision("qwen-vl-plus") is False
-    assert model_supports_thinking("gpt-5.5-name-only") is False
-    assert model_supports_reasoning_effort("gpt-5.5-name-only") is False
+    assert model_supports_thinking("gpt-5.6-sol-name-only") is False
+    assert model_supports_reasoning_effort("gpt-5.6-sol-name-only") is False
 
 
 def test_reasoning_support_comes_from_current_profile() -> None:
-    assert model_supports_thinking("gpt-5.5") is True
-    assert model_supports_reasoning_effort("gpt-5.5") is True
-    assert model_supports_vision("gpt-5.5") is False
+    assert model_supports_thinking("gpt-5.6-sol") is True
+    assert model_supports_reasoning_effort("gpt-5.6-sol") is True
+    assert model_supports_vision("gpt-5.6-sol") is False
 
 
 def test_image_routing_remains_category_based() -> None:
@@ -165,7 +165,7 @@ def test_stale_profile_rejects_selected_model() -> None:
     install_model_catalog_snapshot([stale])
 
     with pytest.raises(InvalidRequestedModelError, match="strict-tool capability probe"):
-        route_chat_model(requested_model="gpt-5.5")
+        route_chat_model(requested_model="gpt-5.6-sol")
 
     with pytest.raises(InvalidRequestedModelError, match="strict-tool capability probe"):
         validate_requested_model("default", require_tools=True)

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.models.capability_profile import gpt55_release_assessment
+from src.models.capability_profile import gpt56_release_assessment
 from src.models.factory import create_chat_model
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
@@ -16,13 +16,13 @@ from src.services.model_catalog_cache import (
 
 
 def _runtime_model(*, base_url: str = "https://api.nainai.love/v1") -> RuntimeModelConfig:
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
-        id="gpt-5.5",
-        name="GPT-5.5",
+        id="gpt-5.6-sol",
+        name="GPT-5.6 Sol",
         category="llm",
         provider="OpenAI",
-        model="gpt-5.5",
+        model="gpt-5.6-sol",
         api_key="sk-test",
         base_url=base_url,
         generation_api=assessment.profile.generation_api,
@@ -52,11 +52,11 @@ def _catalog():
 def test_factory_uses_only_chat_completions_xhigh_and_store_false() -> None:
     sentinel = object()
     with patch("src.models.factory.ReasoningChatOpenAI", return_value=sentinel) as model_cls:
-        result = create_chat_model("gpt-5.5")
+        result = create_chat_model("gpt-5.6-sol")
 
     assert result is sentinel
     kwargs = model_cls.call_args.kwargs
-    assert kwargs["model"] == "gpt-5.5"
+    assert kwargs["model"] == "gpt-5.6-sol"
     assert kwargs["base_url"] == "https://api.nainai.love/v1"
     assert kwargs["reasoning_effort"] == "xhigh"
     assert kwargs["store"] is False
@@ -70,7 +70,7 @@ def test_factory_uses_only_chat_completions_xhigh_and_store_false() -> None:
 def test_factory_honors_explicit_transport_limits() -> None:
     with patch("src.models.factory.ReasoningChatOpenAI") as model_cls:
         create_chat_model(
-            "gpt-5.5",
+            "gpt-5.6-sol",
             request_timeout=12,
             max_retries=0,
         )
@@ -83,14 +83,14 @@ def test_factory_honors_explicit_transport_limits() -> None:
 @pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
 def test_factory_accepts_every_probed_reasoning_effort(effort: str) -> None:
     with patch("src.models.factory.ReasoningChatOpenAI") as model_cls:
-        create_chat_model("gpt-5.5", reasoning_effort=effort)
+        create_chat_model("gpt-5.6-sol", reasoning_effort=effort)
 
     assert model_cls.call_args.kwargs["reasoning_effort"] == effort
 
 
 def test_factory_rejects_unknown_reasoning_effort() -> None:
     with pytest.raises(ValueError, match="Unsupported reasoning_effort"):
-        create_chat_model("gpt-5.5", reasoning_effort="extreme")
+        create_chat_model("gpt-5.6-sol", reasoning_effort="extreme")
 
 
 def test_factory_rejects_stale_endpoint_profile() -> None:
@@ -99,7 +99,7 @@ def test_factory_rejects_stale_endpoint_profile() -> None:
     )
 
     with pytest.raises(ValueError, match="endpoint_changed"):
-        create_chat_model("gpt-5.5")
+        create_chat_model("gpt-5.6-sol")
 
 
 def test_factory_rejects_unknown_model_without_rerouting() -> None:

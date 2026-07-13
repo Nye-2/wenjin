@@ -115,19 +115,13 @@ class _LazyMissionPort:
         self._dataservice = dataservice
 
     async def _service(self) -> MissionRuntimeService:
-        from src.review_commit_runtime.materializer import MissionDomainWriter
-        from src.review_commit_runtime.membership import DataServiceMembershipAuthorizer
-        from src.review_commit_runtime.runtime import ReviewCommitRuntime
+        from src.review_commit_runtime.composition import build_review_commit_runtime
 
         runtime = await build_mission_runtime(self._dataservice)
         return MissionRuntimeService(
             runtime,
             dataservice=self._dataservice,
-            review_commit=ReviewCommitRuntime(
-                missions=self._dataservice.missions,
-                target_writer=MissionDomainWriter(self._dataservice),
-                membership=DataServiceMembershipAuthorizer(self._dataservice),
-            ),
+            review_commit=build_review_commit_runtime(self._dataservice),
         )
 
     async def start(self, request):

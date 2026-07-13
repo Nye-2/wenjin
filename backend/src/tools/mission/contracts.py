@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.academic_visual_runtime.contracts import AcademicVisualRenderInput
+
 
 class MissionToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -138,4 +140,28 @@ class CreateArtifactCandidateInput(MissionToolInput):
         return self
 
 
-__all__ = [name for name in globals() if name.endswith("Input")]
+MISSION_TOOL_INPUT_MODELS: dict[str, type[BaseModel]] = {
+    "workspace.list_assets": ListWorkspaceAssetsInput,
+    "workspace.read_asset": ReadWorkspaceAssetInput,
+    "workspace.list_documents": ListWorkspaceDocumentsInput,
+    "workspace.read_document": ReadWorkspaceDocumentInput,
+    "workspace.search_source_text": SearchWorkspaceSourceTextInput,
+    "mission.read_review_candidate": ReadMissionReviewCandidateInput,
+    "source.import_candidate": ImportSourceCandidateInput,
+    "source_code.list_files": ListSourceCodeFilesInput,
+    "source_code.read_file": ReadSourceCodeFileInput,
+    "sandbox.run_python": RunPythonToolInput,
+    "sandbox.run_notebook": RunNotebookToolInput,
+    "sandbox.smoke_check": SmokeCheckToolInput,
+    "sandbox.install_dependencies": InstallDependenciesToolInput,
+    "sandbox.register_dataset": RegisterDatasetToolInput,
+    "sandbox.register_artifact": RegisterArtifactToolInput,
+    "sandbox.read_output_ref": ReadSandboxOutputInput,
+    "artifact.create_candidate": CreateArtifactCandidateInput,
+    "academic_visual.render_candidate": AcademicVisualRenderInput,
+}
+
+
+__all__ = [name for name in globals() if name.endswith("Input")] + [
+    "MISSION_TOOL_INPUT_MODELS",
+]

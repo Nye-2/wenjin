@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -61,6 +62,25 @@ class MaterializationReceipt(_StrictModel):
     provenance: dict[str, Any] = Field(default_factory=dict)
 
 
+class PreviewObjectDescriptor(_StrictModel):
+    """Bounded metadata for one private preview object; never contains bytes."""
+
+    ref: str
+    workspace_id: str
+    content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    mime_type: str
+    filename: str
+    size_bytes: int = Field(ge=1)
+    created_at: datetime
+    expires_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PreviewObject(_StrictModel):
+    descriptor: PreviewObjectDescriptor
+    content: bytes
+
+
 class CommitOutcome(_StrictModel):
     review_item_id: str
     commit: MissionCommitPayload | None = None
@@ -97,9 +117,22 @@ class MissionTargetWriter(Protocol):
 
 
 class PreviewObjectStore(Protocol):
-    async def read(self, ref: str) -> dict[str, Any]: ...
+    async def put(
+        self,
+        *,
+        workspace_id: str,
+        content: bytes,
+        mime_type: str,
+        filename: str,
+        expires_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> PreviewObjectDescriptor: ...
 
-    async def delete(self, ref: str) -> None: ...
+    async def read(self, ref: str, *, workspace_id: str) -> PreviewObject: ...
+
+    async def delete(self, ref: str, *, workspace_id: str) -> None: ...
+
+    async def cleanup_expired(self, *, now: datetime | None = None, limit: int = 500) -> list[str]: ...
 
 
 __all__ = [
@@ -107,6 +140,8 @@ __all__ = [
     "CommitOutcome",
     "MaterializationReceipt",
     "MissionTargetWriter",
+    "PreviewObject",
+    "PreviewObjectDescriptor",
     "PreviewObjectStore",
     "ReviewAction",
     "ReviewDecisionBatchOutcome",

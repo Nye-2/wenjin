@@ -175,7 +175,7 @@ class ReviewCommitRuntime:
                 committed=False,
                 reason_code="review_item_not_accepted",
             )
-        item = await self._verified_preview(item)
+        item = await self._verified_preview(item, workspace_id=run.workspace_id)
         current = await self._target_writer.read_target(item, workspace_id=run.workspace_id)
         _validate_base_precondition(item, current.revision_ref, current.content_hash)
 
@@ -240,7 +240,7 @@ class ReviewCommitRuntime:
             ),
         )
         if item.preview_ref and self._preview_store is not None:
-            await self._preview_store.delete(item.preview_ref)
+            await self._preview_store.delete(item.preview_ref, workspace_id=run.workspace_id)
         return CommitOutcome(
             review_item_id=review_item_id,
             commit=finished.commit,
@@ -265,6 +265,8 @@ class ReviewCommitRuntime:
     async def _verified_preview(
         self,
         item: MissionReviewItemPayload,
+        *,
+        workspace_id: str,
     ) -> MissionReviewItemPayload:
         if item.preview_expires_at is not None and item.preview_expires_at <= datetime.now(UTC):
             raise ValueError("review_preview_expired")
@@ -272,13 +274,21 @@ class ReviewCommitRuntime:
         if item.preview_ref is not None:
             if self._preview_store is None:
                 raise ValueError("review_preview_store_unavailable")
-            preview = await self._preview_store.read(item.preview_ref)
+            stored = await self._preview_store.read(item.preview_ref, workspace_id=workspace_id)
+            descriptor = dict(preview.get("materialization") or {})
+            payload = dict(descriptor.get("payload") or {})
+            expected_hash = str(payload.get("content_hash") or "")
+            if expected_hash and not hmac.compare_digest(expected_hash, stored.descriptor.content_hash):
+                raise ValueError("review_preview_integrity_failed")
+            expected_mime = str(payload.get("mime_type") or "")
+            if expected_mime and expected_mime != stored.descriptor.mime_type:
+                raise ValueError("review_preview_content_type_mismatch")
         if not preview or not item.preview_hash:
             raise ValueError("review_preview_hash_required")
         actual_hash = _preview_hash(preview)
         if not hmac.compare_digest(actual_hash, item.preview_hash):
             raise ValueError("review_preview_integrity_failed")
-        return item.model_copy(update={"preview_json": preview})
+        return item
 
 
 def _durable_decision_status(action: ReviewAction) -> MissionReviewDecisionStatus:

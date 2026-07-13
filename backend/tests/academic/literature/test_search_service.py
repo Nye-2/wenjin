@@ -44,7 +44,7 @@ def _context() -> ToolInvocationContext:
         caller_id="workspace-agent",
         caller_kind=ToolCallerKind.WORKSPACE_AGENT,
         lease_epoch=1,
-        model_id="gpt-5.5",
+        model_id="gpt-5.6-sol",
     )
 
 

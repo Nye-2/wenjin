@@ -85,7 +85,7 @@ def _create_payload(
         mission_policy_id="sci.research",
         title="Federated LLM research gap",
         objective="Identify a defensible research gap with evidence.",
-        model_id="gpt-5.5",
+        model_id="gpt-5.6-sol",
         reasoning_effort="xhigh",
         snapshot_json={"plan_summary": "Scope the literature."},
         runtime_context_json={"policy_ref": "policy-v1"},
@@ -251,6 +251,7 @@ async def test_mission_view_keeps_execution_and_review_axes_separate_and_cleans_
                     title="Draft",
                     risk_level="medium",
                     preview_json={"diff": "temporary"},
+                    preview_ref="mpv1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     preview_expires_at=datetime.now(UTC) - timedelta(seconds=1),
                 )
             ],
@@ -283,7 +284,7 @@ async def test_mission_view_keeps_execution_and_review_axes_separate_and_cleans_
     cleaned = await store.cleanup_expired_previews(
         MissionPreviewCleanupPayload(now=datetime.now(UTC))
     )
-    assert cleaned.preview_refs == []
+    assert cleaned.preview_refs == ["mpv1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
     remaining = await store.list_review_items(created.mission.mission_id)
     assert remaining[0].preview_json == {}
     assert remaining[0].preview_hash is not None

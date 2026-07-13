@@ -365,12 +365,22 @@ def unverified_capability_assessment(
     )
 
 
-def gpt55_release_assessment(*, observed_at: datetime | None = None) -> CapabilityProfileAssessment:
-    """Locked 2026-07-10 live-probe evidence for the release baseline."""
+GPT56_RELEASE_MODEL_IDS = frozenset(
+    {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+)
 
-    observed = (observed_at or datetime(2026, 7, 10, tzinfo=UTC)).astimezone(UTC)
-    model_id = "gpt-5.5"
-    model_name = "gpt-5.5"
+
+def gpt56_release_assessment(
+    model_id: str,
+    *,
+    observed_at: datetime | None = None,
+) -> CapabilityProfileAssessment:
+    """Locked 2026-07-12 live-probe evidence for the GPT-5.6 release family."""
+
+    if model_id not in GPT56_RELEASE_MODEL_IDS:
+        raise ValueError(f"Unsupported GPT-5.6 release model: {model_id}")
+    observed = (observed_at or datetime(2026, 7, 12, tzinfo=UTC)).astimezone(UTC)
+    model_name = model_id
     base_url = "https://api.nainai.love/v1"
     evidence = ModelCapabilityProbeEvidence(
         model_id=model_id,
@@ -391,29 +401,12 @@ def gpt55_release_assessment(*, observed_at: datetime | None = None) -> Capabili
             CapabilityProbeCheck(name="reasoning_effort:medium", status=ProbeCheckStatus.PASSED),
             CapabilityProbeCheck(name="reasoning_effort:high", status=ProbeCheckStatus.PASSED),
             CapabilityProbeCheck(name="reasoning_effort:xhigh", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="native_web_search_call", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="search_source_citations", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(
-                name="native_web_search_completed_event_boundary",
-                status=ProbeCheckStatus.FAILED,
-                detail_code=native_search_endpoint_fingerprint(base_url),
-            ),
-        ),
-        web_search_api=WebSearchAPI.RESPONSES_WEB_SEARCH,
-        search_receipts=(
-            SearchReceiptKind.WEB_SEARCH_CALL,
-            SearchReceiptKind.ANNOTATIONS_SOURCES,
         ),
         transport_observations=(
             GenerationTransportObservation(
                 generation_api=GenerationAPI.CHAT_COMPLETIONS,
                 protocol_conformance=True,
                 detail_code="clean_done_and_close",
-            ),
-            GenerationTransportObservation(
-                generation_api=GenerationAPI.RESPONSES,
-                protocol_conformance=False,
-                detail_code="abnormal_close_after_response_completed",
             ),
         ),
     )
@@ -439,6 +432,7 @@ __all__ = [
     "CapabilityProfileFreshness",
     "GenerationAPI",
     "GenerationTransportObservation",
+    "GPT56_RELEASE_MODEL_IDS",
     "ModelCapabilityProbeEvidence",
     "ModelCapabilityProfile",
     "ProbeCheckStatus",
@@ -448,7 +442,7 @@ __all__ = [
     "assess_profile_freshness",
     "build_profile_from_probe",
     "endpoint_fingerprint",
-    "gpt55_release_assessment",
+    "gpt56_release_assessment",
     "native_search_endpoint_fingerprint",
     "unverified_capability_assessment",
 ]

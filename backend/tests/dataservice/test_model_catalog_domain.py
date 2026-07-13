@@ -24,7 +24,7 @@ from src.dataservice.domains.model_catalog.security import (
 from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
 from src.models.capability_profile import (
     GenerationAPI,
-    gpt55_release_assessment,
+    gpt56_release_assessment,
     unverified_capability_assessment,
 )
 
@@ -282,17 +282,17 @@ async def test_probe_assessment_must_match_exact_current_endpoint() -> None:
     service, _repository, _session = _model_catalog_service()
     await service.create_model(
         _model_payload(
-            model_id="gpt-5.5",
-            display_name="GPT-5.5",
-            model_name="gpt-5.5",
+            model_id="gpt-5.6-sol",
+            display_name="GPT-5.6 Sol",
+            model_name="gpt-5.6-sol",
             provider_name="OpenAI",
             base_url="https://api.nainai.love/v1",
         )
     )
-    assessment = gpt55_release_assessment()
+    assessment = gpt56_release_assessment("gpt-5.6-sol")
 
     record = await service.update_capability_assessment(
-        "gpt-5.5",
+        "gpt-5.6-sol",
         profile=assessment.profile,
         evidence=assessment.evidence,
     )
@@ -302,12 +302,12 @@ async def test_probe_assessment_must_match_exact_current_endpoint() -> None:
     assert record.capability_profile.has_strict_tools() is True
 
     await service.update_model(
-        "gpt-5.5",
+        "gpt-5.6-sol",
         {"base_url": "https://changed.example.com/v1"},
     )
     with pytest.raises(DataServiceValidationError, match="does not match"):
         await service.update_capability_assessment(
-            "gpt-5.5",
+            "gpt-5.6-sol",
             profile=assessment.profile,
             evidence=assessment.evidence,
         )
@@ -318,24 +318,24 @@ async def test_probe_assessment_rejects_profile_from_different_evidence() -> Non
     service, _repository, _session = _model_catalog_service()
     await service.create_model(
         _model_payload(
-            model_id="gpt-5.5",
-            display_name="GPT-5.5",
-            model_name="gpt-5.5",
+            model_id="gpt-5.6-sol",
+            display_name="GPT-5.6 Sol",
+            model_name="gpt-5.6-sol",
             provider_name="OpenAI",
             base_url="https://api.nainai.love/v1",
         )
     )
-    verified = gpt55_release_assessment()
+    verified = gpt56_release_assessment("gpt-5.6-sol")
     unverified = unverified_capability_assessment(
-        model_id="gpt-5.5",
-        model_name="gpt-5.5",
+        model_id="gpt-5.6-sol",
+        model_name="gpt-5.6-sol",
         base_url="https://api.nainai.love/v1",
         generation_api=GenerationAPI.CHAT_COMPLETIONS,
     )
 
     with pytest.raises(DataServiceValidationError, match="not derived"):
         await service.update_capability_assessment(
-            "gpt-5.5",
+            "gpt-5.6-sol",
             profile=verified.profile,
             evidence=unverified.evidence,
         )

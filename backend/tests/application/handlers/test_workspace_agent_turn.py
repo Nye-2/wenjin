@@ -20,7 +20,7 @@ async def test_requested_model_failure_is_not_silently_switched() -> None:
     thread = SimpleNamespace(
         id="thread-1",
         workspace_id="workspace-1",
-        model="gpt-5.5",
+        model="gpt-5.6-sol",
     )
     with patch(
         "src.application.handlers.thread_turn_handler.route_chat_model",

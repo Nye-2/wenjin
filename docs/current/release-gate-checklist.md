@@ -60,7 +60,7 @@ Generation probe:
 
 ```bash
 cd backend
-.venv/bin/python -m src.models.capability_probe --model-id gpt-5.5
+.venv/bin/python -m src.models.capability_probe --model-id gpt-5.6-sol
 ```
 
 Release requires current evidence for strict tool calls, schema-valid arguments, clean Chat Completions stream completion, `store=false`, and xhigh effort.
@@ -83,7 +83,7 @@ HTTP 200, prose that mentions sources, or a completed event without receipts is 
 - sandbox image digest and production attestations are real, not placeholders;
 - readiness checks DataService, Redis, task backend, and sandbox;
 - admin analytics reads `mission-stats`;
-- GPT-5.5 is the only enabled default LLM.
+- GPT-5.6 Sol, Terra, and Luna are the only enabled LLMs; Terra is the sole default.
 
 ## Browser acceptance
 

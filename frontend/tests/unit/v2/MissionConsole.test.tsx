@@ -5,8 +5,9 @@ import { MissionConsole } from "@/app/(workbench)/workspaces/[id]/components/mis
 import type { MissionView } from "@/lib/api/mission-types";
 import { useMissionUiStore } from "@/stores/mission-ui-store";
 
-const { decideMissionReviewsMock, listMissionEvidenceMock, listMissionArtifactsMock } = vi.hoisted(() => ({
+const { decideMissionReviewsMock, getMissionReviewPreviewMock, listMissionEvidenceMock, listMissionArtifactsMock } = vi.hoisted(() => ({
   decideMissionReviewsMock: vi.fn(),
+  getMissionReviewPreviewMock: vi.fn(),
   listMissionEvidenceMock: vi.fn(),
   listMissionArtifactsMock: vi.fn(),
 }));
@@ -16,6 +17,7 @@ vi.mock("@/lib/api/missions", async () => {
   return {
     ...actual,
     decideMissionReviews: decideMissionReviewsMock,
+    getMissionReviewPreview: getMissionReviewPreviewMock,
     listMissionEvidence: listMissionEvidenceMock,
     listMissionArtifacts: listMissionArtifactsMock,
     listMissionItems: vi.fn().mockResolvedValue({ items: [{ id: "i-1", missionId: "mission-1", seq: 1, itemType: "evidence", phase: "completed", summary: "找到一篇可核验论文", createdAt: "2026-07-11T00:00:00Z" }], nextCursor: null }),
@@ -31,7 +33,7 @@ function makeView(): MissionView {
     teamSummary: "按方法、评测和隐私三个侧面并行推进",
     subagents: [{ id: "s-1", name: "严谨派阿澈", role: "方法与实验审校", status: "working", summary: "核对 Non-IID 设定" }],
     evidenceItems: [], artifactItems: [], evidenceCount: 0, artifactCount: 0,
-    reviewItems: [{ id: "r-1", title: "可写创新点", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false, requiresExplicitReview: true, reasonLabel: "涉及核心论断，需要逐项确认", preview: { claim: "异构性与自适应秩聚合存在可验证关联" } } as MissionView["reviewItems"][number] & { requiresExplicitReview: boolean }],
+    reviewItems: [{ id: "r-1", title: "可写创新点", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false, requiresExplicitReview: true, previewAvailable: false, reasonLabel: "涉及核心论断，需要逐项确认", preview: { claim: "异构性与自适应秩聚合存在可验证关联" } }],
     reviewSummary: { pending: 1, needsMoreEvidence: 0, accepted: 0, committed: 0 }, reviewMode: "balanced_default", reviewPolicy: { protectedOutputsRequireConfirmation: true, draftOutputsMayBeAutomatic: true }, reviewSelectionRevision: 1,
     commitSummary: { pending: 0, applying: 0, committed: 0, failed: 0 }, qualityHighlights: [], lastItemSeq: 4, stateVersion: 2,
   };
@@ -43,6 +45,10 @@ describe("MissionConsole", () => {
     useMissionUiStore.getState().clearWorkspaceFocus();
     useMissionUiStore.getState().focusMission("mission-1", "progress");
     decideMissionReviewsMock.mockResolvedValue(makeView());
+    getMissionReviewPreviewMock.mockResolvedValue({
+      blob: new Blob(["visual"], { type: "image/png" }),
+      mimeType: "image/png",
+    });
     listMissionEvidenceMock.mockResolvedValue({
       items: [{ id: "ev-2", title: "后续核验证据", sourceType: "paper", verified: true }],
       nextCursor: null,
@@ -80,6 +86,114 @@ describe("MissionConsole", () => {
       reviewSelectionRevision: 1,
       decisions: [{ reviewItemId: "r-1", decision: "rejected" }],
     }));
+  });
+
+  it("renders document preview bodies as markdown instead of raw transport JSON", () => {
+    const view = makeView();
+    view.reviewItems[0].preview = {
+      body: "# 问题理解\n\n这是可复核的任务正文。",
+      format: "markdown",
+      title: "建模问题简报",
+    };
+
+    render(<MissionConsole view={view} onClose={() => undefined} onViewChange={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    fireEvent.click(screen.getByText("查看内容预览"));
+
+    expect(screen.getByRole("heading", { name: "问题理解" })).toBeInTheDocument();
+    expect(screen.getByText("这是可复核的任务正文。")).toBeInTheDocument();
+    expect(screen.queryByText(/\"format\": \"markdown\"/)).not.toBeInTheDocument();
+  });
+
+  it("loads authenticated academic visual candidates and keeps preview refs private", async () => {
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:visual-review");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const view = makeView();
+    view.reviewItems[0] = {
+      ...view.reviewItems[0],
+      title: "Non-IID 客户端性能对比",
+      previewAvailable: true,
+      previewUrl: "/api/missions/mission-1/review-items/r-1/preview",
+      preview: {
+        artifact_kind: "chart",
+        mime_type: "image/png",
+        figure_type: "grouped_bar",
+        strategy: "matplotlib",
+        evidence_level: "evidence",
+        caption: "不同异构程度下的客户端准确率。",
+        alt_text: "三组柱状图比较不同方法准确率",
+        renderer_id: "matplotlib-3.10",
+        source_refs: ["results.csv"],
+        reproducibility_status: "verified",
+      },
+      visual: {
+        artifactKind: "chart",
+        mimeType: "image/png",
+        figureType: "grouped_bar",
+        strategy: "matplotlib",
+        evidenceLevel: "evidence",
+        caption: "不同异构程度下的客户端准确率。",
+        altText: "三组柱状图比较不同方法准确率",
+        rendererId: "matplotlib-3.10",
+        sourceLabels: ["results.csv"],
+        reproducibilityStatus: "verified",
+      },
+    };
+
+    const { unmount } = render(<MissionConsole view={view} onClose={() => undefined} onViewChange={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+
+    await waitFor(() => expect(screen.getByRole("img", { name: "三组柱状图比较不同方法准确率" })).toHaveAttribute("src", "blob:visual-review"));
+    expect(getMissionReviewPreviewMock).toHaveBeenCalledWith({ missionId: "mission-1", reviewItemId: "r-1" });
+    expect(screen.getByText(/Matplotlib/)).toBeInTheDocument();
+    expect(screen.getByText(/来源：results.csv/)).toBeInTheDocument();
+    expect(screen.getByText(/复现：已验证/)).toBeInTheDocument();
+    expect(screen.queryByText(/mission-previews\/private/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "放大视觉预览" }));
+    expect(screen.getByRole("button", { name: "缩小视觉预览" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "在新窗口查看" }));
+    expect(open).toHaveBeenCalledWith("blob:visual-review", "_blank", "noopener,noreferrer");
+
+    unmount();
+    expect(createObjectUrl).toHaveBeenCalled();
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:visual-review");
+  });
+
+  it("offers a safe open action for PDF visual candidates", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:visual-pdf");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    getMissionReviewPreviewMock.mockResolvedValueOnce({
+      blob: new Blob(["pdf"], { type: "application/pdf" }),
+      mimeType: "application/pdf",
+    });
+    const view = makeView();
+    view.reviewItems[0] = {
+      ...view.reviewItems[0],
+      previewAvailable: true,
+      previewUrl: "/api/missions/mission-1/review-items/r-1/preview",
+      visual: {
+        artifactKind: "figure",
+        mimeType: "application/pdf",
+        figureType: "mechanism_schematic",
+        strategy: "graphviz",
+        evidenceLevel: "explanatory",
+        caption: null,
+        altText: null,
+        rendererId: "tectonic",
+        sourceLabels: [],
+        reproducibilityStatus: "complete",
+      },
+    };
+
+    render(<MissionConsole view={view} onClose={() => undefined} onViewChange={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    const viewPdf = await screen.findByRole("button", { name: "查看 PDF 预览" });
+    fireEvent.click(viewPdf);
+    expect(open).toHaveBeenCalledWith("blob:visual-pdf", "_blank", "noopener,noreferrer");
+    expect(screen.queryByText(/mission-previews\/private/)).not.toBeInTheDocument();
   });
 
   it("loads additional evidence and artifacts from their projection cursors", async () => {

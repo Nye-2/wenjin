@@ -81,7 +81,7 @@ def _context() -> ToolInvocationContext:
         caller_id="agent-1",
         caller_kind=ToolCallerKind.WORKSPACE_AGENT,
         lease_epoch=7,
-        model_id="gpt-5.5",
+        model_id="gpt-5.6-sol",
         input_refs=("mission-item:source-1",),
     )
 
@@ -312,7 +312,7 @@ async def test_model_selection_is_part_of_operation_identity() -> None:
         context=_context(),
         policy=_policy("test.read"),
     )
-    second_context = _context().model_copy(update={"model_id": "gpt-5.5-review"})
+    second_context = _context().model_copy(update={"model_id": "gpt-5.6-sol-review"})
     second = await orchestrator.invoke(
         "test.read",
         {"value": 1},
@@ -580,6 +580,43 @@ async def test_verified_result_satisfying_descriptor_provenance_remains_verified
     orchestrator, _journal = _orchestrator(
         handler,
         provenance_requirements=("workspace_scope", "mission_receipt", "evidence_refs"),
+    )
+    outcome = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=_context(),
+        policy=_policy("test.read"),
+    )
+
+    assert outcome.status is ToolOutcomeStatus.SUCCESS
+    assert outcome.verification_status is VerificationStatus.VERIFIED
+
+
+@pytest.mark.asyncio
+async def test_verified_academic_visual_requires_typed_v2_manifest() -> None:
+    async def handler(_operation, _arguments):
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary="Visual candidate attached.",
+            artifact_refs=(
+                ToolReference(
+                    ref_id="academic-visual:1",
+                    kind="academic_visual_candidate",
+                    metadata={
+                        "candidate": {
+                            "review_preview_ref": "mpv1_abcdefghijklmnopqrstuvwxyzABCDEF",
+                            "preview_hash": "a" * 64,
+                        },
+                        "manifest": {"schema": "wenjin.figure_generation.artifact.v2"},
+                    },
+                ),
+            ),
+            verification_status=VerificationStatus.VERIFIED,
+        )
+
+    orchestrator, _journal = _orchestrator(
+        handler,
+        provenance_requirements=("visual_manifest",),
     )
     outcome = await orchestrator.invoke(
         "test.read",

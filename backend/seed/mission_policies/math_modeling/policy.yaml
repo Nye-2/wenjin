@@ -44,13 +44,13 @@ stage_contract_refs:
   - {contract_id: math_modeling_solution.question_solution_validation, schema_version: stage_acceptance_contract.v1, sha256: 7d92f646f3231e83a7eaf7894464853e259ba42e60d0d78f9e5cecb12d120e6e}
   - {contract_id: math_modeling_solution.paper_integration, schema_version: stage_acceptance_contract.v1, sha256: 766c6cb2974704333f941e26dea2f4487abd84554d84f68412f7bd2f30773ee2}
 tool_policy:
-  allowed_tool_groups: [workspace_read, sandbox_compute, artifact_render, source_import, draft_stage]
+  allowed_tool_groups: [workspace_read, sandbox_compute, artifact_render, academic_visual_render, source_import, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell, synthetic_data_figure]
-allowed_worker_skills: [task-scope-planner, methodology-designer, experiment-analyst, reproducibility-auditor, figure-table-engineer, manuscript-writer, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, methodology-designer, experiment-analyst, reproducibility-auditor, academic-visual-engineer, manuscript-writer, compliance-reviewer, quality-critic]
 review_policy:
   default_mode: balanced_default
   allowed_modes: [review_all, balanced_default, auto_draft]
-  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory]
+  non_bypassable_risks: [citation, claim, evidence, statistics, reproducibility, prism_structure, patent_claim, long_term_memory, visual_output]
 sandbox_policy_ref: {policy_id: sandbox.math_modeling, version: 1}
 examples:
   - example_id: math_modeling.question_solution.excellent.v1

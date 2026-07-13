@@ -132,7 +132,7 @@ def _mission_payload(
         "status": status,
         "review_mode": "balanced_default",
         "active_stage_id": None,
-        "model_id": "gpt-5.5",
+        "model_id": "gpt-5.6-sol",
         "reasoning_effort": "xhigh",
         "snapshot_json": {},
         "runtime_context_json": {},

@@ -25,12 +25,12 @@ def test_compose_runs_one_healthy_celery_beat_scheduler() -> None:
     assert services["gateway"]["depends_on"]["celery-beat"]["condition"] == "service_healthy"
 
 
-def test_mission_worker_health_requires_validated_canonical_profile() -> None:
+def test_mission_worker_health_requires_validated_gpt56_default_profile() -> None:
     mission_worker = _compose("docker-compose.yml")["services"]["mission-worker"]
 
     assert "--require-mission-model-profile" in mission_worker["command"]
     health_command = mission_worker["healthcheck"]["test"][1]
-    assert "gpt-5.5" in health_command
+    assert "gpt-5\\.6-(sol|terra|luna)" in health_command
     assert "/tmp/wenjin-worker-ready" in health_command
     assert "/metrics" in health_command
 

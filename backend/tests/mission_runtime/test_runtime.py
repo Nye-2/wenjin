@@ -587,3 +587,26 @@ async def test_transient_model_timeout_yields_with_backoff_without_failing(runti
         item for item in deps["store"].items[receipt.mission_id] if item.item_type == "error"
     )
     assert error.payload_json["recoverable"] is True
+
+
+@pytest.mark.asyncio
+async def test_transient_provider_server_error_yields_with_backoff_without_failing(runtime_factory) -> None:
+    class ProviderServerError(Exception):
+        status_code = 502
+
+    def unavailable(_context):
+        raise ProviderServerError("upstream temporarily unavailable")
+
+    runtime, deps = runtime_factory(agent=ScriptedAgent([unavailable]))
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+
+    assert result.outcome == MissionSliceOutcome.YIELDED
+    assert run is not None and run.status.value == "running"
+    assert run.next_wakeup_at == deps["clock"].now() + timedelta(seconds=5)
+    assert run.snapshot_json["loop_guard"] == {
+        "consecutive_failures": 0,
+        "transient_failures": 1,
+    }

@@ -25,7 +25,7 @@ dependencies = [
     "redis>=5.0.0",
     "pyyaml>=6.0.0",
     "python-multipart>=0.0.17",
-    "httpx>=0.28.0",
+    "httpx[socks]>=0.28.0",
     "httpx-sse>=0.4.0",
     "tenacity>=9.0.0",
     # Task queue
@@ -34,6 +34,7 @@ dependencies = [
     # Academic dependencies
     "semanticscholar>=0.4.0",
     "pymupdf>=1.24.0",
+    "pillow>=11.3.0",
     "arxiv>=2.1.0",
     "langchain-text-splitters>=0.3.0",
     "tiktoken>=0.8.0",

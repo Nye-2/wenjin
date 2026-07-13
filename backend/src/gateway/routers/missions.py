@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -21,13 +24,16 @@ from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps.core import get_dataservice_client
 from src.permission_runtime.contracts import PermissionDecision
 from src.permission_runtime.runtime import PermissionRuntime
+from src.review_commit_runtime.composition import (
+    build_review_commit_runtime,
+    get_mission_preview_store,
+)
 from src.review_commit_runtime.contracts import ReviewAction, ReviewDecision
-from src.review_commit_runtime.materializer import MissionDomainWriter
 from src.review_commit_runtime.membership import (
     DataServiceMembershipAuthorizer,
     require_owned_mission,
 )
-from src.review_commit_runtime.runtime import ReviewCommitRuntime
+from src.review_commit_runtime.preview_store import MissionPreviewStore
 from src.services.mission_runtime_service import MissionRuntimeService, build_mission_runtime
 
 router = APIRouter(tags=["missions"])
@@ -108,11 +114,7 @@ MissionAction = Annotated[
 async def _mission_runtime_service(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> MissionRuntimeService:
-    review_commit = ReviewCommitRuntime(
-        missions=dataservice.missions,
-        target_writer=MissionDomainWriter(dataservice),
-        membership=DataServiceMembershipAuthorizer(dataservice),
-    )
+    review_commit = build_review_commit_runtime(dataservice)
     return MissionRuntimeService(
         await build_mission_runtime(dataservice),
         dataservice=dataservice,
@@ -258,7 +260,15 @@ async def get_mission_view(
     view = await dataservice.missions.get_view(mission_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Mission not found")
-    return view.model_dump(mode="json")
+    payload = view.model_dump(mode="json")
+    for item in payload.get("review_items", []):
+        has_binary_preview = bool(item.pop("preview_ref", None))
+        item["preview_url"] = (
+            f"/api/missions/{mission_id}/review-items/{item['review_item_id']}/preview"
+            if has_binary_preview
+            else None
+        )
+    return payload
 
 
 @router.get("/workspaces/{workspace_id}/missions")
@@ -349,6 +359,70 @@ async def list_mission_trace_items(
     }
 
 
+@router.get("/missions/{mission_id}/review-items/{review_item_id}/preview")
+async def get_mission_review_preview(
+    mission_id: str,
+    review_item_id: str,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+    preview_store: MissionPreviewStore = Depends(get_mission_preview_store),
+) -> Response:
+    run = await _owned_run(
+        mission_id,
+        user_id=str(current_user.id),
+        dataservice=dataservice,
+    )
+    review_items = await dataservice.missions.list_review_items(mission_id)
+    item = next((candidate for candidate in review_items if candidate.review_item_id == review_item_id), None)
+    if item is None or item.preview_ref is None:
+        raise HTTPException(status_code=404, detail="Mission preview not found")
+    if item.preview_expires_at is not None and item.preview_expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=410, detail="Mission preview expired")
+    metadata_hash = hashlib.sha256(
+        json.dumps(
+            item.preview_json,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if not item.preview_hash or not hmac.compare_digest(metadata_hash, item.preview_hash):
+        raise HTTPException(status_code=409, detail="Mission preview integrity check failed")
+    try:
+        preview = await preview_store.read(item.preview_ref, workspace_id=run.workspace_id)
+    except (LookupError, PermissionError):
+        raise HTTPException(status_code=404, detail="Mission preview not found") from None
+    except ValueError as exc:
+        code = str(exc)
+        if code == "review_preview_expired":
+            raise HTTPException(status_code=410, detail="Mission preview expired") from exc
+        raise HTTPException(status_code=409, detail="Mission preview integrity check failed") from exc
+
+    descriptor = preview.descriptor
+    materialization = dict(item.preview_json.get("materialization") or {})
+    payload = dict(materialization.get("payload") or {})
+    expected_hash = str(payload.get("content_hash") or item.preview_json.get("content_hash") or "")
+    expected_mime = str(payload.get("mime_type") or item.preview_json.get("mime_type") or "")
+    if expected_hash and not hmac.compare_digest(expected_hash, descriptor.content_hash):
+        raise HTTPException(status_code=409, detail="Mission preview integrity check failed")
+    if expected_mime and expected_mime != descriptor.mime_type:
+        raise HTTPException(status_code=409, detail="Mission preview integrity check failed")
+    encoded_filename = quote(descriptor.filename)
+    return Response(
+        content=preview.content,
+        media_type=descriptor.mime_type,
+        headers={
+            "Cache-Control": "private, no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "ETag": f'"{descriptor.content_hash}"',
+            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}",
+            "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.post("/missions/{mission_id}/actions")
 async def act_on_mission(
     mission_id: str,
@@ -433,11 +507,7 @@ async def decide_mission_review_items(
     current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
-    runtime = ReviewCommitRuntime(
-        missions=dataservice.missions,
-        target_writer=MissionDomainWriter(dataservice),
-        membership=DataServiceMembershipAuthorizer(dataservice),
-    )
+    runtime = build_review_commit_runtime(dataservice)
     result = await runtime.decide(
         mission_id,
         actor_user_id=str(current_user.id),
@@ -455,11 +525,7 @@ async def commit_mission_review_items(
     current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
-    runtime = ReviewCommitRuntime(
-        missions=dataservice.missions,
-        target_writer=MissionDomainWriter(dataservice),
-        membership=DataServiceMembershipAuthorizer(dataservice),
-    )
+    runtime = build_review_commit_runtime(dataservice)
     result = await runtime.commit_many(
         mission_id,
         actor_user_id=str(current_user.id),

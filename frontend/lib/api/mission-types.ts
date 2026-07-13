@@ -68,6 +68,21 @@ export interface MissionArtifactView {
   committed: boolean;
 }
 
+export type MissionVisualArtifactKind = "figure" | "chart" | "table";
+
+export interface MissionVisualReviewMetadata {
+  artifactKind: MissionVisualArtifactKind;
+  mimeType: string | null;
+  figureType: string | null;
+  strategy: string | null;
+  evidenceLevel: string | null;
+  caption: string | null;
+  altText: string | null;
+  rendererId: string | null;
+  reproducibilityStatus: string | null;
+  sourceLabels: string[];
+}
+
 export interface MissionReviewItemView {
   id: string;
   title: string;
@@ -77,9 +92,18 @@ export interface MissionReviewItemView {
   status: MissionReviewStatus;
   suggestedSelected: boolean;
   batchAcceptable: boolean;
+  requiresExplicitReview: boolean;
   reasonLabel?: string | null;
   preview?: Record<string, unknown> | null;
+  previewAvailable: boolean;
+  previewUrl?: string | null;
+  visual?: MissionVisualReviewMetadata | null;
   commitStatus?: MissionCommitStatus | null;
+}
+
+export interface MissionReviewPreviewFile {
+  blob: Blob;
+  mimeType: string;
 }
 
 export interface MissionReviewSummary {

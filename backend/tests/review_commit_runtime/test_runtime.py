@@ -16,6 +16,9 @@ from src.dataservice_client.contracts.mission import (
 )
 from src.review_commit_runtime.contracts import (
     CommitOutcome,
+    MaterializationReceipt,
+    PreviewObject,
+    PreviewObjectDescriptor,
     ReviewAction,
     ReviewDecision,
     TargetSnapshot,
@@ -40,7 +43,7 @@ def _run(*, version: int = 1) -> MissionRunPayload:
         objective="Research well",
         status="completed",
         review_mode="balanced_default",
-        model_id="gpt-5.5",
+        model_id="gpt-5.6-sol",
         reasoning_effort="xhigh",
         pending_review_count=2,
         evidence_count=0,
@@ -327,3 +330,83 @@ async def test_domain_writer_attaches_mission_commit_provenance() -> None:
     assert command.source_mission_item_seq == 1
     assert command.source_mission_commit_id == "commit-1"
     assert receipt.provenance["mission_commit_id"] == "commit-1"
+
+
+@pytest.mark.asyncio
+async def test_external_preview_is_verified_and_deleted_after_successful_commit() -> None:
+    item = _item("item-1", status="accepted", kind="workspace_asset")
+    item.preview_ref = "mpv1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    item.preview_json = {
+        "materialization": {
+            "operation": "assets.create_from_preview",
+            "payload": {"content_hash": "a" * 64, "mime_type": "image/png"},
+        }
+    }
+    item.preview_hash = hashlib.sha256(
+        json.dumps(item.preview_json, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    now = datetime.now(UTC)
+    pending_commit = MissionCommitPayload(
+        commit_id="commit-1",
+        mission_id="mission-1",
+        review_item_id="item-1",
+        commit_key="commit-key",
+        status="pending",
+        actor_user_id="user-1",
+        attempt_count=0,
+        created_at=now,
+    )
+    committed = pending_commit.model_copy(update={"status": "committed", "attempt_count": 1})
+    missions = SimpleNamespace(
+        get=AsyncMock(return_value=_run()),
+        list_review_items=AsyncMock(return_value=[item]),
+        commit=AsyncMock(
+            return_value=SimpleNamespace(mission=_run(version=2), commit=pending_commit)
+        ),
+        start_commit=AsyncMock(),
+        finish_commit=AsyncMock(return_value=SimpleNamespace(commit=committed)),
+    )
+    preview_store = SimpleNamespace(
+        read=AsyncMock(
+            return_value=PreviewObject(
+                descriptor=PreviewObjectDescriptor(
+                    ref=item.preview_ref,
+                    workspace_id="workspace-1",
+                    content_hash="a" * 64,
+                    mime_type="image/png",
+                    filename="figure.png",
+                    size_bytes=8,
+                    created_at=now,
+                    expires_at=now + timedelta(hours=1),
+                ),
+                content=b"png-data",
+            )
+        ),
+        delete=AsyncMock(),
+    )
+    writer = SimpleNamespace(
+        read_target=AsyncMock(return_value=TargetSnapshot()),
+        apply=AsyncMock(
+            return_value=MaterializationReceipt(
+                target_ref="asset-1",
+                content_hash="a" * 64,
+            )
+        ),
+    )
+    runtime = ReviewCommitRuntime(
+        missions=missions,
+        target_writer=writer,
+        membership=_membership(),
+        preview_store=preview_store,
+    )
+
+    outcome = await runtime.commit_one(
+        "mission-1",
+        actor_user_id="user-1",
+        review_item_id="item-1",
+        commit_key="commit-key",
+    )
+
+    assert outcome.committed is True
+    preview_store.read.assert_awaited_once_with(item.preview_ref, workspace_id="workspace-1")
+    preview_store.delete.assert_awaited_once_with(item.preview_ref, workspace_id="workspace-1")

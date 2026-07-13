@@ -41,6 +41,12 @@ class ResponsesSearchSSEParser:
             self._event_name = value.strip()
         elif field == "data":
             self._data_lines.append(value)
+            if self._event_name == "response.completed":
+                try:
+                    json.loads("\n".join(self._data_lines))
+                except json.JSONDecodeError:
+                    return None
+                return self._dispatch()
         return None
 
     def finish(self) -> dict[str, Any]:

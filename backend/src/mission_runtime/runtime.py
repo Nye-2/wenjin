@@ -1761,6 +1761,9 @@ def _collect_ref_values(value: Any, key: str, target: list[str]) -> None:
 
 
 def _is_transient_agent_failure(exc: BaseException) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int) and (status_code in {408, 409, 429} or status_code >= 500):
+        return True
     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
         return True
     return type(exc).__name__ in {

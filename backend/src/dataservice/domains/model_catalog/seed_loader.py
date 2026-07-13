@@ -10,7 +10,11 @@ from typing import Any
 
 from src.config.llm_config import ModelConfig
 from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
-from src.models.capability_profile import GenerationAPI, gpt55_release_assessment
+from src.models.capability_profile import (
+    GPT56_RELEASE_MODEL_IDS,
+    GenerationAPI,
+    gpt56_release_assessment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -152,12 +156,12 @@ class DataServiceModelCatalogSeedLoader:
 def _release_assessment_for_seed(seed: dict[str, Any]):
     if (
         seed.get("category") == "llm"
-        and seed.get("model_id") == "gpt-5.5"
-        and seed.get("model_name") == "gpt-5.5"
+        and seed.get("model_id") in GPT56_RELEASE_MODEL_IDS
+        and seed.get("model_name") == seed.get("model_id")
         and str(seed.get("base_url") or "").rstrip("/")
         == "https://api.nainai.love/v1"
         and str(seed.get("generation_api") or "")
         == GenerationAPI.CHAT_COMPLETIONS.value
     ):
-        return gpt55_release_assessment()
+        return gpt56_release_assessment(str(seed["model_id"]))
     return None

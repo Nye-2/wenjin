@@ -483,6 +483,16 @@ def _enforce_provenance_requirements(
         "source_refs": bool(result.source_refs)
         or any(bool(ref.metadata.get("source_refs")) for ref in result.artifact_refs),
         "artifact_refs": bool(result.artifact_refs),
+        "visual_manifest": any(
+            ref.kind == "academic_visual_candidate"
+            and isinstance(ref.metadata.get("candidate"), dict)
+            and isinstance(ref.metadata.get("manifest"), dict)
+            and ref.metadata["manifest"].get("schema")
+            == "wenjin.figure_generation.artifact.v2"
+            and bool(ref.metadata["candidate"].get("review_preview_ref"))
+            and bool(ref.metadata["candidate"].get("preview_hash"))
+            for ref in result.artifact_refs
+        ),
         "provider_web_search_call": any(
             ref.kind == "provider_search_receipt"
             and bool(ref.metadata.get("response_id"))
