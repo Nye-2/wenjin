@@ -1252,6 +1252,7 @@ class MissionRuntime:
                 "last_error": {
                     "operation_id": operation_id,
                     "error_type": type(exc).__name__,
+                    "detail": str(exc)[:500],
                 },
                 "next_actions": ["replan_after_operation_failure"],
             },
@@ -1266,7 +1267,10 @@ class MissionRuntime:
                     stage_id=decision.stage_id,
                     producer=producer,
                     summary=summary,
-                    payload_json={"error_type": type(exc).__name__},
+                    payload_json={
+                        "error_type": type(exc).__name__,
+                        "detail": str(exc)[:500],
+                    },
                 )
             ],
             snapshot=snapshot,
