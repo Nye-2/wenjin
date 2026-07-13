@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
+from copy import deepcopy
 from time import monotonic
 from typing import Any, Literal, Protocol, cast
 
@@ -21,6 +22,7 @@ from src.contracts.stage_acceptance import (
     StageAcceptanceResult,
     StageAssessmentInput,
     StageProgressState,
+    stage_id_matches_contract,
 )
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
@@ -926,7 +928,12 @@ def _subagent_jobs(
             "allowed_tools": allowed_tools,
             "tool_input_schemas": input_schema_resolver(allowed_tools),
             "worker_skill": dict(skill_contract),
-            "output_schema": dict(skill_contract.get("output_contract") or {}),
+            "output_schema": _specialized_worker_output_schema(
+                request.mission,
+                stage_id=request.stage_id,
+                role_label=role,
+                output_schema=skill_contract.get("output_contract"),
+            ),
             "exit_criteria": tuple(
                 str(item) for item in skill_contract.get("quality_focus") or ()
             ),
@@ -945,6 +952,51 @@ def _subagent_jobs(
             )
         )
     return tuple(jobs)
+
+
+def _specialized_worker_output_schema(
+    mission: MissionRunPayload,
+    *,
+    stage_id: str | None,
+    role_label: str,
+    output_schema: object,
+) -> dict[str, Any]:
+    schema = deepcopy(output_schema) if isinstance(output_schema, dict) else {}
+    properties = schema.get("properties")
+    if stage_id is None or not isinstance(properties, dict):
+        return schema
+    criterion_schema = properties.get("criterion_ids")
+    reviewer_schema = properties.get("reviewer_role")
+    if not isinstance(criterion_schema, dict) and not isinstance(reviewer_schema, dict):
+        return schema
+
+    raw_contracts = mission.runtime_context_json.get("stage_contracts")
+    if not isinstance(raw_contracts, dict):
+        raise ValueError("reviewer subagent requires pinned stage contracts")
+    contracts = tuple(
+        StageAcceptanceContract.model_validate(raw)
+        for raw in raw_contracts.values()
+    )
+    contract = next(
+        (item for item in contracts if stage_id_matches_contract(item, stage_id)),
+        None,
+    )
+    if contract is None:
+        raise ValueError("reviewer subagent stage is outside the pinned stage contracts")
+    if role_label not in contract.reviewer_roles:
+        raise ValueError("reviewer subagent role is outside the pinned stage contract")
+
+    if isinstance(reviewer_schema, dict):
+        reviewer_schema["enum"] = [role_label]
+    if isinstance(criterion_schema, dict):
+        item_schema = criterion_schema.get("items")
+        if not isinstance(item_schema, dict):
+            raise ValueError("reviewer criterion_ids schema must declare item constraints")
+        item_schema["enum"] = [
+            criterion.criterion_id
+            for criterion in (*contract.minimum_criteria, *contract.excellent_criteria)
+        ]
+    return schema
 
 
 def _latest_stage_results(snapshot: dict[str, Any]) -> dict[str, StageAcceptanceResult]:

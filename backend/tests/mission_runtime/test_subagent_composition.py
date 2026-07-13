@@ -39,12 +39,14 @@ class _CompletingWorkerModel:
         self.scopes: list[dict] = []
         self.tool_input_schemas: list[dict] = []
         self.context_budgets: list[int] = []
+        self.output_schemas: list[dict] = []
 
     async def next_action(self, job, steps, tool_results):
         self.calls += 1
         self.scopes.append(job.input_scope)
         self.tool_input_schemas.append(job.tool_input_schemas)
         self.context_budgets.append(job.budget.max_context_bytes)
+        self.output_schemas.append(job.output_schema)
         return SubagentAction(
             kind="complete",
             summary="Facet evidence is ready",
@@ -76,6 +78,27 @@ class _NoSubagentTools:
 class _FailIfCalledWorkerModel:
     async def next_action(self, job, steps, tool_results):
         raise AssertionError(f"durable result was not adopted for {job.job_id}")
+
+
+class _ReviewingWorkerModel(_CompletingWorkerModel):
+    async def next_action(self, job, steps, tool_results):
+        self.calls += 1
+        self.output_schemas.append(job.output_schema)
+        return SubagentAction(
+            kind="complete",
+            summary="Pinned review is ready",
+            result_json={
+                "summary": "The candidate meets the pinned criterion.",
+                "evidence_refs": [],
+                "artifact_refs": [],
+                "warnings": [],
+                "reviewer_role": "problem_parser_reviewer",
+                "verdict": "pass",
+                "criterion_ids": ["question_inventory"],
+                "reviewed_candidate_refs": ["review-item-1"],
+                "note": "The question inventory is complete.",
+            },
+        )
 
 
 def _spawn_decision() -> MissionAgentDecision:
@@ -231,6 +254,124 @@ async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
         }
     ]
     assert model.context_budgets == [24_000]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_output_schema_is_specialized_from_stage_contract(
+    runtime_factory,
+) -> None:
+    model = _ReviewingWorkerModel()
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    runtime.subagents = MissionSubagentRuntimeAdapter(
+        store=deps["store"],
+        model=model,
+        tools=_NoSubagentTools(),  # type: ignore[arg-type]
+        monotonic_clock=deps["clock"].monotonic,
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "tool_policy": {"allowed_tool_ids": []},
+                "stage_contracts": {
+                    "problem_understanding": {
+                        "schema_version": "stage_acceptance_contract.v1",
+                        "contract_id": "math.problem_understanding",
+                        "version": 1,
+                        "mission_policy_id": "sci_research",
+                        "workspace_type": "sci",
+                        "stage_id": "problem_understanding",
+                        "stage_goal": "Understand the supplied problem.",
+                        "minimum_criteria": [
+                            {
+                                "criterion_id": "question_inventory",
+                                "description": "Every requested question is identified.",
+                            }
+                        ],
+                        "reviewer_roles": ["problem_parser_reviewer"],
+                        "allowed_actions_if_failed": [
+                            "revise_existing",
+                            "stop_execution",
+                        ],
+                        "advance_condition": "The inventory passes.",
+                        "stop_condition": "The problem cannot be parsed.",
+                    }
+                },
+                "worker_skill_snapshots": {
+                    "quality-critic": {
+                        "content_hash": "b" * 64,
+                        "contract": {
+                            "id": "quality-critic",
+                            "output_contract": {
+                                "type": "object",
+                                "required": [
+                                    "summary",
+                                    "evidence_refs",
+                                    "artifact_refs",
+                                    "warnings",
+                                    "reviewer_role",
+                                    "verdict",
+                                    "criterion_ids",
+                                    "reviewed_candidate_refs",
+                                    "note",
+                                ],
+                                "properties": {
+                                    "summary": {"type": "string"},
+                                    "evidence_refs": {"type": "array"},
+                                    "artifact_refs": {"type": "array"},
+                                    "warnings": {"type": "array"},
+                                    "reviewer_role": {"type": "string"},
+                                    "verdict": {
+                                        "type": "string",
+                                        "enum": ["pass", "revise"],
+                                    },
+                                    "criterion_ids": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "reviewed_candidate_refs": {"type": "array"},
+                                    "note": {"type": "string"},
+                                },
+                            },
+                            "quality_focus": ["Return a bounded review"],
+                        },
+                        "allowed_tool_ids": [],
+                    }
+                },
+            }
+        )
+    )
+    current = await deps["store"].get(receipt.mission_id)
+    assert current is not None
+    claimed = await deps["store"].claim_lease(
+        receipt.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=current.state_version,
+            ttl_seconds=120,
+        ),
+    )
+
+    outcome = await runtime.subagents.run(
+        SubagentExecutionRequest(
+            mission=claimed,
+            operation_id="specialized-review",
+            task_summary="Review the problem inventory",
+            stage_id="problem_understanding",
+            input_scope={
+                "display_name": "题意复核员",
+                "role_label": "problem_parser_reviewer",
+                "worker_skill_id": "quality-critic",
+                "selected_refs": ["review-item-1"],
+            },
+            frozen_context=SubagentFrozenContext(),
+            deadline_monotonic=deps["clock"].monotonic() + 30,
+        )
+    )
+
+    assert outcome.status.value == "completed"
+    properties = model.output_schemas[0]["properties"]
+    assert properties["reviewer_role"]["enum"] == ["problem_parser_reviewer"]
+    assert properties["criterion_ids"]["items"]["enum"] == ["question_inventory"]
 
 
 @pytest.mark.asyncio
