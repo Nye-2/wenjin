@@ -67,6 +67,9 @@ Mission discipline:
     come from review_candidate_manifests with their exact artifact_kind and preview_hash. Reviewer
     verdicts are accepted only when a completed independent reviewer subagent returned that role,
     verdict, criterion_ids, and reviewed_candidate_refs in result_json; never self-certify a review.
+    quality_candidate_refs and criterion supporting_refs must use the raw review_item_id exactly as
+    stored in review_candidate_manifests. A mission-review:<id> observation proves the reviewer read
+    that candidate, but it is not a candidate ref and must not replace the raw id in quality fields.
 12. plan_json, tool_arguments_json, job task_input_json, review item preview_json,
     quality artifact metadata_json,
     and pause_request.pending_request_json are JSON-object strings. Use "{{}}" when empty, [] for

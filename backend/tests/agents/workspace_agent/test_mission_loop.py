@@ -118,6 +118,8 @@ def test_mission_prompt_projects_canonical_tool_schema_and_source_boundary() -> 
     assert "canonical_tool_contracts" in prompt
     assert '"citation_key"' in prompt
     assert '"verification_ref"' in prompt
+    assert "raw review_item_id" in prompt
+    assert "mission-review:<id> observation" in prompt
     assert '"script"' in prompt
     assert "A user chat message" in prompt
     assert "is Mission context, not a source candidate" in prompt
