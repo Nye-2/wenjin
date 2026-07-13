@@ -109,7 +109,7 @@ class SkillLoader:
                 continue
             source_path = str(getattr(record, "source_path", "") or "")
             content_hash = str(getattr(record, "content_hash", "") or "")
-            if source_path == item["source_path"] and content_hash != item["data"]["content_hash"]:
+            if source_path != item["source_path"] or content_hash != item["data"]["content_hash"]:
                 updates.append(item)
         return updates
 
@@ -126,7 +126,7 @@ class SkillLoader:
             items.append(
                 {
                     "data": skill.to_catalog_data(),
-                    "source_path": str(yaml_path),
+                    "source_path": yaml_path.relative_to(self.seed_dir).as_posix(),
                 }
             )
         if not items:

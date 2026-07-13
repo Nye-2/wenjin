@@ -109,7 +109,7 @@ class MissionPolicyLoader:
                 continue
             source_path = str(getattr(record, "source_path", "") or "")
             content_hash = str(getattr(record, "content_hash", "") or "")
-            if source_path == item["source_path"] and content_hash != item["data"]["content_hash"]:
+            if source_path != item["source_path"] or content_hash != item["data"]["content_hash"]:
                 updates.append(item)
         return updates
 
@@ -143,7 +143,7 @@ class MissionPolicyLoader:
             items.append(
                 {
                     "data": bundle.to_catalog_data(),
-                    "source_path": str(path),
+                    "source_path": path.relative_to(self.seed_dir).as_posix(),
                 }
             )
         if not items:

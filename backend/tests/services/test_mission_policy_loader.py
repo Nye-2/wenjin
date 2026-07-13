@@ -105,7 +105,23 @@ async def test_loads_resolved_policy_bundle_when_catalog_empty(tmp_path) -> None
     assert item.data["schema_version"] == "mission_policy.v1"
     assert item.data["content_hash"] == policy.immutable_ref().sha256
     assert item.data["resolved_stage_contracts"][0]["stage_id"] == stage.stage_id
-    assert item.source_path == str(policy_path)
+    assert item.source_path == "sci/policy.yaml"
+
+
+def test_seed_updates_are_independent_of_host_absolute_path(tmp_path) -> None:
+    root, *_ = _write_bundle(tmp_path)
+    loader = MissionPolicyLoader(seed_dir=root)
+    item = loader.read_seed_items()[0]
+    existing = SimpleNamespace(
+        workspace_type=item["data"]["workspace_type"],
+        id=item["data"]["id"],
+        source_path="/another-host/app/seed/mission_policies/sci/policy.yaml",
+        content_hash=item["data"]["content_hash"],
+    )
+
+    updates = loader.select_seed_updates([existing])
+
+    assert updates[0]["source_path"] == "sci/policy.yaml"
 
 
 @pytest.mark.asyncio

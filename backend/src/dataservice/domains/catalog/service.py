@@ -55,6 +55,7 @@ class MissionCatalogService:
             workspace_type = policy.workspace_type
             existing = await self.repository.get_policy(policy_id=policy.id, workspace_type=workspace_type)
             if existing is not None and not overwrite and existing.content_hash == content_hash:
+                existing.source_path = item.get("source_path")
                 continue
             record = existing or MissionPolicyRecord(id=policy.id, workspace_type=workspace_type)
             record.schema_version = policy.schema_version
@@ -80,6 +81,7 @@ class MissionCatalogService:
             content_hash = self._validated_content_hash(stored_data, skill.immutable_ref().sha256)
             existing = await self.repository.get_skill(skill.id)
             if existing is not None and not overwrite and existing.content_hash == content_hash:
+                existing.source_path = item.get("source_path")
                 continue
             record = existing or WorkerSkillRecord(id=skill.id)
             record.schema_version = skill.schema_version

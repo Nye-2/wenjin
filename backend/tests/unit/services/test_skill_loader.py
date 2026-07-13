@@ -53,8 +53,24 @@ async def test_loads_bounded_worker_skill(tmp_path) -> None:
     item = dataservice.load_worker_skill_seed_items.await_args.args[0].items[0]
     assert item.data["schema_version"] == "worker_skill.v1"
     assert item.data["content_hash"] == WorkerSkill.model_validate(_payload()).immutable_ref().sha256
+    assert item.source_path == "research-scout.yaml"
     assert "role_prompt" not in item.data
     assert "quality_gates" not in item.data
+
+
+def test_skill_updates_are_independent_of_host_absolute_path(tmp_path) -> None:
+    (tmp_path / "research-scout.yaml").write_text(yaml.safe_dump(_payload(), sort_keys=False))
+    loader = SkillLoader(seed_dir=tmp_path)
+    item = loader.read_seed_items()[0]
+    existing = SimpleNamespace(
+        id=item["data"]["id"],
+        source_path="/another-host/app/seed/skills/research-scout.yaml",
+        content_hash=item["data"]["content_hash"],
+    )
+
+    updates = loader.select_seed_updates([existing])
+
+    assert updates[0]["source_path"] == "research-scout.yaml"
 
 
 def test_rejects_old_skill_schema(tmp_path) -> None:
