@@ -419,6 +419,58 @@ async def test_budget_limit_yields_only_after_checkpoint_and_lease_release(
 
 
 @pytest.mark.asyncio
+async def test_checkpoint_keeps_only_stable_reference_ids(runtime_factory) -> None:
+    tools = FakeTools()
+    tools.outcomes["search-1"] = MissionPortOutcome(
+        status=MissionPortOutcomeStatus.COMPLETED,
+        summary="tool completed",
+        payload_json={
+            "evidence_refs": [
+                {
+                    "ref_id": "evidence:verified-1",
+                    "kind": "verified_source",
+                    "metadata": {"preview": "x" * 20_000},
+                },
+                "evidence:verified-2",
+            ],
+            "artifact_refs": [
+                {
+                    "ref_id": "sandbox-artifact:result-1",
+                    "kind": "sandbox_artifact",
+                    "metadata": {"manifest": "y" * 20_000},
+                }
+            ],
+        },
+    )
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([tool_decision("search-1")]),
+        tools=tools,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            max_model_turns=1,
+            max_tool_steps=4,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    assert result.outcome is MissionSliceOutcome.YIELDED
+    checkpoint = deps["store"].items[receipt.mission_id][-1]
+    assert checkpoint.item_type == "context_checkpoint"
+    assert checkpoint.payload_json["evidence_refs"] == [
+        "evidence:verified-1",
+        "evidence:verified-2",
+    ]
+    assert checkpoint.payload_json["artifact_refs"] == [
+        "sandbox-artifact:result-1"
+    ]
+    assert len(str(checkpoint.payload_json)) < 2_000
+
+
+@pytest.mark.asyncio
 async def test_duplicate_operation_id_does_not_repeat_tool_effect(runtime_factory) -> None:
     tools = FakeTools()
     runtime, deps = runtime_factory(

@@ -1809,12 +1809,26 @@ def _collect_ref_values(value: Any, key: str, target: list[str]) -> None:
     if isinstance(value, dict):
         for candidate_key, candidate_value in value.items():
             if candidate_key == key and isinstance(candidate_value, list):
-                target.extend(str(item) for item in candidate_value if item)
+                for item in candidate_value:
+                    ref_id = _reference_id(item)
+                    if ref_id is not None:
+                        target.append(ref_id)
             else:
                 _collect_ref_values(candidate_value, key, target)
     elif isinstance(value, list):
         for item in value:
             _collect_ref_values(item, key, target)
+
+
+def _reference_id(value: Any) -> str | None:
+    if isinstance(value, str):
+        candidate = value.strip()
+    elif isinstance(value, dict):
+        raw_ref_id = value.get("ref_id")
+        candidate = raw_ref_id.strip() if isinstance(raw_ref_id, str) else ""
+    else:
+        candidate = ""
+    return candidate[:300] if candidate else None
 
 
 def _is_transient_agent_failure(exc: BaseException) -> bool:
