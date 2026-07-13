@@ -193,7 +193,7 @@ class SubagentRuntime:
                     job,
                     status=SubagentStatus.COMPLETED,
                     stop_reason=SubagentStopReason.NORMAL,
-                    summary=action.summary,
+                    summary=_completed_result_summary(action),
                     result_json=action.result_json,
                     turns=turn,
                     tools=len(tool_results),
@@ -381,6 +381,13 @@ def _tool_request_fingerprint(tool_name: str, arguments: dict[str, object]) -> s
         default=repr,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _completed_result_summary(action: SubagentAction) -> str:
+    structured_summary = action.result_json.get("summary")
+    if isinstance(structured_summary, str) and structured_summary.strip():
+        return structured_summary.strip()[:4_000]
+    return action.summary
 
 
 def _validate_output_contract(value: object, schema: dict[str, object]) -> list[str]:

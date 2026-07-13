@@ -322,7 +322,9 @@ class PinnedStageAssessmentBuilder(StageAssessmentBuilder):
         assessed = {item.criterion_id for item in assessment.criterion_assessments}
         if not assessed.issubset(expected_criteria):
             raise MissionProductionConfigurationError("Stage assessment contains criteria outside the pinned contract")
-        authoritative_refs = candidate_refs | {item.evidence_id for item in evidence}
+        authoritative_refs = _persisted_candidate_refs(request.mission) | {
+            item.evidence_id for item in evidence
+        }
         used_refs = {ref for item in assessment.criterion_assessments for ref in item.supporting_refs}
         if not used_refs.issubset(authoritative_refs):
             raise MissionProductionConfigurationError(
@@ -342,6 +344,19 @@ def _candidate_manifests(
         ref: dict(value)
         for ref, value in raw.items()
         if ref in candidate_refs and isinstance(value, dict)
+    }
+
+
+def _persisted_candidate_refs(mission: MissionRunPayload) -> set[str]:
+    raw = mission.snapshot_json.get("review_candidate_manifests")
+    if not isinstance(raw, dict):
+        return set()
+    return {
+        str(ref)
+        for ref, manifest in raw.items()
+        if isinstance(manifest, dict)
+        and str(manifest.get("artifact_kind") or "")
+        and len(str(manifest.get("preview_hash") or "")) == 64
     }
 
 

@@ -136,6 +136,25 @@ async def test_duplicate_job_shares_one_inflight_effect_and_terminal_result() ->
 
 
 @pytest.mark.asyncio
+async def test_completed_result_uses_structured_summary_as_user_facing_brief() -> None:
+    class Model:
+        async def next_action(self, job, steps, tool_results):
+            return SubagentAction(
+                kind="complete",
+                summary="review complete } garbage provider residue",
+                result_json={"summary": "The independent review passed."},
+            )
+
+    runtime = SubagentRuntime(model=Model(), tools=_NoTools(), ledger=_Ledger())
+    result = await runtime.run_batch(
+        (_job(),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    assert result.results[0].result_brief == "The independent review passed."
+
+
+@pytest.mark.asyncio
 async def test_tool_failure_is_typed_and_model_can_return_safe_partial_output() -> None:
     class Model:
         async def next_action(self, job, steps, tool_results):

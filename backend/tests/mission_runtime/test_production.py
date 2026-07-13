@@ -132,6 +132,64 @@ async def test_stage_assessment_rejects_model_self_certification(runtime_factory
 
 
 @pytest.mark.asyncio
+async def test_stage_assessment_accepts_persisted_upstream_candidate_refs(runtime_factory) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
+    mission = await deps["store"].get(receipt.mission_id)
+    assert mission is not None
+    mission = mission.model_copy(
+        update={
+            "snapshot_json": {
+                "review_candidate_manifests": {
+                    "review-1": {
+                        "artifact_kind": "research_brief",
+                        "preview_hash": "a" * 64,
+                        "status": "pending",
+                    },
+                    "upstream-review": {
+                        "artifact_kind": "problem_brief",
+                        "preview_hash": "b" * 64,
+                        "status": "pending",
+                    },
+                }
+            }
+        }
+    )
+
+    assessment = await PinnedStageAssessmentBuilder().build(
+        StageQualityRequest(
+            mission=mission,
+            operation_id="quality-1",
+            stage_id="scope",
+            candidate_refs=["review-1"],
+            assessment_json={
+                "criterion_assessments": [
+                    {
+                        "criterion_id": "bounded",
+                        "status": "pass",
+                        "supporting_refs": ["review-1", "upstream-review"],
+                    }
+                ],
+                "artifacts": [
+                    {
+                        "artifact_id": "review-1",
+                        "kind": "research_brief",
+                        "content_hash": "a" * 64,
+                    }
+                ],
+            },
+            deadline_monotonic=100,
+        ),
+        _quality_contract(),
+    )
+
+    assert assessment.criterion_assessments[0].supporting_refs == (
+        "review-1",
+        "upstream-review",
+    )
+
+
+@pytest.mark.asyncio
 async def test_stage_assessment_accepts_persisted_independent_review(runtime_factory) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
