@@ -71,6 +71,7 @@ services:
     build: *backend_gateway_build
     environment:
       - SANDBOX_DEPLOYMENT_MODE=development
+      - SANDBOX_DOCKER__ALLOW_ROOTFUL_DEVELOPMENT=true
     command:
       [
         "python",
