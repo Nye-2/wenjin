@@ -897,12 +897,10 @@ def _subagent_jobs(request: SubagentExecutionRequest) -> tuple[SubagentJobSpec, 
                         "model_id",
                     }
                 },
-                context_checkpoint_ref=request.mission.context_checkpoint_ref,
-                context_checkpoint=dict(
-                    request.mission.snapshot_json.get("context_checkpoint_summary") or {}
-                ),
+                context_checkpoint_ref=request.frozen_context.context_checkpoint_ref,
+                context_checkpoint=dict(request.frozen_context.context_checkpoint),
                 selected_refs=tuple(str(item) for item in raw.get("selected_refs", ())),
-                prior_output_briefs=tuple(str(item.summary or "")[:1000] for item in request.recent_items[-8:] if item.summary and item.operation_id != request.operation_id),
+                prior_output_briefs=request.frozen_context.prior_output_briefs,
                 allowed_tools=allowed_tools,
                 worker_skill=dict(skill_contract),
                 output_schema=dict(skill_contract.get("output_contract") or {}),

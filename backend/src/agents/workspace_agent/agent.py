@@ -21,6 +21,7 @@ from src.agents.workspace_agent.contracts import (
     WorkspaceAgentReply,
 )
 from src.agents.workspace_agent.prompts import render_workspace_agent_prompt
+from src.mission_runtime import MissionStartRejectedError
 from src.mission_runtime.contracts import MissionStartRequest
 from src.mission_runtime.production import MissionProductionConfigurationError
 from src.models.provider_schema import strict_provider_schema
@@ -210,6 +211,18 @@ class WorkspaceAgent:
                             "status": "not_started",
                             "reason": "runtime_capability_unavailable",
                             "detail": str(exc),
+                        },
+                    },
+                )
+            except MissionStartRejectedError as exc:
+                return WorkspaceAgentReply(
+                    text=str(exc),
+                    action=action,
+                    metadata={
+                        "usage": usage,
+                        "mission_start": {
+                            "status": "not_started",
+                            "reason": "preflight_rejected",
                         },
                     },
                 )

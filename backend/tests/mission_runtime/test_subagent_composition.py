@@ -15,6 +15,7 @@ from src.mission_runtime.contracts import (
     MissionSliceOutcome,
     StageQualityVerdict,
     SubagentExecutionRequest,
+    SubagentFrozenContext,
 )
 from src.sandbox.base import SandboxReceiptState
 from src.sandbox.contracts import (
@@ -133,6 +134,8 @@ async def test_subagent_ledger_conflict_recovers_without_duplicate_job_or_effect
     assert model.scopes == [{"query": "communication-efficient federated PEFT"}]
     assert len([item for item in items if item.item_type == "subagent_spawned"]) == 1
     assert len([item for item in items if item.item_type == "subagent_completed"]) == 1
+    spawned = next(item for item in items if item.item_type == "subagent_spawned")
+    assert spawned.payload_json["frozen_context"]["prior_output_briefs"]
     progress = [item for item in items if item.item_type == "subagent_progress"]
     assert [item.payload_json["lifecycle_phase"] for item in progress] == [
         "running",
@@ -185,6 +188,11 @@ async def test_fresh_subagent_runtime_adopts_durable_terminal_result(runtime_fac
             "query": "communication-efficient federated PEFT",
             "worker_skill_id": "research-scout",
         },
+        frozen_context=SubagentFrozenContext(
+            context_checkpoint_ref="mission-item:checkpoint-1",
+            context_checkpoint={"stage": "literature"},
+            prior_output_briefs=("Pinned parent brief",),
+        ),
         deadline_monotonic=deps["clock"].monotonic() + 30,
     )
     first_model = _CompletingWorkerModel()
@@ -202,7 +210,20 @@ async def test_fresh_subagent_runtime_adopts_durable_terminal_result(runtime_fac
         tools=_NoSubagentTools(),  # type: ignore[arg-type]
         monotonic_clock=deps["clock"].monotonic,
     )
-    adopted = await restarted_runtime.run(request)
+    adopted = await restarted_runtime.run(
+        request.model_copy(
+            update={
+                "mission": claimed.model_copy(
+                    update={
+                        "snapshot_json": {
+                            **claimed.snapshot_json,
+                            "context_checkpoint_summary": {"stage": "changed later"},
+                        }
+                    }
+                )
+            }
+        )
+    )
 
     assert first_model.calls == 1
     assert adopted == first

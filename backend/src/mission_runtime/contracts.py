@@ -187,13 +187,19 @@ class ToolExecutionRequest(_StrictModel):
     deadline_monotonic: float
 
 
+class SubagentFrozenContext(_StrictModel):
+    context_checkpoint_ref: str | None = Field(default=None, max_length=2048)
+    context_checkpoint: dict[str, Any] = Field(default_factory=dict)
+    prior_output_briefs: tuple[str, ...] = Field(default=(), max_length=8)
+
+
 class SubagentExecutionRequest(_StrictModel):
     mission: MissionRunPayload
     operation_id: str
     task_summary: str = Field(min_length=1, max_length=4000)
     input_scope: dict[str, Any] = Field(default_factory=dict)
     stage_id: str | None = None
-    recent_items: list[MissionItemPayload] = Field(default_factory=list, max_length=24)
+    frozen_context: SubagentFrozenContext
     deadline_monotonic: float
 
 

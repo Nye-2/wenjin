@@ -212,6 +212,27 @@ async def test_unverified_runtime_capability_is_a_user_facing_non_start() -> Non
 
 
 @pytest.mark.asyncio
+async def test_credit_preflight_rejection_is_a_user_facing_non_start() -> None:
+    from src.mission_runtime import MissionStartRejectedError
+
+    missions = FakeMissions()
+    missions.start_error = MissionStartRejectedError(
+        "当前可用额度不足，任务尚未启动。"
+    )
+    reply = await WorkspaceAgent(
+        model=FakeModel(tool_message("start_mission", start_args())),
+        missions=missions,
+    ).run(context())
+
+    assert reply.mission_id is None
+    assert reply.text == "当前可用额度不足，任务尚未启动。"
+    assert reply.metadata["mission_start"] == {
+        "status": "not_started",
+        "reason": "preflight_rejected",
+    }
+
+
+@pytest.mark.asyncio
 async def test_active_mission_steer_appends_typed_command() -> None:
     missions = FakeMissions()
     active = ActiveMissionContext(

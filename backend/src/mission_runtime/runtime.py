@@ -47,6 +47,7 @@ from src.mission_runtime.contracts import (
     StageQualityRequest,
     StageQualityVerdict,
     SubagentExecutionRequest,
+    SubagentFrozenContext,
     ToolExecutionRequest,
 )
 from src.mission_runtime.events import publish_after_commit
@@ -740,12 +741,28 @@ class MissionRuntime:
         if not task_summary or not isinstance(input_scope, dict):
             await self._record_invalid_decision(state, decision, "task_summary and input_scope are required")
             return None
+        recent_items = await self._recent_items(state.run)
+        frozen_context = SubagentFrozenContext(
+            context_checkpoint_ref=state.run.context_checkpoint_ref,
+            context_checkpoint=dict(
+                state.run.snapshot_json.get("context_checkpoint_summary") or {}
+            ),
+            prior_output_briefs=tuple(
+                str(item.summary)[:1000]
+                for item in recent_items[-8:]
+                if item.summary
+            ),
+        )
         await self._begin_operation(
             state,
             decision,
             kind="subagent",
             item_type="subagent_spawned",
-            payload_json={"task_summary": task_summary, "input_scope": input_scope},
+            payload_json={
+                "task_summary": task_summary,
+                "input_scope": input_scope,
+                "frozen_context": frozen_context.model_dump(mode="json"),
+            },
         )
         return await self._execute_subagent_operation(
             state,
@@ -753,6 +770,7 @@ class MissionRuntime:
             task_summary=task_summary,
             input_scope=input_scope,
             stage_id=decision.stage_id,
+            frozen_context=frozen_context,
         )
 
     async def _run_quality_decision(
@@ -1013,7 +1031,19 @@ class MissionRuntime:
         if kind == "subagent":
             task_summary = str(call_item.payload_json.get("task_summary") or "")
             input_scope = call_item.payload_json.get("input_scope") or {}
-            if not task_summary or not isinstance(input_scope, dict):
+            raw_frozen_context = call_item.payload_json.get("frozen_context")
+            if (
+                not task_summary
+                or not isinstance(input_scope, dict)
+                or not isinstance(raw_frozen_context, dict)
+            ):
+                await self._clear_invalid_inflight(state, operation_id)
+                return True
+            try:
+                frozen_context = SubagentFrozenContext.model_validate(
+                    raw_frozen_context
+                )
+            except ValueError:
                 await self._clear_invalid_inflight(state, operation_id)
                 return True
             await self._execute_subagent_operation(
@@ -1022,6 +1052,7 @@ class MissionRuntime:
                 task_summary=task_summary,
                 input_scope=input_scope,
                 stage_id=call_item.stage_id,
+                frozen_context=frozen_context,
             )
             return True
         await self._clear_invalid_inflight(state, operation_id)
@@ -1072,8 +1103,8 @@ class MissionRuntime:
         task_summary: str,
         input_scope: dict[str, Any],
         stage_id: str | None,
+        frozen_context: SubagentFrozenContext,
     ) -> MissionSliceOutcome | None:
-        recent_items = await self._recent_items(state.run)
         try:
             outcome = await self._invoke_with_deadline(
                 self.subagents.run(
@@ -1083,7 +1114,7 @@ class MissionRuntime:
                         task_summary=task_summary,
                         input_scope=input_scope,
                         stage_id=stage_id,
-                        recent_items=recent_items,
+                        frozen_context=frozen_context,
                         deadline_monotonic=state.deadline_monotonic,
                     )
                 ),
@@ -1112,6 +1143,14 @@ class MissionRuntime:
         producer: str,
         outcome: MissionPortOutcome,
     ) -> MissionSliceOutcome | None:
+        latest = await self.store.get(state.run.mission_id)
+        if (
+            latest is not None
+            and latest.lease_owner == state.worker_id
+            and latest.lease_epoch == state.run.lease_epoch
+            and _status_value(latest) == _status_value(state.run)
+        ):
+            state.run = latest
         if outcome.status == MissionPortOutcomeStatus.WAITING:
             assert outcome.pause_request is not None
             snapshot = self._pause_snapshot(

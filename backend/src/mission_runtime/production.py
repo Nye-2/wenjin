@@ -670,7 +670,7 @@ class MissionCreditBilling:
                     summary="当前可用额度不足，任务尚未启动。",
                     pending_request={"required_credits": estimate},
                 ),
-                summary="Mission credit preflight was not approved",
+                summary="当前可用额度不足，任务尚未启动。",
             )
         return BillingOutcome(
             allowed=True,
