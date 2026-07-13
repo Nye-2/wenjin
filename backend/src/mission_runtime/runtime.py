@@ -1337,6 +1337,7 @@ class MissionRuntime:
                 "last_error": {
                     "kind": "transient_model_failure" if transient else "agent_step_failure",
                     "error_type": type(exc).__name__,
+                    "detail": str(exc)[:500],
                 },
                 "next_actions": [] if terminal else ["retry_agent_step_after_backoff" if transient else "retry_agent_step"],
             },
@@ -1357,6 +1358,7 @@ class MissionRuntime:
                     ),
                     payload_json={
                         "error_type": type(exc).__name__,
+                        "detail": str(exc)[:500],
                         "attempt": transient_failures if transient else failures,
                         "recoverable": transient,
                     },
