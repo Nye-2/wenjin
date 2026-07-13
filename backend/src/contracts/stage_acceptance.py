@@ -195,6 +195,41 @@ class StageAcceptanceContract(BaseModel):
         )
 
 
+def stage_instance_index(
+    template: str | None,
+    stage_id: str,
+) -> int | None:
+    """Return the canonical one-based index encoded by a stage instance id."""
+
+    if not template or template.count("{index}") != 1:
+        return None
+    prefix, suffix = template.split("{index}")
+    if not stage_id.startswith(prefix) or not stage_id.endswith(suffix):
+        return None
+    end = len(stage_id) - len(suffix) if suffix else len(stage_id)
+    encoded_index = stage_id[len(prefix) : end]
+    if not encoded_index.isascii() or not encoded_index.isdecimal():
+        return None
+    index = int(encoded_index)
+    if index < 1 or encoded_index != str(index):
+        return None
+    return index
+
+
+def stage_id_matches_contract(
+    contract: StageAcceptanceContract,
+    stage_id: str,
+) -> bool:
+    """Determine whether an executable stage id belongs to a pinned contract."""
+
+    if contract.instantiation.mode == "single":
+        return stage_id == contract.stage_id
+    return stage_instance_index(
+        contract.instantiation.instance_id_template,
+        stage_id,
+    ) is not None
+
+
 class CriterionAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

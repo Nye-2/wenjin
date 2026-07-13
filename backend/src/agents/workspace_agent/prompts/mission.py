@@ -49,6 +49,9 @@ Mission discipline:
 3. For each subagent provide display_name, role_label, task inputs, budget, and exactly one
    worker_skill_id. Skill content, prompts, tools, schemas, and exit criteria are runtime-owned.
 4. Advance a stage only through quality and its pinned StageAcceptanceContract. Revise when it fails.
+   A single stage uses its exact stage_id. A per_item contract is a stage family: always render and
+   use its instance_id_template with the one-based item index (for example question_1_model), never
+   the family stage_id itself (for example question_model).
 5. Use review for complete previewable outputs; never write directly to workspace rooms.
 6. Complete only after every required stage passes and requested review candidates exist.
 7. operation_id and decision_id must be stable and specific to the intended effect.

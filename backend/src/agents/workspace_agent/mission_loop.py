@@ -9,9 +9,13 @@ from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agents.workspace_agent.prompts import render_workspace_mission_prompt
+from src.contracts.stage_acceptance import (
+    StageAcceptanceContract,
+    stage_id_matches_contract,
+)
 from src.mission_runtime.contracts import (
     MissionAgentDecision,
     MissionDecisionKind,
@@ -345,12 +349,26 @@ def _render_mission_state(context: MissionLoopContext) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
+def _stage_id_is_pinned(
+    stages: dict[str, Any],
+    stage_id: str,
+) -> bool:
+    try:
+        contracts = tuple(
+            StageAcceptanceContract.model_validate(candidate)
+            for candidate in stages.values()
+        )
+        return any(stage_id_matches_contract(contract, stage_id) for contract in contracts)
+    except ValidationError as exc:
+        raise WorkspaceMissionLoopProtocolError("Pinned stage contract is malformed") from exc
+
+
 def _validate_decision_scope(
     decision: MissionAgentDecision,
     runtime: dict[str, Any],
 ) -> None:
     stages = runtime["stage_contracts"]
-    if decision.stage_id is not None and decision.stage_id not in stages:
+    if decision.stage_id is not None and not _stage_id_is_pinned(stages, decision.stage_id):
         raise WorkspaceMissionLoopProtocolError(f"Mission action selected an unpinned stage: {decision.stage_id}")
     if decision.kind is MissionDecisionKind.TOOL:
         tool_name = str(decision.payload_json.get("tool_name") or "")

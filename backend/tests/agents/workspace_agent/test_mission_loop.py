@@ -5,10 +5,17 @@ from langchain_core.messages import AIMessage
 
 from src.agents.workspace_agent.mission_loop import (
     WorkspaceMissionLoopProtocolError,
+    _validate_decision_scope,
     mission_decision_tool,
     parse_mission_decision,
 )
 from src.agents.workspace_agent.prompts.mission import render_workspace_mission_prompt
+from src.contracts.stage_acceptance import (
+    StageAcceptanceContract,
+    StageCriterion,
+    StageInstantiationRule,
+)
+from src.mission_runtime.contracts import MissionAgentDecision, MissionDecisionKind
 
 
 def test_mission_loop_never_parses_prose_or_multiple_frames() -> None:
@@ -123,6 +130,56 @@ def test_mission_prompt_projects_canonical_tool_schema_and_source_boundary() -> 
     assert '"script"' in prompt
     assert "A user chat message" in prompt
     assert "is Mission context, not a source candidate" in prompt
+    assert "question_1_model" in prompt
+    assert "A per_item contract is a stage family" in prompt
+
+
+def test_mission_scope_accepts_only_canonical_per_item_stage_instances() -> None:
+    contract = StageAcceptanceContract(
+        schema_version="stage_acceptance_contract.v1",
+        contract_id="math.question_model",
+        version=1,
+        mission_policy_id="math",
+        workspace_type="math_modeling",
+        stage_id="question_model",
+        stage_goal="Model one parsed question.",
+        minimum_criteria=(StageCriterion(criterion_id="valid", description="Model is valid."),),
+        allowed_actions_if_failed=("revise_existing", "stop_execution"),
+        instantiation=StageInstantiationRule(
+            mode="per_item",
+            source_context_key="problem_questions",
+            instance_id_template="question_{index}_model",
+        ),
+        advance_condition="The instance passes.",
+        stop_condition="No valid model can be produced.",
+    )
+    runtime = {
+        "stage_contracts": {contract.stage_id: contract.model_dump(mode="json")},
+        "tool_policy": {"allowed_tool_ids": []},
+        "worker_skill_snapshots": {},
+    }
+
+    _validate_decision_scope(
+        MissionAgentDecision(
+            decision_id="continue-question-1",
+            kind=MissionDecisionKind.CONTINUE,
+            summary="Plan question one.",
+            stage_id="question_1_model",
+        ),
+        runtime,
+    )
+
+    for invalid_stage_id in ("question_model", "question_0_model", "question_01_model"):
+        with pytest.raises(WorkspaceMissionLoopProtocolError, match="unpinned stage"):
+            _validate_decision_scope(
+                MissionAgentDecision(
+                    decision_id=f"continue-{invalid_stage_id}",
+                    kind=MissionDecisionKind.CONTINUE,
+                    summary="Invalid stage.",
+                    stage_id=invalid_stage_id,
+                ),
+                runtime,
+            )
 
 
 def test_mission_prompt_rejects_tool_without_canonical_schema() -> None:

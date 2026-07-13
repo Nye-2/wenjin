@@ -16,6 +16,8 @@ from src.contracts.stage_acceptance import (
     CritiqueAssessment,
     StageAcceptanceContract,
     StageAssessmentInput,
+    stage_id_matches_contract,
+    stage_instance_index,
 )
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.credit import CreditReservationSettlePayload
@@ -264,13 +266,7 @@ class PinnedStageContractResolver(StageContractResolver):
         if (
             contract.mission_policy_id != mission.mission_policy_id
             or contract.workspace_type != mission.workspace_type
-            or (
-                contract.stage_id != stage_id
-                and not _matches_instance_template(
-                    contract.instantiation.instance_id_template,
-                    stage_id,
-                )
-            )
+            or not stage_id_matches_contract(contract, stage_id)
         ):
             raise MissionProductionConfigurationError(f"Pinned stage contract is inconsistent: {stage_id}")
         return contract
@@ -284,23 +280,9 @@ def _resolve_stage_instance_contract(
         if not isinstance(value, dict):
             continue
         contract = StageAcceptanceContract.model_validate(value)
-        if contract.instantiation.mode == "per_item" and _matches_instance_template(
-            contract.instantiation.instance_id_template,
-            stage_id,
-        ):
+        if contract.instantiation.mode == "per_item" and stage_id_matches_contract(contract, stage_id):
             return contract
     return None
-
-
-def _matches_instance_template(template: str | None, stage_id: str) -> bool:
-    if not template or template.count("{index}") != 1:
-        return False
-    prefix, suffix = template.split("{index}")
-    if not stage_id.startswith(prefix) or not stage_id.endswith(suffix):
-        return False
-    end = len(stage_id) - len(suffix) if suffix else len(stage_id)
-    index = stage_id[len(prefix) : end]
-    return index.isdigit() and int(index) >= 1
 
 
 class PinnedStageAssessmentBuilder(StageAssessmentBuilder):
@@ -369,14 +351,15 @@ def _stage_instance_index(
 ) -> int | None:
     if contract.instantiation.mode != "per_item":
         return None
-    template = contract.instantiation.instance_id_template
-    if not _matches_instance_template(template, stage_id) or template is None:
+    index = stage_instance_index(
+        contract.instantiation.instance_id_template,
+        stage_id,
+    )
+    if index is None:
         raise MissionProductionConfigurationError(
             f"Stage id does not match its pinned instance template: {stage_id}"
         )
-    prefix, suffix = template.split("{index}")
-    end = len(stage_id) - len(suffix) if suffix else len(stage_id)
-    return int(stage_id[len(prefix) : end])
+    return index
 
 
 def _verified_artifacts(

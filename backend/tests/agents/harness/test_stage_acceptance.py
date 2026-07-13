@@ -16,6 +16,8 @@ from src.contracts.stage_acceptance import (
     StageAssessmentInput,
     StageCriterion,
     StageInstantiationRule,
+    stage_id_matches_contract,
+    stage_instance_index,
 )
 from src.contracts.versioned import ImmutableContentRef
 
@@ -258,6 +260,24 @@ def test_math_question_two_cannot_start_before_question_one_passes() -> None:
     )
     assert allowed is True
     assert missing == ()
+
+
+def test_stage_instance_ids_are_canonical_and_contract_bound() -> None:
+    contract = _contract(
+        stage_id="question_model",
+        instantiation=StageInstantiationRule(
+            mode="per_item",
+            source_context_key="problem_questions",
+            instance_id_template="question_{index}_model",
+        ),
+    )
+
+    assert stage_instance_index("question_{index}_model", "question_1_model") == 1
+    assert stage_id_matches_contract(contract, "question_12_model") is True
+    assert stage_id_matches_contract(contract, "question_model") is False
+    assert stage_id_matches_contract(contract, "question_0_model") is False
+    assert stage_id_matches_contract(contract, "question_01_model") is False
+    assert stage_id_matches_contract(contract, "question_one_model") is False
 
 
 def test_paper_gate_requires_every_parsed_question_instance() -> None:

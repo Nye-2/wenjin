@@ -40,7 +40,29 @@ class PinnedStartContext:
                             "allowed_tool_ids": [],
                         }
                     },
-                    "stage_contracts": {"scope_topic": {"stage_id": "scope_topic"}},
+                    "stage_contracts": {
+                        "scope_topic": {
+                            "schema_version": "stage_acceptance_contract.v1",
+                            "contract_id": "sci_research.scope_topic",
+                            "version": 1,
+                            "mission_policy_id": "sci_research",
+                            "workspace_type": "sci",
+                            "stage_id": "scope_topic",
+                            "stage_goal": "Bound the research scope.",
+                            "minimum_criteria": [
+                                {
+                                    "criterion_id": "bounded_scope",
+                                    "description": "The scope is explicit and feasible.",
+                                }
+                            ],
+                            "allowed_actions_if_failed": [
+                                "revise_existing",
+                                "stop_execution",
+                            ],
+                            "advance_condition": "The scope is bounded.",
+                            "stop_condition": "No feasible scope can be established.",
+                        }
+                    },
                     "required_stage_ids": ["scope_topic"],
                     "tool_policy": {
                         "allowed_tool_ids": ["research.search_web"],
