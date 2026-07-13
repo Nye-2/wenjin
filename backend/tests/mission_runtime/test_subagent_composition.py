@@ -38,11 +38,13 @@ class _CompletingWorkerModel:
         self.calls = 0
         self.scopes: list[dict] = []
         self.tool_input_schemas: list[dict] = []
+        self.context_budgets: list[int] = []
 
     async def next_action(self, job, steps, tool_results):
         self.calls += 1
         self.scopes.append(job.input_scope)
         self.tool_input_schemas.append(job.tool_input_schemas)
+        self.context_budgets.append(job.budget.max_context_bytes)
         return SubagentAction(
             kind="complete",
             summary="Facet evidence is ready",
@@ -119,6 +121,7 @@ def _reviewer_spawn_decision() -> MissionAgentDecision:
                 "candidate_ref": "review-item-1",
                 "selected_refs": ["review-item-1"],
                 "worker_skill_id": "quality-critic",
+                "budget": {"max_context_bytes": 4_096},
             },
         },
     )
@@ -227,6 +230,7 @@ async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
             }
         }
     ]
+    assert model.context_budgets == [24_000]
 
 
 @pytest.mark.asyncio

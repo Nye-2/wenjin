@@ -136,6 +136,38 @@ async def test_long_mission_advances_through_multiple_bounded_slices(runtime_fac
 
 
 @pytest.mark.asyncio
+async def test_slice_yields_before_starting_an_expensive_step_without_time_reserve(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+
+    async def slow_plan(_context: Any) -> MissionAgentDecision:
+        clock.advance(6)
+        return continue_decision("slow-plan")
+
+    agent = ScriptedAgent([slow_plan, complete_decision()])
+    runtime, deps = runtime_factory(
+        agent=agent,
+        clock=clock,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            next_step_reserve_seconds=5,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    second = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
+
+    assert first.outcome is MissionSliceOutcome.YIELDED
+    assert first.model_turns == 1
+    assert second.outcome is MissionSliceOutcome.COMPLETED
+    assert len([item for item in deps["store"].items[receipt.mission_id] if item.item_type == "context_checkpoint"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_stale_worker_cannot_write_after_lease_takeover(runtime_factory) -> None:
     clock = MutableClock()
     store = FakeMissionStore(clock)

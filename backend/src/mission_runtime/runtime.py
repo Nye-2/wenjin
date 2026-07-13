@@ -1652,7 +1652,16 @@ class MissionRuntime:
             )
 
     def _slice_budget_exhausted(self, state: _SliceState) -> bool:
-        return self.clock.monotonic() >= state.deadline_monotonic or state.model_turns >= self.limits.max_model_turns or state.tool_steps >= self.limits.max_tool_steps
+        remaining = state.deadline_monotonic - self.clock.monotonic()
+        next_step_reserve = min(
+            self.limits.next_step_reserve_seconds,
+            self.limits.wall_time_seconds / 2,
+        )
+        return (
+            remaining <= next_step_reserve
+            or state.model_turns >= self.limits.max_model_turns
+            or state.tool_steps >= self.limits.max_tool_steps
+        )
 
     @staticmethod
     def _merge_snapshot(

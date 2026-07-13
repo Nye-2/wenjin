@@ -17,6 +17,7 @@ from src.dataservice_client.contracts.mission import (
 
 MISSION_SLICE_WALL_TIME_SECONDS = 180.0
 MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS = 20.0
+MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS = 90.0
 MISSION_TASK_SOFT_TIME_LIMIT_SECONDS = 240
 MISSION_TASK_HARD_TIME_LIMIT_SECONDS = 270
 MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS = 3600
@@ -78,6 +79,10 @@ class MissionSliceLimits(_StrictModel):
     lease_ttl_seconds: int = Field(default=240, ge=5, le=3600)
     heartbeat_interval_seconds: float = Field(default=30.0, gt=0)
     max_consecutive_failures: int = Field(default=3, ge=1, le=20)
+    next_step_reserve_seconds: float = Field(
+        default=MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS,
+        gt=0,
+    )
 
     @model_validator(mode="after")
     def validate_lease_margin(self) -> MissionSliceLimits:

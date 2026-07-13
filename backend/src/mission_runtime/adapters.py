@@ -61,6 +61,7 @@ from src.sandbox.contracts import (
 )
 from src.subagent_runtime import SubagentRuntime, subagent_job_fingerprint
 from src.subagent_runtime.contracts import (
+    SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
     SubagentAction,
     SubagentBatchResult,
     SubagentBudget,
@@ -886,7 +887,11 @@ def _subagent_jobs(
         if not set(allowed_tools).issubset(mission_tools):
             raise ValueError("pinned WorkerSkill tools exceed the Mission tool policy")
         digest = hashlib.sha256(f"{request.operation_id}:{index}:{task}".encode()).hexdigest()[:20]
-        budget_raw = raw.get("budget") if isinstance(raw.get("budget"), dict) else {}
+        budget_raw = dict(raw.get("budget")) if isinstance(raw.get("budget"), dict) else {}
+        budget_raw["max_context_bytes"] = max(
+            SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
+            int(budget_raw.get("max_context_bytes") or 0),
+        )
         jobs.append(
             SubagentJobSpec(
                 job_id=f"sj_{digest}",
