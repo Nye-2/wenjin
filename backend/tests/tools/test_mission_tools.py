@@ -22,6 +22,7 @@ from src.tools.mission.contracts import (
     CreateArtifactCandidateInput,
     ImportSourceCandidateInput,
     ListSourceCodeFilesInput,
+    ReadMissionReviewCandidateInput,
     ReadSourceCodeFileInput,
     ReadWorkspaceAssetInput,
     RegisterArtifactToolInput,
@@ -39,6 +40,7 @@ from src.tools.orchestrator import (
     ToolOrchestrator,
     ToolOutcomeStatus,
     ToolPolicy,
+    ToolReference,
     VerificationStatus,
 )
 
@@ -75,8 +77,9 @@ def _operation(*, lease_epoch: int = 4) -> ToolOperation:
 
 
 class _Missions:
-    def __init__(self, items=()) -> None:
+    def __init__(self, items=(), view=None) -> None:
         self.items = list(items)
+        self.view = view
 
     async def get(self, mission_id: str):
         assert mission_id == "mission-1"
@@ -88,10 +91,14 @@ class _Missions:
         limit = int(_kwargs.get("limit") or 100)
         return [item for index, item in enumerate(self.items, start=1) if int(getattr(item, "seq", index)) > after_seq][:limit]
 
+    async def get_view(self, mission_id: str):
+        assert mission_id == "mission-1"
+        return self.view
+
 
 class _DataService:
-    def __init__(self, *, asset=None, mission_items=(), prism_surface=None, prism_file=None) -> None:
-        self.missions = _Missions(mission_items)
+    def __init__(self, *, asset=None, mission_items=(), mission_view=None, prism_surface=None, prism_file=None) -> None:
+        self.missions = _Missions(mission_items, mission_view)
         self.asset = asset
         self.prism_surface = prism_surface
         self.prism_file = prism_file
@@ -122,6 +129,7 @@ class _DataService:
 class _Sandbox:
     def __init__(self) -> None:
         self.requests: list[SandboxOperationRequest] = []
+        self.artifact_contents: dict[str, bytes] = {}
 
     def build_request(self, **kwargs) -> SandboxOperationRequest:
         return SandboxOperationRequest.build(
@@ -151,6 +159,20 @@ class _Sandbox:
             started_at=now,
             finished_at=now,
         )
+
+    async def read_artifact_bytes(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        expected_content_hash: str,
+        max_bytes: int,
+    ) -> bytes:
+        assert workspace_id == "workspace-1"
+        content = self.artifact_contents[path]
+        assert len(content) <= max_bytes
+        assert f"sha256:{hashlib.sha256(content).hexdigest()}" == expected_content_hash
+        return content
 
 
 def test_every_policy_group_has_canonical_registrations_and_narrow_permissions() -> None:
@@ -522,6 +544,66 @@ async def test_sandbox_artifact_registration_rejects_temporary_scratch_as_recove
     assert captured.value.recoverable_by_model is True
     assert "task scratch is temporary" in captured.value.user_safe_summary
     assert sandbox.requests == []
+
+
+@pytest.mark.asyncio
+async def test_review_candidate_includes_chunked_body_and_verified_sandbox_artifacts() -> None:
+    candidate_id = "review-1"
+    path = "/workspace/outputs/solution.py"
+    source = ("print('verified solution')\n" * 120).encode()
+    content_hash = f"sha256:{hashlib.sha256(source).hexdigest()}"
+    artifact_ref = ToolReference(
+        ref_id=f"sandbox-artifact:{content_hash.removeprefix('sha256:')}",
+        kind="sandbox_artifact_manifest",
+        metadata={
+            "path": path,
+            "kind": "text/x-python",
+            "content_hash": content_hash,
+        },
+    )
+    outcome = ResearchToolOutcome(
+        operation_id="operation-1",
+        operation_key="operation-key-1",
+        producer="workspace-agent",
+        tool_id="sandbox.run_python",
+        tool_version="1.0.0",
+        status=ToolOutcomeStatus.SUCCESS,
+        observed_at=datetime.now(UTC),
+        summary="Produced a verified solution artifact.",
+        artifact_refs=(artifact_ref,),
+        verification_status=VerificationStatus.VERIFIED,
+    )
+    mission_item = SimpleNamespace(
+        seq=1,
+        payload_json={"outcome": outcome.model_dump(mode="json")},
+    )
+    body = "完整候选正文。" * 700
+    review_item = SimpleNamespace(
+        review_item_id=candidate_id,
+        title="问题 1 可复现求解",
+        preview_hash="a" * 64,
+        preview_json={"body": body, "source_refs": [artifact_ref.ref_id]},
+    )
+    sandbox = _Sandbox()
+    sandbox.artifact_contents[path] = source
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(
+            mission_items=[mission_item],
+            mission_view=SimpleNamespace(review_items=[review_item]),
+        ),  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+    )
+
+    result = await handlers.read_review_candidate(
+        _operation(),
+        ReadMissionReviewCandidateInput(review_item_id=candidate_id),
+    )
+
+    metadata = result.evidence_refs[0].metadata
+    assert "".join(metadata["preview_body_chunks"]) == body
+    [artifact] = metadata["sandbox_artifacts"]
+    assert artifact["availability"] == "verified_inline"
+    assert "".join(artifact["content_chunks"]).encode() == source
 
 
 @pytest.mark.asyncio

@@ -534,6 +534,8 @@ class LangChainSubagentModel(SubagentModelPort):
             "Construct tool arguments from tool_input_schemas exactly; selected_refs are values, not argument names. "
             "When acting as a reviewer, read every selected Mission review candidate with "
             "mission.read_review_candidate before returning a verdict. "
+            "That result includes preview_body_chunks and verified sandbox_artifacts when available; review those "
+            "directly and never pass sandbox-artifact refs to workspace.read_asset. "
             "A completed tool result's payload_json is the authoritative returned content. Never repeat the same "
             "tool with the same arguments after it completed; reuse that result and complete on the next turn once "
             "the exit criteria are met. "

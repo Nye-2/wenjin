@@ -165,6 +165,12 @@ class MissionToolHandlers:
                 ToolErrorType.INVALID_INPUT,
                 "Review candidate is unavailable in this Mission.",
             )
+        preview = dict(item.preview_json)
+        preview_body = str(preview.get("body") or "")
+        artifact_previews = await self._review_candidate_artifact_previews(
+            operation,
+            preview=preview,
+        )
         return ToolHandlerResult(
             status=ToolOutcomeStatus.SUCCESS,
             summary=f"Loaded review candidate: {item.title}",
@@ -176,12 +182,110 @@ class MissionToolHandlers:
                     metadata={
                         "review_item_id": item.review_item_id,
                         "preview_hash": item.preview_hash,
-                        "preview": item.preview_json,
+                        "preview": preview,
+                        "preview_body_chunks": _text_chunks(
+                            preview_body,
+                            maximum_bytes=36_000,
+                        ),
+                        "sandbox_artifacts": artifact_previews,
                     },
                 ),
             ),
             verification_status=VerificationStatus.VERIFIED,
         )
+
+    async def _review_candidate_artifact_previews(
+        self,
+        operation: ToolOperation,
+        *,
+        preview: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        raw_refs = preview.get("source_refs")
+        ordered_refs = (
+            [
+                ref
+                for ref in raw_refs
+                if isinstance(ref, str) and ref.startswith("sandbox-artifact:")
+            ]
+            if isinstance(raw_refs, list)
+            else []
+        )
+        if not ordered_refs:
+            return []
+
+        wanted = set(ordered_refs[:6])
+        manifests: dict[str, ToolReference] = {}
+        after_seq = 0
+        while wanted - set(manifests):
+            items = await self.dataservice.missions.list_items(
+                operation.mission_id,
+                after_seq=after_seq,
+                limit=100,
+                item_type="tool_operation_terminal",
+            )
+            for ledger_item in items:
+                try:
+                    outcome = ResearchToolOutcome.model_validate(
+                        ledger_item.payload_json.get("outcome")
+                    )
+                except ValueError:
+                    continue
+                for ref in outcome.artifact_refs:
+                    if ref.ref_id in wanted:
+                        manifests[ref.ref_id] = ref
+            if len(items) < 100:
+                break
+            after_seq = items[-1].seq
+
+        workspace_id = await self._workspace_id(operation)
+        remaining_bytes = 60_000
+        projected: list[dict[str, Any]] = []
+        for ref_id in ordered_refs[:6]:
+            manifest = manifests.get(ref_id)
+            if manifest is None:
+                projected.append({"ref_id": ref_id, "availability": "manifest_unavailable"})
+                continue
+            path = str(manifest.metadata.get("path") or "")
+            content_hash = str(manifest.metadata.get("content_hash") or "")
+            mime_type = str(manifest.metadata.get("kind") or "application/octet-stream")
+            artifact: dict[str, Any] = {
+                "ref_id": ref_id,
+                "path": path,
+                "mime_type": mime_type,
+                "content_hash": content_hash,
+            }
+            if not mime_type.startswith(_TEXT_MIME_PREFIXES):
+                artifact["availability"] = "metadata_only"
+                projected.append(artifact)
+                continue
+            max_bytes = min(24_000, remaining_bytes)
+            if max_bytes <= 0:
+                artifact["availability"] = "candidate_read_budget_exhausted"
+                projected.append(artifact)
+                continue
+            try:
+                content = await self.sandbox.read_artifact_bytes(
+                    workspace_id=workspace_id,
+                    path=path,
+                    expected_content_hash=content_hash,
+                    max_bytes=max_bytes,
+                )
+            except (SandboxPathError, OSError):
+                artifact["availability"] = "unavailable_or_changed"
+                projected.append(artifact)
+                continue
+            remaining_bytes -= len(content)
+            artifact.update(
+                {
+                    "availability": "verified_inline",
+                    "content_chunks": _text_chunks(
+                        content.decode("utf-8", errors="replace"),
+                        maximum_bytes=len(content),
+                    ),
+                }
+            )
+            projected.append(artifact)
+        return projected
 
     async def read_workspace_asset(self, operation: ToolOperation, args: ReadWorkspaceAssetInput) -> ToolHandlerResult:
         workspace_id = await self._workspace_id(operation)
@@ -793,6 +897,19 @@ def _bounded_mapping(value: dict[str, Any], *, maximum: int) -> dict[str, Any]:
     if len(encoded.encode()) <= maximum:
         return value
     return {"preview": encoded[:maximum], "truncated": True}
+
+
+def _text_chunks(
+    value: str,
+    *,
+    maximum_bytes: int,
+    chunk_chars: int = 1_800,
+) -> list[str]:
+    bounded = value.encode("utf-8")[:maximum_bytes].decode("utf-8", errors="ignore")
+    return [
+        bounded[index : index + chunk_chars]
+        for index in range(0, len(bounded), chunk_chars)
+    ]
 
 
 def _sandbox_error(status: SandboxOperationStatus) -> ToolErrorType:
