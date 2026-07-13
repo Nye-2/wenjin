@@ -124,6 +124,103 @@ def test_stage_projection_replaces_per_item_families_with_observed_instances() -
     ) == "第 1 问求解与验证"
 
 
+@pytest.mark.asyncio
+async def test_mission_view_preserves_dynamic_stage_while_waiting_for_review(
+    mission_session: AsyncSession,
+) -> None:
+    contracts = (
+        _per_item_stage_contract("question_model", "question_{index}_model"),
+        _per_item_stage_contract(
+            "question_solution_validation",
+            "question_{index}_solution_validation",
+        ),
+    )
+    payload = _create_payload(
+        thread_id="thread-dynamic-stage-review",
+        idempotency_key="dynamic-stage-review",
+    ).model_copy(
+        update={
+            "workspace_type": "math_modeling",
+            "mission_policy_id": "math_modeling_solution",
+            "snapshot_json": {
+                "stage_acceptance": {
+                    "question_1_model": {"result": "pass"},
+                }
+            },
+            "runtime_context_json": {
+                "required_stage_ids": [
+                    "problem_understanding",
+                    "question_model",
+                    "question_solution_validation",
+                    "paper_integration",
+                ],
+                "stage_contracts": {
+                    contract.stage_id: contract.model_dump(mode="json")
+                    for contract in contracts
+                },
+            },
+        }
+    )
+    store = MissionStore(mission_session, autocommit=True)
+    created = await store.create_run(payload)
+    claimed = await _claim(
+        store,
+        created.mission.mission_id,
+        version=created.mission.state_version,
+    )
+    appended = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="tool_result",
+                    phase="completed",
+                    stage_id="question_1_solution_validation",
+                    summary="Validated baseline result.",
+                )
+            ],
+        ),
+    )
+    source_seq = appended.items[0].seq
+    staged = await store.create_review_items(
+        created.mission.mission_id,
+        MissionReviewItemsCreatePayload(
+            expected_state_version=appended.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionReviewItemDraftPayload(
+                    source_item_seq=source_seq,
+                    target_kind="artifact",
+                    target_room="documents",
+                    title="问题 1 可复现求解包",
+                    risk_level="medium",
+                    preview_json={"summary": "D=120 基准求解与验证。"},
+                )
+            ],
+        ),
+    )
+
+    view = await store.get_view(staged.mission.mission_id)
+
+    assert view is not None
+    assert view.required_stage_ids == [
+        "problem_understanding",
+        "question_1_model",
+        "question_1_solution_validation",
+        "paper_integration",
+    ]
+    assert [stage.title for stage in view.stage_summaries] == [
+        "题目理解",
+        "第 1 问建模",
+        "第 1 问求解与验证",
+        "论文整合",
+    ]
+
+
 @pytest_asyncio.fixture
 async def mission_session() -> AsyncSession:
     engine = create_async_engine(

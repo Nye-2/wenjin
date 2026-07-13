@@ -1637,6 +1637,14 @@ class MissionStore:
             item_types=("artifact", "output"),
             limit=projection_item_limit + 1,
         )
+        pending_review_sources = await self.repository.list_items_by_seqs(
+            mission_id=mission_id,
+            seqs=tuple(
+                record.source_item_seq
+                for record in review_records
+                if record.status == "pending" and record.source_item_seq is not None
+            ),
+        )
         review_counts = {status: 0 for status in _REVIEW_TRANSITIONS}
         for record in review_records:
             review_counts[record.status] += 1
@@ -1645,7 +1653,14 @@ class MissionStore:
             commit_counts[record.status] += 1
         evidence_page_records = evidence_records[:projection_item_limit]
         artifact_page_records = artifact_records[:projection_item_limit]
-        required_stage_ids, stage_summaries = _project_stages(run)
+        required_stage_ids, stage_summaries = _project_stages(
+            run,
+            observed_stage_ids=[
+                record.stage_id
+                for record in pending_review_sources
+                if record.stage_id is not None
+            ],
+        )
         team_summary, subagents = _project_subagents(run)
         committed_review_ids = {
             record.review_item_id for record in commit_records if record.status == "committed"
@@ -1853,6 +1868,8 @@ def _attention_impact(reason: str) -> str:
 
 def _project_stages(
     run: MissionRunRecord,
+    *,
+    observed_stage_ids: list[str] | None = None,
 ) -> tuple[list[str], list[MissionStageSummaryPayload]]:
     raw_ids = run.runtime_context_json.get("required_stage_ids")
     required_families = [item for item in raw_ids if isinstance(item, str)] if isinstance(raw_ids, list) else []
@@ -1864,6 +1881,7 @@ def _project_stages(
         observed_ids=[
             *(stage_id for stage_id in accepted if isinstance(stage_id, str)),
             *((run.active_stage_id,) if run.active_stage_id else ()),
+            *(observed_stage_ids or ()),
         ],
         contracts=contracts,
     )

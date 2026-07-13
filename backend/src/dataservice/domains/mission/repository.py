@@ -244,6 +244,24 @@ class MissionRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_items_by_seqs(
+        self,
+        *,
+        mission_id: str,
+        seqs: tuple[int, ...],
+    ) -> list[MissionItemRecord]:
+        if not seqs:
+            return []
+        result = await self.session.execute(
+            select(MissionItemRecord)
+            .where(
+                MissionItemRecord.mission_id == mission_id,
+                MissionItemRecord.seq.in_(seqs),
+            )
+            .order_by(MissionItemRecord.seq.asc())
+        )
+        return list(result.scalars())
+
     async def find_item_by_operation(
         self,
         *,
