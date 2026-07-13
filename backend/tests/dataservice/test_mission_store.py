@@ -1049,6 +1049,119 @@ async def test_review_and_commit_are_item_scoped_and_commit_replay_is_idempotent
     assert review_items[0].status == "committed"
 
 
+@pytest.mark.asyncio
+async def test_committed_review_makes_nonterminal_mission_durably_runnable(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    staged = await store.create_review_items(
+        mission_id,
+        MissionReviewItemsCreatePayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionReviewItemDraftPayload(
+                    review_item_id="review-runnable",
+                    target_kind="document",
+                    target_room="documents",
+                    title="Stage result",
+                    risk_level="medium",
+                    preview_json={"content": "draft"},
+                )
+            ],
+        ),
+    )
+    decided = await store.apply_review_decisions(
+        mission_id,
+        MissionReviewDecisionsPayload(
+            decision_id="decision-runnable",
+            expected_state_version=staged.mission.state_version,
+            actor_user_id="user-1",
+            decisions=[
+                MissionReviewDecisionPayload(
+                    review_item_id="review-runnable",
+                    status="accepted",
+                )
+            ],
+        ),
+    )
+    recorded = await store.record_commit(
+        mission_id,
+        MissionCommitCreatePayload(
+            expected_state_version=decided.mission.state_version,
+            review_item_id="review-runnable",
+            commit_key="commit-runnable",
+            actor_user_id="user-1",
+        ),
+    )
+    started = await store.start_commit(
+        mission_id,
+        recorded.commit.commit_id,
+        MissionCommitStartPayload(attempt_token="attempt-token-runnable"),
+    )
+    assert started.mission.next_wakeup_at is None
+
+    committed = await store.finish_commit(
+        mission_id,
+        recorded.commit.commit_id,
+        MissionCommitFinishPayload(
+            attempt_token="attempt-token-runnable",
+            status="committed",
+            targets_json={"document_id": "document-runnable"},
+        ),
+    )
+
+    assert committed.mission.status not in {"completed", "failed", "cancelled"}
+    assert committed.mission.next_wakeup_at is not None
+
+
+@pytest.mark.asyncio
+async def test_revision_decision_makes_nonterminal_mission_durably_runnable(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    staged = await store.create_review_items(
+        mission_id,
+        MissionReviewItemsCreatePayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionReviewItemDraftPayload(
+                    review_item_id="review-revise",
+                    target_kind="document",
+                    target_room="documents",
+                    title="Stage result",
+                    risk_level="medium",
+                    preview_json={"content": "draft"},
+                )
+            ],
+        ),
+    )
+
+    decided = await store.apply_review_decisions(
+        mission_id,
+        MissionReviewDecisionsPayload(
+            decision_id="decision-revise",
+            expected_state_version=staged.mission.state_version,
+            actor_user_id="user-1",
+            decisions=[
+                MissionReviewDecisionPayload(
+                    review_item_id="review-revise",
+                    status="needs_more_evidence",
+                )
+            ],
+        ),
+    )
+
+    assert decided.mission.next_wakeup_at is not None
+
+
 def test_snapshot_rejects_scalar_duplication_and_oversize() -> None:
     base = _create_payload().model_dump()
     with pytest.raises(ValueError, match="duplicates"):

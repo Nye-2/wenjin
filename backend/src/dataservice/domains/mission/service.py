@@ -1372,6 +1372,10 @@ class MissionStore:
                 )
             )
         self._append_drafts(run, audit_drafts, now=now)
+        if run.status not in TERMINAL_MISSION_STATUSES and any(
+            decision.status.value != "accepted" for decision in command.decisions
+        ):
+            run.next_wakeup_at = now
         self._touch(run, now)
         await self._finish()
         return MissionReviewItemsResultPayload(
@@ -1563,6 +1567,8 @@ class MissionStore:
                 )
             review_item.status = "committed"
             review_item.updated_at = now
+            if run.status not in TERMINAL_MISSION_STATUSES:
+                run.next_wakeup_at = now
         phase = {
             "committed": "completed",
             "failed": "failed",

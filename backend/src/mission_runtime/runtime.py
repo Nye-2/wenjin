@@ -1645,6 +1645,15 @@ class MissionRuntime:
             return False
         return True
 
+    async def notify_runnable(
+        self,
+        mission_id: str,
+        *,
+        command_hint: str | None = None,
+    ) -> bool:
+        """Publish a best-effort delivery hint for durable runnable Mission state."""
+        return await self._publish_wakeup(mission_id, command_hint=command_hint)
+
     async def _settle_best_effort(self, mission: MissionRunPayload) -> None:
         try:
             await self.billing.settle(mission)

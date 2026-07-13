@@ -19,7 +19,12 @@ from src.mission_runtime import (
 )
 from src.mission_runtime.composition import build_production_mission_runtime
 from src.mission_runtime.production import CeleryMissionWakeupPublisher
-from src.review_commit_runtime.contracts import ReviewAction, ReviewDecision
+from src.review_commit_runtime.contracts import (
+    CommitBatchOutcome,
+    ReviewAction,
+    ReviewDecision,
+    ReviewDecisionBatchOutcome,
+)
 from src.review_commit_runtime.runtime import ReviewCommitRuntime
 
 
@@ -197,7 +202,7 @@ class MissionRuntimeService:
             raise ValueError("MissionRun was not found")
         if current.user_id != actor_user_id:
             raise PermissionError("MissionRun does not belong to the actor")
-        await self.review_commit.decide(
+        await self.decide_reviews(
             mission_id,
             actor_user_id=actor_user_id,
             decision_id=decision_id,
@@ -229,16 +234,63 @@ class MissionRuntimeService:
             raise ValueError("MissionRun was not found")
         if current.user_id != actor_user_id:
             raise PermissionError("MissionRun does not belong to the actor")
-        await self.review_commit.commit_many(
+        await self.commit_reviews(
             mission_id,
             actor_user_id=actor_user_id,
-            review_item_ids=list(review_item_ids),
+            review_item_ids=review_item_ids,
             request_id=request_id,
         )
         refreshed = await self.dataservice.missions.get(mission_id)
         if refreshed is None:
             raise RuntimeError("MissionRun disappeared after commit request")
         return refreshed
+
+    async def decide_reviews(
+        self,
+        mission_id: str,
+        *,
+        actor_user_id: str,
+        decision_id: str,
+        decisions: list[ReviewDecision],
+        bulk: bool,
+    ) -> ReviewDecisionBatchOutcome:
+        result = await self.review_commit.decide(
+            mission_id,
+            actor_user_id=actor_user_id,
+            decision_id=decision_id,
+            decisions=decisions,
+            bulk=bulk,
+        )
+        if any(
+            outcome.applied and outcome.status != "accepted"
+            for outcome in result.outcomes
+        ):
+            await self.runtime.notify_runnable(
+                mission_id,
+                command_hint=decision_id,
+            )
+        return result
+
+    async def commit_reviews(
+        self,
+        mission_id: str,
+        *,
+        actor_user_id: str,
+        review_item_ids: tuple[str, ...] | list[str],
+        request_id: str,
+    ) -> CommitBatchOutcome:
+        result = await self.review_commit.commit_many(
+            mission_id,
+            actor_user_id=actor_user_id,
+            review_item_ids=list(review_item_ids),
+            request_id=request_id,
+        )
+        if any(outcome.committed for outcome in result.outcomes):
+            await self.runtime.notify_runnable(
+                mission_id,
+                command_hint=request_id,
+            )
+        return result
 
 
 __all__ = [

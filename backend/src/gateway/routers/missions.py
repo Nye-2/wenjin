@@ -505,10 +505,9 @@ async def decide_mission_review_items(
     mission_id: str,
     command: ReviewDecisionsRequest,
     current_user: AccountAuthSubject = Depends(get_current_user),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+    runtime: MissionRuntimeService = Depends(_mission_runtime_service),
 ) -> dict[str, Any]:
-    runtime = build_review_commit_runtime(dataservice)
-    result = await runtime.decide(
+    result = await runtime.decide_reviews(
         mission_id,
         actor_user_id=str(current_user.id),
         decision_id=command.decision_id,
@@ -523,13 +522,12 @@ async def commit_mission_review_items(
     mission_id: str,
     command: MissionCommitRequest,
     current_user: AccountAuthSubject = Depends(get_current_user),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+    runtime: MissionRuntimeService = Depends(_mission_runtime_service),
 ) -> dict[str, Any]:
-    runtime = build_review_commit_runtime(dataservice)
-    result = await runtime.commit_many(
+    result = await runtime.commit_reviews(
         mission_id,
         actor_user_id=str(current_user.id),
-        review_item_ids=command.review_item_ids,
+        review_item_ids=tuple(command.review_item_ids),
         request_id=command.request_id,
     )
     return result.model_dump(mode="json")
