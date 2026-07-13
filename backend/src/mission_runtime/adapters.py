@@ -72,6 +72,7 @@ from src.subagent_runtime.contracts import (
     SubagentStopReason,
     SubagentToolRequest,
     SubagentToolResult,
+    subagent_context_size_bytes,
 )
 from src.subagent_runtime.runtime import (
     SubagentLedgerPort,
@@ -887,54 +888,59 @@ def _subagent_jobs(
         if not set(allowed_tools).issubset(mission_tools):
             raise ValueError("pinned WorkerSkill tools exceed the Mission tool policy")
         digest = hashlib.sha256(f"{request.operation_id}:{index}:{task}".encode()).hexdigest()[:20]
+        job_values = {
+            "job_id": f"sj_{digest}",
+            "operation_id": request.operation_id,
+            "mission_id": request.mission.mission_id,
+            "workspace_id": request.mission.workspace_id,
+            "model_id": request.mission.model_id,
+            "lease_owner": lease_owner,
+            "lease_epoch": request.mission.lease_epoch,
+            "stage_id": request.stage_id,
+            "display_name": display,
+            "role_label": role,
+            "task_summary": task,
+            "objective": request.mission.objective,
+            "input_scope": {
+                key: value
+                for key, value in raw.items()
+                if key
+                not in {
+                    "jobs",
+                    "budget",
+                    "display_name",
+                    "role_label",
+                    "allowed_tools",
+                    "worker_skill",
+                    "worker_skill_id",
+                    "output_schema",
+                    "exit_criteria",
+                    "selected_refs",
+                    "model_id",
+                }
+            },
+            "context_checkpoint_ref": request.frozen_context.context_checkpoint_ref,
+            "context_checkpoint": dict(request.frozen_context.context_checkpoint),
+            "selected_refs": tuple(str(item) for item in raw.get("selected_refs", ())),
+            "prior_output_briefs": request.frozen_context.prior_output_briefs,
+            "allowed_tools": allowed_tools,
+            "tool_input_schemas": input_schema_resolver(allowed_tools),
+            "worker_skill": dict(skill_contract),
+            "output_schema": dict(skill_contract.get("output_contract") or {}),
+            "exit_criteria": tuple(
+                str(item) for item in skill_contract.get("quality_focus") or ()
+            ),
+            "depth": 1,
+        }
         budget_raw = dict(raw.get("budget")) if isinstance(raw.get("budget"), dict) else {}
         budget_raw["max_context_bytes"] = max(
             SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
             int(budget_raw.get("max_context_bytes") or 0),
+            subagent_context_size_bytes(job_values),
         )
         jobs.append(
             SubagentJobSpec(
-                job_id=f"sj_{digest}",
-                operation_id=request.operation_id,
-                mission_id=request.mission.mission_id,
-                workspace_id=request.mission.workspace_id,
-                model_id=request.mission.model_id,
-                lease_owner=lease_owner,
-                lease_epoch=request.mission.lease_epoch,
-                stage_id=request.stage_id,
-                display_name=display,
-                role_label=role,
-                task_summary=task,
-                objective=request.mission.objective,
-                input_scope={
-                    key: value
-                    for key, value in raw.items()
-                    if key
-                    not in {
-                        "jobs",
-                        "budget",
-                        "display_name",
-                        "role_label",
-                        "allowed_tools",
-                        "worker_skill",
-                        "worker_skill_id",
-                        "output_schema",
-                        "exit_criteria",
-                        "selected_refs",
-                        "model_id",
-                    }
-                },
-                context_checkpoint_ref=request.frozen_context.context_checkpoint_ref,
-                context_checkpoint=dict(request.frozen_context.context_checkpoint),
-                selected_refs=tuple(str(item) for item in raw.get("selected_refs", ())),
-                prior_output_briefs=request.frozen_context.prior_output_briefs,
-                allowed_tools=allowed_tools,
-                tool_input_schemas=input_schema_resolver(allowed_tools),
-                worker_skill=dict(skill_contract),
-                output_schema=dict(skill_contract.get("output_contract") or {}),
-                exit_criteria=tuple(
-                    str(item) for item in skill_contract.get("quality_focus") or ()
-                ),
+                **job_values,
                 budget=SubagentBudget.model_validate(budget_raw),
             )
         )

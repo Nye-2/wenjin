@@ -1755,7 +1755,10 @@ class MissionRuntime:
         return MissionPortOutcome(
             status=MissionPortOutcomeStatus.FAILED,
             summary=summary,
-            payload_json={"error_type": type(exc).__name__},
+            payload_json={
+                "error_type": type(exc).__name__,
+                "detail": str(exc)[:500],
+            },
         )
 
     def _telemetry(

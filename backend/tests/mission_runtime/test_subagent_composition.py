@@ -234,6 +234,69 @@ async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
 
 
 @pytest.mark.asyncio
+async def test_subagent_context_budget_expands_to_fit_frozen_checkpoint(
+    runtime_factory,
+) -> None:
+    model = _CompletingWorkerModel()
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    runtime.subagents = MissionSubagentRuntimeAdapter(
+        store=deps["store"],
+        model=model,
+        tools=_NoSubagentTools(),  # type: ignore[arg-type]
+        monotonic_clock=deps["clock"].monotonic,
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "tool_policy": {"allowed_tool_ids": []},
+                "worker_skill_snapshots": {
+                    "research-scout": {
+                        "content_hash": "a" * 64,
+                        "contract": {
+                            "id": "research-scout",
+                            "output_contract": {"type": "object"},
+                            "quality_focus": ["Return a bounded evidence brief"],
+                        },
+                        "allowed_tool_ids": [],
+                    }
+                },
+            }
+        )
+    )
+    current = await deps["store"].get(receipt.mission_id)
+    assert current is not None
+    claimed = await deps["store"].claim_lease(
+        receipt.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=current.state_version,
+            ttl_seconds=120,
+        ),
+    )
+
+    outcome = await runtime.subagents.run(
+        SubagentExecutionRequest(
+            mission=claimed,
+            operation_id="large-frozen-context",
+            task_summary="Review the bounded parent checkpoint",
+            input_scope={
+                "display_name": "上下文复核员",
+                "role_label": "研究复核",
+                "worker_skill_id": "research-scout",
+                "budget": {"max_context_bytes": 4_096},
+            },
+            frozen_context=SubagentFrozenContext(
+                context_checkpoint={"brief": "问" * 30_000},
+            ),
+            deadline_monotonic=deps["clock"].monotonic() + 30,
+        )
+    )
+
+    assert outcome.status.value == "completed"
+    assert model.context_budgets[0] > 24_000
+
+
+@pytest.mark.asyncio
 async def test_fresh_subagent_runtime_adopts_durable_terminal_result(runtime_factory) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     receipt = await runtime.start(

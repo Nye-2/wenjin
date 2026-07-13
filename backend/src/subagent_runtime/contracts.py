@@ -11,6 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES = 24_000
 
 
+def subagent_context_size_bytes(payload: dict[str, Any]) -> int:
+    """Measure the exact bounded context payload used by SubagentJobSpec."""
+
+    return len(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+
+
 class _FrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -83,7 +95,7 @@ class SubagentJobSpec(_FrozenModel):
     @model_validator(mode="after")
     def enforce_context_budget(self) -> SubagentJobSpec:
         payload = self.model_dump(mode="json", exclude={"budget"})
-        size = len(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+        size = subagent_context_size_bytes(payload)
         if size > self.budget.max_context_bytes:
             raise ValueError("subagent context exceeds max_context_bytes")
         if len(self.allowed_tools) != len(set(self.allowed_tools)):
