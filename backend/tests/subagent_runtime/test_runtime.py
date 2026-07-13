@@ -30,6 +30,14 @@ def _job(job_id: str = "sj_one", **overrides: Any) -> SubagentJobSpec:
         "objective": "Build an evidence-backed research position",
         "input_scope": {"query": "federated PEFT"},
         "allowed_tools": ("research.search",),
+        "tool_input_schemas": {
+            "research.search": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": False,
+            }
+        },
         "exit_criteria": ("At least one verified source",),
     }
     values.update(overrides)

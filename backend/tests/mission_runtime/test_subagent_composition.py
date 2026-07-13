@@ -37,10 +37,12 @@ class _CompletingWorkerModel:
     def __init__(self) -> None:
         self.calls = 0
         self.scopes: list[dict] = []
+        self.tool_input_schemas: list[dict] = []
 
     async def next_action(self, job, steps, tool_results):
         self.calls += 1
         self.scopes.append(job.input_scope)
+        self.tool_input_schemas.append(job.tool_input_schemas)
         return SubagentAction(
             kind="complete",
             summary="Facet evidence is ready",
@@ -54,6 +56,17 @@ class _CompletingWorkerModel:
 
 
 class _NoSubagentTools:
+    def input_schemas(self, tool_ids):
+        return {
+            tool_id: {
+                "type": "object",
+                "properties": {"review_item_id": {"type": "string"}},
+                "required": ["review_item_id"],
+                "additionalProperties": False,
+            }
+            for tool_id in tool_ids
+        }
+
     async def execute(self, request):
         raise AssertionError(f"unexpected subagent tool call: {request.tool_name}")
 
@@ -88,6 +101,26 @@ def _complete_decision() -> MissionAgentDecision:
         kind="complete",
         summary="Mission result is ready",
         payload_json={"output_refs": ["mission-item:subagent"]},
+    )
+
+
+def _reviewer_spawn_decision() -> MissionAgentDecision:
+    return MissionAgentDecision(
+        decision_id="decision-review-1",
+        kind="subagent",
+        operation_id="review-1",
+        stage_id="problem_understanding",
+        summary="Delegate one bounded candidate review",
+        payload_json={
+            "task_summary": "Review the pending problem brief",
+            "input_scope": {
+                "display_name": "题目理解独立复核员",
+                "role_label": "problem_parser_reviewer",
+                "candidate_ref": "review-item-1",
+                "selected_refs": ["review-item-1"],
+                "worker_skill_id": "quality-critic",
+            },
+        },
     )
 
 
@@ -144,6 +177,56 @@ async def test_subagent_ledger_conflict_recovers_without_duplicate_job_or_effect
     completed = next(item for item in items if item.item_type == "subagent_completed")
     assert completed.payload_json["jobs"][0]["display_name"] == "文献猎手 · Lin"
     assert "full_transcript" not in str(completed.payload_json)
+
+
+@pytest.mark.asyncio
+async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
+    runtime_factory,
+) -> None:
+    model = _CompletingWorkerModel()
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([_reviewer_spawn_decision(), _complete_decision()])
+    )
+    runtime.subagents = MissionSubagentRuntimeAdapter(
+        store=deps["store"],
+        model=model,
+        tools=_NoSubagentTools(),  # type: ignore[arg-type]
+        monotonic_clock=deps["clock"].monotonic,
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "tool_policy": {
+                    "allowed_tool_ids": ["mission.read_review_candidate"]
+                },
+                "worker_skill_snapshots": {
+                    "quality-critic": {
+                        "content_hash": "b" * 64,
+                        "contract": {
+                            "id": "quality-critic",
+                            "output_contract": {"type": "object"},
+                            "quality_focus": ["Return an independent verdict"],
+                        },
+                        "allowed_tool_ids": ["mission.read_review_candidate"],
+                    }
+                },
+            }
+        )
+    )
+
+    telemetry = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    assert telemetry.outcome is MissionSliceOutcome.COMPLETED
+    assert model.tool_input_schemas == [
+        {
+            "mission.read_review_candidate": {
+                "type": "object",
+                "properties": {"review_item_id": {"type": "string"}},
+                "required": ["review_item_id"],
+                "additionalProperties": False,
+            }
+        }
+    ]
 
 
 @pytest.mark.asyncio

@@ -62,6 +62,7 @@ class SubagentJobSpec(_FrozenModel):
     selected_refs: tuple[str, ...] = Field(default=(), max_length=100)
     prior_output_briefs: tuple[str, ...] = Field(default=(), max_length=12)
     allowed_tools: tuple[str, ...] = Field(default=(), max_length=64)
+    tool_input_schemas: dict[str, dict[str, Any]] = Field(default_factory=dict)
     worker_skill: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
     exit_criteria: tuple[str, ...] = Field(default=(), max_length=32)
@@ -85,6 +86,8 @@ class SubagentJobSpec(_FrozenModel):
             raise ValueError("subagent context exceeds max_context_bytes")
         if len(self.allowed_tools) != len(set(self.allowed_tools)):
             raise ValueError("allowed_tools must be unique")
+        if set(self.tool_input_schemas) != set(self.allowed_tools):
+            raise ValueError("tool_input_schemas must exactly match allowed_tools")
         return self
 
 

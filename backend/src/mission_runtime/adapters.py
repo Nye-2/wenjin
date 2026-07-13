@@ -416,6 +416,15 @@ class MissionSubagentToolAdapter(SubagentToolPort):
         self.orchestrator = orchestrator
         self.policy_resolver = policy_resolver
 
+    def input_schemas(self, tool_ids: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+        """Project canonical catalog schemas into the bounded worker context."""
+        return {
+            tool_id: self.orchestrator.catalog.require(tool_id).input_model.model_json_schema(
+                mode="validation"
+            )
+            for tool_id in tool_ids
+        }
+
     async def execute(self, request: SubagentToolRequest) -> SubagentToolResult:
         mission = await self.store.get(request.mission_id)
         if mission is None:
@@ -518,6 +527,7 @@ class LangChainSubagentModel(SubagentModelPort):
         system = (
             "You are a bounded research worker inside Wenjin. Work only on the assigned task. "
             "Use only allowed tools. Never request room, memory, review, or mission writes. "
+            "Construct tool arguments from tool_input_schemas exactly; selected_refs are values, not argument names. "
             "When acting as a reviewer, read every selected Mission review candidate with "
             "mission.read_review_candidate before returning a verdict. "
             "Return complete only when the exit criteria are met; otherwise use a tool or stop with an explicit reason. "
@@ -532,6 +542,7 @@ class LangChainSubagentModel(SubagentModelPort):
             "selected_refs": job.selected_refs,
             "prior_output_briefs": job.prior_output_briefs,
             "allowed_tools": job.allowed_tools,
+            "tool_input_schemas": job.tool_input_schemas,
             "worker_skill": job.worker_skill,
             "output_schema": job.output_schema,
             "exit_criteria": job.exit_criteria,
@@ -609,6 +620,7 @@ class MissionSubagentRuntimeAdapter:
         monotonic_clock: Callable[[], float] = monotonic,
     ) -> None:
         self.store = store
+        self.tools = tools
         self.runtime = SubagentRuntime(
             model=model,
             tools=tools,
@@ -619,7 +631,10 @@ class MissionSubagentRuntimeAdapter:
         )
 
     async def run(self, request: SubagentExecutionRequest) -> MissionPortOutcome:
-        jobs = _subagent_jobs(request)
+        jobs = _subagent_jobs(
+            request,
+            input_schema_resolver=self.tools.input_schemas,
+        )
         recovered = await self._recovered_results(request, jobs)
         missing = tuple(job for job in jobs if job.job_id not in recovered)
         if missing:
@@ -815,7 +830,11 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
         )
 
 
-def _subagent_jobs(request: SubagentExecutionRequest) -> tuple[SubagentJobSpec, ...]:
+def _subagent_jobs(
+    request: SubagentExecutionRequest,
+    *,
+    input_schema_resolver: Callable[[tuple[str, ...]], dict[str, dict[str, Any]]],
+) -> tuple[SubagentJobSpec, ...]:
     raw_jobs = request.input_scope.get("jobs")
     entries = raw_jobs if isinstance(raw_jobs, list) and raw_jobs else [request.input_scope]
     jobs: list[SubagentJobSpec] = []
@@ -902,6 +921,7 @@ def _subagent_jobs(request: SubagentExecutionRequest) -> tuple[SubagentJobSpec, 
                 selected_refs=tuple(str(item) for item in raw.get("selected_refs", ())),
                 prior_output_briefs=request.frozen_context.prior_output_briefs,
                 allowed_tools=allowed_tools,
+                tool_input_schemas=input_schema_resolver(allowed_tools),
                 worker_skill=dict(skill_contract),
                 output_schema=dict(skill_contract.get("output_contract") or {}),
                 exit_criteria=tuple(
