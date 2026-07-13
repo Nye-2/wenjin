@@ -26,10 +26,7 @@ def render_workspace_mission_prompt(runtime: dict[str, Any]) -> str:
     unknown_tools = sorted(set(tools).difference(_TOOL_INPUT_MODELS))
     if unknown_tools:
         raise ValueError(f"Mission prompt has no canonical input schema for: {', '.join(unknown_tools)}")
-    tool_contracts = {
-        tool_id: _TOOL_INPUT_MODELS[tool_id].model_json_schema()
-        for tool_id in tools
-    }
+    tool_contracts = {tool_id: _TOOL_INPUT_MODELS[tool_id].model_json_schema() for tool_id in tools}
     skills = list(runtime["worker_skill_snapshots"])
     shared_rules = "\n".join(f"- {rule}" for rule in SHARED_OPERATING_RULES)
     return f"""{WORKSPACE_AGENT_IDENTITY}
@@ -73,6 +70,9 @@ Mission discipline:
     quality_candidate_refs and criterion supporting_refs must use the raw review_item_id exactly as
     stored in review_candidate_manifests. A mission-review:<id> observation proves the reviewer read
     that candidate, but it is not a candidate ref and must not replace the raw id in quality fields.
+    Verified tool artifact refs may be used as quality evidence when their receipt metadata supports
+    the requested surface. When the pinned contract requires exemplar comparison, populate every
+    quality_exemplar_comparisons entry from the pinned exemplar ref and its expected characteristics.
 12. plan_json, tool_arguments_json, job task_input_json, review item preview_json,
     quality artifact metadata_json,
     and pause_request.pending_request_json are JSON-object strings. Use "{{}}" when empty, [] for

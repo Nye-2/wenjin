@@ -166,9 +166,7 @@ class PinnedMissionStartContext:
             try:
                 skill_record = await self._dataservice.get_worker_skill(skill_id)
             except Exception as exc:
-                raise MissionProductionConfigurationError(
-                    f"WorkerSkill is unavailable: {skill_id}"
-                ) from exc
+                raise MissionProductionConfigurationError(f"WorkerSkill is unavailable: {skill_id}") from exc
             if skill_record is None:
                 raise MissionProductionConfigurationError(f"WorkerSkill is unavailable: {skill_id}")
             if not skill_record.enabled:
@@ -180,9 +178,7 @@ class PinnedMissionStartContext:
             skill_snapshots[skill_id] = {
                 "content_hash": skill_record.content_hash,
                 "contract": skill.model_dump(mode="json"),
-                "allowed_tool_ids": [
-                    tool_id for tool_id in skill_tools.tool_ids if tool_id in mission_tool_ids
-                ],
+                "allowed_tool_ids": [tool_id for tool_id in skill_tools.tool_ids if tool_id in mission_tool_ids],
             }
         search_required = "model_native_web_search" in policy.tool_policy.allowed_tool_groups
         if search_required:
@@ -256,18 +252,10 @@ class PinnedStageContractResolver(StageContractResolver):
         if not isinstance(raw, dict):
             raise MissionProductionConfigurationError(f"Pinned stage contract is unavailable: {stage_id}")
         candidate = raw.get(stage_id)
-        contract = (
-            StageAcceptanceContract.model_validate(candidate)
-            if isinstance(candidate, dict)
-            else _resolve_stage_instance_contract(raw, stage_id)
-        )
+        contract = StageAcceptanceContract.model_validate(candidate) if isinstance(candidate, dict) else _resolve_stage_instance_contract(raw, stage_id)
         if contract is None:
             raise MissionProductionConfigurationError(f"Pinned stage contract is unavailable: {stage_id}")
-        if (
-            contract.mission_policy_id != mission.mission_policy_id
-            or contract.workspace_type != mission.workspace_type
-            or not stage_id_matches_contract(contract, stage_id)
-        ):
+        if contract.mission_policy_id != mission.mission_policy_id or contract.workspace_type != mission.workspace_type or not stage_id_matches_contract(contract, stage_id):
             raise MissionProductionConfigurationError(f"Pinned stage contract is inconsistent: {stage_id}")
         return contract
 
@@ -322,14 +310,10 @@ class PinnedStageAssessmentBuilder(StageAssessmentBuilder):
         assessed = {item.criterion_id for item in assessment.criterion_assessments}
         if not assessed.issubset(expected_criteria):
             raise MissionProductionConfigurationError("Stage assessment contains criteria outside the pinned contract")
-        authoritative_refs = _persisted_candidate_refs(request.mission) | {
-            item.evidence_id for item in evidence
-        }
+        authoritative_refs = _persisted_candidate_refs(request.mission) | {item.evidence_id for item in evidence}
         used_refs = {ref for item in assessment.criterion_assessments for ref in item.supporting_refs}
         if not used_refs.issubset(authoritative_refs):
-            raise MissionProductionConfigurationError(
-                "Stage assessment cites refs without a persisted candidate or verified receipt"
-            )
+            raise MissionProductionConfigurationError("Stage assessment cites refs without a persisted candidate or verified receipt")
         return assessment
 
 
@@ -340,24 +324,14 @@ def _candidate_manifests(
     raw = mission.snapshot_json.get("review_candidate_manifests")
     if not isinstance(raw, dict):
         return {}
-    return {
-        ref: dict(value)
-        for ref, value in raw.items()
-        if ref in candidate_refs and isinstance(value, dict)
-    }
+    return {ref: dict(value) for ref, value in raw.items() if ref in candidate_refs and isinstance(value, dict)}
 
 
 def _persisted_candidate_refs(mission: MissionRunPayload) -> set[str]:
     raw = mission.snapshot_json.get("review_candidate_manifests")
     if not isinstance(raw, dict):
         return set()
-    return {
-        str(ref)
-        for ref, manifest in raw.items()
-        if isinstance(manifest, dict)
-        and str(manifest.get("artifact_kind") or "")
-        and len(str(manifest.get("preview_hash") or "")) == 64
-    }
+    return {str(ref) for ref, manifest in raw.items() if isinstance(manifest, dict) and str(manifest.get("artifact_kind") or "") and len(str(manifest.get("preview_hash") or "")) == 64}
 
 
 def _stage_instance_index(
@@ -371,9 +345,7 @@ def _stage_instance_index(
         stage_id,
     )
     if index is None:
-        raise MissionProductionConfigurationError(
-            f"Stage id does not match its pinned instance template: {stage_id}"
-        )
+        raise MissionProductionConfigurationError(f"Stage id does not match its pinned instance template: {stage_id}")
     return index
 
 
@@ -427,9 +399,7 @@ def _verified_evidence(
             continue
         claim_ids = tuple(str(item) for item in raw.get("claim_ids") or ())
         supported_claims = authority["supported_claims"]
-        if surface == "claim_evidence_alignment" and (
-            not claim_ids or not set(claim_ids).issubset(supported_claims)
-        ):
+        if surface == "claim_evidence_alignment" and (not claim_ids or not set(claim_ids).issubset(supported_claims)):
             continue
         verified.append(
             EvidenceRecord(
@@ -470,6 +440,14 @@ def _receipt_evidence_index(
                 "surfaces": _allowed_surfaces(ref.kind, ref.metadata),
                 "supported_claims": set(),
             }
+        for ref in outcome.artifact_refs:
+            index[ref.ref_id] = {
+                "kind": ref.kind,
+                "source_ref": ref.uri,
+                "operation_id": outcome.operation_id,
+                "surfaces": _allowed_surfaces(ref.kind, ref.metadata),
+                "supported_claims": set(),
+            }
         for ref in outcome.source_refs:
             if ref.verification_status not in {
                 VerificationStatus.VERIFIED,
@@ -490,11 +468,7 @@ def _receipt_evidence_index(
 
 
 def _allowed_surfaces(kind: str, metadata: dict[str, Any]) -> set[str]:
-    explicit = {
-        str(item)
-        for item in metadata.get("surfaces") or ()
-        if str(item) in KNOWN_RESEARCH_SURFACES
-    }
+    explicit = {str(item) for item in metadata.get("surfaces") or () if str(item) in KNOWN_RESEARCH_SURFACES}
     if explicit:
         return explicit
     if kind == "provider_search_receipt":
@@ -518,9 +492,7 @@ def _verified_critiques(
     contract: StageAcceptanceContract,
     candidate_refs: set[str],
 ) -> tuple[CritiqueAssessment, ...]:
-    expected_criteria = {
-        item.criterion_id for item in (*contract.minimum_criteria, *contract.excellent_criteria)
-    }
+    expected_criteria = {item.criterion_id for item in (*contract.minimum_criteria, *contract.excellent_criteria)}
     by_role: dict[str, CritiqueAssessment] = {}
     for item in recent_items:
         jobs = item.payload_json.get("jobs")
@@ -535,13 +507,12 @@ def _verified_critiques(
             role = str(result.get("reviewer_role") or job.get("role_label") or "")
             if role not in contract.reviewer_roles:
                 continue
-            reviewed_refs = {str(ref) for ref in result.get("reviewed_candidate_refs") or ()}
+            reviewed_refs = {_review_candidate_id(ref) for ref in result.get("reviewed_candidate_refs") or ()}
+            reviewed_refs.discard("")
             if not candidate_refs or not candidate_refs.issubset(reviewed_refs):
                 continue
             observed_refs = {str(ref) for ref in job.get("evidence_refs") or ()}
-            required_observations = {
-                f"mission-review:{candidate_ref}" for candidate_ref in candidate_refs
-            }
+            required_observations = {f"mission-review:{candidate_ref}" for candidate_ref in candidate_refs}
             if not required_observations.issubset(observed_refs):
                 continue
             verdict = str(result.get("verdict") or "")
@@ -559,6 +530,12 @@ def _verified_critiques(
     return tuple(by_role[role] for role in contract.reviewer_roles if role in by_role)
 
 
+def _review_candidate_id(value: Any) -> str:
+    candidate = str(value).strip()
+    prefix = "mission-review:"
+    return candidate[len(prefix) :] if candidate.startswith(prefix) else candidate
+
+
 class StrictReviewCandidateBuilder:
     async def build_candidates(
         self,
@@ -573,20 +550,14 @@ class StrictReviewCandidateBuilder:
             if not item.preview_ref and not item.preview_json:
                 raise MissionProductionConfigurationError("Review candidates must include a preview")
             if item.preview_ref and item.preview_expires_at is None:
-                raise MissionProductionConfigurationError(
-                    "External review previews require preview_expires_at"
-                )
+                raise MissionProductionConfigurationError("External review previews require preview_expires_at")
             artifact_kind = item.preview_json.get("artifact_kind")
             if not isinstance(artifact_kind, str) or not artifact_kind.strip():
-                raise MissionProductionConfigurationError(
-                    "Review candidates require preview_json.artifact_kind"
-                )
+                raise MissionProductionConfigurationError("Review candidates require preview_json.artifact_kind")
             if item.target_kind == "document":
                 item = _compile_document_review_candidate(item)
             elif not _has_materialization_descriptor(item.preview_json):
-                raise MissionProductionConfigurationError(
-                    "Non-document review candidates require a canonical materialization descriptor"
-                )
+                raise MissionProductionConfigurationError("Non-document review candidates require a canonical materialization descriptor")
             items.append(item)
         summary = str(request.candidate_json.get("summary") or "").strip()
         if not summary:
@@ -598,22 +569,14 @@ def _compile_document_review_candidate(
     item: MissionReviewItemDraftPayload,
 ) -> MissionReviewItemDraftPayload:
     if item.target_ref and (not item.base_revision_ref or not item.base_hash):
-        raise MissionProductionConfigurationError(
-            "Existing document candidates require base revision and hash"
-        )
+        raise MissionProductionConfigurationError("Existing document candidates require base revision and hash")
     preview = dict(item.preview_json)
     body = next(
-        (
-            value
-            for key in ("body", "content", "markdown")
-            if isinstance((value := preview.get(key)), str) and value.strip()
-        ),
+        (value for key in ("body", "content", "markdown") if isinstance((value := preview.get(key)), str) and value.strip()),
         None,
     )
     if body is None:
-        raise MissionProductionConfigurationError(
-            "Document review candidates require a markdown body"
-        )
+        raise MissionProductionConfigurationError("Document review candidates require a markdown body")
     payload: dict[str, Any] = {
         "content_inline": body,
         "content_hash": hashlib.sha256(body.encode("utf-8")).hexdigest(),

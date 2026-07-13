@@ -198,9 +198,7 @@ class MissionItemOperationJournal(OperationJournal):
             MissionOperationClaimPayload(
                 operation_key=operation.operation_key,
                 kind=MissionOperationKind.TOOL,
-                request_hash=_operation_request_hash(
-                    MissionOperationKind.TOOL, operation.operation_key
-                ),
+                request_hash=_operation_request_hash(MissionOperationKind.TOOL, operation.operation_key),
                 claimant=operation.operation_id,
                 lease_epoch=operation.lease_epoch,
                 ttl_seconds=self.operation_ttl_seconds,
@@ -238,16 +236,10 @@ class MissionItemOperationJournal(OperationJournal):
             MissionOperationFinishPayload(
                 operation_key=operation.operation_key,
                 kind=MissionOperationKind.TOOL,
-                request_hash=_operation_request_hash(
-                    MissionOperationKind.TOOL, operation.operation_key
-                ),
+                request_hash=_operation_request_hash(MissionOperationKind.TOOL, operation.operation_key),
                 claimant=operation.operation_id,
                 lease_epoch=operation.lease_epoch,
-                status=(
-                    MissionOperationStatus.FAILED
-                    if outcome.status is ToolOutcomeStatus.ERROR
-                    else MissionOperationStatus.SUCCEEDED
-                ),
+                status=(MissionOperationStatus.FAILED if outcome.status is ToolOutcomeStatus.ERROR else MissionOperationStatus.SUCCEEDED),
                 receipt_json={"outcome": outcome.model_dump(mode="json")},
                 payload_ref=outcome.payload_ref,
             ),
@@ -422,12 +414,7 @@ class MissionSubagentToolAdapter(SubagentToolPort):
 
     def input_schemas(self, tool_ids: tuple[str, ...]) -> dict[str, dict[str, Any]]:
         """Project canonical catalog schemas into the bounded worker context."""
-        return {
-            tool_id: self.orchestrator.catalog.require(tool_id).input_model.model_json_schema(
-                mode="validation"
-            )
-            for tool_id in tool_ids
-        }
+        return {tool_id: self.orchestrator.catalog.require(tool_id).input_model.model_json_schema(mode="validation") for tool_id in tool_ids}
 
     async def execute(self, request: SubagentToolRequest) -> SubagentToolResult:
         mission = await self.store.get(request.mission_id)
@@ -558,9 +545,7 @@ class LangChainSubagentModel(SubagentModelPort):
             "steps": [item.model_dump(mode="json") for item in steps[-12:]],
             "tool_results": [item.model_dump(mode="json") for item in tool_results[-8:]],
         }
-        result = await bound.ainvoke(
-            [SystemMessage(content=system), HumanMessage(content=json.dumps(payload, ensure_ascii=False))]
-        )
+        result = await bound.ainvoke([SystemMessage(content=system), HumanMessage(content=json.dumps(payload, ensure_ascii=False))])
         return _parse_subagent_action(result)
 
 
@@ -597,10 +582,7 @@ def _subagent_action_tool() -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": "subagent_step",
-            "description": (
-                "Choose the next bounded worker action. JSON object fields are encoded as JSON strings; "
-                "use '{}' when empty and null for irrelevant nullable fields."
-            ),
+            "description": ("Choose the next bounded worker action. JSON object fields are encoded as JSON strings; use '{}' when empty and null for irrelevant nullable fields."),
             "parameters": strict_provider_schema(_ProviderSubagentAction.model_json_schema()),
             "strict": True,
         },
@@ -681,9 +663,7 @@ class MissionSubagentRuntimeAdapter:
             if job is None or not isinstance(raw_result, dict):
                 continue
             if payload.get("job_fingerprint") != subagent_job_fingerprint(job):
-                raise RuntimeError(
-                    "durable subagent terminal result has a divergent semantic request"
-                )
+                raise RuntimeError("durable subagent terminal result has a divergent semantic request")
             result = SubagentJobResult.model_validate(raw_result)
             if result.result_sha256 != payload.get("result_sha256"):
                 raise RuntimeError("durable subagent terminal result hash does not match")
@@ -703,9 +683,7 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
             MissionOperationClaimPayload(
                 operation_key=request.operation_key,
                 kind=MissionOperationKind.SANDBOX,
-                request_hash=_operation_request_hash(
-                    MissionOperationKind.SANDBOX, request.operation_key
-                ),
+                request_hash=_operation_request_hash(MissionOperationKind.SANDBOX, request.operation_key),
                 claimant=sandbox_job_id,
                 lease_epoch=request.provenance.lease_epoch,
                 ttl_seconds=request.limits.wall_time_seconds + 30,
@@ -757,9 +735,7 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
         )
 
     async def finalize(self, result: SandboxOperationResult) -> None:
-        receipt = await self.store.get_operation(
-            result.provenance.mission_id, result.operation_key
-        )
+        receipt = await self.store.get_operation(result.provenance.mission_id, result.operation_key)
         if receipt is None:
             raise RuntimeError("sandbox operation was not atomically claimed")
         finished = await self.store.finish_operation(
@@ -767,16 +743,10 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
             MissionOperationFinishPayload(
                 operation_key=result.operation_key,
                 kind=MissionOperationKind.SANDBOX,
-                request_hash=_operation_request_hash(
-                    MissionOperationKind.SANDBOX, result.operation_key
-                ),
+                request_hash=_operation_request_hash(MissionOperationKind.SANDBOX, result.operation_key),
                 claimant=receipt.claimant,
                 lease_epoch=result.provenance.lease_epoch,
-                status=(
-                    MissionOperationStatus.SUCCEEDED
-                    if result.status.value == "succeeded"
-                    else MissionOperationStatus.FAILED
-                ),
+                status=(MissionOperationStatus.SUCCEEDED if result.status.value == "succeeded" else MissionOperationStatus.FAILED),
                 receipt_json={"result": result.model_dump(mode="json")},
             ),
         )
@@ -801,6 +771,7 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
                 )
             ],
         )
+
     async def get(
         self,
         mission_id: str,
@@ -873,10 +844,7 @@ def _subagent_jobs(
         }
         supplied = sorted(forbidden.intersection(raw))
         if supplied:
-            raise ValueError(
-                "subagent job cannot override pinned WorkerSkill configuration: "
-                + ", ".join(supplied)
-            )
+            raise ValueError("subagent job cannot override pinned WorkerSkill configuration: " + ", ".join(supplied))
         skill_id = str(raw.get("worker_skill_id") or "").strip()
         snapshot = skill_snapshots.get(skill_id)
         if not skill_id or not isinstance(snapshot, dict):
@@ -936,9 +904,7 @@ def _subagent_jobs(
                 role_label=role,
                 output_schema=skill_contract.get("output_contract"),
             ),
-            "exit_criteria": tuple(
-                str(item) for item in skill_contract.get("quality_focus") or ()
-            ),
+            "exit_criteria": tuple(str(item) for item in skill_contract.get("quality_focus") or ()),
             "depth": 1,
         }
         budget_raw = dict(raw.get("budget")) if isinstance(raw.get("budget"), dict) else {}
@@ -964,40 +930,44 @@ def _specialized_worker_output_schema(
     output_schema: object,
 ) -> dict[str, Any]:
     schema = deepcopy(output_schema) if isinstance(output_schema, dict) else {}
-    properties = schema.get("properties")
-    if stage_id is None or not isinstance(properties, dict):
-        return schema
-    criterion_schema = properties.get("criterion_ids")
-    reviewer_schema = properties.get("reviewer_role")
-    if not isinstance(criterion_schema, dict) and not isinstance(reviewer_schema, dict):
+    if stage_id is None:
         return schema
 
     raw_contracts = mission.runtime_context_json.get("stage_contracts")
     if not isinstance(raw_contracts, dict):
-        raise ValueError("reviewer subagent requires pinned stage contracts")
-    contracts = tuple(
-        StageAcceptanceContract.model_validate(raw)
-        for raw in raw_contracts.values()
-    )
+        return schema
+    contracts = tuple(StageAcceptanceContract.model_validate(raw) for raw in raw_contracts.values())
     contract = next(
-        (item for item in contracts if stage_id_matches_contract(item, stage_id)),
+        (item for item in contracts if stage_id_matches_contract(item, stage_id) and role_label in item.reviewer_roles),
         None,
     )
     if contract is None:
-        raise ValueError("reviewer subagent stage is outside the pinned stage contracts")
-    if role_label not in contract.reviewer_roles:
-        raise ValueError("reviewer subagent role is outside the pinned stage contract")
+        return schema
 
-    if isinstance(reviewer_schema, dict):
-        reviewer_schema["enum"] = [role_label]
-    if isinstance(criterion_schema, dict):
-        item_schema = criterion_schema.get("items")
-        if not isinstance(item_schema, dict):
-            raise ValueError("reviewer criterion_ids schema must declare item constraints")
-        item_schema["enum"] = [
-            criterion.criterion_id
-            for criterion in (*contract.minimum_criteria, *contract.excellent_criteria)
-        ]
+    properties = schema.setdefault("properties", {})
+    if not isinstance(properties, dict):
+        raise ValueError("reviewer output schema properties must be an object")
+    critique_properties = {
+        "reviewer_role": {"type": "string", "enum": [role_label]},
+        "verdict": {"type": "string", "enum": ["pass", "revise"]},
+        "criterion_ids": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [criterion.criterion_id for criterion in (*contract.minimum_criteria, *contract.excellent_criteria)],
+            },
+        },
+        "reviewed_candidate_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "note": {"type": "string"},
+    }
+    properties.update(critique_properties)
+    required = schema.setdefault("required", [])
+    if not isinstance(required, list):
+        raise ValueError("reviewer output schema required must be an array")
+    schema["required"] = list(dict.fromkeys([*required, *critique_properties]))
     return schema
 
 

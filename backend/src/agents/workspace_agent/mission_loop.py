@@ -84,9 +84,7 @@ class _ProviderReviewItem(BaseModel):
     summary: str | None = Field(max_length=4000)
     risk_level: Literal["low", "medium", "high"]
     review_required_reason: str | None = Field(max_length=4000)
-    preview_json: str = Field(
-        description="JSON object containing a complete user-previewable candidate, usually markdown content."
-    )
+    preview_json: str = Field(description="JSON object containing a complete user-previewable candidate, usually markdown content.")
     preview_ref: str | None = Field(max_length=2048)
     preview_expires_at: datetime | None = None
 
@@ -131,6 +129,15 @@ class _ProviderQualityCritique(BaseModel):
     note: str = Field(max_length=4000)
 
 
+class _ProviderQualityExemplarComparison(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    exemplar_ref_id: str = Field(min_length=1, max_length=300)
+    verdict: Literal["below", "meets", "exceeds"]
+    criterion_ids: list[str] = Field(max_length=100)
+    note: str = Field(max_length=4000)
+
+
 class _ProviderMissionDecision(BaseModel):
     """Provider-safe wire shape; open objects cross the boundary as JSON text."""
 
@@ -152,6 +159,10 @@ class _ProviderMissionDecision(BaseModel):
     quality_artifacts: list[_ProviderQualityArtifact] = Field(max_length=100)
     quality_output_refs: list[str] = Field(max_length=100)
     quality_critiques: list[_ProviderQualityCritique] = Field(max_length=32)
+    quality_exemplar_comparisons: list[_ProviderQualityExemplarComparison] = Field(
+        default_factory=list,
+        max_length=32,
+    )
     quality_blocking_user_inputs: list[str] = Field(max_length=32)
     review_summary: str | None = Field(max_length=4000)
     review_items: list[_ProviderReviewItem] = Field(max_length=100)
@@ -215,13 +226,8 @@ class _ProviderMissionDecision(BaseModel):
             return {
                 "candidate_refs": self.quality_candidate_refs,
                 "assessment": {
-                    "criterion_assessments": [
-                        item.model_dump(mode="json") for item in self.quality_criteria
-                    ],
-                    "evidence": [
-                        {**item.model_dump(mode="json"), "status": "unverified", "metadata": {}}
-                        for item in self.quality_evidence
-                    ],
+                    "criterion_assessments": [item.model_dump(mode="json") for item in self.quality_criteria],
+                    "evidence": [{**item.model_dump(mode="json"), "status": "unverified", "metadata": {}} for item in self.quality_evidence],
                     "artifacts": [
                         {
                             **item.model_dump(mode="json", exclude={"metadata_json"}),
@@ -233,9 +239,8 @@ class _ProviderMissionDecision(BaseModel):
                         for item in self.quality_artifacts
                     ],
                     "output_refs": self.quality_output_refs,
-                    "critiques": [
-                        item.model_dump(mode="json") for item in self.quality_critiques
-                    ],
+                    "critiques": [item.model_dump(mode="json") for item in self.quality_critiques],
+                    "exemplar_comparisons": [item.model_dump(mode="json") for item in self.quality_exemplar_comparisons],
                     "blocking_user_inputs": self.quality_blocking_user_inputs,
                 },
             }
@@ -354,10 +359,7 @@ def _stage_id_is_pinned(
     stage_id: str,
 ) -> bool:
     try:
-        contracts = tuple(
-            StageAcceptanceContract.model_validate(candidate)
-            for candidate in stages.values()
-        )
+        contracts = tuple(StageAcceptanceContract.model_validate(candidate) for candidate in stages.values())
         return any(stage_id_matches_contract(contract, stage_id) for contract in contracts)
     except ValidationError as exc:
         raise WorkspaceMissionLoopProtocolError("Pinned stage contract is malformed") from exc
@@ -400,10 +402,7 @@ def _validate_decision_scope(
             }
             supplied = sorted(forbidden.intersection(job))
             if supplied:
-                raise WorkspaceMissionLoopProtocolError(
-                    "Subagent job attempted to provide runtime-owned skill configuration: "
-                    + ", ".join(supplied)
-                )
+                raise WorkspaceMissionLoopProtocolError("Subagent job attempted to provide runtime-owned skill configuration: " + ", ".join(supplied))
             skill_id = str(job.get("worker_skill_id") or "")
             if not skill_id or skill_id not in allowed_skills:
                 raise WorkspaceMissionLoopProtocolError("Subagent job requested an unpinned worker skill")

@@ -347,6 +347,14 @@ def test_mission_loop_maps_quality_assessment_without_snapshot_side_channel() ->
                 "note": "Candidate is reviewable.",
             }
         ],
+        "quality_exemplar_comparisons": [
+            {
+                "exemplar_ref_id": "software.inventory.excellent.v1",
+                "verdict": "meets",
+                "criterion_ids": ["software_identity"],
+                "note": "The candidate matches the pinned example characteristics.",
+            }
+        ],
         "quality_blocking_user_inputs": [],
         "review_summary": None,
         "review_items": [],
@@ -363,3 +371,4 @@ def test_mission_loop_maps_quality_assessment_without_snapshot_side_channel() ->
     assessment = decision.payload_json["assessment"]
     assert assessment["criterion_assessments"][0]["criterion_id"] == "software_identity"
     assert assessment["artifacts"][0]["metadata"] == {"review_status": "pending"}
+    assert assessment["exemplar_comparisons"][0]["verdict"] == "meets"

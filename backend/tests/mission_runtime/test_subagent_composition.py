@@ -210,9 +210,7 @@ async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
     runtime_factory,
 ) -> None:
     model = _CompletingWorkerModel()
-    runtime, deps = runtime_factory(
-        agent=ScriptedAgent([_reviewer_spawn_decision(), _complete_decision()])
-    )
+    runtime, deps = runtime_factory(agent=ScriptedAgent([_reviewer_spawn_decision(), _complete_decision()]))
     runtime.subagents = MissionSubagentRuntimeAdapter(
         store=deps["store"],
         model=model,
@@ -222,9 +220,7 @@ async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
     receipt = await runtime.start(
         start_request(
             runtime_context_json={
-                "tool_policy": {
-                    "allowed_tool_ids": ["mission.read_review_candidate"]
-                },
+                "tool_policy": {"allowed_tool_ids": ["mission.read_review_candidate"]},
                 "worker_skill_snapshots": {
                     "quality-critic": {
                         "content_hash": "b" * 64,
@@ -372,6 +368,117 @@ async def test_reviewer_output_schema_is_specialized_from_stage_contract(
     properties = model.output_schemas[0]["properties"]
     assert properties["reviewer_role"]["enum"] == ["problem_parser_reviewer"]
     assert properties["criterion_ids"]["items"]["enum"] == ["question_inventory"]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_schema_injects_critique_envelope_for_specialized_skill(
+    runtime_factory,
+) -> None:
+    model = _ReviewingWorkerModel()
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    runtime.subagents = MissionSubagentRuntimeAdapter(
+        store=deps["store"],
+        model=model,
+        tools=_NoSubagentTools(),  # type: ignore[arg-type]
+        monotonic_clock=deps["clock"].monotonic,
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "tool_policy": {"allowed_tool_ids": []},
+                "stage_contracts": {
+                    "validation": {
+                        "schema_version": "stage_acceptance_contract.v1",
+                        "contract_id": "math.validation",
+                        "version": 1,
+                        "mission_policy_id": "sci_research",
+                        "workspace_type": "sci",
+                        "stage_id": "validation",
+                        "stage_goal": "Validate reproducibility.",
+                        "minimum_criteria": [
+                            {
+                                "criterion_id": "reproducible",
+                                "description": "The result can be reproduced.",
+                            }
+                        ],
+                        "reviewer_roles": ["reproducibility_reviewer"],
+                        "allowed_actions_if_failed": [
+                            "revise_existing",
+                            "stop_execution",
+                        ],
+                        "advance_condition": "The result is reproducible.",
+                        "stop_condition": "The result cannot be reproduced.",
+                    }
+                },
+                "worker_skill_snapshots": {
+                    "reproducibility-auditor": {
+                        "content_hash": "c" * 64,
+                        "contract": {
+                            "id": "reproducibility-auditor",
+                            "output_contract": {
+                                "type": "object",
+                                "required": [
+                                    "summary",
+                                    "evidence_refs",
+                                    "artifact_refs",
+                                    "warnings",
+                                ],
+                                "properties": {
+                                    "summary": {"type": "string"},
+                                    "evidence_refs": {"type": "array"},
+                                    "artifact_refs": {"type": "array"},
+                                    "warnings": {"type": "array"},
+                                    "reproducibility_findings": {"type": "array"},
+                                },
+                            },
+                            "quality_focus": ["Verify rerun instructions"],
+                        },
+                        "allowed_tool_ids": [],
+                    }
+                },
+            }
+        )
+    )
+    current = await deps["store"].get(receipt.mission_id)
+    assert current is not None
+    claimed = await deps["store"].claim_lease(
+        receipt.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=current.state_version,
+            ttl_seconds=120,
+        ),
+    )
+
+    outcome = await runtime.subagents.run(
+        SubagentExecutionRequest(
+            mission=claimed,
+            operation_id="reproducibility-review",
+            task_summary="Review reproducibility",
+            stage_id="validation",
+            input_scope={
+                "display_name": "复现审计员",
+                "role_label": "reproducibility_reviewer",
+                "worker_skill_id": "reproducibility-auditor",
+                "selected_refs": ["review-item-1"],
+            },
+            frozen_context=SubagentFrozenContext(),
+            deadline_monotonic=deps["clock"].monotonic() + 30,
+        )
+    )
+
+    assert outcome.status.value == "completed"
+    schema = model.output_schemas[0]
+    assert set(
+        [
+            "reviewer_role",
+            "verdict",
+            "criterion_ids",
+            "reviewed_candidate_refs",
+            "note",
+        ]
+    ).issubset(schema["required"])
+    assert schema["properties"]["reviewer_role"]["enum"] == ["reproducibility_reviewer"]
 
 
 @pytest.mark.asyncio

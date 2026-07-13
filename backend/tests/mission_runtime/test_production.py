@@ -62,9 +62,7 @@ def _quality_contract() -> StageAcceptanceContract:
             "workspace_type": "sci",
             "stage_id": "scope",
             "stage_goal": "Produce a grounded scope.",
-            "minimum_criteria": [
-                {"criterion_id": "bounded", "description": "The scope is bounded."}
-            ],
+            "minimum_criteria": [{"criterion_id": "bounded", "description": "The scope is bounded."}],
             "required_artifacts": [{"kind": "research_brief"}],
             "reviewer_roles": ["research_scope_reviewer"],
             "allowed_actions_if_failed": ["revise_existing", "stop_execution"],
@@ -227,7 +225,7 @@ async def test_stage_assessment_accepts_persisted_independent_review(runtime_fac
                         "reviewer_role": "research_scope_reviewer",
                         "verdict": "pass",
                         "criterion_ids": ["bounded"],
-                        "reviewed_candidate_refs": ["review-1"],
+                        "reviewed_candidate_refs": ["mission-review:review-1"],
                         "note": "The bounded scope is explicit.",
                     },
                 }
@@ -263,9 +261,81 @@ async def test_stage_assessment_accepts_persisted_independent_review(runtime_fac
         _quality_contract(),
     )
 
-    assert [item.reviewer_role for item in assessment.critiques] == [
-        "research_scope_reviewer"
-    ]
+    assert [item.reviewer_role for item in assessment.critiques] == ["research_scope_reviewer"]
+
+
+@pytest.mark.asyncio
+async def test_stage_assessment_accepts_verified_artifact_receipt_as_evidence(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
+    mission = await deps["store"].get(receipt.mission_id)
+    assert mission is not None
+    tool_item = MissionItemPayload(
+        id="item-tool",
+        mission_id=mission.mission_id,
+        seq=1,
+        item_type="tool_result",
+        operation_id="sandbox-op",
+        phase="completed",
+        stage_id="scope",
+        producer="tool_orchestrator",
+        payload_json={
+            "research_tool_outcome": {
+                "operation_id": "sandbox-op",
+                "operation_key": "sandbox-op-key",
+                "producer": "sandbox.run_python",
+                "tool_id": "sandbox.run_python",
+                "tool_version": "1",
+                "status": "success",
+                "observed_at": mission.created_at.isoformat(),
+                "summary": "Verified computation",
+                "evidence_refs": [],
+                "source_refs": [],
+                "artifact_refs": [
+                    {
+                        "ref_id": "sandbox-artifact:verified-1",
+                        "kind": "sandbox_artifact_manifest",
+                        "uri": None,
+                        "title": "result.json",
+                        "metadata": {},
+                    }
+                ],
+                "confidence": 1.0,
+                "risk_level": "low",
+                "verification_status": "verified",
+                "recommended_next_action": None,
+                "payload_ref": None,
+                "recoverable_by_model": False,
+                "retry_after_seconds": None,
+            }
+        },
+        created_at=mission.created_at,
+    )
+
+    assessment = await PinnedStageAssessmentBuilder().build(
+        StageQualityRequest(
+            mission=mission,
+            operation_id="quality-1",
+            stage_id="scope",
+            assessment_json={
+                "evidence": [
+                    {
+                        "evidence_id": "sandbox-artifact:verified-1",
+                        "surface": "experiment_reproducibility",
+                        "kind": "sandbox_artifact_manifest",
+                    }
+                ]
+            },
+            recent_items=[tool_item],
+            deadline_monotonic=100,
+        ),
+        _quality_contract(),
+    )
+
+    assert assessment.evidence[0].status == "verified"
+    assert assessment.evidence[0].surface == "experiment_reproducibility"
 
 
 class PolicyDataService:
@@ -391,15 +461,11 @@ async def test_start_context_pins_policy_stages_tools_and_profile(monkeypatch) -
     assert "academic_visual.render_candidate" in runtime["tool_policy"]["allowed_tool_ids"]
     assert "academic_visual_scoped" in runtime["tool_policy"]["allowed_network_profiles"]
     assert set(runtime["required_stage_ids"]).issubset(runtime["stage_contracts"])
-    assert set(runtime["worker_skill_snapshots"]) == set(
-        policy_record("sci_research").to_contract().allowed_worker_skills
-    )
+    assert set(runtime["worker_skill_snapshots"]) == set(policy_record("sci_research").to_contract().allowed_worker_skills)
     for skill_id, snapshot in runtime["worker_skill_snapshots"].items():
         assert snapshot["contract"]["id"] == skill_id
         assert len(snapshot["content_hash"]) == 64
-        assert set(snapshot["allowed_tool_ids"]).issubset(
-            runtime["tool_policy"]["allowed_tool_ids"]
-        )
+        assert set(snapshot["allowed_tool_ids"]).issubset(runtime["tool_policy"]["allowed_tool_ids"])
 
 
 @pytest.mark.asyncio
@@ -411,9 +477,7 @@ async def test_pinned_resolver_resolves_math_per_question_stage(
         "src.mission_runtime.production.require_mission_model_profile",
         lambda _model_id: SimpleNamespace(capability_probe_hash="a" * 64),
     )
-    start_context = PinnedMissionStartContext(
-        PolicyDataService([policy_record("math_modeling_solution")])
-    )
+    start_context = PinnedMissionStartContext(PolicyDataService([policy_record("math_modeling_solution")]))
     runtime, deps = runtime_factory(
         agent=ScriptedAgent([]),
         start_context=start_context,
