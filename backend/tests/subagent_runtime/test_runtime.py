@@ -7,6 +7,7 @@ import pytest
 
 from src.subagent_runtime.contracts import (
     SubagentAction,
+    SubagentBudget,
     SubagentJobSpec,
     SubagentStopReason,
     SubagentToolResult,
@@ -175,6 +176,53 @@ async def test_tool_failure_is_typed_and_model_can_return_safe_partial_output() 
     assert job_result.partial_result_available is True
     assert job_result.result_json == {"draft": "safe partial"}
     assert ("sj_one", "progress") in ledger.events
+
+
+@pytest.mark.asyncio
+async def test_duplicate_successful_tool_request_is_skipped_without_spending_budget() -> None:
+    class Model:
+        calls = 0
+
+        async def next_action(self, job, steps, tool_results):
+            self.calls += 1
+            if self.calls <= 2:
+                return SubagentAction(
+                    kind="tool",
+                    tool_name="research.search",
+                    arguments={"query": "federated PEFT"},
+                    summary="read the same evidence",
+                )
+            assert any(step.kind == "progress" and "Duplicate" in step.summary for step in steps)
+            return SubagentAction(
+                kind="complete",
+                summary="review complete",
+                result_json={"summary": "one reviewed result"},
+            )
+
+    class Tools:
+        calls = 0
+
+        async def execute(self, request):
+            self.calls += 1
+            return SubagentToolResult(
+                status="completed",
+                summary="evidence loaded",
+                payload_json={"body": "review this once"},
+            )
+
+    model = Model()
+    tools = Tools()
+    runtime = SubagentRuntime(model=model, tools=tools, ledger=_Ledger())
+    result = await runtime.run_batch(
+        (_job(budget=SubagentBudget(max_turns=3, max_tool_steps=1)),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    job_result = result.results[0]
+    assert job_result.status.value == "completed"
+    assert job_result.tool_steps_used == 1
+    assert tools.calls == 1
+    assert model.calls == 3
 
 
 def test_context_contract_rejects_parent_transcript_and_recursive_depth() -> None:

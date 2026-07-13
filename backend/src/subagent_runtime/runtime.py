@@ -145,6 +145,7 @@ class SubagentRuntime:
         )
         steps: list[SubagentStep] = []
         tool_results: list[SubagentToolResult] = []
+        successful_tool_requests: set[str] = set()
         partial: dict[str, object] = {}
         for turn in range(1, job.budget.max_turns + 1):
             if self.monotonic_clock() >= deadline_monotonic:
@@ -212,17 +213,6 @@ class SubagentRuntime:
                     tool_results=tuple(tool_results),
                 )
 
-            if len(tool_results) >= job.budget.max_tool_steps:
-                return await self._terminal_result(
-                    job,
-                    status=SubagentStatus.COMPLETED if partial else SubagentStatus.FAILED,
-                    stop_reason=SubagentStopReason.LOOP_CAPPED,
-                    summary="Subagent exhausted its tool-step budget",
-                    result_json=partial,
-                    turns=turn,
-                    tools=len(tool_results),
-                    tool_results=tuple(tool_results),
-                )
             tool_name = action.tool_name or ""
             if tool_name not in job.allowed_tools:
                 return await self._terminal_result(
@@ -230,6 +220,37 @@ class SubagentRuntime:
                     status=SubagentStatus.FAILED,
                     stop_reason=SubagentStopReason.PERMISSION_DENIED,
                     summary=f"Subagent requested a tool outside its allowlist: {tool_name}",
+                    result_json=partial,
+                    turns=turn,
+                    tools=len(tool_results),
+                    tool_results=tuple(tool_results),
+                )
+            request_fingerprint = _tool_request_fingerprint(tool_name, action.arguments)
+            if request_fingerprint in successful_tool_requests:
+                duplicate_summary = (
+                    "Duplicate successful tool request skipped; reuse the prior result and complete or stop"
+                )
+                steps.append(
+                    SubagentStep(
+                        turn=turn,
+                        kind="progress",
+                        summary=duplicate_summary,
+                        tool_name=tool_name,
+                    )
+                )
+                await self.ledger.record_progress(
+                    job,
+                    phase="progress",
+                    summary=duplicate_summary,
+                    payload_json={"tool_name": tool_name, "status": "duplicate_skipped"},
+                )
+                continue
+            if len(tool_results) >= job.budget.max_tool_steps:
+                return await self._terminal_result(
+                    job,
+                    status=SubagentStatus.COMPLETED if partial else SubagentStatus.FAILED,
+                    stop_reason=SubagentStopReason.LOOP_CAPPED,
+                    summary="Subagent exhausted its tool-step budget",
                     result_json=partial,
                     turns=turn,
                     tools=len(tool_results),
@@ -257,6 +278,8 @@ class SubagentRuntime:
                     error_type=type(exc).__name__,
                 )
             tool_results.append(tool_result)
+            if tool_result.status == "completed":
+                successful_tool_requests.add(request_fingerprint)
             steps.append(
                 SubagentStep(
                     turn=turn,
@@ -347,6 +370,17 @@ class SubagentRuntime:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _tool_request_fingerprint(tool_name: str, arguments: dict[str, object]) -> str:
+    encoded = json.dumps(
+        {"tool_name": tool_name, "arguments": arguments},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=repr,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _validate_output_contract(value: object, schema: dict[str, object]) -> list[str]:

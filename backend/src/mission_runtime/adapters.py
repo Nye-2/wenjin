@@ -530,6 +530,9 @@ class LangChainSubagentModel(SubagentModelPort):
             "Construct tool arguments from tool_input_schemas exactly; selected_refs are values, not argument names. "
             "When acting as a reviewer, read every selected Mission review candidate with "
             "mission.read_review_candidate before returning a verdict. "
+            "A completed tool result's payload_json is the authoritative returned content. Never repeat the same "
+            "tool with the same arguments after it completed; reuse that result and complete on the next turn once "
+            "the exit criteria are met. "
             "Return complete only when the exit criteria are met; otherwise use a tool or stop with an explicit reason. "
             "Do not reveal hidden reasoning. Your user-facing name is a short label, not an identity or authority claim."
         )
