@@ -11,6 +11,11 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.contracts.stage_acceptance import (
+    StageAcceptanceContract,
+    stage_id_matches_contract,
+    stage_instance_index,
+)
 from src.database.models.mission import (
     MissionItemRecord,
     MissionReviewItemRecord,
@@ -1850,14 +1855,18 @@ def _project_stages(
     run: MissionRunRecord,
 ) -> tuple[list[str], list[MissionStageSummaryPayload]]:
     raw_ids = run.runtime_context_json.get("required_stage_ids")
-    required = [item for item in raw_ids if isinstance(item, str)] if isinstance(raw_ids, list) else []
+    required_families = [item for item in raw_ids if isinstance(item, str)] if isinstance(raw_ids, list) else []
     acceptance = run.snapshot_json.get("stage_acceptance")
     accepted = acceptance if isinstance(acceptance, dict) else {}
-    for stage_id in accepted:
-        if isinstance(stage_id, str) and stage_id not in required:
-            required.append(stage_id)
-    if run.active_stage_id and run.active_stage_id not in required:
-        required.append(run.active_stage_id)
+    contracts = _stage_contracts(run.runtime_context_json.get("stage_contracts"))
+    required = _project_stage_instance_ids(
+        required_families,
+        observed_ids=[
+            *(stage_id for stage_id in accepted if isinstance(stage_id, str)),
+            *((run.active_stage_id,) if run.active_stage_id else ()),
+        ],
+        contracts=contracts,
+    )
     summaries: list[MissionStageSummaryPayload] = []
     for stage_id in required:
         value = accepted.get(stage_id)
@@ -1878,12 +1887,112 @@ def _project_stages(
                 stage_id=stage_id,
                 title=_text(detail.get("title"))
                 or _text(detail.get("label"))
-                or stage_id.replace("_", " "),
+                or _stage_projection_title(
+                    workspace_type=run.workspace_type,
+                    stage_id=stage_id,
+                    contracts=contracts,
+                ),
                 status=status,
                 summary=_text(detail.get("summary")),
             )
         )
     return required, summaries
+
+
+def _stage_contracts(raw: object) -> tuple[StageAcceptanceContract, ...]:
+    if not isinstance(raw, dict):
+        return ()
+    contracts: list[StageAcceptanceContract] = []
+    for value in raw.values():
+        if not isinstance(value, dict):
+            continue
+        try:
+            contracts.append(StageAcceptanceContract.model_validate(value))
+        except ValueError:
+            continue
+    return tuple(contracts)
+
+
+def _project_stage_instance_ids(
+    required_families: list[str],
+    *,
+    observed_ids: list[str],
+    contracts: tuple[StageAcceptanceContract, ...],
+) -> list[str]:
+    family_contracts = {
+        family_id: contract
+        for family_id in required_families
+        if (contract := next((item for item in contracts if item.stage_id == family_id), None))
+        is not None
+        and contract.instantiation.mode == "per_item"
+    }
+    family_order = {family_id: index for index, family_id in enumerate(required_families)}
+    dynamic_instances: list[tuple[int, int, str]] = []
+    families_with_instances: set[str] = set()
+    for stage_id in dict.fromkeys(observed_ids):
+        for family_id, contract in family_contracts.items():
+            if not stage_id_matches_contract(contract, stage_id):
+                continue
+            index = stage_instance_index(contract.instantiation.instance_id_template, stage_id)
+            if index is not None:
+                dynamic_instances.append((index, family_order[family_id], stage_id))
+                families_with_instances.add(family_id)
+            break
+    dynamic_ids = [stage_id for _, _, stage_id in sorted(dynamic_instances)]
+
+    projected: list[str] = []
+    consumed: set[str] = set()
+    dynamic_block_inserted = False
+    for family_id in required_families:
+        if family_id in family_contracts:
+            if dynamic_block_inserted:
+                continue
+            dynamic_block_inserted = True
+            selected = [
+                *dynamic_ids,
+                *(
+                    candidate
+                    for candidate in required_families
+                    if candidate in family_contracts and candidate not in families_with_instances
+                ),
+            ]
+        else:
+            selected = [family_id]
+        for stage_id in selected:
+            if stage_id not in consumed:
+                projected.append(stage_id)
+                consumed.add(stage_id)
+    for stage_id in observed_ids:
+        if stage_id not in consumed:
+            projected.append(stage_id)
+            consumed.add(stage_id)
+    return projected
+
+
+def _stage_projection_title(
+    *,
+    workspace_type: str,
+    stage_id: str,
+    contracts: tuple[StageAcceptanceContract, ...],
+) -> str:
+    if workspace_type == "math_modeling":
+        labels = {
+            "problem_understanding": "题目理解",
+            "question_model": "逐问建模",
+            "question_solution_validation": "逐问求解与验证",
+            "paper_integration": "论文整合",
+        }
+        if stage_id in labels:
+            return labels[stage_id]
+        for contract in contracts:
+            if contract.instantiation.mode != "per_item" or not stage_id_matches_contract(contract, stage_id):
+                continue
+            index = stage_instance_index(contract.instantiation.instance_id_template, stage_id)
+            if index is not None and contract.stage_id == "question_model":
+                return f"第 {index} 问建模"
+            if index is not None and contract.stage_id == "question_solution_validation":
+                return f"第 {index} 问求解与验证"
+    return stage_id.replace("_", " ")
 
 
 def _project_subagents(

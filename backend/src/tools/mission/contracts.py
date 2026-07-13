@@ -113,7 +113,11 @@ class RegisterDatasetToolInput(MissionToolInput):
 
 
 class RegisterArtifactToolInput(MissionToolInput):
-    path: str = Field(min_length=1, max_length=500)
+    path: str = Field(
+        min_length=1,
+        max_length=500,
+        description="Reviewable artifact path under /workspace/outputs or /workspace/reports; task scratch is temporary and cannot be registered.",
+    )
     producing_operation_key: str = Field(pattern=r"^sbxop_[0-9a-f]{64}$")
 
 

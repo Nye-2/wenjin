@@ -34,6 +34,7 @@ from src.sandbox.contracts import (
     RunPythonInput,
     SmokeCheckInput,
 )
+from src.sandbox.security import SandboxPathError, is_artifact_path
 from src.services.search import MODEL_NATIVE_SEARCH_TOOL_ID
 from src.services.workspace_uploads import workspace_upload_root
 from src.tools.mission.contracts import (
@@ -595,18 +596,33 @@ class MissionToolHandlers:
         mission = await self.dataservice.missions.get(operation.mission_id)
         if mission is None or mission.workspace_id == "":
             raise ToolDispatchError(ToolErrorType.PERMISSION_DENIED, "Mission workspace scope is unavailable.")
-        request = self.sandbox.build_request(
-            provenance=SandboxMissionProvenance(
-                workspace_id=mission.workspace_id,
-                mission_id=operation.mission_id,
-                subagent_id=(operation.caller_id if operation.caller_kind.value == "subagent" else None),
-                lease_epoch=operation.lease_epoch,
-            ),
-            operation_input=operation_input,
-            policy_version=operation.policy_snapshot_ref,
-            network_profile=network_profile,
-            network_grant=network_grant,
-        )
+        if isinstance(operation_input, RegisterArtifactInput) and not is_artifact_path(
+            operation_input.path
+        ):
+            raise ToolDispatchError(
+                ToolErrorType.INVALID_INPUT,
+                "Only files under /workspace/outputs or /workspace/reports can be registered as reviewable artifacts; task scratch is temporary.",
+                recoverable_by_model=True,
+            )
+        try:
+            request = self.sandbox.build_request(
+                provenance=SandboxMissionProvenance(
+                    workspace_id=mission.workspace_id,
+                    mission_id=operation.mission_id,
+                    subagent_id=(operation.caller_id if operation.caller_kind.value == "subagent" else None),
+                    lease_epoch=operation.lease_epoch,
+                ),
+                operation_input=operation_input,
+                policy_version=operation.policy_snapshot_ref,
+                network_profile=network_profile,
+                network_grant=network_grant,
+            )
+        except SandboxPathError as exc:
+            raise ToolDispatchError(
+                ToolErrorType.INVALID_INPUT,
+                f"Sandbox input is unavailable or outside its allowed workspace root: {exc}",
+                recoverable_by_model=True,
+            ) from exc
         result = await self.sandbox.execute(request)
         refs = tuple(
             ToolReference(

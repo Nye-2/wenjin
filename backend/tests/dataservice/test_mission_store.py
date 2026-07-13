@@ -10,6 +10,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from src.contracts.stage_acceptance import StageAcceptanceContract
 from src.database.models.mission import (
     MissionCommitRecord,
     MissionItemRecord,
@@ -17,7 +18,11 @@ from src.database.models.mission import (
     MissionRunRecord,
 )
 from src.dataservice.common.errors import DataServiceConflictError
-from src.dataservice.domains.mission.service import MissionStore
+from src.dataservice.domains.mission.service import (
+    MissionStore,
+    _project_stage_instance_ids,
+    _stage_projection_title,
+)
 from src.dataservice_client.contracts.mission import (
     MAX_MISSION_SNAPSHOT_BYTES,
     MissionAppendPayload,
@@ -51,6 +56,72 @@ MISSION_TABLES = [
     MissionReviewItemRecord.__table__,
     MissionCommitRecord.__table__,
 ]
+
+
+def _per_item_stage_contract(stage_id: str, template: str) -> StageAcceptanceContract:
+    return StageAcceptanceContract.model_validate(
+        {
+            "schema_version": "stage_acceptance_contract.v1",
+            "contract_id": f"math.{stage_id}",
+            "version": 1,
+            "mission_policy_id": "math",
+            "workspace_type": "math_modeling",
+            "stage_id": stage_id,
+            "stage_goal": "Complete one question stage.",
+            "minimum_criteria": [
+                {"criterion_id": "complete", "description": "The stage is complete."}
+            ],
+            "reviewer_roles": ["reviewer"],
+            "allowed_actions_if_failed": ["revise_existing", "stop_execution"],
+            "instantiation": {
+                "mode": "per_item",
+                "source_context_key": "problem_questions",
+                "instance_id_template": template,
+            },
+            "advance_condition": "The stage passes.",
+            "stop_condition": "The stage cannot be repaired.",
+        }
+    )
+
+
+def test_stage_projection_replaces_per_item_families_with_observed_instances() -> None:
+    contracts = (
+        _per_item_stage_contract("question_model", "question_{index}_model"),
+        _per_item_stage_contract(
+            "question_solution_validation",
+            "question_{index}_solution_validation",
+        ),
+    )
+
+    projected = _project_stage_instance_ids(
+        [
+            "problem_understanding",
+            "question_model",
+            "question_solution_validation",
+            "paper_integration",
+        ],
+        observed_ids=[
+            "question_1_model",
+            "question_1_solution_validation",
+            "question_2_model",
+            "question_2_solution_validation",
+        ],
+        contracts=contracts,
+    )
+
+    assert projected == [
+        "problem_understanding",
+        "question_1_model",
+        "question_1_solution_validation",
+        "question_2_model",
+        "question_2_solution_validation",
+        "paper_integration",
+    ]
+    assert _stage_projection_title(
+        workspace_type="math_modeling",
+        stage_id="question_1_solution_validation",
+        contracts=contracts,
+    ) == "第 1 问求解与验证"
 
 
 @pytest_asyncio.fixture

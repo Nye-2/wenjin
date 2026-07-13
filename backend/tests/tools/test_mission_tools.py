@@ -24,6 +24,7 @@ from src.tools.mission.contracts import (
     ListSourceCodeFilesInput,
     ReadSourceCodeFileInput,
     ReadWorkspaceAssetInput,
+    RegisterArtifactToolInput,
     SmokeCheckToolInput,
 )
 from src.tools.orchestrator import (
@@ -32,6 +33,7 @@ from src.tools.orchestrator import (
     ToolCallerKind,
     ToolCatalog,
     ToolDispatchError,
+    ToolErrorType,
     ToolInvocationContext,
     ToolOperation,
     ToolOrchestrator,
@@ -497,6 +499,29 @@ async def test_sandbox_tool_binds_mission_workspace_and_lease_receipt() -> None:
     assert request.provenance.mission_id == "mission-1"
     assert request.provenance.lease_epoch == 9
     assert request.operation_key.startswith("sbxop_")
+
+
+@pytest.mark.asyncio
+async def test_sandbox_artifact_registration_rejects_temporary_scratch_as_recoverable_input() -> None:
+    sandbox = _Sandbox()
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ToolDispatchError) as captured:
+        await handlers.sandbox_register_artifact(
+            _operation(),
+            RegisterArtifactToolInput(
+                path="/workspace/tmp/tasks/mission-1/result.json",
+                producing_operation_key=f"sbxop_{'a' * 64}",
+            ),
+        )
+
+    assert captured.value.error_type is ToolErrorType.INVALID_INPUT
+    assert captured.value.recoverable_by_model is True
+    assert "task scratch is temporary" in captured.value.user_safe_summary
+    assert sandbox.requests == []
 
 
 @pytest.mark.asyncio
