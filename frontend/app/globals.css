@@ -172,6 +172,23 @@
 .prose-chat th, .prose-chat td { border: 1px solid var(--wjn-line); padding: 4px 8px; text-align: left; }
 .prose-chat th { background: var(--wjn-bg-base); font-weight: 600; }
 
+.wjn-markdown .katex {
+  font-size: 1em;
+}
+
+.wjn-markdown .katex-display {
+  margin: 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 8px;
+  text-align: center;
+}
+
+.wjn-markdown .katex-display > .katex {
+  min-width: max-content;
+  text-align: initial;
+}
+
 * {
   box-sizing: border-box;
   padding: 0;

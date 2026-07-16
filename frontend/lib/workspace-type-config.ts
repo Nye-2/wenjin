@@ -3,6 +3,7 @@ import type { Workspace } from "@/lib/api/types";
 export interface WorkspaceWelcomeChip {
   label: string;
   prompt: string;
+  action?: "prompt" | "attach";
 }
 
 export interface WorkspaceWelcomeConfig {
@@ -164,6 +165,7 @@ export const WORKSPACE_TYPE_CONFIG: Record<
         {
           label: "上传赛题 PDF",
           prompt: "我准备上传数模赛题 PDF 和附件，请你先读题、拆解任务和数据需求。",
+          action: "attach",
         },
         {
           label: "拆模型路线",

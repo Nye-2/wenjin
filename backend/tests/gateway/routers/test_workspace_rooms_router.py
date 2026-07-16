@@ -237,8 +237,7 @@ class TestSettingsRoom:
         _app, client, dataservice = _make_app()
         dataservice.get_workspace_settings.return_value = _fake_row(
             workspace_id=WS_ID,
-            thinking_enabled=True,
-            sandbox_provider="local",
+            reasoning_effort="xhigh",
         )
 
         resp = client.get(f"/workspaces/{WS_ID}/settings")
@@ -249,7 +248,7 @@ class TestSettingsRoom:
     def test_put_settings_workspace_not_found(self) -> None:
         _app, client, _dataservice = _make_app(workspace_exists=False)
 
-        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"thinking_enabled": False})
+        resp = client.put(f"/workspaces/{WS_ID}/settings", json={"reasoning_effort": "low"})
 
         assert resp.status_code == 404
 

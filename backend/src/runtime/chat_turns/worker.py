@@ -105,8 +105,6 @@ async def _set_idle_status_if_no_other_active_chat_turns(
             prepared.thread.workspace_id,
             prepared.thread.id,
             status="idle",
-            skill=prepared.thread.skill,
-            skill_name=None,
         )
     except Exception:
         logger.debug(
@@ -154,8 +152,6 @@ async def run_chat_turn(
             {
                 "type": "thread_id",
                 "thread_id": resolved_thread_id,
-                "skill": prepared.thread.skill,
-                "skill_name": None,
             },
         )
 

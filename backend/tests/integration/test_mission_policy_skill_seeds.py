@@ -48,7 +48,7 @@ def test_policy_route_hints_do_not_expose_internal_skill_or_schema_ids() -> None
             ]
         )
         assert "worker_skill.v1" not in route_text
-        assert "stage_acceptance_contract.v1" not in route_text
+        assert "stage_acceptance_contract.v2" not in route_text
         assert all(skill_id not in route_text for skill_id in policy["allowed_worker_skills"])
 
 

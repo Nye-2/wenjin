@@ -6,8 +6,11 @@ from collections.abc import Sequence
 
 from fastapi import HTTPException, UploadFile, status
 
-from src.services.upload_preprocessor import _is_image_upload
-from src.services.workspace_uploads import is_pdf_upload, sanitize_upload_filename
+from src.services.workspace_uploads import (
+    is_image_upload,
+    is_pdf_upload,
+    sanitize_upload_filename,
+)
 
 MAX_UPLOAD_FILES = 20
 MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
@@ -88,7 +91,7 @@ class UploadPreflightPolicy:
         )
 
     def is_parseable(self, *, filename: str | None, content_type: str | None) -> bool:
-        return is_pdf_upload(filename, content_type) or _is_image_upload(filename, content_type)
+        return is_pdf_upload(filename, content_type) or is_image_upload(filename, content_type)
 
     def should_async_preprocess(
         self,

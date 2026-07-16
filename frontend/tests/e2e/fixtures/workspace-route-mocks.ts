@@ -295,6 +295,25 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
+    if (pathname === `/api/workspaces/${workspaceId}/missions/summary`) {
+      const statusCounts = missions.reduce<Record<string, number>>((counts, mission) => {
+        const status = String(mission.status ?? "created");
+        counts[status] = (counts[status] ?? 0) + 1;
+        return counts;
+      }, {});
+      const active = missions.find((mission) => ["created", "planning", "running", "waiting"].includes(String(mission.status ?? ""))) ?? null;
+      await route.fulfill(json({
+        total: missions.length,
+        status_counts: statusCounts,
+        pending_review_count: missions.reduce((sum, mission) => sum + Number(mission.pending_review_count ?? 0), 0),
+        evidence_count: missions.reduce((sum, mission) => sum + Number(mission.evidence_count ?? 0), 0),
+        artifact_count: missions.reduce((sum, mission) => sum + Number(mission.artifact_count ?? 0), 0),
+        latest: missions[0] ?? null,
+        active,
+      }));
+      return;
+    }
+
     if (pathname === `/api/workspaces/${workspaceId}/missions/events`) {
       const body =
         missionEventBodies[
@@ -564,7 +583,6 @@ export async function installWorkspaceRouteMocks(
           id: thread.id,
           workspace_id: workspaceId,
           model: "mock-model",
-          skill: "paper-analyst",
           messages: thread.messages,
           created_at: "2026-05-18T00:00:00Z",
           updated_at: "2026-05-18T00:00:00Z",

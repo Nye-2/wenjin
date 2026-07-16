@@ -128,15 +128,15 @@ async def init_db() -> None:
     Initializes database prerequisites needed at application startup.
 
     Schema creation is intentionally delegated to Alembic migrations. Set
-    ``GUANLAN_DB_AUTO_CREATE=true`` only for ephemeral local environments
+    ``WENJIN_DB_AUTO_CREATE=true`` only for ephemeral local environments
     that still rely on metadata-based table creation.
     """
     async with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        if os.getenv("GUANLAN_DB_AUTO_CREATE", "").lower() in {"1", "true", "yes"}:
+        if os.getenv("WENJIN_DB_AUTO_CREATE", "").lower() in {"1", "true", "yes"}:
             logger.warning(
-                "GUANLAN_DB_AUTO_CREATE is enabled; creating tables from metadata. "
+                "WENJIN_DB_AUTO_CREATE is enabled; creating tables from metadata. "
                 "Prefer Alembic migrations for persistent environments."
             )
             await conn.run_sync(Base.metadata.create_all)

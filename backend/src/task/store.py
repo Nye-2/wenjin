@@ -20,10 +20,6 @@ from src.dataservice_client.contracts.task import (
 )
 from src.dataservice_client.provider import dataservice_client
 from src.runtime.serialization import dumps_json
-from src.services.workspace_activity_contracts import (
-    build_task_activity_item,
-    serialize_activity_item,
-)
 from src.task.registry import TaskStatus
 from src.workspace_events import publish_workspace_event
 
@@ -237,21 +233,6 @@ class TaskStore:
                         "thread_id": payload.get("thread_id"),
                         "metadata": None,
                     },
-                    "activity": serialize_activity_item(
-                        build_task_activity_item(
-                            task_id=task_id,
-                            workspace_id=workspace_id,
-                            task_type=record.task_type,
-                            payload=payload,
-                            status=TaskStatus.RUNNING.value,
-                            progress=record.progress,
-                            message=record.message,
-                            error=None,
-                            occurred_at=started_at,
-                            created_at=record.created_at,
-                            started_at=started_at,
-                        )
-                    ),
                 },
             )
 
@@ -355,25 +336,6 @@ class TaskStore:
                         "result": result,
                         "error": error,
                     }
-                }
-                | {
-                    "activity": serialize_activity_item(
-                        build_task_activity_item(
-                            task_id=task_id,
-                            workspace_id=workspace_id,
-                            task_type=record.task_type,
-                            payload=payload,
-                            status=status,
-                            progress=final_progress,
-                            message=final_message,
-                            error=error,
-                            result=result if isinstance(result, dict) else result,
-                            occurred_at=completed_at,
-                            created_at=record.created_at,
-                            started_at=record.started_at,
-                            completed_at=completed_at,
-                        )
-                    )
                 },
             )
 

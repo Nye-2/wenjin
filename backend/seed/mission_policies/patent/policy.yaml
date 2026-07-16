@@ -39,15 +39,15 @@ minimum_context:
   target_jurisdiction:
     requirement: optional
 stage_contract_refs:
-  - {contract_id: patent_development.invention_scope, schema_version: stage_acceptance_contract.v1, sha256: 573fb10316f2625c2afe9f4b4217ce3e58cadf2685d6f0a81f66df91154c2bb4}
-  - {contract_id: patent_development.prior_art, schema_version: stage_acceptance_contract.v1, sha256: 779c33692d94bf3104943d9341bc2c78570e606a2737462e2533f4f0190288eb}
-  - {contract_id: patent_development.claim_strategy, schema_version: stage_acceptance_contract.v1, sha256: cd304dfdaf6170730e2c90d865ebf192d296d5ef972eb06c8d6566d05dbf9b44}
-  - {contract_id: patent_development.enablement, schema_version: stage_acceptance_contract.v1, sha256: 18ea3641dd9d2b902dd115473481214ece614e67928cc4b0aa5ae68713d3e988}
-  - {contract_id: patent_development.patent_draft, schema_version: stage_acceptance_contract.v1, sha256: c05241af4712b5ba0cee1ee19e506fe08e7564368372e97c3fee81fcab4e9b56}
+  - {contract_id: patent_development.invention_scope, schema_version: stage_acceptance_contract.v2, sha256: 1e6733e4cbc57530fcf430dfdb68655bfdbc0bbeac0bc06621decc728bf464d6}
+  - {contract_id: patent_development.prior_art, schema_version: stage_acceptance_contract.v2, sha256: 2b2b91b68864299b17fa1260f38bba96248b3c880a69538a1402bef43deeb9ee}
+  - {contract_id: patent_development.claim_strategy, schema_version: stage_acceptance_contract.v2, sha256: 630e4be7ff07db4bfc97d3cc261dd7687736144833e4ace1e8313082822383b8}
+  - {contract_id: patent_development.enablement, schema_version: stage_acceptance_contract.v2, sha256: 528699beb50c31c499d5e7f2787f3f2e57d8f8e1100050a44a6ef2fe51e67a38}
+  - {contract_id: patent_development.patent_draft, schema_version: stage_acceptance_contract.v2, sha256: a360a365ccdb662ce76f01a3c48d7b6fcc0324451ffe6833b5a21808c91a5033}
 tool_policy:
-  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, artifact_render, academic_visual_render, draft_stage]
+  allowed_tool_groups: [workspace_read, artifact_candidate_read, model_native_web_search, source_import, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell]
-allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, claim-strategist, patent-drafter, academic-visual-engineer, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, claim-strategist, patent-drafter, academic-visual-engineer, compliance-auditor, quality-critic]
 review_policy:
   default_mode: review_all
   allowed_modes: [review_all, balanced_default, auto_draft]
@@ -62,11 +62,16 @@ anti_examples:
     failure_reason: 权利要求缺乏支持并引入技术事实造假。
 completion_contract:
   default_target: claim_strategy
-  target_stage_sets:
-    prior_art: [invention_scope, prior_art]
-    claim_strategy: [invention_scope, prior_art, claim_strategy]
-    full_draft: [invention_scope, prior_art, claim_strategy, enablement, patent_draft]
-  terminal_outputs: [invention_disclosure_brief, prior_art_matrix, claim_strategy, enablement_map, patent_draft]
+  targets:
+    prior_art:
+      stage_ids: [invention_scope, prior_art]
+      terminal_output_kinds: [prior_art_matrix]
+    claim_strategy:
+      stage_ids: [invention_scope, prior_art, claim_strategy]
+      terminal_output_kinds: [claim_strategy]
+    full_draft:
+      stage_ids: [invention_scope, prior_art, claim_strategy, enablement, patent_draft]
+      terminal_output_kinds: [patent_draft]
   allow_safe_partial_outputs: true
 delivery_profile_refs:
   - {profile_id: patent_application, version: 1}

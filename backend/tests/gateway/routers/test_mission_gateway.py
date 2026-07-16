@@ -9,16 +9,66 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from src.contracts.reasoning import ReasoningEffort
 from src.dataservice_client.contracts.mission import (
-    MissionReasoningEffort,
+    MissionHistoryPagePayload,
     MissionReviewMode,
-    MissionRunPagePayload,
     MissionRunPayload,
     MissionStatus,
+    MissionViewRunPayload,
 )
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers import missions
+
+
+@pytest.mark.parametrize(
+    ("item_type", "summary", "expected"),
+    [
+        ("status_update", "Mission budget reserved", "已准备任务资源"),
+        ("error", "Mission action needs schema repair; Mission will retry", "正在校正下一步"),
+        ("tool_result", "tool operation succeeded", "研究工具执行完成"),
+        ("tool_result", "tool operation failed", "研究工具本轮未完成，正在调整"),
+        ("tool_result", "sandbox operation succeeded", "计算与验证已完成"),
+        (
+            "tool_result",
+            "The Sandbox file is unavailable or exceeds the read boundary.",
+            "未读取到目标文件，正在检查材料路径",
+        ),
+        (
+            "tool_result",
+            "Read 2290 character(s) from math-modeling-case.pdf.",
+            "已读取研究材料：math-modeling-case.pdf",
+        ),
+        ("tool_result", "Read 6832 byte(s) from Sandbox file.", "已读取计算文件"),
+        ("quality_check", "Stage acceptance contract passed", "当前阶段已通过质量验收"),
+        ("tool_result", "Loaded review candidate: 第一问模型", "已读取待确认成果：第一问模型"),
+        ("subagent_progress", "建模审查员 started", "建模审查员开始工作"),
+        (
+            "subagent_result",
+            "0 of 1 subagent jobs produced usable results",
+            "本轮研究成员结果未达到可用要求，正在调整",
+        ),
+        (
+            "subagent_result",
+            "2 of 3 subagent jobs produced usable results",
+            "2 位研究成员已完成本轮工作",
+        ),
+        ("subagent_progress", '{"ok": true, "python": "3.13"}', "研究成员完成了一项工作"),
+        (
+            "tool_call",
+            "Repair the malformed action by running the reproduction chain.",
+            "正在执行下一项研究步骤",
+        ),
+        ("artifact", None, "生成候选成果"),
+    ],
+)
+def test_public_trace_summary_hides_runtime_terminology(
+    item_type: str,
+    summary: str | None,
+    expected: str,
+) -> None:
+    assert missions._public_trace_summary(item_type=item_type, summary=summary) == expected
 
 
 def _user(user_id: str = "user-1") -> AccountAuthSubject:
@@ -50,7 +100,7 @@ def _run(
         status=MissionStatus.RUNNING,
         review_mode=MissionReviewMode.BALANCED_DEFAULT,
         model_id="gpt-5.6-sol",
-        reasoning_effort=MissionReasoningEffort.XHIGH,
+        reasoning_effort=ReasoningEffort.XHIGH,
         pending_review_count=0,
         evidence_count=2,
         artifact_count=1,
@@ -66,13 +116,16 @@ def _run(
 
 
 def _dataservice(run: MissionRunPayload) -> SimpleNamespace:
+    view_run = MissionViewRunPayload.model_validate(
+        {field: getattr(run, field) for field in MissionViewRunPayload.model_fields}
+    )
     return SimpleNamespace(
         missions=SimpleNamespace(
             get=AsyncMock(return_value=run),
             list_workspace=AsyncMock(return_value=[run]),
             list_workspace_page=AsyncMock(
-                return_value=MissionRunPagePayload(
-                    items=[run],
+                return_value=MissionHistoryPagePayload(
+                    items=[view_run],
                     next_cursor="next-history-cursor",
                 )
             ),
@@ -119,7 +172,7 @@ def test_mission_history_gateway_passes_opaque_cursor_and_returns_page() -> None
 
 
 @pytest.mark.asyncio
-async def test_mission_event_stream_projects_gap_hint_from_database() -> None:
+async def test_mission_event_stream_projects_constant_size_invalidation_hint() -> None:
     run = _run(last_item_seq=9)
     dataservice = _dataservice(run)
     request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
@@ -130,7 +183,6 @@ async def test_mission_event_stream_projects_gap_hint_from_database() -> None:
         dataservice=dataservice,
         cursor=missions.MissionStreamCursor(
             watermark=datetime(2026, 7, 10, tzinfo=UTC),
-            positions={"mission-1": (3, 4)},
         ),
         poll_seconds=0.001,
     )
@@ -141,19 +193,22 @@ async def test_mission_event_stream_projects_gap_hint_from_database() -> None:
     data_line = next(line for line in frame.splitlines() if line.startswith("data: "))
     payload = json.loads(data_line.removeprefix("data: "))
     assert payload | {"cursor": "ignored"} == {
-        "type": "mission.snapshot.changed",
+        "type": "mission.updated",
         "missionId": "mission-1",
         "stateVersion": 4,
         "lastItemSeq": 9,
-        "replayRequired": True,
         "cursor": "ignored",
     }
     assert frame.startswith("id: ")
+    encoded_cursor = frame.splitlines()[0].removeprefix("id: ")
+    assert missions._decode_cursor(encoded_cursor) == missions.MissionStreamCursor(
+        watermark=run.updated_at,
+        after_mission_id=run.mission_id,
+    )
 
 
 @pytest.mark.asyncio
-async def test_mission_event_cursor_keeps_sequences_isolated_per_mission() -> None:
-    first = _run(last_item_seq=100)
+async def test_mission_event_cursor_is_independent_of_mission_history_size() -> None:
     second = _run(last_item_seq=2).model_copy(
         update={"mission_id": "mission-2", "updated_at": datetime(2026, 7, 11, 0, 0, 1, tzinfo=UTC)}
     )
@@ -166,7 +221,6 @@ async def test_mission_event_cursor_keeps_sequences_isolated_per_mission() -> No
         dataservice=dataservice,
         cursor=missions.MissionStreamCursor(
             watermark=datetime(2026, 7, 10, tzinfo=UTC),
-            positions={first.mission_id: (first.state_version, first.last_item_seq)},
         ),
         poll_seconds=0.001,
     )
@@ -175,6 +229,7 @@ async def test_mission_event_cursor_keeps_sequences_isolated_per_mission() -> No
     payload = json.loads(next(line for line in frame.splitlines() if line.startswith("data: ")).removeprefix("data: "))
     assert payload["missionId"] == "mission-2"
     assert payload["lastItemSeq"] == 2
+    assert len(payload["cursor"]) < 256
 
 
 @pytest.mark.asyncio

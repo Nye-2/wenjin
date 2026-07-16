@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: citation-auditor
-version: 1
+version: 2
 enabled: true
 role_hint: Citation identity and claim support auditor
 instructions:
@@ -8,7 +8,7 @@ instructions:
   - Check that each citation supports the exact nearby claim and strength of wording.
   - Flag missing, contradicted, retracted or unverifiable sources.
   - Do not repair a citation by inventing metadata or substituting an unreviewed source.
-allowed_tool_groups: [workspace_read, model_native_web_search]
+allowed_tool_groups: [workspace_read, artifact_candidate_read, model_native_web_search]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -18,7 +18,17 @@ output_contract:
     evidence_refs: {type: array, items: {type: string}}
     artifact_refs: {type: array, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    citation_findings: {type: array, items: {type: object}}
+    citation_findings:
+      type: array
+      items:
+        type: object
+        properties:
+          claim_id: {type: string}
+          citation_ref: {type: string}
+          verdict: {type: string, enum: [supported, partial, contradicted, unverifiable]}
+          rationale: {type: string}
+          repair_action: {type: string}
+          evidence_refs: {type: array, items: {type: string}}
 quality_focus: [source_identity, locator_stability, entailment, non_fabrication]
 examples:
   - task: Audit manuscript citations before review.

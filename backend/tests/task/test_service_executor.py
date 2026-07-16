@@ -50,8 +50,7 @@ class TestSubmitTaskUsesExecutor:
         assert call_kwargs.kwargs.get("task_id") or call_kwargs[0][0]  # task_id passed
 
     @pytest.mark.asyncio
-    async def test_submit_publishes_canonical_task_activity(self, mock_store):
-        """submit_task should publish an activity payload usable by the workspace timeline."""
+    async def test_submit_does_not_duplicate_mission_activity(self, mock_store):
         service = TaskService(mock_store)
 
         mock_executor = AsyncMock()
@@ -73,11 +72,8 @@ class TestSubmitTaskUsesExecutor:
             )
 
         first_payload = publish_workspace_event.await_args_list[0].args[2]
-        assert first_payload["activity"]["id"].startswith("task:")
-        assert first_payload["activity"]["kind"] == "task"
-        assert first_payload["activity"]["mission_id"] is None
-        assert first_payload["activity"]["mission_policy_id"] is None
-        assert first_payload["activity"]["summary"] == "LLM agents"
+        assert first_payload["task"]["status"] == "pending"
+        assert "activity" not in first_payload
 
     @pytest.mark.asyncio
     async def test_submit_marks_failed_on_executor_error(self, mock_store):
@@ -153,11 +149,9 @@ class TestCancelTaskInCeleryMode:
             metadata={"runtime": {"current_phase": "drafting"}},
         )
         first_payload = publish_workspace_event.await_args_list[0].args[2]
-        assert first_payload["activity"]["id"] == "task:task-1"
-        assert first_payload["activity"]["status"] == "cancelled"
         assert first_payload["task"]["progress"] == 73
         assert first_payload["task"]["metadata"] == {"runtime": {"current_phase": "drafting"}}
-        assert first_payload["activity"]["metadata"]["progress"] == 73
+        assert "activity" not in first_payload
 
     @pytest.mark.asyncio
     async def test_cancel_falls_back_to_record_progress_when_runtime_state_missing(self, mock_store):
@@ -202,7 +196,7 @@ class TestCancelTaskInCeleryMode:
         first_payload = publish_workspace_event.await_args_list[0].args[2]
         assert first_payload["task"]["progress"] == 58
         assert first_payload["task"]["metadata"] is None
-        assert first_payload["activity"]["metadata"]["progress"] == 58
+        assert "activity" not in first_payload
 
     @pytest.mark.asyncio
     async def test_cancel_raises_when_celery_disabled(self, mock_store):

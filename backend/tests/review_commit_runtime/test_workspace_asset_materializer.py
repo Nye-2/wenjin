@@ -24,6 +24,7 @@ def _item(
         review_item_id=review_item_id,
         mission_id="mission-1",
         source_item_seq=2,
+        output_key="academic_figure",
         target_kind="workspace_asset",
         target_room="assets",
         title="Academic figure",

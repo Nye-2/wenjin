@@ -80,6 +80,36 @@ async def get_mission_view(
     return envelope_ok(result.model_dump(mode="json") if result else None)
 
 
+@router.get("/missions/{mission_id}/evidence")
+async def list_mission_evidence_projection(
+    mission_id: str,
+    after_seq: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).list_evidence_projection_page(
+        mission_id,
+        after_seq=after_seq,
+        limit=limit,
+    )
+    return envelope_ok(result.model_dump(mode="json") if result else None)
+
+
+@router.get("/missions/{mission_id}/artifacts")
+async def list_mission_artifact_projection(
+    mission_id: str,
+    after_seq: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).list_artifact_projection_page(
+        mission_id,
+        after_seq=after_seq,
+        limit=limit,
+    )
+    return envelope_ok(result.model_dump(mode="json") if result else None)
+
+
 @router.post("/missions/review-previews/cleanup")
 async def cleanup_mission_review_previews(
     command: MissionPreviewCleanupPayload,
@@ -109,6 +139,32 @@ async def list_workspace_missions(
     return envelope_ok(result.model_dump(mode="json"))
 
 
+@router.get("/workspaces/{workspace_id}/missions/summary")
+async def get_workspace_mission_summary(
+    workspace_id: str,
+    user_id: str | None = Query(default=None, min_length=1, max_length=36),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).get_workspace_summary(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    return envelope_ok(result.model_dump(mode="json"))
+
+
+@router.get("/users/{user_id}/missions/summary")
+async def get_user_mission_summary(
+    user_id: str,
+    recent_limit: int = Query(default=10, ge=1, le=20),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).get_user_summary(
+        user_id=user_id,
+        recent_limit=recent_limit,
+    )
+    return envelope_ok(result.model_dump(mode="json"))
+
+
 @router.get("/workspaces/{workspace_id}/missions/by-idempotency-key")
 async def get_mission_by_idempotency_key(
     workspace_id: str,
@@ -130,6 +186,21 @@ async def get_thread_foreground_mission(
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     result = await _store(uow).foreground_for_thread(
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        user_id=user_id,
+    )
+    return envelope_ok(result.model_dump(mode="json") if result else None)
+
+
+@router.get("/workspaces/{workspace_id}/threads/{thread_id}/latest-mission")
+async def get_thread_latest_mission(
+    workspace_id: str,
+    thread_id: str,
+    user_id: str = Query(min_length=1, max_length=36),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).latest_for_thread(
         workspace_id=workspace_id,
         thread_id=thread_id,
         user_id=user_id,

@@ -31,7 +31,9 @@ Review is item-level in storage. Frontend can batch low-risk actions.
 | audit trail | MissionItem + MissionCommit |
 | idempotency | one MissionCommit per atomic MissionReviewItem with stable commit key |
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|

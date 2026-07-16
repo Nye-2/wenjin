@@ -307,3 +307,22 @@ async def test_check_task_backend_unhealthy_when_inspect_and_metrics_fail(monkey
     assert report["mode"] == "celery"
     assert report["inspect_error"] == "No Celery workers responded to ping"
     assert report["metrics_error"] == "connection refused"
+
+
+@pytest.mark.asyncio
+async def test_check_sandbox_uses_mission_worker_after_release_preflight(monkeypatch):
+    monkeypatch.setattr(health_module.celery_settings, "enabled", True)
+    monkeypatch.setattr(
+        health_module,
+        "_check_mission_worker_metrics_endpoint",
+        AsyncMock(return_value=(True, None)),
+    )
+
+    report = await health_module.check_sandbox()
+
+    assert report == {
+        "status": "healthy",
+        "provider": "docker",
+        "execution_host": "mission-worker",
+        "probe": "release_preflight_then_metrics",
+    }

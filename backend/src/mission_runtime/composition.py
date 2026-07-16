@@ -108,6 +108,7 @@ async def build_production_mission_runtime(
             billing=MissionCreditBilling(dataservice),
             events=WorkspaceMissionEventPublisher(),
             wakeups=CeleryMissionWakeupPublisher(),
+            limits=MissionSliceLimits(max_model_turns=1),
         ),
     )
 

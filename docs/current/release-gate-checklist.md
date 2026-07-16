@@ -40,7 +40,7 @@ Architecture-focused coverage must include:
 - native search receipt parser and fail-closed behavior;
 - Sandbox preflight, path/symlink/network controls, manifests, read-before-write;
 - review decisions, conflicts, partial commit, idempotency, linked-domain provenance;
-- migrations 086-096 and DataService/Gateway import smoke.
+- migrations 086-101 and DataService/Gateway import smoke.
 
 ## Frontend gates
 

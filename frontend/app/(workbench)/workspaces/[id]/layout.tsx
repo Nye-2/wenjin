@@ -6,6 +6,7 @@ import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useMissionUiStore } from "@/stores/mission-ui-store";
+import { useAuthStore } from "@/stores/auth";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
 
 interface WorkbenchLayoutProps {
@@ -17,13 +18,16 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const workspaceId = params?.id ?? "";
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const workspaceNotFound = useWorkspaceStore(
     (state) => state.workspaceNotFound,
   );
   // Hold the SSE subscription until we've confirmed the workspace exists —
   // otherwise a stale tab pointing at a non-existent id (e.g. ``/workspaces/v2``)
   // hammers the gateway with reconnect attempts before the redirect fires.
-  useWorkspaceEventStream(workspaceNotFound ? null : workspaceId || null);
+  useWorkspaceEventStream(
+    !isAuthenticated || workspaceNotFound ? null : workspaceId || null,
+  );
   const loadWorkspace = useWorkspaceStore((state) => state.loadWorkspace);
   const fetchArtifacts = useWorkspaceStore((state) => state.fetchArtifacts);
   const fetchActivity = useWorkspaceStore((state) => state.fetchActivity);
@@ -32,7 +36,13 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const resetMissionUi = useMissionUiStore((state) => state.clearWorkspaceFocus);
 
   useEffect(() => {
-    if (!workspaceId) {
+    if (!isAuthenticated) {
+      router.replace(`/login?redirect=${encodeURIComponent(`/workspaces/${workspaceId}`)}`);
+    }
+  }, [isAuthenticated, router, workspaceId]);
+
+  useEffect(() => {
+    if (!workspaceId || !isAuthenticated) {
       return;
     }
     if (workspaceNotFound) {
@@ -52,6 +62,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     };
   }, [
     workspaceId,
+    isAuthenticated,
     workspaceNotFound,
     router,
     loadWorkspace,

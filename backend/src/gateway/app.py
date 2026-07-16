@@ -160,7 +160,7 @@ app.middleware("http")(correlation_middleware)
 from src.academic.cache.redis_client import redis_client as _redis_client
 from src.gateway.middleware import setup_rate_limiting
 
-setup_rate_limiting(app, redis_client=_redis_client)
+setup_rate_limiting(app, redis_backend_provider=lambda: _redis_client.client)
 
 # Prometheus metrics
 from src.observability.prometheus import setup_prometheus
@@ -212,7 +212,6 @@ from .routers import (  # noqa: E402
     missions,
     models,
     references,
-    runs,
     templates,
     thread_runs,
     threads,
@@ -224,7 +223,6 @@ from .routers import (  # noqa: E402
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(threads.router, prefix="/api", tags=["threads"])
 app.include_router(thread_runs.router, prefix="/api", tags=["chat_turns"])
-app.include_router(runs.router, prefix="/api", tags=["chat_turns"])
 app.include_router(missions.router, prefix="/api", tags=["missions"])
 app.include_router(uploads.router, prefix="/api", tags=["uploads"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])

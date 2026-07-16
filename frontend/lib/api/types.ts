@@ -1,4 +1,6 @@
 import type { WorkspaceType } from "@/lib/workspace-types";
+import type { MissionReviewMode } from "@/lib/api/mission-types";
+import type { ReasoningEffort } from "@/lib/reasoning-effort";
 
 export interface Workspace {
   id: string;
@@ -10,6 +12,26 @@ export interface Workspace {
   config: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkspaceSettings {
+  workspace_id: string;
+  default_model: string | null;
+  reasoning_effort: ReasoningEffort;
+  auto_compact_threshold: number;
+  review_mode: MissionReviewMode;
+  settings_json: Record<string, unknown>;
+  metadata_json: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface WorkspaceSettingsUpdate {
+  default_model?: string | null;
+  reasoning_effort?: ReasoningEffort;
+  auto_compact_threshold?: number;
+  review_mode?: MissionReviewMode;
+  metadata_json?: Record<string, unknown>;
 }
 
 export interface LatexProject {
@@ -640,8 +662,6 @@ export interface Thread {
   workspace_id?: string;
   title?: string | null;
   model: string;
-  skill?: string | null;
-  skill_name?: string | null;
   messages: ThreadMessage[];
   created_at: string;
   updated_at: string;
@@ -652,8 +672,6 @@ export interface ThreadSummary {
   workspace_id?: string;
   title?: string | null;
   model: string;
-  skill?: string | null;
-  skill_name?: string | null;
   message_count?: number;
   last_message_preview?: string | null;
   last_message_role?: "user" | "assistant" | "system" | null;
@@ -664,8 +682,6 @@ export interface ThreadSummary {
 export interface ThreadRuntimeStatus {
   thread_id: string;
   status: "idle" | "running" | "completed" | "failed";
-  current_skill?: string | null;
-  current_skill_name?: string | null;
   subagent_count?: number;
 }
 
@@ -684,15 +700,8 @@ export interface WorkspaceActivityItem {
   summary?: string | null;
   status?: string | null;
   thread_id?: string | null;
-  task_id?: string | null;
-  artifact_id?: string | null;
   mission_id?: string | null;
   mission_policy_id?: string | null;
-  skill?: string | null;
-  skill_name?: string | null;
-  created_by_skill?: string | null;
-  created_by_skill_name?: string | null;
-  subagent_type?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -727,7 +736,6 @@ export interface WorkspaceTaskEvent {
     result?: Record<string, unknown> | null;
     error?: string | null;
   };
-  activity?: WorkspaceActivityItem;
   timestamp?: string;
 }
 
@@ -742,7 +750,6 @@ export interface WorkspaceThreadUpdatedEvent {
   type: "thread.updated";
   workspace_id: string;
   thread: ThreadSummary;
-  activity?: WorkspaceActivityItem;
   timestamp?: string;
 }
 
@@ -750,7 +757,6 @@ export interface WorkspaceThreadDeletedEvent {
   type: "thread.deleted";
   workspace_id: string;
   thread_id: string;
-  activity_id?: string;
   timestamp?: string;
 }
 
@@ -773,7 +779,6 @@ export interface WorkspaceSubagentUpdatedEvent {
     token_usage?: TokenUsageCounter | null;
     model_name?: string | null;
   };
-  activity?: WorkspaceActivityItem;
   timestamp?: string;
 }
 
@@ -786,15 +791,11 @@ export type WorkspaceEvent =
   | WorkspaceThreadDeletedEvent
   | WorkspaceSubagentUpdatedEvent;
 
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
-
 export interface RunRequest {
   message: string;
   workspace_id?: string;
   thread_id?: string;
   model?: string;
-  skill?: string | null;
-  thinking_enabled?: boolean;
   reasoning_effort?: ReasoningEffort;
   attachments?: ThreadAttachment[];
   metadata?: Record<string, unknown>;
@@ -1012,34 +1013,6 @@ export interface WorkspacePrismSurfaceResponse {
   recent_activity?: WorkspacePrismRecentActivity[];
   review_summary?: WorkspacePrismReviewSummary;
   context_summary?: WorkspacePrismContextSummary;
-}
-
-export interface TaskStatus {
-  task_id: string;
-  mission_id?: string | null;
-  task_type: string;
-  status: string;
-  progress: number;
-  message?: string;
-  current_step?: string | null;
-  result?: Record<string, unknown> | null;
-  error?: string | null;
-  metadata?: Record<string, unknown> | null;
-  workspace_id?: string | null;
-  thread_id?: string | null;
-  created_at: string;
-  started_at?: string | null;
-  completed_at?: string | null;
-}
-
-export interface TaskProgressEvent {
-  task_id: string;
-  status: string;
-  progress: number;
-  message?: string | null;
-  current_step?: string | null;
-  metadata?: Record<string, unknown> | null;
-  timestamp?: string;
 }
 
 export interface ModuleStatus {

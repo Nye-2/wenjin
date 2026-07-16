@@ -3,7 +3,7 @@
 Status: Implemented
 Updated: 2026-07-11
 
-Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, and aggregate references by 096. Development history is drop/reseed. Empty-database online migration through 096 is the release baseline.
+Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, aggregate references by 096, and final workspace/runtime cutovers by 097-101. Development history is drop/reseed. Empty-database online migration through 101 is the release baseline.
 Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `13_migration_release_gate.md`
 
 ## Goal
@@ -12,7 +12,9 @@ Bring DataService into the refactor and replace the execution aggregate with a c
 
 Development-stage execution history can be dropped/reseeded. If demo data must be preserved, use one offline importer. Runtime code must not hydrate old execution fields.
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|

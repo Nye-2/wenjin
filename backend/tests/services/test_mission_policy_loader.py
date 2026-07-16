@@ -8,6 +8,7 @@ import yaml
 
 from src.contracts.mission_policy import (
     CompletionContract,
+    CompletionTarget,
     MinimumContextRequirement,
     MissionAntiExample,
     MissionExample,
@@ -36,7 +37,7 @@ def _write_bundle(tmp_path):
     directory = root / "sci"
     directory.mkdir(parents=True)
     stage = StageAcceptanceContract(
-        schema_version="stage_acceptance_contract.v1",
+        schema_version="stage_acceptance_contract.v2",
         contract_id="sci_research.scope_topic",
         version=1,
         mission_policy_id="sci_research",
@@ -81,8 +82,12 @@ def _write_bundle(tmp_path):
         anti_examples=(MissionAntiExample(description="Broad", failure_reason="No boundary"),),
         completion_contract=CompletionContract(
             default_target="brief",
-            target_stage_sets={"brief": ("scope_topic",)},
-            terminal_outputs=("brief",),
+            targets={
+                "brief": CompletionTarget(
+                    stage_ids=("scope_topic",),
+                    terminal_output_kinds=("brief",),
+                )
+            },
         ),
     )
     (directory / "stages.yaml").write_text(yaml.safe_dump(stage.model_dump(mode="json"), sort_keys=False))

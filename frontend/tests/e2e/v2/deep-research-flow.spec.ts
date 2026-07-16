@@ -37,24 +37,6 @@ test.describe("Workspace Deep Research Flow", () => {
         return;
       }
 
-      if (pathname.startsWith("/api/workspaces/ws-1/features")) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ features: [] }),
-        });
-        return;
-      }
-
-      if (pathname.startsWith("/api/workspaces/ws-1/skills")) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ skills: [] }),
-        });
-        return;
-      }
-
       if (pathname.startsWith("/api/workspaces/ws-1/artifacts")) {
         await route.fulfill({
           status: 200,

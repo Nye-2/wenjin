@@ -211,13 +211,6 @@ class ToolOrchestrator:
                     timeout=timeout_seconds,
                 )
                 await self.lease_fence.assert_current(current_operation)
-                outcome = _success_outcome(
-                    registration,
-                    current_operation,
-                    handler_result,
-                )
-                await self._record_terminal(current_operation, outcome)
-                return outcome
             except StaleToolLeaseError:
                 raise
             except TimeoutError:
@@ -236,8 +229,8 @@ class ToolOrchestrator:
                 last_failure = exc
             except (ValidationError, ValueError) as exc:
                 last_failure = ToolDispatchError(
-                    ToolErrorType.UNSAFE_OUTPUT,
-                    "The tool returned data that did not satisfy its output contract.",
+                    ToolErrorType.INTERNAL_ERROR,
+                    "The tool runtime could not complete its typed operation.",
                 )
                 last_failure.__cause__ = exc
             except Exception as exc:
@@ -246,6 +239,30 @@ class ToolOrchestrator:
                     "The tool could not complete this operation.",
                 )
                 last_failure.__cause__ = exc
+            else:
+                try:
+                    outcome = _success_outcome(
+                        registration,
+                        current_operation,
+                        handler_result,
+                    )
+                except ToolDispatchError as exc:
+                    last_failure = exc
+                except (ValidationError, ValueError) as exc:
+                    last_failure = ToolDispatchError(
+                        ToolErrorType.UNSAFE_OUTPUT,
+                        "The tool returned data that did not satisfy its output contract.",
+                    )
+                    last_failure.__cause__ = exc
+                except Exception as exc:
+                    last_failure = ToolDispatchError(
+                        ToolErrorType.INTERNAL_ERROR,
+                        "The tool could not complete this operation.",
+                    )
+                    last_failure.__cause__ = exc
+                else:
+                    await self._record_terminal(current_operation, outcome)
+                    return outcome
 
             if not _should_retry(
                 registration=registration,
@@ -324,7 +341,57 @@ def _validate_arguments(
     try:
         return registration.input_model.model_validate(arguments)
     except ValidationError as exc:
-        raise MalformedToolArgumentsError(f"tool arguments do not satisfy {registration.descriptor.tool_id}") from exc
+        issues = [
+            _safe_validation_issue(registration.input_model, issue)
+            for issue in exc.errors(include_input=False)[:12]
+        ]
+        detail = ", ".join(issues) or "schema_validation_failed"
+        raise MalformedToolArgumentsError(
+            "tool arguments do not satisfy "
+            f"{registration.descriptor.tool_id} ({detail})"
+        ) from exc
+
+
+def _safe_validation_issue(
+    input_model: type[BaseModel],
+    issue: dict[str, Any],
+) -> str:
+    issue_type = str(issue.get("type") or "schema_validation_failed")
+    location = tuple(issue.get("loc") or ())
+    first = location[0] if location else None
+    if issue_type == "extra_forbidden":
+        field = "<extra>"
+    elif isinstance(first, str) and first in input_model.model_fields:
+        allowed_fields = _schema_property_names(
+            input_model.model_json_schema(mode="validation")
+        )
+        path: list[str] = []
+        for segment in location[:6]:
+            if isinstance(segment, int):
+                if path:
+                    path[-1] += "[]"
+                continue
+            if not isinstance(segment, str) or segment not in allowed_fields:
+                break
+            path.append(segment)
+        field = ".".join(path) or first
+    else:
+        field = "<root>"
+    return f"{field}:{issue_type}"
+
+
+def _schema_property_names(schema: object) -> set[str]:
+    if isinstance(schema, list):
+        return set().union(*(_schema_property_names(value) for value in schema))
+    if not isinstance(schema, dict):
+        return set()
+    names: set[str] = set()
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        names.update(str(name) for name in properties)
+    for value in schema.values():
+        names.update(_schema_property_names(value))
+    return names
 
 
 def _build_operation(
@@ -413,7 +480,7 @@ def _success_outcome(
     payload_size = len(
         json.dumps(
             redacted_value,
-            ensure_ascii=True,
+            ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
@@ -555,6 +622,9 @@ def _recommended_action(error_type: ToolErrorType) -> str:
         ToolErrorType.POLICY_FORBIDDEN: "Revise the mission plan to use an allowed tool.",
         ToolErrorType.TIMEOUT: "Retry within the remaining mission budget or narrow the request.",
         ToolErrorType.RECEIPT_UNKNOWN: "Check the operation receipt before any retry.",
+        ToolErrorType.EXECUTION_FAILED: (
+            "Inspect the bounded execution output, revise the computation, and use a new operation id."
+        ),
     }
     return actions.get(error_type, "Replan the current step or ask the user for guidance.")
 

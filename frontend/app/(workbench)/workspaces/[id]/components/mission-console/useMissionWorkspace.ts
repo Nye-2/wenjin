@@ -25,6 +25,19 @@ export function useMissionWorkspace(
     setView(next);
   }, []);
 
+  const markViewStale = useCallback((message: string) => {
+    setError(message);
+    const current = viewRef.current;
+    if (current) {
+      commitView({ ...current, isStale: true, loadError: message });
+    }
+  }, [commitView]);
+
+  const replaceView = useCallback((next: MissionView | null) => {
+    commitView(next ? { ...next, isStale: false, loadError: null } : null);
+    setError(null);
+  }, [commitView]);
+
   useEffect(() => {
     focusedMissionIdRef.current = focusedMissionId;
   }, [focusedMissionId]);
@@ -44,20 +57,19 @@ export function useMissionWorkspace(
         }
         const next = await getMissionView(targetId);
         if (token === refreshTokenRef.current) {
-          commitView(next);
-          setError(null);
+          replaceView(next);
         }
         return next;
       } catch (reason) {
         if (token === refreshTokenRef.current) {
-          setError(reason instanceof Error ? reason.message : "研究任务加载失败");
+          markViewStale(reason instanceof Error ? reason.message : "研究任务加载失败");
         }
         return null;
       } finally {
         if (token === refreshTokenRef.current) setLoading(false);
       }
     },
-    [commitView, workspaceId],
+    [commitView, markViewStale, replaceView, workspaceId],
   );
 
   useEffect(() => {
@@ -76,31 +88,25 @@ export function useMissionWorkspace(
     const unsubscribe = subscribeMissionEvents({
       workspaceId,
       onEvent(event) {
-        const current = viewRef.current;
         const attachedMissionId = focusedMissionIdRef.current;
-        const visibleMissionId = attachedMissionId ?? current?.missionId ?? null;
+        const visibleMissionId = attachedMissionId ?? viewRef.current?.missionId ?? null;
         if (visibleMissionId && event.missionId !== visibleMissionId) {
           return;
         }
-        const gap = event.replayRequired || Boolean(current && event.lastItemSeq > current.lastItemSeq + 1);
-        const rollback = current && event.stateVersion < current.stateVersion;
-        if (gap || rollback || !current) {
-          scheduleRefresh(visibleMissionId ?? event.missionId);
-          return;
-        }
-        // Events are invalidation hints. Even contiguous events are refreshed
-        // from MissionView instead of being reduced into lifecycle truth here.
-        scheduleRefresh(visibleMissionId ?? undefined);
+        scheduleRefresh(visibleMissionId ?? event.missionId);
       },
       onReconnect() {
         scheduleRefresh(focusedMissionIdRef.current ?? viewRef.current?.missionId);
+      },
+      onError(message) {
+        markViewStale(message);
       },
     });
     return () => {
       unsubscribe();
       if (refreshTimer) clearTimeout(refreshTimer);
     };
-  }, [refresh, workspaceId]);
+  }, [markViewStale, refresh, workspaceId]);
 
-  return { view, loading, error, refresh, setView: commitView };
+  return { view, loading, error, refresh, setView: replaceView };
 }

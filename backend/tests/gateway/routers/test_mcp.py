@@ -42,13 +42,12 @@ def test_get_mcp_configuration_returns_current_servers(tmp_path, monkeypatch):
                         "args": ["-y", "@modelcontextprotocol/server-github"],
                     }
                 },
-                "skills": {},
             }
         ),
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("WENJIN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
     reset_mcp_manager()
 
@@ -65,17 +64,12 @@ def test_update_mcp_configuration_persists_and_refreshes_runtime(tmp_path, monke
     config_path = tmp_path / "extensions_config.json"
     config_path.write_text(
         json.dumps(
-            {
-                "mcpServers": {},
-                "skills": {
-                    "deep-research": {"enabled": True},
-                },
-            }
+            {"mcpServers": {}}
         ),
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("WENJIN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
     reset_mcp_manager()
 
@@ -130,7 +124,6 @@ def test_update_mcp_configuration_persists_and_refreshes_runtime(tmp_path, monke
     assert payload["mcp_servers"]["secure-http"]["oauth"]["token_url"] == ("https://auth.example.com/oauth/token")
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
-    assert saved["skills"]["deep-research"]["enabled"] is True
     assert saved["mcpServers"]["secure-http"]["timeout"] == 45
 
     manager = get_mcp_manager(str(config_path))
@@ -147,11 +140,10 @@ def test_update_mcp_configuration_rejects_invalid_runtime_without_persisting(tmp
                 "command": "echo",
             }
         },
-        "skills": {},
     }
     config_path.write_text(json.dumps(original_payload), encoding="utf-8")
 
-    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("WENJIN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
     reset_mcp_manager()
 

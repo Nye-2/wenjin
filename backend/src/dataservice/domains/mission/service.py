@@ -6,13 +6,16 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.contracts.mission_input import merge_mission_input_manifests
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
+    format_stage_instance_id,
     stage_id_matches_contract,
     stage_instance_index,
 )
@@ -31,12 +34,15 @@ from src.dataservice.domains.mission.projection import (
     mission_item_to_payload,
     mission_review_item_to_payload,
     mission_run_to_payload,
+    mission_run_to_view_payload,
 )
 from src.dataservice.domains.mission.repository import MissionRepository
 from src.dataservice_client.contracts.mission import (
+    MissionActivityPayload,
     MissionAppendPayload,
     MissionAppendResultPayload,
     MissionApplyCommandsPayload,
+    MissionArtifactPagePayload,
     MissionArtifactSummaryPayload,
     MissionAttentionActionPayload,
     MissionAttentionInputPayload,
@@ -53,7 +59,9 @@ from src.dataservice_client.contracts.mission import (
     MissionCreatePayload,
     MissionCreateResultPayload,
     MissionDispatchReleasePayload,
+    MissionEvidencePagePayload,
     MissionEvidenceSummaryPayload,
+    MissionHistoryPagePayload,
     MissionItemDraftPayload,
     MissionItemPayload,
     MissionLeaseClaimPayload,
@@ -76,26 +84,26 @@ from src.dataservice_client.contracts.mission import (
     MissionReviewPolicyPayload,
     MissionReviewSummaryPayload,
     MissionRunnableBatchClaimPayload,
-    MissionRunPagePayload,
     MissionRunPatchPayload,
     MissionRunPayload,
     MissionStageSummaryPayload,
     MissionStatus,
     MissionSubagentSummaryPayload,
     MissionUserCommandPayload,
+    MissionUserSummaryPayload,
     MissionViewPayload,
+    MissionWorkspaceSummaryPayload,
     validate_mission_snapshot,
 )
 from src.review_commit_runtime.policy import project_review_policy
 
 TERMINAL_MISSION_STATUSES = frozenset({"completed", "failed", "cancelled"})
+NONTERMINAL_MISSION_STATUSES = frozenset({"created", "planning", "running", "waiting"})
 _HISTORY_CURSOR_VERSION = 1
 
 
 def _encode_history_cursor(*, updated_at: datetime, mission_id: str) -> str:
-    normalized_updated_at = (
-        updated_at if updated_at.tzinfo is not None else updated_at.replace(tzinfo=UTC)
-    )
+    normalized_updated_at = updated_at if updated_at.tzinfo is not None else updated_at.replace(tzinfo=UTC)
     payload = json.dumps(
         {
             "mission_id": mission_id,
@@ -155,6 +163,8 @@ def _create_request_matches(run: MissionRunRecord, command: MissionCreatePayload
         and dict(run.runtime_context_json or {}) == command.runtime_context_json
         and run.mission_idempotency_key == command.mission_idempotency_key
     )
+
+
 _ALLOWED_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
     "created": frozenset({"planning", "failed", "cancelled"}),
     "planning": frozenset({"running", "waiting", "failed", "cancelled"}),
@@ -190,11 +200,7 @@ def _operation_receipt_from_items(
         return None
     claim = claims[-1]
     claim_payload = dict(claim.payload_json or {})
-    terminals = [
-        item
-        for item in items
-        if item.item_type == "operation_terminal" and item.seq > claim.seq
-    ]
+    terminals = [item for item in items if item.item_type == "operation_terminal" and item.seq > claim.seq]
     terminal = terminals[-1] if terminals else None
     terminal_payload = dict(terminal.payload_json or {}) if terminal is not None else {}
     status = str(terminal_payload.get("status") or "claimed")
@@ -291,13 +297,7 @@ class MissionStore:
         now: datetime,
     ) -> None:
         expires_at = _aware(run.lease_expires_at)
-        if (
-            run.status in TERMINAL_MISSION_STATUSES
-            or run.lease_owner is None
-            or run.lease_epoch != lease_epoch
-            or expires_at is None
-            or expires_at <= now
-        ):
+        if run.status in TERMINAL_MISSION_STATUSES or run.lease_owner is None or run.lease_epoch != lease_epoch or expires_at is None or expires_at <= now:
             raise DataServiceConflictError(
                 "Mission effect lease epoch is stale",
                 detail={
@@ -385,8 +385,6 @@ class MissionStore:
             run.context_checkpoint_ref = patch.context_checkpoint_ref
         if "next_wakeup_at" in fields and run.status not in TERMINAL_MISSION_STATUSES:
             run.next_wakeup_at = patch.next_wakeup_at
-        run.evidence_count += patch.evidence_count_delta
-        run.artifact_count += patch.artifact_count_delta
         next_subagent_count = run.active_subagent_count + patch.active_subagent_count_delta
         if next_subagent_count < 0:
             raise DataServiceValidationError(
@@ -405,6 +403,10 @@ class MissionStore:
         records: list[MissionItemRecord] = []
         for draft in drafts:
             run.last_item_seq += 1
+            if draft.item_type == "evidence":
+                run.evidence_count += 1
+            elif draft.item_type in {"artifact", "output"}:
+                run.artifact_count += 1
             values = draft.model_dump(mode="python")
             records.append(
                 self.repository.append_item(
@@ -498,6 +500,20 @@ class MissionStore:
             return None
         return mission_run_to_payload(record)
 
+    async def latest_for_thread(
+        self,
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+    ) -> MissionRunPayload | None:
+        record = await self.repository.find_latest_for_thread(thread_id)
+        if record is None:
+            return None
+        if record.workspace_id != workspace_id or record.user_id != user_id:
+            return None
+        return mission_run_to_payload(record)
+
     async def find_by_mission_idempotency_key(
         self,
         *,
@@ -518,10 +534,8 @@ class MissionStore:
         status: list[MissionStatus] | None = None,
         limit: int = 50,
         cursor: str | None = None,
-    ) -> MissionRunPagePayload:
-        before_updated_at, before_mission_id = (
-            _decode_history_cursor(cursor) if cursor else (None, None)
-        )
+    ) -> MissionHistoryPagePayload:
+        before_updated_at, before_mission_id = _decode_history_cursor(cursor) if cursor else (None, None)
         records = await self.repository.list_runs(
             workspace_id=workspace_id,
             user_id=user_id,
@@ -538,8 +552,8 @@ class MissionStore:
                 updated_at=last.updated_at,
                 mission_id=last.mission_id,
             )
-        return MissionRunPagePayload(
-            items=[mission_run_to_payload(record) for record in page_records],
+        return MissionHistoryPagePayload(
+            items=[mission_run_to_view_payload(record) for record in page_records],
             next_cursor=next_cursor,
         )
 
@@ -558,6 +572,56 @@ class MissionStore:
             limit=limit,
         )
         return [mission_run_to_payload(record) for record in records]
+
+    async def get_workspace_summary(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str | None = None,
+    ) -> MissionWorkspaceSummaryPayload:
+        rows = await self.repository.aggregate_workspace_runs(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        status_counts = {status: count for status, count, _, _, _ in rows}
+        latest_records = await self.repository.list_runs(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            limit=1,
+        )
+        active_records = await self.repository.list_runs(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            status=list(NONTERMINAL_MISSION_STATUSES),
+            limit=1,
+        )
+        return MissionWorkspaceSummaryPayload(
+            total=sum(status_counts.values()),
+            status_counts=status_counts,
+            pending_review_count=sum(row[2] for row in rows),
+            evidence_count=sum(row[3] for row in rows),
+            artifact_count=sum(row[4] for row in rows),
+            latest=(mission_run_to_view_payload(latest_records[0]) if latest_records else None),
+            active=(mission_run_to_view_payload(active_records[0]) if active_records else None),
+        )
+
+    async def get_user_summary(
+        self,
+        *,
+        user_id: str,
+        recent_limit: int = 10,
+    ) -> MissionUserSummaryPayload:
+        rows = await self.repository.aggregate_user_runs(user_id=user_id)
+        recent_records = await self.repository.list_user_runs(
+            user_id=user_id,
+            limit=recent_limit,
+        )
+        status_counts = {status: count for status, count in rows}
+        return MissionUserSummaryPayload(
+            total=sum(status_counts.values()),
+            status_counts=status_counts,
+            recent=[mission_run_to_view_payload(record) for record in recent_records],
+        )
 
     async def aggregate_stats(
         self,
@@ -699,10 +763,7 @@ class MissionStore:
         command: MissionDispatchReleasePayload,
     ) -> MissionRunPayload:
         run = await self._locked_run(mission_id)
-        if (
-            run.dispatch_owner != command.worker_id
-            or run.dispatch_epoch != command.dispatch_epoch
-        ):
+        if run.dispatch_owner != command.worker_id or run.dispatch_epoch != command.dispatch_epoch:
             raise DataServiceConflictError("Mission dispatch lease fence was lost")
         now = await self.repository.database_now()
         run.dispatch_owner = None
@@ -724,9 +785,7 @@ class MissionStore:
             operation_id=command.operation_key,
         )
         receipt = _operation_receipt_from_items(mission_id, command.operation_key, items)
-        if receipt is not None and (
-            receipt.kind != command.kind or receipt.request_hash != command.request_hash
-        ):
+        if receipt is not None and (receipt.kind != command.kind or receipt.request_hash != command.request_hash):
             raise DataServiceConflictError(
                 "Operation key is already bound to a different request",
                 detail={"mission_id": mission_id, "operation_key": command.operation_key},
@@ -802,11 +861,26 @@ class MissionStore:
         if receipt.kind != command.kind or receipt.request_hash != command.request_hash:
             raise DataServiceConflictError("Operation finish does not match the claimed request")
         desired = command.model_dump(mode="json")["receipt_json"]
+        reference_projection = [item.model_dump(mode="json") for item in command.references]
+        reference_projection_hash = hashlib.sha256(
+            json.dumps(
+                reference_projection,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
         if receipt.status.value != "claimed":
+            terminal_item = next(
+                (item for item in reversed(items) if item.item_type == "operation_terminal"),
+                None,
+            )
             same = (
                 receipt.status == command.status
                 and receipt.receipt_json == desired
                 and receipt.payload_ref == command.payload_ref
+                and terminal_item is not None
+                and terminal_item.payload_json.get("reference_projection_hash") == reference_projection_hash
             )
             if not same:
                 raise DataServiceConflictError("Terminal operation receipt is immutable")
@@ -816,7 +890,7 @@ class MissionStore:
             )
         if receipt.claimant != command.claimant or receipt.lease_epoch != command.lease_epoch:
             raise DataServiceConflictError("Operation terminal fence was lost")
-        terminal = self._append_drafts(
+        appended = self._append_drafts(
             run,
             [
                 MissionItemDraftPayload(
@@ -833,12 +907,36 @@ class MissionStore:
                         "lease_epoch": command.lease_epoch,
                         "attempt": receipt.attempt,
                         "receipt": desired,
+                        "reference_projection_hash": reference_projection_hash,
                     },
                     payload_ref=command.payload_ref,
-                )
+                ),
+                *[
+                    MissionItemDraftPayload(
+                        item_type=reference.category,
+                        operation_id=command.operation_key,
+                        phase="completed",
+                        stage_id=command.stage_id,
+                        producer=command.producer or command.claimant,
+                        summary=reference.title or reference.reference_id,
+                        payload_json={
+                            "reference_id": reference.reference_id,
+                            "kind": reference.reference_kind,
+                            "title": reference.title,
+                            "uri": reference.uri,
+                            "metadata": reference.metadata,
+                            "source_type": reference.source_type,
+                            "verified": reference.verified,
+                            "receipt_operation_key": command.operation_key,
+                        },
+                        payload_ref=reference.reference_id,
+                    )
+                    for reference in command.references
+                ],
             ],
             now=now,
-        )[0]
+        )
+        terminal = appended[0]
         self._touch(run, now)
         await self._finish()
         return MissionOperationFinishResultPayload(
@@ -927,9 +1025,7 @@ class MissionStore:
         if command.command_type == "set_review_mode":
             review_mode = command.payload_json.get("review_mode")
             if review_mode not in {"review_all", "balanced_default", "auto_draft"}:
-                raise DataServiceValidationError(
-                    "set_review_mode requires a valid review_mode"
-                )
+                raise DataServiceValidationError("set_review_mode requires a valid review_mode")
             run.review_mode = str(review_mode)
             run.last_applied_command_seq = records[0].seq
         else:
@@ -1073,6 +1169,14 @@ class MissionStore:
         snapshot = dict(run.snapshot_json or {})
         snapshot.pop("waiting_reason", None)
         snapshot.pop("pending_request", None)
+        incoming_inputs = command.input_json.get("mission_inputs")
+        if isinstance(incoming_inputs, list) and incoming_inputs:
+            snapshot["mission_inputs"] = merge_mission_input_manifests(
+                snapshot.get("mission_inputs"),
+                incoming_inputs,
+                workspace_id=run.workspace_id,
+                thread_id=run.thread_id,
+            )
         run.snapshot_json = validate_mission_snapshot(snapshot)
         records = self._append_drafts(
             run,
@@ -1147,6 +1251,9 @@ class MissionStore:
         requested_ids = [item.review_item_id for item in command.items]
         if len(requested_ids) != len(set(requested_ids)):
             raise DataServiceValidationError("review_item_id values must be unique")
+        output_keys = [item.output_key for item in command.items]
+        if len(output_keys) != len(set(output_keys)):
+            raise DataServiceValidationError("output_key values must be unique within one review batch")
         existing = await self.repository.list_review_items_by_ids(
             mission_id=mission_id,
             review_item_ids=requested_ids,
@@ -1166,6 +1273,7 @@ class MissionStore:
                 )
                 if (
                     record.source_item_seq != draft.source_item_seq
+                    or record.output_key != draft.output_key
                     or record.target_kind != draft.target_kind
                     or record.target_room != draft.target_room
                     or record.target_ref != draft.target_ref
@@ -1199,8 +1307,75 @@ class MissionStore:
             lease_epoch=command.lease_epoch,
             now=now,
         )
+        candidate_destinations = {
+            destination
+            for draft in command.items
+            if (
+                destination := _review_materialization_destination(
+                    target_kind=draft.target_kind,
+                    target_room=draft.target_room,
+                    target_ref=draft.target_ref,
+                    preview_json=draft.preview_json,
+                )
+            )
+            is not None
+        }
+        prior_candidates = await self.repository.list_review_items(
+            mission_id=mission_id,
+            for_update=True,
+        )
+        superseded_ids: list[str] = []
+        superseded_pending = 0
+        for record in prior_candidates:
+            same_output = record.output_key in output_keys
+            same_destination = (
+                _review_materialization_destination(
+                    target_kind=record.target_kind,
+                    target_room=record.target_room,
+                    target_ref=record.target_ref,
+                    preview_json=dict(record.preview_json or {}),
+                )
+                in candidate_destinations
+            )
+            if not same_output and not same_destination:
+                continue
+            if record.status in {"committed", "superseded"}:
+                continue
+            if record.status == "accepted":
+                active_commit = await self.repository.find_commit_by_review_item(record.review_item_id)
+                if active_commit is not None and active_commit.status != "cancelled":
+                    raise DataServiceConflictError(
+                        "Cannot replace an output while its accepted candidate is being saved",
+                        detail={
+                            "review_item_id": record.review_item_id,
+                            "commit_status": active_commit.status,
+                        },
+                    )
+            if record.status == "pending":
+                superseded_pending += 1
+            record.status = "superseded"
+            record.suggested_selected = False
+            record.decision_json = {
+                "decision": "superseded",
+                "reason": "A newer candidate now represents this output.",
+            }
+            record.decided_by = None
+            record.decided_at = now
+            record.updated_at = now
+            superseded_ids.append(str(record.review_item_id))
         records: list[MissionReviewItemRecord] = []
         audit_drafts: list[MissionItemDraftPayload] = []
+        for review_item_id in superseded_ids:
+            audit_drafts.append(
+                MissionItemDraftPayload(
+                    item_type="review_candidate_superseded",
+                    operation_id=review_item_id,
+                    phase="completed",
+                    producer="mission_runtime",
+                    summary="A newer candidate replaced this output.",
+                    payload_json={"review_item_id": review_item_id},
+                )
+            )
         for draft in command.items:
             if draft.source_item_seq is not None:
                 source_item = await self.repository.get_item(mission_id=mission_id, seq=draft.source_item_seq)
@@ -1247,12 +1422,16 @@ class MissionStore:
                 )
             )
         self._append_drafts(run, audit_drafts, now=now)
-        run.pending_review_count += len(records)
+        run.pending_review_count = max(
+            run.pending_review_count - superseded_pending + len(records),
+            0,
+        )
         self._touch(run, now)
         await self._finish()
         return MissionReviewItemsResultPayload(
             mission=mission_run_to_payload(run),
             items=[mission_review_item_to_payload(item) for item in records],
+            superseded_review_item_ids=superseded_ids,
         )
 
     async def list_review_items(
@@ -1340,9 +1519,7 @@ class MissionStore:
                     },
                 )
             if record.status == "accepted":
-                active_commit = await self.repository.find_commit_by_review_item(
-                    record.review_item_id
-                )
+                active_commit = await self.repository.find_commit_by_review_item(record.review_item_id)
                 if active_commit is not None and active_commit.status == "applying":
                     raise DataServiceConflictError(
                         "Review item has an applying commit",
@@ -1396,11 +1573,7 @@ class MissionStore:
                 )
             )
         self._append_drafts(run, audit_drafts, now=now)
-        revision_ids = [
-            decision.review_item_id
-            for decision in command.decisions
-            if decision.status.value != "accepted"
-        ]
+        revision_ids = [decision.review_item_id for decision in command.decisions if decision.status.value != "accepted"]
         for review_item_id in revision_ids:
             if self._resolve_review_wait(
                 run,
@@ -1506,10 +1679,7 @@ class MissionStore:
                     mission=mission_run_to_payload(run),
                     commit=mission_commit_to_payload(commit),
                 )
-            if (
-                commit.attempt_expires_at is not None
-                and _aware(commit.attempt_expires_at) > _aware(now)
-            ):
+            if commit.attempt_expires_at is not None and _aware(commit.attempt_expires_at) > _aware(now):
                 raise DataServiceConflictError("MissionCommit is already applying")
         if commit.status in {"committed", "cancelled"}:
             raise DataServiceConflictError("Terminal MissionCommit cannot restart")
@@ -1569,17 +1739,9 @@ class MissionStore:
             raise DataServiceNotFoundError("MissionCommit not found for mission")
         target_status = command.status.value
         if commit.status == target_status:
-            expected_error = (
-                dict(command.error_json) if command.error_json is not None else None
-            )
-            if (
-                commit.attempt_token != command.attempt_token
-                or dict(commit.targets_json or {}) != dict(command.targets_json)
-                or commit.error_json != expected_error
-            ):
-                raise DataServiceConflictError(
-                    "MissionCommit terminal replay does not match the stored receipt"
-                )
+            expected_error = dict(command.error_json) if command.error_json is not None else None
+            if commit.attempt_token != command.attempt_token or dict(commit.targets_json or {}) != dict(command.targets_json) or commit.error_json != expected_error:
+                raise DataServiceConflictError("MissionCommit terminal replay does not match the stored receipt")
             return MissionCommitResultPayload(mission=mission_run_to_payload(run), commit=mission_commit_to_payload(commit))
         if commit.status != "applying":
             raise DataServiceConflictError("Only an applying MissionCommit can finish")
@@ -1673,51 +1835,39 @@ class MissionStore:
         if run is None:
             return None
         review_records = await self.repository.list_review_items(mission_id=mission_id)
+        visible_review_records = _current_review_records(review_records)
+        artifact_review_records = _artifact_review_records(visible_review_records)
         commit_records = await self.repository.list_commits(mission_id=mission_id)
         evidence_records = await self.repository.list_items_by_types(
             mission_id=mission_id,
             item_types=("evidence",),
             limit=projection_item_limit + 1,
         )
-        artifact_records = await self.repository.list_items_by_types(
-            mission_id=mission_id,
-            item_types=("artifact", "output"),
-            limit=projection_item_limit + 1,
-        )
         pending_review_sources = await self.repository.list_items_by_seqs(
             mission_id=mission_id,
-            seqs=tuple(
-                record.source_item_seq
-                for record in review_records
-                if record.status == "pending" and record.source_item_seq is not None
-            ),
+            seqs=tuple(record.source_item_seq for record in visible_review_records if record.status == "pending" and record.source_item_seq is not None),
         )
         review_counts = {status: 0 for status in _REVIEW_TRANSITIONS}
-        for record in review_records:
+        for record in visible_review_records:
             review_counts[record.status] += 1
         commit_counts = {status: 0 for status in ("pending", "applying", "committed", "failed", "cancelled")}
         for record in commit_records:
             commit_counts[record.status] += 1
         evidence_page_records = evidence_records[:projection_item_limit]
-        artifact_page_records = artifact_records[:projection_item_limit]
+        artifact_page_records = artifact_review_records[:projection_item_limit]
         required_stage_ids, stage_summaries = _project_stages(
             run,
-            observed_stage_ids=[
-                record.stage_id
-                for record in pending_review_sources
-                if record.stage_id is not None
-            ],
+            observed_stage_ids=[record.stage_id for record in pending_review_sources if record.stage_id is not None],
         )
         team_summary, subagents = _project_subagents(run)
-        committed_review_ids = {
-            record.review_item_id for record in commit_records if record.status == "committed"
-        }
+        committed_review_ids = {record.review_item_id for record in commit_records if record.status == "committed"}
         return MissionViewPayload(
-            mission=mission_run_to_payload(run),
+            mission=mission_run_to_view_payload(run),
+            activity=_project_activity(run),
             attention_request=_project_attention_request(run),
             review_summary=MissionReviewSummaryPayload(**review_counts),
             commit_summary=MissionCommitSummaryPayload(**commit_counts),
-            review_items=[mission_review_item_to_payload(record) for record in review_records],
+            review_items=[mission_review_item_to_payload(record) for record in visible_review_records],
             commits=[mission_commit_to_payload(record) for record in commit_records],
             required_stage_ids=required_stage_ids,
             stage_summaries=stage_summaries,
@@ -1727,32 +1877,85 @@ class MissionStore:
             evidence_page=MissionProjectionPagePayload(
                 total=run.evidence_count,
                 returned=len(evidence_page_records),
-                next_cursor=(
-                    evidence_page_records[-1].seq
-                    if len(evidence_records) > projection_item_limit
-                    else None
-                ),
+                next_cursor=(evidence_page_records[-1].seq if len(evidence_records) > projection_item_limit else None),
             ),
             artifact_items=[
                 _project_artifact(record, committed_review_ids)
                 for record in artifact_page_records
             ],
             artifact_page=MissionProjectionPagePayload(
-                total=run.artifact_count,
+                total=len(artifact_review_records),
                 returned=len(artifact_page_records),
-                next_cursor=(
-                    artifact_page_records[-1].seq
-                    if len(artifact_records) > projection_item_limit
-                    else None
-                ),
+                next_cursor=(artifact_page_records[-1].source_item_seq if len(artifact_review_records) > projection_item_limit else None),
             ),
             review_policy=MissionReviewPolicyPayload(
                 mode=run.review_mode,
                 protected_outputs_require_confirmation=True,
                 draft_outputs_may_be_automatic=run.review_mode != "review_all",
             ),
+            review_selection_revision=_review_selection_revision(visible_review_records),
             quality_highlights=_project_quality_highlights(run),
             refresh_token=f"{run.updated_at.isoformat()}:{run.mission_id}:{run.state_version}",
+        )
+
+    async def list_evidence_projection_page(
+        self,
+        mission_id: str,
+        *,
+        after_seq: int = 0,
+        limit: int = 50,
+    ) -> MissionEvidencePagePayload | None:
+        run = await self.repository.get_run(mission_id)
+        if run is None:
+            return None
+        records = await self.repository.list_items_by_types(
+            mission_id=mission_id,
+            item_types=("evidence",),
+            after_seq=after_seq,
+            limit=limit + 1,
+        )
+        page_records = records[:limit]
+        return MissionEvidencePagePayload(
+            items=[_project_evidence(record) for record in page_records],
+            page=MissionProjectionPagePayload(
+                total=run.evidence_count,
+                returned=len(page_records),
+                next_cursor=(page_records[-1].seq if len(records) > limit else None),
+            ),
+        )
+
+    async def list_artifact_projection_page(
+        self,
+        mission_id: str,
+        *,
+        after_seq: int = 0,
+        limit: int = 50,
+    ) -> MissionArtifactPagePayload | None:
+        run = await self.repository.get_run(mission_id)
+        if run is None:
+            return None
+        review_records = await self.repository.list_review_items(mission_id=mission_id)
+        commit_records = await self.repository.list_commits(mission_id=mission_id)
+        committed_review_ids = {record.review_item_id for record in commit_records if record.status == "committed"}
+        artifact_records = _artifact_review_records(
+            _current_review_records(review_records)
+        )
+        remaining_records = [
+            record
+            for record in artifact_records
+            if record.source_item_seq is not None and record.source_item_seq > after_seq
+        ]
+        page_records = remaining_records[:limit]
+        return MissionArtifactPagePayload(
+            items=[
+                _project_artifact(record, committed_review_ids)
+                for record in page_records
+            ],
+            page=MissionProjectionPagePayload(
+                total=len(artifact_records),
+                returned=len(page_records),
+                next_cursor=(page_records[-1].source_item_seq if len(remaining_records) > limit else None),
+            ),
         )
 
     async def cleanup_expired_previews(
@@ -1782,6 +1985,93 @@ def _text(value) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _project_activity(run: MissionRunRecord) -> MissionActivityPayload:
+    snapshot = run.snapshot_json or {}
+    if run.status == MissionStatus.WAITING.value:
+        reason = _text(snapshot.get("waiting_reason"))
+        return MissionActivityPayload(
+            state="reviewing" if reason == "review" else "waiting",
+            title=("等待你确认结果" if reason == "review" else "等待你的回应"),
+            summary=_attention_default_summary(reason or "user_input"),
+        )
+    if run.status == MissionStatus.COMPLETED.value:
+        return MissionActivityPayload(state="completed", title="研究任务已完成")
+    if run.status == MissionStatus.FAILED.value:
+        if snapshot.get("failure_reason") == "model_service_unavailable":
+            return MissionActivityPayload(
+                state="unavailable",
+                title="模型服务暂时不可用",
+                summary="已保留完成阶段和待确认内容，稍后可在对话中继续。",
+            )
+        return MissionActivityPayload(
+            state="stopped",
+            title="研究任务未完整完成",
+            summary="已保留当前进度和可用结果。",
+        )
+    if run.status == MissionStatus.CANCELLED.value:
+        return MissionActivityPayload(state="stopped", title="研究任务已取消")
+
+    guard = snapshot.get("loop_guard")
+    loop_guard = guard if isinstance(guard, dict) else {}
+    transient_attempt = int(loop_guard.get("transient_failures") or 0)
+    next_actions = snapshot.get("next_actions")
+    actions = next_actions if isinstance(next_actions, list) else []
+    if transient_attempt > 0 and "retry_agent_step_after_backoff" in actions:
+        return MissionActivityPayload(
+            state="retrying",
+            title="连接暂时波动，问津正在重试",
+            summary="任务进度已经保留，无需重新开始。",
+            attempt=transient_attempt,
+            retry_at=run.next_wakeup_at,
+        )
+    if "replan_after_operation_failure" in actions:
+        return MissionActivityPayload(
+            state="recovering",
+            title="当前步骤未完成，问津正在调整方案",
+            summary="已保留可用结果，并会从当前阶段继续。",
+        )
+    if "repair_structured_decision" in actions or "retry_agent_step" in actions:
+        return MissionActivityPayload(
+            state="recovering",
+            title="问津正在校正下一步",
+            summary="任务进度已经保留，校正后会从当前阶段继续。",
+        )
+    if run.active_subagent_count > 0:
+        return MissionActivityPayload(
+            state="collaborating",
+            title="研究成员正在协作",
+            summary="已分派并行研究工作，结果会汇总回当前阶段。",
+        )
+    if run.status == MissionStatus.CREATED.value:
+        return MissionActivityPayload(state="starting", title="正在准备研究任务")
+    return MissionActivityPayload(
+        state="working",
+        title="问津正在推进当前研究",
+    )
+
+
+def _review_selection_revision(
+    records: list[MissionReviewItemRecord],
+) -> str:
+    selection = [
+        {
+            "batch_acceptable": record.batch_acceptable,
+            "requires_explicit_review": record.requires_explicit_review,
+            "review_item_id": record.review_item_id,
+            "status": record.status,
+            "suggested_selected": record.suggested_selected,
+        }
+        for record in sorted(records, key=lambda item: item.review_item_id)
+    ]
+    encoded = json.dumps(
+        selection,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
 def _project_attention_request(
     run: MissionRunRecord,
 ) -> MissionAttentionRequestPayload | None:
@@ -1791,12 +2081,7 @@ def _project_attention_request(
     request = pending if isinstance(pending, dict) else {}
     reason = _text(run.snapshot_json.get("waiting_reason")) or "user_input"
     request_id = _text(request.get("request_id")) or f"waiting:{run.mission_id}:{run.state_version}"
-    summary = (
-        _text(request.get("summary"))
-        or _text(request.get("question"))
-        or _text(request.get("prompt"))
-        or _attention_default_summary(reason)
-    )
+    summary = _text(request.get("summary")) or _text(request.get("question")) or _text(request.get("prompt")) or _attention_default_summary(reason)
 
     inputs = _project_attention_inputs(reason, request)
     actions = [
@@ -1931,6 +2216,11 @@ def _project_stages(
             *(observed_stage_ids or ()),
         ],
         contracts=contracts,
+        item_counts=(
+            run.snapshot_json.get("stage_item_counts")
+            if isinstance(run.snapshot_json.get("stage_item_counts"), dict)
+            else {}
+        ),
     )
     summaries: list[MissionStageSummaryPayload] = []
     for stage_id in required:
@@ -1983,24 +2273,38 @@ def _project_stage_instance_ids(
     *,
     observed_ids: list[str],
     contracts: tuple[StageAcceptanceContract, ...],
+    item_counts: dict[str, object] | None = None,
 ) -> list[str]:
-    family_contracts = {
-        family_id: contract
-        for family_id in required_families
-        if (contract := next((item for item in contracts if item.stage_id == family_id), None))
-        is not None
-        and contract.instantiation.mode == "per_item"
-    }
+    family_contracts = {family_id: contract for family_id in required_families if (contract := next((item for item in contracts if item.stage_id == family_id), None)) is not None and contract.instantiation.mode == "per_item"}
     family_order = {family_id: index for index, family_id in enumerate(required_families)}
     dynamic_instances: list[tuple[int, int, str]] = []
+    dynamic_ids_seen: set[str] = set()
     families_with_instances: set[str] = set()
+    counts = item_counts or {}
+    for family_id, contract in family_contracts.items():
+        source_key = contract.instantiation.source_context_key or ""
+        raw_count = counts.get(source_key)
+        if isinstance(raw_count, bool) or not isinstance(raw_count, int):
+            continue
+        if not 1 <= raw_count <= 100:
+            continue
+        for index in range(1, raw_count + 1):
+            stage_id = format_stage_instance_id(
+                contract.instantiation.instance_id_template,
+                index,
+            )
+            dynamic_instances.append((index, family_order[family_id], stage_id))
+            dynamic_ids_seen.add(stage_id)
+        families_with_instances.add(family_id)
     for stage_id in dict.fromkeys(observed_ids):
         for family_id, contract in family_contracts.items():
             if not stage_id_matches_contract(contract, stage_id):
                 continue
             index = stage_instance_index(contract.instantiation.instance_id_template, stage_id)
             if index is not None:
-                dynamic_instances.append((index, family_order[family_id], stage_id))
+                if stage_id not in dynamic_ids_seen:
+                    dynamic_instances.append((index, family_order[family_id], stage_id))
+                    dynamic_ids_seen.add(stage_id)
                 families_with_instances.add(family_id)
             break
     dynamic_ids = [stage_id for _, _, stage_id in sorted(dynamic_instances)]
@@ -2015,11 +2319,7 @@ def _project_stage_instance_ids(
             dynamic_block_inserted = True
             selected = [
                 *dynamic_ids,
-                *(
-                    candidate
-                    for candidate in required_families
-                    if candidate in family_contracts and candidate not in families_with_instances
-                ),
+                *(candidate for candidate in required_families if candidate in family_contracts and candidate not in families_with_instances),
             ]
         else:
             selected = [family_id]
@@ -2072,20 +2372,46 @@ def _project_subagents(
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
+        raw_status = _text(row.get("status")) or "working"
+        status = {
+            "pending": "queued",
+            "queued": "queued",
+            "running": "working",
+            "working": "working",
+            "completed": "done",
+            "done": "done",
+            "needs_input": "needs_input",
+            "failed": "failed",
+            "cancelled": "cancelled",
+        }.get(raw_status, "working")
         projected.append(
             MissionSubagentSummaryPayload(
                 subagent_id=_text(row.get("job_id")) or f"member-{index + 1}",
                 display_name=_text(row.get("display_name")) or f"研究成员 {index + 1}",
-                role_label=_text(row.get("role_label")) or "研究协作",
-                status=_text(row.get("status")) or "working",
+                role_label=_public_subagent_role(row.get("role_label")),
+                status=status,
                 summary=_text(row.get("result_brief")),
             )
         )
     return team_summary, projected
 
 
+def _public_subagent_role(value: object) -> str:
+    label = _text(value)
+    if not label:
+        return "研究协作"
+    if re.fullmatch(r"[A-Za-z0-9_.:-]+", label):
+        normalized = label.lower()
+        if "audit" in normalized or "critic" in normalized:
+            return "专项核验"
+        return "专项研究"
+    return label
+
+
 def _project_evidence(record: MissionItemRecord) -> MissionEvidenceSummaryPayload:
     payload = record.payload_json or {}
+    raw_metadata = payload.get("metadata")
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
     source_type = _text(payload.get("source_type")) or "paper"
     if source_type not in {"paper", "web_page", "dataset", "upload"}:
         source_type = "paper"
@@ -2094,27 +2420,69 @@ def _project_evidence(record: MissionItemRecord) -> MissionEvidenceSummaryPayloa
         seq=record.seq,
         title=_text(payload.get("title")) or record.summary or "研究证据",
         source_type=source_type,
-        source_label=_text(payload.get("source_label")) or _text(payload.get("source")),
+        source_label=(_text(payload.get("source_label")) or _text(payload.get("source")) or _text(metadata.get("publisher"))),
         summary=_text(payload.get("summary")) or record.summary,
-        citation=_text(payload.get("citation")),
+        citation=_text(payload.get("citation")) or _text(payload.get("uri")),
         verified=payload.get("verified") is True,
     )
 
 
+_USER_ARTIFACT_TARGET_KINDS = frozenset({"document", "workspace_asset"})
+_VISIBLE_ARTIFACT_REVIEW_STATUSES = frozenset({"pending", "accepted", "committed"})
+
+
+def _current_review_records(
+    records: list[MissionReviewItemRecord],
+) -> list[MissionReviewItemRecord]:
+    current_by_output: dict[str, MissionReviewItemRecord] = {}
+    for record in records:
+        if record.status != "superseded":
+            current_by_output[record.output_key] = record
+    return list(current_by_output.values())
+
+
+def _artifact_review_records(
+    records: list[MissionReviewItemRecord],
+) -> list[MissionReviewItemRecord]:
+    current_by_destination: dict[tuple[str, ...], MissionReviewItemRecord] = {}
+    for record in records:
+        if (
+            record.target_kind not in _USER_ARTIFACT_TARGET_KINDS
+            or record.status not in _VISIBLE_ARTIFACT_REVIEW_STATUSES
+            or record.source_item_seq is None
+        ):
+            continue
+        destination = _review_materialization_destination(
+            target_kind=record.target_kind,
+            target_room=record.target_room,
+            target_ref=record.target_ref,
+            preview_json=dict(record.preview_json or {}),
+        )
+        identity = (
+            ("destination", *destination)
+            if destination is not None
+            else ("output", record.output_key)
+        )
+        current_by_destination[identity] = record
+    return sorted(
+        current_by_destination.values(),
+        key=lambda record: record.source_item_seq or 0,
+    )
+
+
 def _project_artifact(
-    record: MissionItemRecord,
+    record: MissionReviewItemRecord,
     committed_review_ids: set[str],
 ) -> MissionArtifactSummaryPayload:
-    payload = record.payload_json or {}
-    review_item_id = _text(payload.get("review_item_id"))
+    preview = record.preview_json or {}
     return MissionArtifactSummaryPayload(
-        item_id=record.id,
-        seq=record.seq,
-        title=_text(payload.get("title")) or record.summary or "研究成果",
-        kind=_text(payload.get("kind")) or record.item_type,
-        summary=_text(payload.get("summary")) or record.summary,
-        preview_available=bool(record.payload_ref or payload),
-        committed=bool(review_item_id and review_item_id in committed_review_ids),
+        item_id=record.review_item_id,
+        seq=record.source_item_seq or 0,
+        title=record.title,
+        kind=_text(preview.get("artifact_kind")) or record.target_kind,
+        summary=record.summary,
+        preview_available=bool(record.preview_ref or preview),
+        committed=record.status == "committed" or record.review_item_id in committed_review_ids,
     )
 
 
@@ -2144,6 +2512,30 @@ def _canonical_preview(draft) -> tuple[dict, str]:
     ).encode("utf-8")
     canonical = json.loads(encoded)
     return canonical, hashlib.sha256(encoded).hexdigest()
+
+
+def _review_materialization_destination(
+    *,
+    target_kind: str,
+    target_room: str | None,
+    target_ref: str | None,
+    preview_json: dict,
+) -> tuple[str, ...] | None:
+    """Identify a protected write destination independently of model-chosen output keys."""
+
+    if target_ref:
+        return ("existing", target_kind, target_room or "", target_ref)
+    descriptor = preview_json.get("materialization")
+    if not isinstance(descriptor, dict):
+        return None
+    operation = descriptor.get("operation")
+    payload = descriptor.get("payload")
+    if operation != "documents.upsert_prism_file" or not isinstance(payload, dict):
+        return None
+    path = payload.get("path")
+    if not isinstance(path, str) or not path.strip():
+        return None
+    return ("new", target_kind, target_room or "", operation, path.strip())
 
 
 __all__ = ["MissionStore", "TERMINAL_MISSION_STATUSES"]

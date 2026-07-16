@@ -1,7 +1,7 @@
 # 01 WorkspaceAgent Spec
 
 Status: Implemented
-Updated: 2026-07-11
+Updated: 2026-07-15
 
 Implementation outcome: `backend/src/agents/workspace_agent/` is the single agent entry; `backend/src/runtime/chat_turns/` owns transient turn transport. Strict structured mission actions are in production. No architectural blocker remains; real-provider browser acceptance is tracked by spec 13.
 Depends on: `02_mission_runtime.md`, `05_capability_skill_lite.md`, `09_permission_pause.md`
@@ -22,7 +22,9 @@ WorkspaceAgent -> MissionRuntime -> SubagentRuntime / ToolOrchestrator
 
 The user should experience one agent, "问津", that can chat, ask clarifying questions, start durable missions, continue paused missions, explain progress, and process review decisions.
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|
@@ -92,23 +94,28 @@ MissionRuntime APIs implement the mission actions; WorkspaceAgent does not call 
 
 ## Mission Start Contract
 
-WorkspaceAgent sends:
+The provider sends only model-owned intent:
 
 ```text
-workspace_id
-thread_id
-user_id
-workspace_type
-raw_user_message_id
-mission_idempotency_key
+title: concise user-facing navigation label
 objective
 mission_policy_id
 initial_params
-review_mode
+input_refs: mission-input:<sha256>[]
+```
+
+`title` and `objective` are separate contracts. The title should identify the task in the Mission Console; it must never be produced by truncating the complete objective.
+
+The authenticated application boundary injects:
+
+```text
+workspace_id / thread_id / user_id / workspace_type
+raw_user_message_id / mission_idempotency_key
+user-selected review_mode
 model_id
 reasoning_effort
 model_capability_profile_hash
-runtime_context_refs
+validated MissionInput manifests and runtime_context_refs
 ```
 
 MissionRuntime returns:
@@ -124,12 +131,24 @@ mission_console_hint
 
 No `ExecutionRecord`, `feature_id`, graph-template node ids, or ChatTurnRun ids should appear in the public mission start response.
 
+## Attachment and MissionInput Boundary
+
+- The upload API returns the complete typed attachment contract; the frontend must not reduce it to name/path pairs.
+- `ThreadTurnHandler` validates the canonical thread-local path and seals readable PDF, preprocessed Markdown, or plain text through `MissionInputService` before persisting the user turn.
+- Message metadata stores `mission_inputs` and bounded `attachment_contexts`; attachment content is never injected into a synthetic `<uploaded_files>` message.
+- If preprocessing was pending, a later turn may promote that same server-owned attachment to a sealed input. The user does not need to re-upload it.
+- WorkspaceAgent may answer a small question from the verified excerpt. For long work it selects exact related refs; MissionRuntime pins those manifests in the Mission snapshot.
+- Mission and subagents read full bounded content only through canonical `workspace.read_input`. The reader revalidates workspace, thread, hash, and size, and rejects any ref not pinned to the Mission.
+- No compatibility middleware, alternate path resolver, duplicate preprocessing field, or raw client filesystem path participates in this flow.
+
 Concurrency rules:
 
 - One thread has at most one non-terminal foreground mission. A clearly related request becomes a durable steer/context command. A clearly unrelated long task does not silently queue or replace work: Chat offers “切换到新任务 / 当前任务完成后继续 / 保持当前任务” and waits for an explicit choice.
+- When no foreground mission exists, the handler resolves exactly one bounded continuation target. A Mission id explicitly referenced as a continuation in the current message takes precedence after workspace, thread, user, terminal-status, and policy validation; otherwise the latest terminal Mission from the same authenticated thread is used. Raw Mission ledgers and review queues are not chat context.
+- An explicit continuation start must copy that exact target id into `parent_mission_id`; an explicit new task must leave it null. Invalid, unauthorized, non-terminal, or ambiguous explicit ids fail without falling back to the latest Mission. The server validates equality before Mission creation, so the model cannot select an arbitrary historical parent.
 - User input during an active mission is classified as `steer`, `context`, `correction`, `pause`, `cancel`, `review`, or `advisory` before it reaches MissionRuntime.
 - Mission-affecting input gets a stable command id and is applied at a safe loop boundary. Advisory side questions may use a separate ChatTurnRun but cannot mutate mission state.
-- A terminal MissionRun is not reopened. A materially new continuation creates a linked child mission.
+- A terminal MissionRun is not reopened. A materially new continuation creates a linked child mission and inherits only passed stage receipts, their server-owned dynamic cardinality, and canonical refs used by accepted work. It never inherits failure counters, leases, pending review state, or unaccepted drafts.
 
 Mission preflight rules:
 

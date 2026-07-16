@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from src.contracts.mission_policy import (
     CompletionContract,
+    CompletionTarget,
     MinimumContextRequirement,
     MissionAntiExample,
     MissionExample,
@@ -28,7 +29,7 @@ from src.services.mission_policy_schema import resolve_mission_policy_bundle
 
 def _stage(**updates) -> StageAcceptanceContract:
     payload = {
-        "schema_version": "stage_acceptance_contract.v1",
+        "schema_version": "stage_acceptance_contract.v2",
         "contract_id": "sci_research.scope_topic",
         "version": 1,
         "mission_policy_id": "sci_research",
@@ -79,8 +80,12 @@ def _policy(stage: StageAcceptanceContract, **updates) -> MissionPolicy:
         "anti_examples": (MissionAntiExample(description="Trend mashup", failure_reason="No gap"),),
         "completion_contract": CompletionContract(
             default_target="brief",
-            target_stage_sets={"brief": ("scope_topic",)},
-            terminal_outputs=("research_brief",),
+            targets={
+                "brief": CompletionTarget(
+                    stage_ids=("scope_topic",),
+                    terminal_output_kinds=("research_brief",),
+                )
+            },
         ),
     }
     payload.update(updates)
@@ -114,8 +119,12 @@ def test_completion_target_cannot_reference_unknown_stage() -> None:
         stage,
         completion_contract=CompletionContract(
             default_target="bad",
-            target_stage_sets={"bad": ("missing_stage",)},
-            terminal_outputs=("result",),
+            targets={
+                "bad": CompletionTarget(
+                    stage_ids=("missing_stage",),
+                    terminal_output_kinds=("result",),
+                )
+            },
         ),
     )
 
@@ -162,6 +171,12 @@ def test_worker_skill_is_bounded_and_has_no_lifecycle_gate_field() -> None:
         output_contract={
             "type": "object",
             "required": ["summary", "evidence_refs", "artifact_refs", "warnings"],
+            "properties": {
+                "summary": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "artifact_refs": {"type": "array", "items": {"type": "string"}},
+                "warnings": {"type": "array", "items": {"type": "string"}},
+            },
         },
         quality_focus=("source identity",),
         examples=(
@@ -174,6 +189,70 @@ def test_worker_skill_is_bounded_and_has_no_lifecycle_gate_field() -> None:
 
     assert skill.immutable_ref().sha256
     assert "quality_gates" not in skill.model_dump(mode="json")
+
+
+def test_worker_skill_rejects_open_nested_output_objects() -> None:
+    with pytest.raises(ValidationError, match="open object schema"):
+        WorkerSkill(
+            schema_version="worker_skill.v1",
+            id="open-output",
+            version=1,
+            role_hint="Open output",
+            instructions=("Return structured findings.",),
+            input_contract={"type": "object"},
+            output_contract={
+                "type": "object",
+                "required": ["summary", "evidence_refs", "artifact_refs", "warnings"],
+                "properties": {
+                    "summary": {"type": "string"},
+                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                    "artifact_refs": {"type": "array", "items": {"type": "string"}},
+                    "warnings": {"type": "array", "items": {"type": "string"}},
+                    "findings": {"type": "array", "items": {"type": "object"}},
+                },
+            },
+            quality_focus=("schema",),
+            examples=(
+                WorkerSkillExample(
+                    task="Return findings",
+                    strong_output_characteristics=("closed schema",),
+                ),
+            ),
+        )
+
+
+def test_worker_skill_requiring_artifact_refs_must_allow_artifact_render() -> None:
+    with pytest.raises(ValidationError, match="must allow artifact_render"):
+        WorkerSkill(
+            schema_version="worker_skill.v1",
+            id="writer",
+            version=1,
+            role_hint="Writer",
+            instructions=("Stage the deliverable.",),
+            allowed_tool_groups=("workspace_read",),
+            input_contract={"type": "object"},
+            output_contract={
+                "type": "object",
+                "required": ["summary", "evidence_refs", "artifact_refs", "warnings"],
+                "properties": {
+                    "summary": {"type": "string"},
+                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                    "artifact_refs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string"},
+                    },
+                    "warnings": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+            quality_focus=("reviewability",),
+            examples=(
+                WorkerSkillExample(
+                    task="Draft a document",
+                    strong_output_characteristics=("previewable artifact",),
+                ),
+            ),
+        )
 
 
 def test_worker_skill_rejects_old_role_prompt_shape() -> None:

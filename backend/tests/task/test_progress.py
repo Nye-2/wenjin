@@ -111,8 +111,7 @@ class TestProgressUpdateWriteStrategy:
         assert event["progress"] == 100
 
     @pytest.mark.asyncio
-    async def test_update_publishes_workspace_activity_payload(self):
-        """Workspace task updates should carry a canonical activity snapshot."""
+    async def test_update_does_not_duplicate_mission_activity_projection(self):
         redis = _make_redis()
         tracker = ProgressTracker(
             redis,
@@ -127,9 +126,7 @@ class TestProgressUpdateWriteStrategy:
 
         payload = publish_workspace_event.await_args.args[2]
         assert payload["task"]["status"] == "running"
-        assert payload["activity"]["id"] == "task:task-1"
-        assert payload["activity"]["status"] == "running"
-        assert payload["activity"]["summary"] == "Gathering evidence"
+        assert "activity" not in payload
 
 
 class TestProgressCompleteWriteStrategy:

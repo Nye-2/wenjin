@@ -119,7 +119,6 @@ class WorkspaceUploadService:
                 "page_count": document_preview.get("page_count"),
                 "preprocess_status": self._preprocess_value(metadata, "status"),
                 "preprocess_manifest_path": self._preprocess_value(metadata, "manifest_path"),
-                "preprocessed_markdown_paths": self._preprocess_value(metadata, "markdown_paths"),
             },
         )
 

@@ -107,7 +107,7 @@ def test_list_models_uses_dataservice_catalog_and_marks_default() -> None:
         "high",
         "xhigh",
     ]
-    assert payload["models"][0]["native_web_search"] is False
+    assert payload["models"][0]["native_web_search"] is True
     assert payload["models"][0]["category"] == "llm"
     assert payload["models"][0]["provider"] == "OpenAI"
     assert service.seen_purposes == ["chat"]

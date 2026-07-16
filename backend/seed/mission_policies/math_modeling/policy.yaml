@@ -39,14 +39,14 @@ minimum_context:
   competition_rules:
     requirement: optional
 stage_contract_refs:
-  - {contract_id: math_modeling_solution.problem_understanding, schema_version: stage_acceptance_contract.v1, sha256: a587477f3440995f9c23e3d0e8f3d41c4617c38d182b2dcd29c4eaa06f51fa67}
-  - {contract_id: math_modeling_solution.question_model, schema_version: stage_acceptance_contract.v1, sha256: 28ada771fc6b89a58a213fa4ed268913c0dbe7b4e77f6a169a90e8041e84fc12}
-  - {contract_id: math_modeling_solution.question_solution_validation, schema_version: stage_acceptance_contract.v1, sha256: 7d92f646f3231e83a7eaf7894464853e259ba42e60d0d78f9e5cecb12d120e6e}
-  - {contract_id: math_modeling_solution.paper_integration, schema_version: stage_acceptance_contract.v1, sha256: 766c6cb2974704333f941e26dea2f4487abd84554d84f68412f7bd2f30773ee2}
+  - {contract_id: math_modeling_solution.problem_understanding, schema_version: stage_acceptance_contract.v2, sha256: b9932d0758e3f5189ef1c13fffc4d81cc237cbfadb1f4c51f6e62d135a440bdb}
+  - {contract_id: math_modeling_solution.question_model, schema_version: stage_acceptance_contract.v2, sha256: 7a0492c0ccbc67c1da518bed0597a26db59b5466c942c699507a501f1af68cb6}
+  - {contract_id: math_modeling_solution.question_solution_validation, schema_version: stage_acceptance_contract.v2, sha256: df5886dc220cdac35671059a4bc8988278b44e2e58496142733e14108a373745}
+  - {contract_id: math_modeling_solution.paper_integration, schema_version: stage_acceptance_contract.v2, sha256: a06058b34c707b622f7f33a1d3a94d7fa4699dc26385f88419288db631ef1c49}
 tool_policy:
-  allowed_tool_groups: [workspace_read, sandbox_compute, artifact_render, academic_visual_render, source_import, draft_stage]
+  allowed_tool_groups: [workspace_read, artifact_candidate_read, sandbox_compute, sandbox_read, artifact_render, academic_visual_render, source_import, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell, synthetic_data_figure]
-allowed_worker_skills: [task-scope-planner, methodology-designer, experiment-analyst, reproducibility-auditor, academic-visual-engineer, manuscript-writer, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, methodology-designer, experiment-analyst, reproducibility-auditor, academic-visual-engineer, manuscript-writer, compliance-auditor, quality-critic]
 review_policy:
   default_mode: balanced_default
   allowed_modes: [review_all, balanced_default, auto_draft]
@@ -64,10 +64,13 @@ anti_examples:
     failure_reason: 缺少模型、脚本、稳健性和图表证据，逐问门未通过。
 completion_contract:
   default_target: full_paper
-  target_stage_sets:
-    validated_questions: [problem_understanding, question_model, question_solution_validation]
-    full_paper: [problem_understanding, question_model, question_solution_validation, paper_integration]
-  terminal_outputs: [modeling_problem_brief, question_solution, math_modeling_paper]
+  targets:
+    validated_questions:
+      stage_ids: [problem_understanding, question_model, question_solution_validation]
+      terminal_output_kinds: [question_solution]
+    full_paper:
+      stage_ids: [problem_understanding, question_model, question_solution_validation, paper_integration]
+      terminal_output_kinds: [math_modeling_paper]
   allow_safe_partial_outputs: true
 delivery_profile_refs:
   - {profile_id: math_modeling_cumcm2026, version: 1}

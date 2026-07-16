@@ -24,6 +24,7 @@ from src.dataservice_client.contracts.mission import (
     MissionOperationFinishResultPayload,
     MissionOperationReceiptPayload,
     MissionResumePayload,
+    MissionReviewItemPayload,
     MissionReviewItemsCreatePayload,
     MissionReviewItemsResultPayload,
     MissionRunnableBatchClaimPayload,
@@ -79,6 +80,13 @@ class MissionStorePort(Protocol):
     async def cancel(self, mission_id: str, command: MissionCancelPayload) -> MissionAppendResultPayload: ...
 
     async def create_review_items(self, mission_id: str, command: MissionReviewItemsCreatePayload) -> MissionReviewItemsResultPayload: ...
+
+    async def list_review_items(
+        self,
+        mission_id: str,
+        *,
+        status: list[str] | None = None,
+    ) -> list[MissionReviewItemPayload]: ...
 
 
 class MissionAgentPort(Protocol):

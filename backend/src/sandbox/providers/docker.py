@@ -7,7 +7,7 @@ import json
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Protocol, cast
 from urllib.parse import urlsplit
 
@@ -22,6 +22,7 @@ from src.sandbox.base import (
 )
 from src.sandbox.config import DockerSandboxConfig
 from src.sandbox.contracts import (
+    RunPythonInput,
     SandboxNetworkProfile,
     SandboxOperationKind,
     SandboxPreflightCheck,
@@ -31,7 +32,7 @@ from src.sandbox.contracts import (
     utc_now,
 )
 from src.sandbox.exceptions import SandboxPolicyError, SandboxProviderError
-from src.sandbox.security import validate_secret_free_environment
+from src.sandbox.security import is_artifact_path, validate_secret_free_environment
 
 logger = logging.getLogger(__name__)
 
@@ -175,13 +176,19 @@ class DockerSdkGateway:
         container = None
         dispatch_attempted = False
         try:
-            dispatch_attempted = True
-            container = self.client.containers.run(
+            container = self.client.containers.create(
                 image=image_reference,
                 command=list(command),
-                detach=True,
                 **create_options,
             )
+            dispatch_attempted = True
+            try:
+                container.start()
+            except DockerException as exc:
+                raise SandboxProviderError(
+                    "Docker operation failed",
+                    effect_uncertain=_container_start_effect_uncertain(container),
+                ) from exc
             exit_code: int | None
             try:
                 wait_result = container.wait(timeout=timeout_seconds)
@@ -237,6 +244,19 @@ class DockerSdkGateway:
                     container.remove(force=True)
                 except Exception:  # noqa: BLE001
                     logger.warning("Failed to remove sandbox operation container")
+
+
+def _container_start_effect_uncertain(container: Any) -> bool:
+    """Return false only when Docker confirms the process never started."""
+
+    try:
+        container.reload()
+        state = container.attrs.get("State") or {}
+    except Exception:  # noqa: BLE001 - daemon uncertainty must fail closed.
+        return True
+    started_at = str(state.get("StartedAt") or "")
+    never_started = not started_at or started_at.startswith("0001-01-01T00:00:00")
+    return bool(state.get("Running")) or not never_started
 
 
 class DockerSandboxProvider(SandboxOperationProvider):
@@ -542,8 +562,15 @@ class DockerSandboxProvider(SandboxOperationProvider):
 
 def _validate_mounts(job: PreparedSandboxJob, *, sandbox_root: Path) -> None:
     targets: set[str] = set()
+    operation_input = job.request.operation_input
+    artifact_input_targets = (
+        set(operation_input.artifact_input_paths)
+        if isinstance(operation_input, RunPythonInput)
+        else set()
+    )
     for mount in job.mounts:
-        if mount.target not in _ALLOWED_MOUNT_TARGETS:
+        artifact_input_mount = mount.target in artifact_input_targets
+        if mount.target not in _ALLOWED_MOUNT_TARGETS and not artifact_input_mount:
             raise SandboxPolicyError(f"sandbox mount target is forbidden: {mount.target}")
         if mount.target in targets:
             raise SandboxPolicyError("duplicate sandbox mount target")
@@ -553,7 +580,22 @@ def _validate_mounts(job: PreparedSandboxJob, *, sandbox_root: Path) -> None:
             raise SandboxPolicyError("sandbox mount source is outside the managed root")
         if "control" in source.relative_to(sandbox_root).parts:
             raise SandboxPolicyError("sandbox control state cannot be mounted")
-        if not mount.source.is_dir() or mount.source.is_symlink():
+        if mount.source.is_symlink():
+            raise SandboxPolicyError("sandbox mount source is missing or is a symlink")
+        if artifact_input_mount:
+            if not mount.read_only or not mount.source.is_file():
+                raise SandboxPolicyError(
+                    "artifact input mounts must be read-only regular files"
+                )
+            if not is_artifact_path(mount.target):
+                raise SandboxPolicyError("artifact input mount target is not reviewable")
+            target_parts = PurePosixPath(mount.target).parts[2:]
+            if not target_parts or source.parts[-len(target_parts) :] != target_parts:
+                raise SandboxPolicyError(
+                    "artifact input mount source does not match its workspace path"
+                )
+            continue
+        if not mount.source.is_dir():
             raise SandboxPolicyError("sandbox mount source is missing or is a symlink")
         if mount.target in {"/workspace/main", "/workspace/datasets", "/workspace/scripts"} and not mount.read_only:
             raise SandboxPolicyError("workspace inputs and scripts must be mounted read-only")
@@ -565,6 +607,8 @@ def _validate_mounts(job: PreparedSandboxJob, *, sandbox_root: Path) -> None:
             relative_parts = source.relative_to(sandbox_root).parts
             if ".staging" not in relative_parts or job.request.operation_key not in relative_parts:
                 raise SandboxPolicyError("writable environment must use operation-scoped staging")
+    if not artifact_input_targets.issubset(targets):
+        raise SandboxPolicyError("declared artifact inputs are not mounted")
     if job.request.operation == SandboxOperationKind.INSTALL_DEPENDENCIES:
         if targets != {"/opt/wenjin/env"} or job.mounts[0].read_only:
             raise SandboxPolicyError("dependency installation may mount only its writable environment staging")

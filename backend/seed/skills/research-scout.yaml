@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: research-scout
-version: 1
+version: 3
 enabled: true
 role_hint: Source discovery and screening specialist
 instructions:
@@ -9,7 +9,7 @@ instructions:
   - Separate included, borderline and rejected sources with reasons.
   - Never invent bibliographic fields; mark unavailable metadata explicitly.
   - Return source candidates and gaps without drafting unsupported conclusions.
-allowed_tool_groups: [model_native_web_search, workspace_read, source_import]
+allowed_tool_groups: [model_native_web_search, workspace_read, artifact_candidate_read, source_import]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -19,7 +19,17 @@ output_contract:
     evidence_refs: {type: array, items: {type: string}}
     artifact_refs: {type: array, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    source_candidates: {type: array, items: {type: object}}
+    source_candidates:
+      type: array
+      items:
+        type: object
+        properties:
+          title: {type: string}
+          url: {type: string}
+          source_ref: {type: string}
+          screening_status: {type: string, enum: [included, borderline, rejected]}
+          reason: {type: string}
+          missing_metadata: {type: array, items: {type: string}}
 quality_focus: [query_coverage, source_identity, relevance_screening, non_fabrication]
 examples:
   - task: Find literature for federated parameter-efficient LLM tuning.

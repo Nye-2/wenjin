@@ -462,7 +462,7 @@ class TestCreateArtifact:
                 "type": "research_idea",
                 "title": "My Research Idea",
                 "content": {"idea": "Test idea"},
-                "created_by_skill": "deep-research",
+                "created_by_skill": "research-scout",
             },
         )
 
@@ -472,7 +472,7 @@ class TestCreateArtifact:
         assert data["type"] == "research_idea"
         assert data["title"] == "My Research Idea"
         assert data["content"] == {"idea": "Test idea"}
-        assert data["created_by_skill"] == "deep-research"
+        assert data["created_by_skill"] == "research-scout"
         assert data["status"] == "draft"
         assert data["version"] == 1
 

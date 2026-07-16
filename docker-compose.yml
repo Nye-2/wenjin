@@ -159,11 +159,11 @@ services:
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
+      - THREAD_DATA_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/threads
       - MISSION_PREVIEW_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/mission_previews
       - WORKSPACE_ASSET_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/workspace_uploads
     volumes:
       - uploads:/app/uploads
-      - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
     depends_on:
@@ -211,6 +211,7 @@ services:
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
+      - THREAD_DATA_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/threads
     command:
       [
         "python",
@@ -227,7 +228,6 @@ services:
       ]
     volumes:
       - uploads:/app/uploads
-      - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json:ro
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
     depends_on:
@@ -270,6 +270,7 @@ services:
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
+      - THREAD_DATA_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/threads
       - SANDBOX_PROVIDER=docker
       - MISSION_PREVIEW_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/mission_previews
       - WORKSPACE_ASSET_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/workspace_uploads
@@ -277,7 +278,6 @@ services:
       - SANDBOX_ROOT_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/sandbox
     volumes:
       - uploads:/app/uploads
-      - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json:ro
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - ${SANDBOX_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
@@ -419,9 +419,9 @@ services:
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
+      - THREAD_DATA_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/threads
     volumes:
       - uploads:/app/uploads
-      - ./backend/skills:/app/skills:ro
       - ./backend/extensions_config.json:/app/extensions_config.json:ro
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
     depends_on:

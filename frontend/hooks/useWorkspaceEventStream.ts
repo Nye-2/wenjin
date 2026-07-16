@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { isTerminalEventStreamStatus } from "@/lib/api/client";
 import { subscribeWorkspaceEvents, type WorkspaceEvent } from "@/lib/api";
 import { useDashboardStore } from "@/stores/dashboard";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
@@ -20,21 +21,6 @@ function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
 }
 
 function handleWorkspaceEvent(workspaceId: string, event: WorkspaceEvent) {
-  const workspace = useWorkspaceStore.getState();
-  if (event.type === "task.updated" && event.activity) {
-    workspace.upsertActivity(event.activity);
-    return;
-  }
-  if (event.type === "thread.updated" || event.type === "thread.deleted") {
-    if ("activity" in event && event.activity) workspace.upsertActivity(event.activity);
-    else refreshWorkspaceTargets(workspaceId, ["activity"]);
-    return;
-  }
-  if (event.type === "subagent.updated") {
-    if (event.activity) workspace.upsertActivity(event.activity);
-    else refreshWorkspaceTargets(workspaceId, ["activity"]);
-    return;
-  }
   if (event.type === "workspace.refresh") {
     refreshWorkspaceTargets(workspaceId, event.refresh_targets ?? []);
   }
@@ -55,8 +41,13 @@ export function useWorkspaceEventStream(workspaceId: string | null, enabled = tr
       unsubscribe = subscribeWorkspaceEvents(
         workspaceId,
         (event) => handleWorkspaceEvent(workspaceId, event),
-        () => {
+        (_message, status) => {
           if (closed) return;
+          if (isTerminalEventStreamStatus(status)) {
+            closed = true;
+            unsubscribe?.();
+            return;
+          }
           reconnectTimerRef.current = setTimeout(connect, 1200);
         },
       );

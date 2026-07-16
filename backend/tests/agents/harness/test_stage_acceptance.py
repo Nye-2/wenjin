@@ -1,5 +1,7 @@
 """StageAcceptanceContract progression, repair and stop semantics."""
 
+import pytest
+
 from src.agents.harness.stage_acceptance import (
     can_start_stage,
     evaluate_stage_acceptance,
@@ -10,7 +12,6 @@ from src.contracts.research_evidence import ArtifactRecord, EvidenceRecord
 from src.contracts.stage_acceptance import (
     ArtifactRequirement,
     CriterionAssessment,
-    CritiqueAssessment,
     ExemplarComparison,
     StageAcceptanceContract,
     StageAssessmentInput,
@@ -24,7 +25,7 @@ from src.contracts.versioned import ImmutableContentRef
 
 def _contract(**updates) -> StageAcceptanceContract:
     values = {
-        "schema_version": "stage_acceptance_contract.v1",
+        "schema_version": "stage_acceptance_contract.v2",
         "contract_id": "sci_research.research_question",
         "version": 1,
         "mission_policy_id": "sci_research",
@@ -40,11 +41,9 @@ def _contract(**updates) -> StageAcceptanceContract:
         ),
         "required_evidence_surfaces": ("claim_evidence_alignment",),
         "required_artifacts": (ArtifactRequirement(kind="research_question_brief"),),
-        "reviewer_roles": ("research_question_reviewer",),
         "allowed_actions_if_failed": (
             "revise_existing",
             "retrieve_more_evidence",
-            "spawn_reviewer",
             "ask_user",
             "degrade_with_notice",
             "stop_execution",
@@ -68,6 +67,7 @@ def _passing_assessment(**updates) -> StageAssessmentInput:
                 criterion_id="real_gap",
                 status="pass",
                 supporting_refs=("evidence-1",),
+                rationale="The cited claim map identifies a bounded unresolved gap.",
             ),
         ),
         "evidence": (
@@ -86,18 +86,52 @@ def _passing_assessment(**updates) -> StageAssessmentInput:
                 content_hash="sha256:brief",
             ),
         ),
-        "critiques": (
-            CritiqueAssessment(
-                reviewer_role="research_question_reviewer",
-                verdict="pass",
-                criterion_ids=("real_gap",),
-            ),
-        ),
         "actual_model_effort": "low",
         "item_seq": 10,
     }
     values.update(updates)
     return StageAssessmentInput.model_validate(values)
+
+
+def test_one_evidence_ref_can_support_multiple_verified_surfaces() -> None:
+    assessment = _passing_assessment()
+    original = assessment.evidence[0]
+    values = assessment.model_dump(mode="json")
+    values["evidence"] = [
+        original.model_dump(mode="json"),
+        original.model_copy(update={"surface": "statistical_robustness"}).model_dump(mode="json"),
+    ]
+    expanded = StageAssessmentInput.model_validate(values)
+
+    assert {item.surface for item in expanded.evidence} == {
+        original.surface,
+        "statistical_robustness",
+    }
+
+    base_contract = _contract()
+    contract = base_contract.model_copy(
+        update={
+            "minimum_criteria": (
+                base_contract.minimum_criteria[0].model_copy(
+                    update={
+                        "required_evidence_surfaces": (
+                            original.surface,
+                            "statistical_robustness",
+                        )
+                    }
+                ),
+            ),
+            "required_evidence_surfaces": (
+                original.surface,
+                "statistical_robustness",
+            ),
+        }
+    )
+    assert evaluate_stage_acceptance(contract, expanded).result == "pass"
+
+    values["evidence"] = [original.model_dump(mode="json")] * 2
+    with pytest.raises(ValueError, match="duplicate evidence surfaces"):
+        StageAssessmentInput.model_validate(values)
 
 
 def test_lower_effort_passes_when_hard_evidence_is_complete() -> None:
@@ -120,15 +154,11 @@ def test_missing_evidence_revises_even_at_xhigh_effort() -> None:
     assert result.missing_evidence_surfaces == ("claim_evidence_alignment",)
 
 
-def test_model_criterion_pass_without_independent_critique_does_not_pass() -> None:
-    result = evaluate_stage_acceptance(
-        _contract(),
-        _passing_assessment(critiques=()),
-    )
+def test_receipt_backed_main_agent_assessment_needs_no_external_verdict() -> None:
+    result = evaluate_stage_acceptance(_contract(), _passing_assessment())
 
-    assert result.result == "revise"
-    assert result.missing_criteria == ("real_gap",)
-    assert result.missing_reviewer_roles == ("research_question_reviewer",)
+    assert result.result == "pass"
+    assert result.missing_criteria == ()
 
 
 def test_blocking_user_input_pauses_instead_of_false_pass() -> None:
@@ -294,6 +324,15 @@ def test_paper_gate_requires_every_parsed_question_instance() -> None:
         "question_3_solution_validation",
         "question_4_solution_validation",
     )
+
+    result = evaluate_stage_acceptance(
+        contract,
+        _passing_assessment(stage_id="paper_integration"),
+        total_items=4,
+    )
+
+    assert result.result == "pass"
+    assert result.stage_id == "paper_integration"
 
 
 def test_dynamic_completion_requires_every_question_family_instance() -> None:

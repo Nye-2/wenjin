@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: experiment-analyst
-version: 1
+version: 4
 enabled: true
 role_hint: Experiment, computation and statistical analysis specialist
 instructions:
@@ -9,7 +9,7 @@ instructions:
   - Report uncertainty, robustness, negative results and failed attempts.
   - Keep interpretation within the evidence produced by the experiment.
   - Return content-addressed artifacts and receipts; never fabricate missing measurements.
-allowed_tool_groups: [sandbox_compute, artifact_render, workspace_read]
+allowed_tool_groups: [sandbox_compute, sandbox_read, artifact_render, workspace_read, artifact_candidate_read]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -19,7 +19,17 @@ output_contract:
     evidence_refs: {type: array, items: {type: string}}
     artifact_refs: {type: array, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    statistics: {type: array, items: {type: object}}
+    statistics:
+      type: array
+      items:
+        type: object
+        properties:
+          metric: {type: string}
+          value: {type: string}
+          unit: {type: string}
+          scope: {type: string}
+          method: {type: string}
+          evidence_refs: {type: array, items: {type: string}}
 quality_focus: [data_leakage, baseline_strength, statistical_robustness, result_interpretation]
 examples:
   - task: Plan and execute a comparison experiment.

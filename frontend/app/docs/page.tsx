@@ -56,7 +56,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Workspace",
         title: "一个项目一个研究空间",
         body:
-          "每个 workspace 都沉淀文献、Prism 文件、决策、运行历史、实验环境、任务、设置，以及后台隐藏维护的一份 workspace memory，保证长程研究上下文连续。",
+          "每个工作空间都沉淀资料、证据、Prism 文件、关键决策、实验环境与项目记忆，保证长程研究上下文连续。",
       },
       {
         label: "Agent Team",
@@ -68,7 +68,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Confirm",
         title: "结果先暂存，审核后保存",
         body:
-          "执行产出会先进入待审核区；用户在运行面板里检查候选结果，再保存选中的 Prism 文件、资料、决策或任务。",
+          "受保护的产出会先进入待确认区；用户在 Mission Console 查看候选变更，再确认保存选中的 Prism 文件、资料或项目决策。",
       },
     ],
     contract: {
@@ -77,7 +77,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       body:
         "无论扩充团队角色、调整提示词、改进工作流，最终都应回到这些稳定对象，避免功能越做越散。",
       items: [
-        "Workspace 持久层：Library、Prism 文件、Decisions、Run History、实验环境、Tasks、Settings，以及后台隐藏维护的一份 workspace memory。",
+        "工作空间持久层：资料库、Prism 文件、项目记忆与设置；长任务统一由 Mission 聚合记录进展、证据、成果、复核和提交。",
         "7 种消息 block：text、thinking、status_line、question_card、result_card、tool_invocation、tool_result。",
         "MissionPolicy 与 WorkerSkill 由数据库目录统一管理，阶段契约和工具范围随任务固定。",
         "实验环境单 workspace 单实例，随任务复用，启动按积分计费。",
@@ -124,7 +124,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Workspace",
         title: "One research space per project",
         body:
-          "Each workspace stores library items, Prism files, decisions, run history, experiment-environment state, tasks, settings, and one hidden workspace memory document for long-running continuity.",
+          "Each workspace preserves sources, evidence, Prism files, key decisions, experiment state, and project memory for long-running continuity.",
       },
       {
         label: "Agent Team",
@@ -145,7 +145,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       body:
         "New team roles, prompts, and workflows should converge on the same product objects instead of creating parallel task paths.",
       items: [
-        "Workspace persistence: Library, Prism files, Decisions, Run History, Experiment Environment, Tasks, Settings, plus one hidden workspace memory document.",
+        "Workspace persistence owns the library, Prism files, project memory, and settings; the Mission aggregate owns long-task progress, evidence, outputs, review, and commit.",
         "7 message blocks: text, thinking, status_line, question_card, result_card, tool_invocation, tool_result.",
         "MissionPolicy and WorkerSkill catalogs: database-owned policy, stage contracts, and bounded tool access.",
         "One experiment environment per workspace, reused across experiments, with startup billed in credits.",

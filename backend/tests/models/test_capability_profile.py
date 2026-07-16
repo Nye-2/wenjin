@@ -16,7 +16,7 @@ from src.models.capability_profile import (
 )
 
 
-def test_release_profile_is_probe_derived_and_search_is_fail_closed() -> None:
+def test_release_profile_is_probe_derived_and_search_is_receipt_backed() -> None:
     assessment = gpt56_release_assessment("gpt-5.6-sol")
 
     assert assessment.profile.has_strict_tools() is True
@@ -28,14 +28,14 @@ def test_release_profile_is_probe_derived_and_search_is_fail_closed() -> None:
         "xhigh",
     ]
     assert assessment.profile.response_storage_disabled is True
-    assert assessment.profile.native_web_search is False
+    assert assessment.profile.native_web_search is True
     assert assessment.profile.probe_hash == assessment.evidence.evidence_hash()
     observations = {
         item.generation_api: item.protocol_conformance
         for item in assessment.profile.transport_observations
     }
     assert observations[GenerationAPI.CHAT_COMPLETIONS] is True
-    assert GenerationAPI.RESPONSES not in observations
+    assert observations[GenerationAPI.RESPONSES] is True
 
 
 @pytest.mark.parametrize(
@@ -100,11 +100,11 @@ def test_profile_becomes_stale_when_probe_hash_is_modified() -> None:
     assert "profile_not_probe_derived" in freshness.reasons
 
 
-def test_assessment_rejects_a_manually_elevated_profile() -> None:
+def test_assessment_rejects_a_profile_not_derived_from_probe() -> None:
     assessment = gpt56_release_assessment("gpt-5.6-sol")
-    elevated = assessment.profile.model_copy(update={"native_web_search": True})
+    elevated = assessment.profile.model_copy(update={"vision": True})
 
-    with pytest.raises(ValidationError, match="native web search requires"):
+    with pytest.raises(ValidationError, match="profile is not derived"):
         CapabilityProfileAssessment(profile=elevated, evidence=assessment.evidence)
 
 

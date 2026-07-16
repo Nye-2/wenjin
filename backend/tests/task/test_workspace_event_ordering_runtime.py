@@ -28,19 +28,19 @@ def test_workspace_activity_upsert_rejects_stale_snapshot() -> None:
         'const __ordering = await import("./lib/workspace-event-ordering.ts");'
         "const { upsertWorkspaceActivityList } = __ordering.default ?? __ordering;"
         'const existing = [{'
-        '  id: "task:1", kind: "feature_task", workspace_id: "ws-1", occurred_at: "2026-03-25T10:00:00Z",'
-        '  title: "Deep Research", summary: "Completed", status: "success", thread_id: "thread-1", task_id: "1",'
-        '  artifact_id: null, feature_id: "deep_research", subagent_type: null, metadata: { progress: 100 }'
+        '  id: "mission:1", kind: "mission", workspace_id: "ws-1", occurred_at: "2026-03-25T10:00:00Z",'
+        '  title: "Literature Review", summary: "Completed", status: "completed", thread_id: "thread-1",'
+        '  mission_id: "1", mission_policy_id: "sci.v1", metadata: { progress: 100 }'
         '}];'
         'const incoming = {'
-        '  id: "task:1", kind: "feature_task", workspace_id: "ws-1", occurred_at: "2026-03-25T09:59:00Z",'
-        '  title: "Deep Research", summary: "Running", status: "running", thread_id: "thread-1", task_id: "1",'
-        '  artifact_id: null, feature_id: "deep_research", subagent_type: null, metadata: { progress: 30 }'
+        '  id: "mission:1", kind: "mission", workspace_id: "ws-1", occurred_at: "2026-03-25T09:59:00Z",'
+        '  title: "Literature Review", summary: "Running", status: "running", thread_id: "thread-1",'
+        '  mission_id: "1", mission_policy_id: "sci.v1", metadata: { progress: 30 }'
         '};'
         'console.log(JSON.stringify(upsertWorkspaceActivityList(existing, incoming, 40)));'
     )
 
-    assert result[0]["status"] == "success"
+    assert result[0]["status"] == "completed"
     assert result[0]["summary"] == "Completed"
 
 
@@ -49,12 +49,12 @@ def test_thread_summary_upsert_rejects_stale_snapshot() -> None:
         'const __ordering = await import("./lib/workspace-event-ordering.ts");'
         "const { upsertThreadSummaryList } = __ordering.default ?? __ordering;"
         'const existing = [{'
-        '  id: "thread-1", workspace_id: "ws-1", title: "Main", model: "default", skill: "deep-research",'
+        '  id: "thread-1", workspace_id: "ws-1", title: "Main", model: "default",'
         '  message_count: 4, last_message_preview: "latest", last_message_role: "assistant",'
         '  created_at: "2026-03-25T00:00:00Z", updated_at: "2026-03-25T10:00:00Z"'
         '}];'
         'const incoming = {'
-        '  id: "thread-1", workspace_id: "ws-1", title: "Main", model: "default", skill: "deep-research",'
+        '  id: "thread-1", workspace_id: "ws-1", title: "Main", model: "default",'
         '  message_count: 2, last_message_preview: "stale", last_message_role: "assistant",'
         '  created_at: "2026-03-25T00:00:00Z", updated_at: "2026-03-25T09:59:00Z"'
         '};'

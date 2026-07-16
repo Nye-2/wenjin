@@ -53,19 +53,17 @@ def test_workspace_activity_returns_items():
     activity_service.get_activity.return_value = {
         "items": [
             {
-                "id": "thread:thread-1",
-                "kind": "thread",
+                "id": "mission:mission-1",
+                "kind": "mission",
                 "workspace_id": "ws-1",
                 "occurred_at": "2026-03-20T10:00:00+00:00",
-                "title": "Thread session",
-                "summary": "Latest reply",
-                "status": None,
+                "title": "Literature review",
+                "summary": "Map the evidence landscape",
+                "status": "running",
                 "thread_id": "thread-1",
-                "task_id": None,
-                "artifact_id": None,
-                "feature_id": None,
-                "subagent_type": None,
-                "metadata": {"skill": "deep-research"},
+                "mission_id": "mission-1",
+                "mission_policy_id": "sci.v1",
+                "metadata": {"active_stage_id": "literature"},
             }
         ],
         "count": 1,
@@ -77,7 +75,7 @@ def test_workspace_activity_returns_items():
     assert response.status_code == 200
     payload = response.json()
     assert payload["count"] == 1
-    assert payload["items"][0]["kind"] == "thread"
+    assert payload["items"][0]["kind"] == "mission"
     assert payload["items"][0]["thread_id"] == "thread-1"
 
 

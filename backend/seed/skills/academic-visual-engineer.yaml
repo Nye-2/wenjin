@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: academic-visual-engineer
-version: 1
+version: 2
 enabled: true
 role_hint: Academic visual engineer for reproducible figures, structured diagrams and reviewed illustrations
 instructions:
@@ -15,7 +15,7 @@ instructions:
   - Render one strong candidate per tool call; use a new stable operation identity only when a materially different candidate is needed.
   - When Prism context is relevant, read the current file first and pass its exact revision id, selection range and sha256 selection hash.
   - Return source refs, warnings, caption and alt-text candidates with every visual.
-allowed_tool_groups: [workspace_read, academic_visual_render]
+allowed_tool_groups: [workspace_read, artifact_candidate_read, academic_visual_render]
 input_contract: {type: object}
 output_contract:
   type: object

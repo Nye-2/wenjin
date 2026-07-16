@@ -1,6 +1,15 @@
 "use client";
 
-import { useRef, useEffect, useMemo, useState, memo, useCallback } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Check,
   ChevronDown,
@@ -9,10 +18,17 @@ import {
   SendHorizontal,
 } from "lucide-react";
 import {
+  getWorkspaceSettings,
   listModels,
   type Model,
-  type ReasoningEffort,
+  updateWorkspaceSettings,
 } from "@/lib/api";
+import type { ThreadAttachment } from "@/lib/api/types";
+import {
+  chooseReasoningEffort,
+  REASONING_EFFORT_OPTIONS,
+  type ReasoningEffort,
+} from "@/lib/reasoning-effort";
 import {
   buildContinueThreadBlockAction,
   type ContinueThreadBlockAction,
@@ -24,9 +40,13 @@ import {
 } from "@/stores/chat-store";
 import { useMissionUiStore } from "@/stores/mission-ui-store";
 import { MessageBlock } from "./MessageBlock";
-import { FileAttachButton } from "./FileAttachButton";
+import {
+  FileAttachButton,
+  type FileAttachButtonHandle,
+} from "./FileAttachButton";
 import type {
   WorkspaceTypeConfig,
+  WorkspaceWelcomeChip,
   WorkspaceWelcomeConfig,
 } from "@/lib/workspace-type-config";
 
@@ -39,15 +59,10 @@ interface ChatPanelProps {
   "data-testid"?: string;
 }
 
-const REASONING_OPTIONS: Array<{
-  value: ReasoningEffort;
-  label: string;
-}> = [
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-  { value: "xhigh", label: "超高" },
-];
+export interface ChatPanelHandle {
+  focusComposer(): void;
+  openAttachment(): void;
+}
 
 function cleanModelLabel(label: string): string {
   return label
@@ -133,21 +148,27 @@ function withMissionRunContext(
   return nextOptions;
 }
 
-export function ChatPanel({
-  workspaceId,
-  workspaceName,
-  typeConfig,
-  className,
-  onMissionCreated,
-  "data-testid": testId,
-}: ChatPanelProps) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
+  function ChatPanel(
+    {
+      workspaceId,
+      workspaceName,
+      typeConfig,
+      className,
+      onMissionCreated,
+      "data-testid": testId,
+    },
+    ref,
+  ) {
   const messages = useChatStoreV2((s) => s.getWorkspaceMessages(workspaceId));
   const isSending = useChatStoreV2((s) => s.isSending);
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
   const setActiveWorkspace = useChatStoreV2((s) => s.setActiveWorkspace);
   const focusedMissionId = useMissionUiStore((state) => state.focusedMissionId);
   const [inputValue, setInputValue] = useState("");
-  const [attachments, setAttachments] = useState<Array<{ name: string; path: string }>>([]);
+  const [attachments, setAttachments] = useState<ThreadAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
@@ -156,6 +177,7 @@ export function ChatPanel({
   >("loading");
   const [reasoningEffort, setReasoningEffort] =
     useState<ReasoningEffort>("xhigh");
+  const [modelPreferenceError, setModelPreferenceError] = useState<string | null>(null);
   const [historyHydration, setHistoryHydration] = useState<{
     workspaceId: string;
     hydrated: boolean;
@@ -167,8 +189,11 @@ export function ChatPanel({
     historyHydration.workspaceId === workspaceId && historyHydration.hydrated;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileAttachRef = useRef<FileAttachButtonHandle>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
+  const pendingAttachmentOpenRef = useRef(false);
+  const preferenceWriteSeqRef = useRef(0);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelSubmenuOpen, setModelSubmenuOpen] = useState(false);
   const welcome = typeConfig?.welcome ?? null;
@@ -178,6 +203,9 @@ export function ChatPanel({
     welcome !== null &&
     focusedMissionId === null;
   const inputPlaceholder = useMemo(() => {
+    if (attachmentUploading) {
+      return "附件上传中...";
+    }
     if (isSending) {
       return "等待回复中...";
     }
@@ -194,9 +222,11 @@ export function ChatPanel({
       return welcome.inputPlaceholder;
     }
     return "输入消息... Shift+Enter 换行";
-  }, [isSending, messages, showWorkspaceWelcome, welcome]);
+  }, [attachmentUploading, isSending, messages, showWorkspaceWelcome, welcome]);
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
+  const sendDisabled =
+    isSending || attachmentUploading || !inputValue.trim();
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
   const selectedModelLabel =
     modelOptions.find((model) => model.name === selectedModel)?.display_name ??
@@ -210,8 +240,26 @@ export function ChatPanel({
     selectedModelOption?.capability_profile.reasoning_efforts ?? [];
   const selectedModelSupportsReasoning = availableReasoningEfforts.length > 0;
   const selectedReasoningLabel =
-    REASONING_OPTIONS.find((option) => option.value === reasoningEffort)?.label ??
+    REASONING_EFFORT_OPTIONS.find((option) => option.value === reasoningEffort)?.label ??
     "超高";
+  const persistModelPreference = useCallback(
+    async (settings: {
+      default_model?: string;
+      reasoning_effort?: ReasoningEffort;
+    }) => {
+      const writeSeq = preferenceWriteSeqRef.current + 1;
+      preferenceWriteSeqRef.current = writeSeq;
+      setModelPreferenceError(null);
+      try {
+        await updateWorkspaceSettings(workspaceId, settings);
+      } catch {
+        if (preferenceWriteSeqRef.current === writeSeq) {
+          setModelPreferenceError("模型偏好未能保存，当前选择仍用于本次对话");
+        }
+      }
+    },
+    [workspaceId],
+  );
   const withSelectedModel = useCallback(
     (options?: SendMessageOptions): SendMessageOptions | undefined => {
       const model = selectedModel.trim();
@@ -240,47 +288,93 @@ export function ChatPanel({
     },
     [focusedMissionId, isSending, onMissionCreated, sendMessage, withSelectedModel, workspaceId],
   );
-  const handleWelcomePrompt = useCallback(
-    (prompt: string) => {
+  const handleWelcomeChoice = useCallback(
+    (chip: WorkspaceWelcomeChip) => {
       if (isSending) {
         return;
       }
-      setInputValue(prompt);
+      setInputValue(chip.prompt);
+      if (chip.action === "attach") {
+        if (threadId) {
+          fileAttachRef.current?.open();
+        } else {
+          pendingAttachmentOpenRef.current = true;
+        }
+      }
       window.requestAnimationFrame(() => {
         textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(prompt.length, prompt.length);
+        textareaRef.current?.setSelectionRange(
+          chip.prompt.length,
+          chip.prompt.length,
+        );
       });
     },
-    [isSending],
+    [isSending, threadId],
   );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      focusComposer: () => {
+        textareaRef.current?.focus();
+      },
+      openAttachment: () => {
+        if (threadId) {
+          fileAttachRef.current?.open();
+        } else {
+          pendingAttachmentOpenRef.current = true;
+        }
+      },
+    }),
+    [threadId],
+  );
+
+  useEffect(() => {
+    if (!threadId || !pendingAttachmentOpenRef.current) return;
+    pendingAttachmentOpenRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      fileAttachRef.current?.open();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [threadId]);
 
   useEffect(() => {
     let cancelled = false;
     setModelLoadState("loading");
-    listModels("chat")
-      .then(({ models }) => {
-        if (cancelled) return;
-        setModelOptions(models);
-        setSelectedModel((current) => {
-          if (current && models.some((model) => model.name === current)) {
-            return current;
-          }
-          const defaultModel =
-            models.find((model) => model.is_default) ?? models[0];
-          return defaultModel?.name ?? "";
-        });
-        setModelLoadState("ready");
-      })
-      .catch(() => {
+    setModelPreferenceError(null);
+    void Promise.allSettled([
+      listModels("chat"),
+      getWorkspaceSettings(workspaceId),
+    ]).then(([catalogResult, settingsResult]) => {
+      if (cancelled) return;
+      if (catalogResult.status === "rejected") {
         if (cancelled) return;
         setModelOptions([]);
         setSelectedModel("");
         setModelLoadState("error");
-      });
+        return;
+      }
+      const models = catalogResult.value.models;
+      const settings =
+        settingsResult.status === "fulfilled" ? settingsResult.value : null;
+      const selected =
+        models.find((model) => model.name === settings?.default_model) ??
+        models.find((model) => model.is_default) ??
+        models[0];
+      setModelOptions(models);
+      setSelectedModel(selected?.name ?? "");
+      setReasoningEffort(
+        chooseReasoningEffort(
+          selected?.capability_profile.reasoning_efforts ?? [],
+          settings?.reasoning_effort,
+        ),
+      );
+      setModelLoadState("ready");
+    });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     if (!modelMenuOpen) {
@@ -333,20 +427,14 @@ export function ChatPanel({
     let cancelled = false;
     setActiveWorkspace(workspaceId);
     const store = useChatStoreV2.getState();
-    if (store.getWorkspaceMessages(workspaceId).length === 0) {
-      void store.loadHistory(workspaceId).then((tid) => {
-        if (cancelled) return;
-        if (tid) setThreadId(tid);
-        setHistoryHydration({ workspaceId, hydrated: true });
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-    void Promise.resolve().then(() => {
-      if (!cancelled) {
-        setHistoryHydration({ workspaceId, hydrated: true });
-      }
+    setThreadId(store.getThreadId(workspaceId));
+    setAttachments([]);
+    setAttachmentError(null);
+    setAttachmentUploading(false);
+    void store.loadHistory(workspaceId).then((tid) => {
+      if (cancelled) return;
+      setThreadId(tid);
+      setHistoryHydration({ workspaceId, hydrated: true });
     });
     return () => {
       cancelled = true;
@@ -355,7 +443,7 @@ export function ChatPanel({
 
   function handleSubmit() {
     const trimmed = inputValue.trim();
-    if (!trimmed || isSending) return;
+    if (!trimmed || isSending || attachmentUploading) return;
     setInputValue("");
     const currentAttachments = [...attachments];
     setAttachments([]);
@@ -410,7 +498,7 @@ export function ChatPanel({
             workspaceName={workspaceName}
             welcome={welcome}
             disabled={isSending}
-            onChoose={handleWelcomePrompt}
+            onChoose={handleWelcomeChoice}
           />
         ) : (
           messages.map((msg) => (
@@ -475,6 +563,7 @@ export function ChatPanel({
                 {a.name}
                 <button
                   type="button"
+                  aria-label={`移除附件 ${a.name}`}
                   onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
                   style={{
                     background: "none",
@@ -492,6 +581,18 @@ export function ChatPanel({
             ))}
           </div>
         )}
+        {attachmentError ? (
+          <div
+            role="status"
+            style={{
+              marginBottom: 6,
+              color: "var(--wjn-error)",
+              fontSize: 12,
+            }}
+          >
+            {attachmentError}
+          </div>
+        ) : null}
         <div
           style={{
             display: "flex",
@@ -500,9 +601,15 @@ export function ChatPanel({
           }}
         >
           <FileAttachButton
+            ref={fileAttachRef}
             threadId={threadId}
             workspaceId={workspaceId}
-            onAttached={(files) => setAttachments((prev) => [...prev, ...files])}
+            onAttached={(files) => {
+              setAttachmentError(null);
+              setAttachments((prev) => [...prev, ...files]);
+            }}
+            onError={setAttachmentError}
+            onUploadingChange={setAttachmentUploading}
             disabled={isSending}
           />
           <textarea
@@ -552,7 +659,9 @@ export function ChatPanel({
                 setModelSubmenuOpen(false);
               }}
               title={
-                modelLoadState === "error"
+                modelPreferenceError
+                  ? modelPreferenceError
+                  : modelLoadState === "error"
                   ? "模型目录加载失败"
                   : selectedModelDisplayLabel
                     ? `当前模型：${selectedModelDisplayLabel}`
@@ -623,7 +732,7 @@ export function ChatPanel({
                     >
                       推理
                     </div>
-                    {REASONING_OPTIONS.filter((option) =>
+                    {REASONING_EFFORT_OPTIONS.filter((option) =>
                       availableReasoningEfforts.includes(option.value),
                     ).map((option) => {
                       const active = reasoningEffort === option.value;
@@ -634,7 +743,12 @@ export function ChatPanel({
                           role="menuitemradio"
                           aria-checked={active}
                           data-testid={`chat-reasoning-option-${option.value}`}
-                          onClick={() => setReasoningEffort(option.value)}
+                          onClick={() => {
+                            setReasoningEffort(option.value);
+                            void persistModelPreference({
+                              reasoning_effort: option.value,
+                            });
+                          }}
                           style={{
                             width: "100%",
                             minHeight: 28,
@@ -735,9 +849,18 @@ export function ChatPanel({
                           aria-checked={active}
                           data-testid={`chat-model-option-${model.name}`}
                           onClick={() => {
+                            const nextReasoningEffort = chooseReasoningEffort(
+                              model.capability_profile.reasoning_efforts,
+                              reasoningEffort,
+                            );
                             setSelectedModel(model.name);
+                            setReasoningEffort(nextReasoningEffort);
                             setModelMenuOpen(false);
                             setModelSubmenuOpen(false);
+                            void persistModelPreference({
+                              default_model: model.name,
+                              reasoning_effort: nextReasoningEffort,
+                            });
                           }}
                           style={{
                             width: "100%",
@@ -766,12 +889,26 @@ export function ChatPanel({
                     })}
                   </div>
                 ) : null}
+                {modelPreferenceError ? (
+                  <div
+                    role="status"
+                    data-testid="chat-model-preference-error"
+                    style={{
+                      margin: "6px 8px 2px",
+                      color: "var(--wjn-error)",
+                      fontSize: 11.5,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {modelPreferenceError}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
           <button
             onClick={handleSubmit}
-            disabled={isSending || !inputValue.trim()}
+            disabled={sendDisabled}
             data-testid="chat-send"
             style={{
               width: 38,
@@ -782,24 +919,25 @@ export function ChatPanel({
               borderRadius: "var(--wjn-radius)",
               border: "none",
               background:
-                isSending || !inputValue.trim()
+                sendDisabled
                   ? "var(--wjn-line-strong)"
                   : "var(--wjn-accent)",
               color: "#FFFFFF",
               fontSize: 13,
               cursor:
-                isSending || !inputValue.trim() ? "not-allowed" : "pointer",
-              opacity: isSending ? 0.6 : 1,
+                sendDisabled ? "not-allowed" : "pointer",
+              opacity: isSending || attachmentUploading ? 0.6 : 1,
             }}
             aria-label="发送"
           >
-            {isSending ? "..." : <SendHorizontal size={16} aria-hidden="true" />}
+            {isSending || attachmentUploading ? "..." : <SendHorizontal size={16} aria-hidden="true" />}
           </button>
         </div>
       </div>
     </div>
   );
-}
+  },
+);
 
 function WorkspaceWelcome({
   icon,
@@ -812,7 +950,7 @@ function WorkspaceWelcome({
   workspaceName?: string;
   welcome: WorkspaceWelcomeConfig;
   disabled: boolean;
-  onChoose: (prompt: string) => void;
+  onChoose: (chip: WorkspaceWelcomeChip) => void;
 }) {
   return (
     <div
@@ -931,7 +1069,7 @@ function WorkspaceWelcome({
               type="button"
               data-testid="workspace-welcome-chip"
               disabled={disabled}
-              onClick={() => onChoose(chip.prompt)}
+              onClick={() => onChoose(chip)}
               style={{
                 minHeight: 34,
                 padding: "0 12px",

@@ -25,7 +25,7 @@ def _make_rate_limited_app(requests_per_minute: int = 3, window_seconds: int = 6
     with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
         mock_settings.rate_limit_requests = requests_per_minute
         mock_settings.rate_limit_window = window_seconds
-        setup_rate_limiting(app, redis_client=None)
+        setup_rate_limiting(app)
 
     return app
 
@@ -94,16 +94,14 @@ class TestRateLimiting:
     def test_redis_failure_falls_back_to_memory_limit(self, _mock_time):
         from src.gateway.middleware.rate_limit import RateLimitMiddleware
 
-        class FailingRedis:
-            @property
-            def client(self):
-                raise RuntimeError("redis unavailable")
+        def unavailable_redis():
+            raise RuntimeError("redis unavailable")
 
         middleware = RateLimitMiddleware(
             FastAPI(),
             requests_per_minute=1,
             window_seconds=60,
-            redis_client=FailingRedis(),
+            redis_backend_provider=unavailable_redis,
         )
 
         import asyncio
@@ -134,18 +132,16 @@ class TestRateLimiting:
                 return [None, 0, None, None]
 
         class SlowRedis:
-            @property
-            def client(self):
-                return self
-
             def pipeline(self):
                 return SlowPipeline()
+
+        slow_redis = SlowRedis()
 
         middleware = RateLimitMiddleware(
             FastAPI(),
             requests_per_minute=1,
             window_seconds=60,
-            redis_client=SlowRedis(),
+            redis_backend_provider=lambda: slow_redis,
         )
 
         import asyncio
@@ -162,7 +158,7 @@ class TestRateLimiting:
         with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
             mock_settings.rate_limit_requests = 7
             mock_settings.rate_limit_window = 45
-            setup_rate_limiting(app, redis_client=None)
+            setup_rate_limiting(app)
 
         middleware = next(m for m in app.user_middleware if m.cls is RateLimitMiddleware)
         assert middleware.kwargs["requests_per_minute"] == 7
@@ -184,7 +180,7 @@ class TestRateLimiting:
         with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
             mock_settings.rate_limit_requests = 3
             mock_settings.rate_limit_window = 60
-            setup_rate_limiting(app, redis_client=None)
+            setup_rate_limiting(app)
 
         client = TestClient(app)
 
@@ -212,7 +208,7 @@ class TestRateLimiting:
         with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
             mock_settings.rate_limit_requests = 1
             mock_settings.rate_limit_window = 60
-            setup_rate_limiting(app, redis_client=None)
+            setup_rate_limiting(app)
 
         client = TestClient(app)
 
@@ -236,16 +232,12 @@ class TestRateLimiting:
         async def events_endpoint():
             return {"ok": True}
 
-        @app.post("/api/runs/stream")
+        @app.post("/api/threads/thread-1/runs/stream")
         async def runs_stream_endpoint():
             return {"ok": True}
 
-        @app.get("/api/runs/run-1/stream")
-        async def run_stream_endpoint():
-            return {"ok": True}
-
         @app.get("/api/threads/thread-1/runs/run-1/stream")
-        async def thread_run_stream_endpoint():
+        async def run_stream_endpoint():
             return {"ok": True}
 
         @app.get("/api/threads/thread-1/runs/run-1/join")
@@ -255,7 +247,7 @@ class TestRateLimiting:
         with patch("src.gateway.middleware.rate_limit.redis_settings") as mock_settings:
             mock_settings.rate_limit_requests = 1
             mock_settings.rate_limit_window = 60
-            setup_rate_limiting(app, redis_client=None)
+            setup_rate_limiting(app)
 
         client = TestClient(app)
 
@@ -267,17 +259,13 @@ class TestRateLimiting:
         assert events_resp.status_code == 200
         assert events_resp.headers["X-RateLimit-Bucket"] == "streams"
 
-        runs_stream_resp = client.post("/api/runs/stream")
+        runs_stream_resp = client.post("/api/threads/thread-1/runs/stream")
         assert runs_stream_resp.status_code == 200
         assert runs_stream_resp.headers["X-RateLimit-Bucket"] == "streams"
 
-        run_stream_resp = client.get("/api/runs/run-1/stream")
+        run_stream_resp = client.get("/api/threads/thread-1/runs/run-1/stream")
         assert run_stream_resp.status_code == 200
         assert run_stream_resp.headers["X-RateLimit-Bucket"] == "streams"
-
-        thread_run_stream_resp = client.get("/api/threads/thread-1/runs/run-1/stream")
-        assert thread_run_stream_resp.status_code == 200
-        assert thread_run_stream_resp.headers["X-RateLimit-Bucket"] == "streams"
 
         thread_run_join_resp = client.get("/api/threads/thread-1/runs/run-1/join")
         assert thread_run_join_resp.status_code == 200

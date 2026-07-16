@@ -10,41 +10,27 @@ from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 
 from src.config.llm_config import LLMSettings, get_model_full_config, resolve_model_id
+from src.contracts.reasoning import (
+    DEFAULT_REASONING_EFFORT,
+    ReasoningEffort,
+    normalize_reasoning_effort,
+)
 from src.models.capability_profile import (
     GenerationAPI,
     ModelCapabilityProbeEvidence,
     ModelCapabilityProfile,
-    ReasoningEffort,
     assess_profile_freshness,
 )
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REASONING_EFFORT = "xhigh"
-
-
-def _normalize_reasoning_effort(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip().lower()
-    if not normalized:
-        return None
-    allowed_values = {effort.value for effort in ReasoningEffort}
-    if normalized not in allowed_values:
-        allowed = ", ".join(effort.value for effort in ReasoningEffort)
-        raise ValueError(
-            f"Unsupported reasoning_effort: {value}. Expected one of: {allowed}"
-        )
-    return normalized
-
-
 def create_chat_model(
     model_id: str,
     temperature: float | None = None,
-    thinking_enabled: bool = False,
-    reasoning_effort: str | None = None,
+    reasoning_effort: str | ReasoningEffort | None = None,
     request_timeout: float | None = None,
     max_retries: int | None = None,
+    max_output_tokens: int | None = None,
 ) -> BaseChatModel:
     """Create a chat model instance based on dynamic configuration.
 
@@ -55,11 +41,11 @@ def create_chat_model(
         model_id: The unique identifier of the model (as defined in env config)
         temperature: Optional temperature override. If not provided, uses
                      the temperature from the model config.
-        thinking_enabled: Retained as a caller-level preference; the verified
-            reasoning effort profile determines the provider parameter.
         reasoning_effort: Optional verified reasoning effort.
         request_timeout: Optional per-request timeout override in seconds.
         max_retries: Optional retry override for this model instance.
+        max_output_tokens: Optional call-level output budget, bounded by the
+            model catalog limit.
 
     Returns:
         Configured Chat Completions model instance.
@@ -85,7 +71,11 @@ def create_chat_model(
     api_key = config["api_key"]
     base_url = config["base_url"]
     config_temperature = config.get("temperature", 0.7)
-    max_tokens = config.get("max_tokens", 4096)
+    catalog_max_tokens = int(config.get("max_tokens", 4096))
+    max_tokens = _max_output_tokens_value(
+        max_output_tokens,
+        catalog_max_tokens=catalog_max_tokens,
+    )
 
     # Use provided temperature or fall back to config default
     actual_temperature = temperature if temperature is not None else config_temperature
@@ -100,7 +90,6 @@ def create_chat_model(
         else config.get("max_retries")
     )
 
-    _ = thinking_enabled
     generation_api = config.get("generation_api")
     if generation_api is not GenerationAPI.CHAT_COMPLETIONS:
         raise ValueError(
@@ -132,7 +121,7 @@ def create_chat_model(
             f"Model '{resolved_model_id}' has not verified store=false handling"
         )
 
-    resolved_reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
+    resolved_reasoning_effort = normalize_reasoning_effort(reasoning_effort)
     if profile.accepts_reasoning_effort(DEFAULT_REASONING_EFFORT) and resolved_reasoning_effort is None:
         resolved_reasoning_effort = DEFAULT_REASONING_EFFORT
     if resolved_reasoning_effort is not None and not profile.accepts_reasoning_effort(
@@ -149,7 +138,11 @@ def create_chat_model(
         base_url=base_url,
         temperature=actual_temperature,
         max_tokens=max_tokens,
-        reasoning_effort=resolved_reasoning_effort,
+        reasoning_effort=(
+            resolved_reasoning_effort.value
+            if resolved_reasoning_effort is not None
+            else None
+        ),
         default_headers=config.get("default_headers"),
         request_timeout=actual_timeout,
         max_retries=actual_max_retries,
@@ -170,6 +163,22 @@ def _max_retries_value(value: int | None) -> int:
     except (TypeError, ValueError):
         retries = int(LLMSettings.MAX_RETRIES)
     return max(0, retries)
+
+
+def _max_output_tokens_value(
+    value: int | None,
+    *,
+    catalog_max_tokens: int,
+) -> int:
+    if value is None:
+        return catalog_max_tokens
+    try:
+        requested = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_output_tokens must be a positive integer") from exc
+    if requested < 1:
+        raise ValueError("max_output_tokens must be a positive integer")
+    return min(requested, catalog_max_tokens)
 
 
 class ReasoningChatOpenAI(ChatOpenAI):

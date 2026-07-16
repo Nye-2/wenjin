@@ -31,6 +31,7 @@ class _FakeModelCatalogService:
 async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None:
     service = _FakeModelCatalogService()
     source = {
+        "PROVIDER_API_KEY": "sk-shared-123456",
         "LLM_DEFAULT_MODEL": "deepseek-chat",
         "LLM_MODELS": json.dumps(
             [
@@ -38,7 +39,7 @@ async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None
                     "id": "deepseek-chat",
                     "name": "DeepSeek Chat",
                     "model": "deepseek-chat",
-                    "api_key": "sk-test-123456",
+                    "api_key_env": "PROVIDER_API_KEY",
                     "base_url": "https://api.example.com/v1",
                     "generation_api": "chat_completions",
                     "provider_name": "OpenAI",
@@ -52,7 +53,7 @@ async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None
                 {
                     "id": "image-gen",
                     "model": "image-gen-v1",
-                    "api_key": "sk-image-123456",
+                    "api_key_env": "PROVIDER_API_KEY",
                     "base_url": "https://images.example.com/v1",
                 }
             ]
@@ -74,24 +75,27 @@ async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None
     assert llm_seed["is_default"] is True
     assert llm_seed["generation_api"] == "chat_completions"
     assert llm_seed["provider_name"] == "OpenAI"
+    assert llm_seed["api_key"] == "sk-shared-123456"
     assert "supports_tools" not in llm_seed
     assert llm_seed["pricing_policy_id"] == "deepseek-chat-policy"
     image_seed, _admin_id = service.created[1]
     assert image_seed["category"] == "image"
     assert image_seed["is_default"] is False
+    assert image_seed["api_key"] == "sk-shared-123456"
 
 
 @pytest.mark.asyncio
 async def test_model_catalog_seed_loader_binds_enabled_env_models_to_default_pricing_policy() -> None:
     service = _FakeModelCatalogService()
     source = {
+        "PROVIDER_API_KEY": "sk-shared-123456",
         "LLM_MODELS": json.dumps(
             [
                 {
                     "id": "mimo-v2",
                     "name": "MiMo V2",
                     "model": "mimo-v2",
-                    "api_key": "sk-test-123456",
+                    "api_key_env": "PROVIDER_API_KEY",
                     "base_url": "https://api.example.com/v1",
                     "generation_api": "chat_completions",
                 }
@@ -102,7 +106,7 @@ async def test_model_catalog_seed_loader_binds_enabled_env_models_to_default_pri
                 {
                     "id": "image-gen",
                     "model": "image-gen-v1",
-                    "api_key": "sk-image-123456",
+                    "api_key_env": "PROVIDER_API_KEY",
                     "base_url": "https://images.example.com/v1",
                 }
             ]
@@ -126,12 +130,13 @@ async def test_model_catalog_seed_loader_binds_enabled_env_models_to_default_pri
 async def test_model_catalog_seed_loader_does_not_overwrite_existing_catalog() -> None:
     service = _FakeModelCatalogService(existing=[SimpleNamespace(model_id="existing")])
     source = {
+        "PROVIDER_API_KEY": "sk-shared-123456",
         "LLM_MODELS": json.dumps(
             [
                 {
                     "id": "new-model",
                     "model": "new-model",
-                    "api_key": "sk-test-123456",
+                    "api_key_env": "PROVIDER_API_KEY",
                     "base_url": "https://api.example.com/v1",
                     "generation_api": "chat_completions",
                 }

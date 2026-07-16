@@ -1,15 +1,15 @@
 # Wenjin Research Workbench UI/UX
 
 > Status: Current design source of truth
-> Updated: 2026-07-11
+> Updated: 2026-07-15
 
 ## Product posture
 
-Wenjin is a calm academic collaborator for undergraduates and general master's students. The interface should make demanding research work feel understandable without exposing the machinery. Chat carries intent and steering; the Mission Console carries awareness and review; Prism carries deliberate document editing.
+Wenjin is a calm academic collaborator for undergraduates and general master's students. The interface should make demanding research work feel understandable without exposing the machinery. Chat carries intent and steering; the Mission Console carries awareness and user confirmation; Prism carries deliberate document editing.
 
 ## Workspace composition
 
-The default workspace is chat-first. The right Mission Console is closed until useful. Starting work causes a brief peek; progress, review, evidence, and team detail expand on demand. The layout must preserve a generous conversation width and avoid a permanent technical dashboard.
+The default workspace is chat-first. The right Mission Console is closed until useful. Starting work causes a brief peek; progress, confirmation, evidence, and team detail expand on demand. The layout must preserve a generous conversation width and avoid a permanent technical dashboard.
 
 On mobile the console is a sheet. The composer, model menu, workspace navigation, and console trigger must never overlap. Resizable desktop panes use stable minimums and restore a sensible default.
 
@@ -46,7 +46,7 @@ Review is framed as control, not danger. Prefer:
 - “可保存草稿”;
 - “与当前版本有冲突”.
 
-Avoid infrastructure labels such as “blocked”, “high risk”, schema ids, or provider exceptions in the default UI. Explain the consequence and available action. Protected claims/citations/documents require deliberate item-level review; accepted subsets can be saved without forcing an all-or-nothing decision.
+Avoid infrastructure labels such as “blocked”, “high risk”, schema ids, or provider exceptions in the default UI. Explain the consequence and available action. Protected claims, citations, and documents require deliberate item-level confirmation; accepted subsets can be saved without forcing an all-or-nothing decision. Independent auditing is never automatic UI ceremony: the user starts it from Chat when a result looks questionable.
 
 ## Model control
 

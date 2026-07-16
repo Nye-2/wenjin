@@ -7,8 +7,9 @@ algorithm with Redis as the backend storage.
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from ipaddress import ip_address
-from typing import Protocol, cast
+from typing import Protocol
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -40,14 +41,7 @@ class RedisBackendProtocol(Protocol):
     def pipeline(self) -> RedisPipelineProtocol: ...
 
 
-class RedisClientWrapperProtocol(Protocol):
-    """Compatibility wrapper exposing an underlying Redis client via `.client`."""
-
-    @property
-    def client(self) -> RedisBackendProtocol: ...
-
-
-RedisLike = RedisBackendProtocol | RedisClientWrapperProtocol
+RedisBackendProvider = Callable[[], RedisBackendProtocol]
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -67,7 +61,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app: ASGIApp,
         requests_per_minute: int = 60,
         window_seconds: int = 60,
-        redis_client: RedisLike | None = None,
+        redis_backend_provider: RedisBackendProvider | None = None,
     ) -> None:
         """Initialize rate limiting middleware.
 
@@ -75,12 +69,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             app: FastAPI application
             requests_per_minute: Maximum requests per minute (default: 60)
             window_seconds: Time window in seconds (default: 60)
-            redis_client: Optional Redis client for distributed rate limiting
+            redis_backend_provider: Lazy provider for the connected Redis backend
         """
         super().__init__(app)
         self.requests_per_minute = requests_per_minute
         self.window_seconds = window_seconds
-        self._redis = redis_client
+        self._redis_backend_provider = redis_backend_provider
         self._storage: dict[str, list[float]] = {}
         self._excluded_paths: set[str] = {
             "/livez",
@@ -131,7 +125,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         )
         key = f"rate_limit:{bucket}:{client_ip}"
 
-        if self._redis:
+        if self._redis_backend_provider is not None:
             allowed = await self._check_redis(
                 key,
                 requests_per_window=bucket_limit,
@@ -180,10 +174,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             normalized = normalized[4:]
 
         # Run architecture stream endpoints
-        if normalized == "/runs/stream":
-            return "streams"
-        if normalized.startswith("/runs/") and normalized.endswith("/stream"):
-            return "streams"
         if normalized.startswith("/threads/") and "/runs/" in normalized and normalized.endswith("/stream"):
             return "streams"
         if normalized.startswith("/threads/") and "/runs/" in normalized and normalized.endswith("/join"):
@@ -240,13 +230,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return parsed.is_loopback or parsed.is_private or parsed.is_link_local
 
     def _resolve_redis_backend(self) -> RedisBackendProtocol | None:
-        backend = self._redis
-        if backend is None:
+        if self._redis_backend_provider is None:
             return None
-        client = getattr(backend, "client", None)
-        if client is not None:
-            return cast(RedisBackendProtocol, client)
-        return cast(RedisBackendProtocol, backend)
+        return self._redis_backend_provider()
 
     async def _check_redis(
         self,
@@ -370,18 +356,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return True
 
 
-def setup_rate_limiting(app: FastAPI, redis_client: RedisLike | None = None) -> None:
+def setup_rate_limiting(
+    app: FastAPI,
+    redis_backend_provider: RedisBackendProvider | None = None,
+) -> None:
     """Setup rate limiting middleware for a FastAPI app.
 
     Args:
         app: FastAPI application
-        redis_client: Optional Redis client for distributed rate limiting
+        redis_backend_provider: Lazy provider for the connected Redis backend
 
     Usage:
         from src.gateway.middleware.rate_limit import setup_rate_limiting
 
         app = FastAPI()
-        setup_rate_limiting(app, redis_client=my_redis_client)
+        setup_rate_limiting(app, redis_backend_provider=lambda: my_redis_client)
     """
     # Get settings from config
     requests_per_minute = getattr(redis_settings, "rate_limit_requests", 60)
@@ -391,5 +380,5 @@ def setup_rate_limiting(app: FastAPI, redis_client: RedisLike | None = None) -> 
         RateLimitMiddleware,
         requests_per_minute=requests_per_minute,
         window_seconds=window_seconds,
-        redis_client=redis_client,
+        redis_backend_provider=redis_backend_provider,
     )

@@ -51,4 +51,13 @@ test("math modeling welcome prompts users to upload the problem PDF", async ({
     "上传赛题 PDF",
   );
   await expect(page.getByPlaceholder("上传赛题 PDF，或描述题目、数据和你想先解决的问题...")).toBeVisible();
+
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.getByRole("button", { name: "上传赛题 PDF" }).click(),
+  ]);
+  expect(chooser.isMultiple()).toBe(true);
+  await expect(page.getByTestId("chat-composer-input")).toHaveValue(
+    "我准备上传数模赛题 PDF 和附件，请你先读题、拆解任务和数据需求。",
+  );
 });

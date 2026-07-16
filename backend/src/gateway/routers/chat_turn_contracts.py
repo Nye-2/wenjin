@@ -7,9 +7,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from src.application.results import ThreadTurnAttachment, ThreadTurnRequest
+from src.contracts.reasoning import ReasoningEffort
 from src.runtime.chat_turns import ChatTurnRunRecord
 
-ReasoningEffort = Literal["low", "medium", "high", "xhigh"]
 ChatTurnUploadKind = Literal["literature", "workspace_context", "transient"]
 
 
@@ -34,8 +34,6 @@ class ChatTurnCreateRequest(BaseModel):
     workspace_id: str | None = None
     thread_id: str | None = None
     model: str | None = None
-    skill: str | None = None
-    thinking_enabled: bool = False
     reasoning_effort: ReasoningEffort | None = None
     attachments: list[ChatTurnAttachment] = Field(default_factory=list)
     metadata: dict[str, Any] | None = None
@@ -74,12 +72,9 @@ def to_turn_request(
         workspace_id=body.workspace_id,
         thread_id=forced_thread_id if forced_thread_id is not None else body.thread_id,
         model=body.model,
-        skill=body.skill,
-        thinking_enabled=body.thinking_enabled,
         reasoning_effort=body.reasoning_effort,
         attachments=tuple(ThreadTurnAttachment(**item.model_dump()) for item in body.attachments),
         metadata=body.metadata,
-        skill_explicit="skill" in body.model_fields_set,
     )
 
 

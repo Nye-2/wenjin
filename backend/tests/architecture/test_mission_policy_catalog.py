@@ -97,4 +97,7 @@ def test_mission_policies_define_constraints_without_fixed_execution_graphs() ->
     for policy in _policies():
         assert forbidden.isdisjoint(policy)
         assert policy["stage_contract_refs"]
-        assert policy["completion_contract"]["target_stage_sets"]
+        targets = policy["completion_contract"]["targets"]
+        assert targets
+        assert all(target["stage_ids"] for target in targets.values())
+        assert all(target["terminal_output_kinds"] for target in targets.values())

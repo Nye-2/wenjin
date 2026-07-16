@@ -576,7 +576,7 @@ class LatexCompileService:
     ) -> tuple[int, str, str, Path]:
         command = self._build_command(entry_file=entry_file, compiler=compiler)
         exit_code, stdout, stderr = await self._docker.run_container(
-            image=os.getenv("GUANLAN_TEXLIVE_IMAGE", _DEFAULT_LATEX_DOCKER_IMAGE),
+            image=os.getenv("WENJIN_TEXLIVE_IMAGE", _DEFAULT_LATEX_DOCKER_IMAGE),
             command=command,
             volumes=self._docker.build_volume_mapping(
                 host_path=str(mounted_project_dir.parent),

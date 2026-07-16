@@ -19,6 +19,7 @@ _CONTENT_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IMAGE_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _OPERATION_KEY_RE = re.compile(r"^sbxop_[0-9a-f]{64}$")
 _OUTPUT_REF_RE = re.compile(r"^sbxout_[A-Za-z0-9_-]{20,}$")
+_ARTIFACT_OBJECT_RE = re.compile(r"^sbxobj_[0-9a-f]{64}$")
 _PACKAGE_SPEC_RE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9_.-]*"
     r"(?:\[[A-Za-z0-9_,.-]+\])?"
@@ -117,12 +118,15 @@ class RunPythonInput(FrozenContract):
     base_content_hash: str | None = Field(default=None, pattern=_CONTENT_HASH_RE.pattern)
     environment_id: str | None = Field(default=None, min_length=1, max_length=100)
     dataset_paths: tuple[str, ...] = Field(default=(), max_length=100)
+    artifact_input_paths: tuple[str, ...] = Field(default=(), max_length=100)
     output_base_hashes: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_output_hashes(self) -> RunPythonInput:
         if any(not _CONTENT_HASH_RE.fullmatch(value) for value in self.output_base_hashes.values()):
             raise ValueError("output_base_hashes must contain sha256 digests")
+        if len(set(self.artifact_input_paths)) != len(self.artifact_input_paths):
+            raise ValueError("artifact_input_paths must not contain duplicates")
         return self
 
 
@@ -315,6 +319,7 @@ class SandboxArtifactManifest(FrozenContract):
     """Trusted artifact manifest computed after provider execution."""
 
     path: str = Field(min_length=1, max_length=500)
+    object_ref: str = Field(pattern=_ARTIFACT_OBJECT_RE.pattern)
     kind: str = Field(min_length=1, max_length=100)
     content_hash: str = Field(pattern=_CONTENT_HASH_RE.pattern)
     source_script: str | None = Field(default=None, max_length=500)

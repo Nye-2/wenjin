@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -22,7 +23,6 @@ from src.contracts.stage_acceptance import (
     StageAcceptanceResult,
     StageAssessmentInput,
     StageProgressState,
-    stage_id_matches_contract,
 )
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
@@ -35,9 +35,12 @@ from src.dataservice_client.contracts.mission import (
     MissionOperationStatus,
     MissionRunPatchPayload,
     MissionRunPayload,
+    MissionSemanticReferencePayload,
 )
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
+    MISSION_MODEL_MAX_OUTPUT_TOKENS,
+    MISSION_MODEL_REQUEST_TIMEOUT_SECONDS,
     MissionPauseRequest,
     MissionPortOutcome,
     MissionPortOutcomeStatus,
@@ -48,6 +51,7 @@ from src.mission_runtime.contracts import (
     ToolExecutionRequest,
 )
 from src.mission_runtime.ports import MissionStorePort
+from src.mission_runtime.reference_authority import canonical_reference_read
 from src.models import create_chat_model
 from src.models.provider_schema import parse_json_object, strict_provider_schema
 from src.sandbox.base import (
@@ -64,11 +68,14 @@ from src.sandbox.contracts import (
 from src.subagent_runtime import SubagentRuntime, subagent_job_fingerprint
 from src.subagent_runtime.contracts import (
     SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
+    SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
     SubagentAction,
     SubagentBatchResult,
     SubagentBudget,
+    SubagentContextRead,
     SubagentJobResult,
     SubagentJobSpec,
+    SubagentModelOutputError,
     SubagentStatus,
     SubagentStep,
     SubagentStopReason,
@@ -95,6 +102,7 @@ from src.tools.orchestrator import (
     ToolOutcomeStatus,
     ToolPolicy,
     UnknownToolError,
+    VerificationStatus,
 )
 
 
@@ -111,9 +119,15 @@ async def _append_under_current_lease(
     items: list[MissionItemDraftPayload],
     patch: MissionRunPatchPayload | None = None,
 ) -> MissionRunPayload:
-    """Append after reloading the scalar fence; retry only same-lease conflicts."""
+    """Append after reloading the scalar fence; retry only same-lease conflicts.
 
-    for _attempt in range(3):
+    A Mission slice may run several isolated subagents concurrently. Their ledger
+    entries legitimately race on ``state_version`` while sharing the same lease,
+    so bounded retries need enough room and a small yield for another writer to
+    finish. Lease-owner or epoch changes still fail immediately.
+    """
+
+    for attempt in range(16):
         mission = await store.get(mission_id)
         if mission is None:
             raise StaleToolLeaseError("mission no longer exists")
@@ -134,6 +148,7 @@ async def _append_under_current_lease(
         except Exception as exc:
             if not _is_conflict(exc):
                 raise
+            await asyncio.sleep(min(0.002 * (2**attempt), 0.05))
     raise StaleToolLeaseError("mission state changed repeatedly while appending an effect receipt")
 
 
@@ -147,23 +162,25 @@ class MissionLeaseFenceAdapter(ToolLeaseFence, MissionLeaseGuard):
         self.lease_ttl_seconds = lease_ttl_seconds
 
     async def assert_current(self, value: ToolOperation | SandboxMissionProvenance) -> None:
-        mission = await self.store.get(value.mission_id)
-        if mission is None or mission.lease_epoch != value.lease_epoch or mission.lease_owner is None:
-            raise StaleToolLeaseError("mission lease fence is stale")
-        try:
-            await self.store.heartbeat_lease(
-                mission.mission_id,
-                MissionLeaseHeartbeatPayload(
-                    worker_id=mission.lease_owner,
-                    lease_epoch=mission.lease_epoch,
-                    expected_state_version=mission.state_version,
-                    ttl_seconds=self.lease_ttl_seconds,
-                ),
-            )
-        except DataServiceClientError as exc:
-            if _is_conflict(exc):
-                raise StaleToolLeaseError("mission lease fence is stale") from exc
-            raise
+        for _attempt in range(5):
+            mission = await self.store.get(value.mission_id)
+            if mission is None or mission.lease_epoch != value.lease_epoch or mission.lease_owner is None:
+                raise StaleToolLeaseError("mission lease fence is stale")
+            try:
+                await self.store.heartbeat_lease(
+                    mission.mission_id,
+                    MissionLeaseHeartbeatPayload(
+                        worker_id=mission.lease_owner,
+                        lease_epoch=mission.lease_epoch,
+                        expected_state_version=mission.state_version,
+                        ttl_seconds=self.lease_ttl_seconds,
+                    ),
+                )
+                return
+            except DataServiceClientError as exc:
+                if not _is_conflict(exc):
+                    raise
+        raise StaleToolLeaseError("mission lease fence changed repeatedly")
 
 
 class MissionItemOperationJournal(OperationJournal):
@@ -204,34 +221,10 @@ class MissionItemOperationJournal(OperationJournal):
                 ttl_seconds=self.operation_ttl_seconds,
             ),
         )
-        if not result.acquired:
-            return False
-        await _append_under_current_lease(
-            self.store,
-            mission_id=operation.mission_id,
-            lease_owner=await _lease_owner(self.store, operation),
-            lease_epoch=operation.lease_epoch,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="tool_operation_started",
-                    operation_id=operation.operation_id,
-                    phase=MissionItemPhase.STARTED,
-                    stage_id=operation.stage_id,
-                    producer="tool_orchestrator",
-                    summary=f"Tool operation started: {operation.tool_id}",
-                    payload_json={
-                        "operation_key": operation.operation_key,
-                        "tool_id": operation.tool_id,
-                        "caller_id": operation.caller_id,
-                        "caller_kind": operation.caller_kind.value,
-                    },
-                )
-            ],
-        )
-        return True
+        return result.acquired
 
     async def record_terminal(self, operation: ToolOperation, outcome: ResearchToolOutcome) -> bool:
-        finished = await self.store.finish_operation(
+        await self.store.finish_operation(
             operation.mission_id,
             MissionOperationFinishPayload(
                 operation_key=operation.operation_key,
@@ -239,42 +232,15 @@ class MissionItemOperationJournal(OperationJournal):
                 request_hash=_operation_request_hash(MissionOperationKind.TOOL, operation.operation_key),
                 claimant=operation.operation_id,
                 lease_epoch=operation.lease_epoch,
+                stage_id=operation.stage_id,
+                producer=outcome.producer,
                 status=(MissionOperationStatus.FAILED if outcome.status is ToolOutcomeStatus.ERROR else MissionOperationStatus.SUCCEEDED),
                 receipt_json={"outcome": outcome.model_dump(mode="json")},
                 payload_ref=outcome.payload_ref,
+                references=list(_tool_semantic_references(outcome)),
             ),
         )
-        if not finished.finalized:
-            return True
-        await _append_under_current_lease(
-            self.store,
-            mission_id=operation.mission_id,
-            lease_owner=await _lease_owner(self.store, operation),
-            lease_epoch=operation.lease_epoch,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="tool_operation_terminal",
-                    operation_id=operation.operation_id,
-                    phase=(MissionItemPhase.FAILED if outcome.status is ToolOutcomeStatus.ERROR else MissionItemPhase.COMPLETED),
-                    stage_id=operation.stage_id,
-                    producer="tool_orchestrator",
-                    summary=outcome.summary,
-                    payload_json={
-                        "operation_key": operation.operation_key,
-                        "outcome": outcome.model_dump(mode="json"),
-                    },
-                    payload_ref=outcome.payload_ref,
-                )
-            ],
-        )
         return True
-
-
-async def _lease_owner(store: MissionStorePort, operation: ToolOperation) -> str:
-    mission = await store.get(operation.mission_id)
-    if mission is None or mission.lease_owner is None or mission.lease_epoch != operation.lease_epoch:
-        raise StaleToolLeaseError("mission lease fence is stale")
-    return mission.lease_owner
 
 
 class ToolPolicyResolver(Protocol):
@@ -317,11 +283,18 @@ class StageAcceptanceAdapter:
         stage_id: str,
     ) -> tuple[bool, tuple[str, ...]]:
         contract = await self.contracts.resolve(mission, stage_id)
+        total_items = _stage_total_items(mission, contract)
+        if (
+            contract.instantiation.mode == "per_item"
+            and total_items is None
+        ):
+            source_key = contract.instantiation.source_context_key or "items"
+            return False, (f"item_count:{source_key}",)
         return can_start_stage(
             contract,
             _latest_stage_results(mission.snapshot_json),
             sequence_index=_sequence_index(stage_id),
-            total_items=_stage_total_items(mission, contract),
+            total_items=total_items,
         )
 
     async def evaluate(self, request: StageQualityRequest) -> StageQualityOutcome:
@@ -335,7 +308,12 @@ class StageAcceptanceAdapter:
             )
         assessment = await self.assessments.build(request, contract)
         previous = _stage_progress(request.mission.snapshot_json, request.stage_id)
-        result = evaluate_stage_acceptance(contract, assessment, previous_state=previous)
+        result = evaluate_stage_acceptance(
+            contract,
+            assessment,
+            previous_state=previous,
+            total_items=_stage_total_items(request.mission, contract),
+        )
         payload = result.to_mission_item_payload()
         if result.result == "pass":
             verdict = StageQualityVerdict.PASS
@@ -507,26 +485,36 @@ class LangChainSubagentModel(SubagentModelPort):
     ) -> SubagentAction:
         model = create_chat_model(
             job.model_id,
-            reasoning_effort="xhigh",
+            reasoning_effort=job.reasoning_effort,
+            request_timeout=MISSION_MODEL_REQUEST_TIMEOUT_SECONDS,
             max_retries=0,
+            max_output_tokens=MISSION_MODEL_MAX_OUTPUT_TOKENS,
         )
         bound = model.bind_tools(
-            [_subagent_action_tool()],
-            tool_choice="subagent_step",
+            _subagent_action_tools(job.output_schema, tool_results=tool_results),
+            tool_choice="required",
             strict=True,
         )
         system = (
             "You are a bounded research worker inside Wenjin. Work only on the assigned task. "
             "Use only allowed tools. Never request room, memory, review, or mission writes. "
-            "Construct tool arguments from tool_input_schemas exactly; selected_refs are values, not argument names. "
-            "When acting as a reviewer, read every selected Mission review candidate with "
-            "mission.read_review_candidate before returning a verdict. "
-            "That result includes preview_body_chunks and verified sandbox_artifacts when available; review those "
-            "directly and never pass sandbox-artifact refs to workspace.read_asset. "
+            "Construct tool arguments from tool_input_schemas exactly. selected_refs in context_reads are loaded "
+            "by the runtime before your first turn; use their authoritative tool_results and do not read them again. "
+            "If a selected sandbox artifact page reports truncated=true, continue with sandbox.read_artifact at "
+            "the exact next_offset until the final page before completing an audit. "
+            "When asked for an optional audit, inspect every selected artifact candidate through the hydrated "
+            "artifact.read_candidate result before reporting findings. The audit informs repair; it never grants "
+            "stage acceptance or creates a user review decision. "
             "A completed tool result's payload_json is the authoritative returned content. Never repeat the same "
             "tool with the same arguments after it completed; reuse that result and complete on the next turn once "
             "the exit criteria are met. "
-            "Return complete only when the exit criteria are met; otherwise use a tool or stop with an explicit reason. "
+            "Choose exactly one action frame: subagent_use_tool, subagent_complete, or subagent_stop. "
+            "Use subagent_complete only when the exit criteria are met and populate its native result_json object "
+            "to the pinned output schema exactly. Reference fields are enum-bound to exact receipts from this "
+            "worker loop; select those values without copying or modifying them. Otherwise use a tool or stop "
+            "with an explicit reason. When artifact_refs requires at least one item, use an allowed staging tool "
+            "to create the complete deliverable before completing, then return its exact artifact ref. Never place "
+            "a full deliverable in result_json as a substitute for a staged artifact. "
             "Do not reveal hidden reasoning. Your user-facing name is a short label, not an identity or authority claim."
         )
         payload = {
@@ -536,6 +524,7 @@ class LangChainSubagentModel(SubagentModelPort):
             "input_scope": job.input_scope,
             "mission_context_checkpoint": job.context_checkpoint,
             "selected_refs": job.selected_refs,
+            "context_reads": [item.model_dump(mode="json") for item in job.context_reads],
             "prior_output_briefs": job.prior_output_briefs,
             "allowed_tools": job.allowed_tools,
             "tool_input_schemas": job.tool_input_schemas,
@@ -544,31 +533,113 @@ class LangChainSubagentModel(SubagentModelPort):
             "exit_criteria": job.exit_criteria,
             "steps": [item.model_dump(mode="json") for item in steps[-12:]],
             "tool_results": [item.model_dump(mode="json") for item in tool_results[-8:]],
+            "allowed_result_refs": {
+                "evidence_refs": list(
+                    dict.fromkeys(
+                        ref
+                        for item in tool_results
+                        for ref in item.evidence_refs
+                    )
+                ),
+                "artifact_refs": list(
+                    dict.fromkeys(
+                        ref
+                        for item in tool_results
+                        for ref in item.artifact_refs
+                    )
+                ),
+            },
         }
-        result = await bound.ainvoke([SystemMessage(content=system), HumanMessage(content=json.dumps(payload, ensure_ascii=False))])
-        return _parse_subagent_action(result)
+        result = await bound.ainvoke(
+            [
+                SystemMessage(content=system),
+                HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
+            ]
+        )
+        try:
+            return _parse_subagent_action(result)
+        except ValueError as exc:
+            raise SubagentModelOutputError(_subagent_output_diagnostic(exc)) from exc
 
 
-class _ProviderSubagentAction(BaseModel):
-    """Strict provider wire shape for a bounded subagent turn."""
+def _selected_ref_context_reads(
+    selected_refs: tuple[str, ...],
+    allowed_tools: tuple[str, ...],
+) -> tuple[SubagentContextRead, ...]:
+    """Project every selected ref into deterministic, authorized context hydration."""
+
+    projected: list[SubagentContextRead] = []
+    unreadable: list[str] = []
+    allowed = set(allowed_tools)
+    for ref in selected_refs:
+        read = canonical_reference_read(ref)
+        if read is not None and read.tool_name in allowed:
+            projected.append(
+                SubagentContextRead(
+                    ref=ref,
+                    tool_name=read.tool_name,
+                    arguments=read.arguments,
+                )
+            )
+            continue
+        unreadable.append(ref)
+    if unreadable:
+        raise ValueError("selected_refs are not readable by the chosen WorkerSkill tools: " + ", ".join(unreadable))
+    return tuple(projected)
+
+
+class _ProviderSubagentToolAction(BaseModel):
+    """Strict provider wire shape for a canonical tool request."""
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["tool", "complete", "stop"]
     summary: str = Field(min_length=1, max_length=4000)
-    tool_name: str | None
+    tool_name: str = Field(min_length=1, max_length=160)
     arguments_json: str
-    result_json: str
     partial_result_json: str
-    stop_reason: SubagentStopReason | None
 
     def to_domain(self) -> SubagentAction:
         return SubagentAction(
-            kind=self.kind,
+            kind="tool",
             summary=self.summary,
             tool_name=self.tool_name,
             arguments=parse_json_object(self.arguments_json, field_name="arguments_json"),
-            result_json=parse_json_object(self.result_json, field_name="result_json"),
+            partial_result_json=parse_json_object(
+                self.partial_result_json,
+                field_name="partial_result_json",
+            ),
+        )
+
+
+class _ProviderSubagentCompleteAction(BaseModel):
+    """Provider wire shape whose result object is specialized per WorkerSkill."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=4000)
+    result_json: dict[str, Any]
+
+    def to_domain(self) -> SubagentAction:
+        return SubagentAction(
+            kind="complete",
+            summary=self.summary,
+            result_json=self.result_json,
+        )
+
+
+class _ProviderSubagentStopAction(BaseModel):
+    """Strict provider wire shape for an honest bounded stop."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=4000)
+    partial_result_json: str
+    stop_reason: SubagentStopReason
+
+    def to_domain(self) -> SubagentAction:
+        return SubagentAction(
+            kind="stop",
+            summary=self.summary,
             partial_result_json=parse_json_object(
                 self.partial_result_json,
                 field_name="partial_result_json",
@@ -577,26 +648,132 @@ class _ProviderSubagentAction(BaseModel):
         )
 
 
-def _subagent_action_tool() -> dict[str, Any]:
-    return {
-        "type": "function",
-        "function": {
-            "name": "subagent_step",
-            "description": ("Choose the next bounded worker action. JSON object fields are encoded as JSON strings; use '{}' when empty and null for irrelevant nullable fields."),
-            "parameters": strict_provider_schema(_ProviderSubagentAction.model_json_schema()),
-            "strict": True,
-        },
+def _subagent_action_tools(
+    output_schema: dict[str, Any],
+    *,
+    tool_results: tuple[SubagentToolResult, ...] = (),
+) -> list[dict[str, Any]]:
+    complete_schema = _ProviderSubagentCompleteAction.model_json_schema()
+    result_schema = deepcopy(output_schema)
+    if not result_schema:
+        result_schema = {"type": "object", "properties": {}}
+    _bind_subagent_result_refs(
+        result_schema,
+        evidence_refs=tuple(
+            dict.fromkeys(
+                ref
+                for item in tool_results
+                for ref in item.evidence_refs
+            )
+        ),
+        artifact_refs=tuple(
+            dict.fromkeys(
+                ref
+                for item in tool_results
+                for ref in item.artifact_refs
+            )
+        ),
+    )
+    complete_schema["properties"]["result_json"] = result_schema
+    definitions = (
+        (
+            "subagent_use_tool",
+            "Use one allowed canonical tool. Encode open JSON arguments as strings and use '{}' for an empty partial result.",
+            _ProviderSubagentToolAction.model_json_schema(),
+        ),
+        (
+            "subagent_complete",
+            "Complete the assigned worker task with a result matching the pinned WorkerSkill output contract.",
+            complete_schema,
+        ),
+        (
+            "subagent_stop",
+            "Stop honestly when the bounded task cannot be completed. Encode an open partial result as a JSON string.",
+            _ProviderSubagentStopAction.model_json_schema(),
+        ),
+    )
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": strict_provider_schema(schema),
+                "strict": True,
+            },
+        }
+        for name, description, schema in definitions
+    ]
+
+
+def _bind_subagent_result_refs(
+    schema: dict[str, Any],
+    *,
+    evidence_refs: tuple[str, ...],
+    artifact_refs: tuple[str, ...],
+) -> None:
+    refs_by_field = {
+        "evidence_refs": evidence_refs,
+        "artifact_refs": artifact_refs,
     }
+
+    def visit(node: object) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                for field, refs in refs_by_field.items():
+                    field_schema = properties.get(field)
+                    if not isinstance(field_schema, dict):
+                        continue
+                    field_schema["items"] = {
+                        "type": "string",
+                        "enum": list(refs) if refs else [""],
+                    }
+                    if refs:
+                        field_schema.pop("maxItems", None)
+                    else:
+                        field_schema["maxItems"] = 0
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+
+    visit(schema)
 
 
 def _parse_subagent_action(message: AIMessage) -> SubagentAction:
     calls = message.tool_calls
-    if len(calls) != 1 or str(calls[0].get("name") or "") != "subagent_step":
-        raise ValueError("Subagent provider requires exactly one subagent_step frame")
+    if len(calls) != 1:
+        raise ValueError("exactly_one_action_frame_required")
+    name = str(calls[0].get("name") or "")
     arguments = calls[0].get("args")
     if not isinstance(arguments, dict):
-        raise ValueError("Subagent provider arguments must be an object")
-    return _ProviderSubagentAction.model_validate(arguments).to_domain()
+        raise ValueError("action_arguments_must_be_an_object")
+    if name == "subagent_use_tool":
+        return _ProviderSubagentToolAction.model_validate(arguments).to_domain()
+    if name == "subagent_complete":
+        return _ProviderSubagentCompleteAction.model_validate(arguments).to_domain()
+    if name == "subagent_stop":
+        return _ProviderSubagentStopAction.model_validate(arguments).to_domain()
+    raise ValueError("unknown_subagent_action_frame")
+
+
+def _subagent_output_diagnostic(exc: ValueError) -> str:
+    message = str(exc)
+    if "result_json" in message:
+        return "result_json must match the pinned output contract exactly"
+    if "arguments_json" in message:
+        return "arguments_json must be one valid JSON object"
+    if "partial_result_json" in message:
+        return "partial_result_json must be one valid JSON object, or '{}' when empty"
+    if message in {
+        "exactly_one_action_frame_required",
+        "action_arguments_must_be_an_object",
+        "unknown_subagent_action_frame",
+    }:
+        return message
+    return "use exactly one required subagent action tool and satisfy every required field"
 
 
 class MissionSubagentRuntimeAdapter:
@@ -709,25 +886,6 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
                 acquired=False,
                 claimed_at=receipt.claimed_at,
             )
-        mission = await self.store.get(request.provenance.mission_id)
-        if mission is None or mission.lease_owner is None:
-            raise StaleToolLeaseError("sandbox mission lease is unavailable")
-        await _append_under_current_lease(
-            self.store,
-            mission_id=mission.mission_id,
-            lease_owner=mission.lease_owner,
-            lease_epoch=request.provenance.lease_epoch,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="sandbox_operation_started",
-                    operation_id=request.operation_key,
-                    phase=MissionItemPhase.STARTED,
-                    producer=request.provenance.subagent_id or "workspace_agent",
-                    summary=f"Sandbox operation started: {request.operation_input.kind.value}",
-                    payload_json={"operation_key": request.operation_key, "sandbox_job_id": sandbox_job_id},
-                )
-            ],
-        )
         return SandboxReceiptClaim(
             state=SandboxReceiptState.CLAIMED,
             acquired=True,
@@ -738,7 +896,7 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
         receipt = await self.store.get_operation(result.provenance.mission_id, result.operation_key)
         if receipt is None:
             raise RuntimeError("sandbox operation was not atomically claimed")
-        finished = await self.store.finish_operation(
+        await self.store.finish_operation(
             result.provenance.mission_id,
             MissionOperationFinishPayload(
                 operation_key=result.operation_key,
@@ -746,30 +904,10 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
                 request_hash=_operation_request_hash(MissionOperationKind.SANDBOX, result.operation_key),
                 claimant=receipt.claimant,
                 lease_epoch=result.provenance.lease_epoch,
+                producer=result.provenance.subagent_id or "workspace_agent",
                 status=(MissionOperationStatus.SUCCEEDED if result.status.value == "succeeded" else MissionOperationStatus.FAILED),
                 receipt_json={"result": result.model_dump(mode="json")},
             ),
-        )
-        if not finished.finalized:
-            return
-        mission = await self.store.get(result.provenance.mission_id)
-        if mission is None or mission.lease_owner is None:
-            raise StaleToolLeaseError("sandbox mission lease is unavailable")
-        await _append_under_current_lease(
-            self.store,
-            mission_id=mission.mission_id,
-            lease_owner=mission.lease_owner,
-            lease_epoch=result.provenance.lease_epoch,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="sandbox_operation_terminal",
-                    operation_id=result.operation_key,
-                    phase=(MissionItemPhase.COMPLETED if result.status.value == "succeeded" else MissionItemPhase.FAILED),
-                    producer=result.provenance.subagent_id or "workspace_agent",
-                    summary=f"Sandbox operation {result.status.value}",
-                    payload_json={"operation_key": result.operation_key, "result": result.model_dump(mode="json")},
-                )
-            ],
         )
 
     async def get(
@@ -860,12 +998,14 @@ def _subagent_jobs(
         if not set(allowed_tools).issubset(mission_tools):
             raise ValueError("pinned WorkerSkill tools exceed the Mission tool policy")
         digest = hashlib.sha256(f"{request.operation_id}:{index}:{task}".encode()).hexdigest()[:20]
+        selected_refs = tuple(str(item) for item in raw.get("selected_refs", ()))
         job_values = {
             "job_id": f"sj_{digest}",
             "operation_id": request.operation_id,
             "mission_id": request.mission.mission_id,
             "workspace_id": request.mission.workspace_id,
             "model_id": request.mission.model_id,
+            "reasoning_effort": request.mission.reasoning_effort,
             "lease_owner": lease_owner,
             "lease_epoch": request.mission.lease_epoch,
             "stage_id": request.stage_id,
@@ -893,21 +1033,28 @@ def _subagent_jobs(
             },
             "context_checkpoint_ref": request.frozen_context.context_checkpoint_ref,
             "context_checkpoint": dict(request.frozen_context.context_checkpoint),
-            "selected_refs": tuple(str(item) for item in raw.get("selected_refs", ())),
+            "selected_refs": selected_refs,
+            "context_reads": tuple(
+                item.model_dump(mode="json")
+                for item in _selected_ref_context_reads(
+                    selected_refs,
+                    allowed_tools,
+                )
+            ),
             "prior_output_briefs": request.frozen_context.prior_output_briefs,
             "allowed_tools": allowed_tools,
             "tool_input_schemas": input_schema_resolver(allowed_tools),
             "worker_skill": dict(skill_contract),
-            "output_schema": _specialized_worker_output_schema(
-                request.mission,
-                stage_id=request.stage_id,
-                role_label=role,
-                output_schema=skill_contract.get("output_contract"),
-            ),
+            "output_schema": dict(skill_contract.get("output_contract") or {}),
             "exit_criteria": tuple(str(item) for item in skill_contract.get("quality_focus") or ()),
             "depth": 1,
         }
         budget_raw = dict(raw.get("budget")) if isinstance(raw.get("budget"), dict) else {}
+        budget_raw["max_tool_steps"] = max(
+            SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
+            int(budget_raw.get("max_tool_steps") or 0),
+            len(job_values["context_reads"]),
+        )
         budget_raw["max_context_bytes"] = max(
             SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
             int(budget_raw.get("max_context_bytes") or 0),
@@ -920,55 +1067,6 @@ def _subagent_jobs(
             )
         )
     return tuple(jobs)
-
-
-def _specialized_worker_output_schema(
-    mission: MissionRunPayload,
-    *,
-    stage_id: str | None,
-    role_label: str,
-    output_schema: object,
-) -> dict[str, Any]:
-    schema = deepcopy(output_schema) if isinstance(output_schema, dict) else {}
-    if stage_id is None:
-        return schema
-
-    raw_contracts = mission.runtime_context_json.get("stage_contracts")
-    if not isinstance(raw_contracts, dict):
-        return schema
-    contracts = tuple(StageAcceptanceContract.model_validate(raw) for raw in raw_contracts.values())
-    contract = next(
-        (item for item in contracts if stage_id_matches_contract(item, stage_id) and role_label in item.reviewer_roles),
-        None,
-    )
-    if contract is None:
-        return schema
-
-    properties = schema.setdefault("properties", {})
-    if not isinstance(properties, dict):
-        raise ValueError("reviewer output schema properties must be an object")
-    critique_properties = {
-        "reviewer_role": {"type": "string", "enum": [role_label]},
-        "verdict": {"type": "string", "enum": ["pass", "revise"]},
-        "criterion_ids": {
-            "type": "array",
-            "items": {
-                "type": "string",
-                "enum": [criterion.criterion_id for criterion in (*contract.minimum_criteria, *contract.excellent_criteria)],
-            },
-        },
-        "reviewed_candidate_refs": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
-        "note": {"type": "string"},
-    }
-    properties.update(critique_properties)
-    required = schema.setdefault("required", [])
-    if not isinstance(required, list):
-        raise ValueError("reviewer output schema required must be an array")
-    schema["required"] = list(dict.fromkeys([*required, *critique_properties]))
-    return schema
 
 
 def _latest_stage_results(snapshot: dict[str, Any]) -> dict[str, StageAcceptanceResult]:
@@ -1000,16 +1098,40 @@ def _stage_total_items(
     mission: MissionRunPayload,
     contract: StageAcceptanceContract,
 ) -> int | None:
-    source_key = contract.instantiation.source_context_key
+    source_keys: set[str] = set()
+    if contract.instantiation.source_context_key:
+        source_keys.add(contract.instantiation.source_context_key)
+    if contract.all_item_prerequisite_templates:
+        raw_contracts = mission.runtime_context_json.get("stage_contracts")
+        if not isinstance(raw_contracts, dict):
+            raise ValueError("all-item prerequisites require pinned stage contracts")
+        for template in contract.all_item_prerequisite_templates:
+            matching_keys = {
+                str(instantiation.get("source_context_key"))
+                for raw_contract in raw_contracts.values()
+                if isinstance(raw_contract, dict)
+                and isinstance((instantiation := raw_contract.get("instantiation")), dict)
+                and instantiation.get("mode") == "per_item"
+                and instantiation.get("instance_id_template") == template
+                and instantiation.get("source_context_key")
+            }
+            if len(matching_keys) != 1:
+                raise ValueError(
+                    f"all-item prerequisite template {template} must resolve to one item-count source"
+                )
+            source_keys.update(matching_keys)
+    if len(source_keys) > 1:
+        raise ValueError("stage prerequisite families use different item-count sources")
+    source_key = next(iter(source_keys), None)
     if not source_key:
         return None
-    value = mission.runtime_context_json.get(source_key)
-    if not isinstance(value, list):
-        value = mission.snapshot_json.get(source_key)
-    if not isinstance(value, list):
-        intake = mission.snapshot_json.get("intake")
-        value = intake.get(source_key) if isinstance(intake, dict) else None
-    return len(value) if isinstance(value, list) else None
+    raw_counts = mission.snapshot_json.get("stage_item_counts")
+    if not isinstance(raw_counts, dict):
+        return None
+    value = raw_counts.get(source_key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 1 <= value <= 100 else None
 
 
 def _mission_tool_outcome(outcome: ResearchToolOutcome) -> MissionPortOutcome:
@@ -1019,15 +1141,121 @@ def _mission_tool_outcome(outcome: ResearchToolOutcome) -> MissionPortOutcome:
         payload_json={"research_tool_outcome": outcome.model_dump(mode="json")},
         payload_ref=outcome.payload_ref,
         risk_level=(cast(Literal["low", "medium", "high"], outcome.risk_level) if outcome.risk_level in {"low", "medium", "high"} else None),
-        evidence_count_delta=len(outcome.evidence_refs),
-        artifact_count_delta=len(outcome.artifact_refs),
     )
+
+
+def _tool_semantic_references(
+    outcome: ResearchToolOutcome,
+) -> tuple[MissionSemanticReferencePayload, ...]:
+    verified = outcome.verification_status in {
+        VerificationStatus.PROVIDER_RECEIPT,
+        VerificationStatus.VERIFIED,
+    }
+    references: list[MissionSemanticReferencePayload] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(reference: MissionSemanticReferencePayload) -> None:
+        key = (reference.category, reference.reference_id)
+        if key not in seen:
+            seen.add(key)
+            references.append(reference)
+
+    for source in outcome.source_refs:
+        add(
+            MissionSemanticReferencePayload(
+                category="evidence",
+                reference_id=source.source_id,
+                reference_kind="web_source",
+                title=source.title,
+                uri=source.canonical_url,
+                source_type="web_page",
+                verified=source.verification_status
+                in {
+                    VerificationStatus.PROVIDER_RECEIPT,
+                    VerificationStatus.VERIFIED,
+                },
+                metadata={
+                    "publisher": source.publisher,
+                    "authors": list(source.authors),
+                    "observed_at": source.observed_at.isoformat(),
+                    "content_hash": source.content_hash,
+                    "supported_claim_refs": list(source.supported_claim_refs),
+                    "verification_status": source.verification_status.value,
+                },
+            )
+        )
+    for ref in outcome.evidence_refs:
+        if ref.kind in {
+            "evidence_gap",
+            "mission_review_candidate",
+            "provider_search_receipt",
+        }:
+            continue
+        add(
+            MissionSemanticReferencePayload(
+                category="evidence",
+                reference_id=ref.ref_id,
+                reference_kind=ref.kind,
+                title=ref.title,
+                uri=ref.uri,
+                source_type=_evidence_source_type(ref.kind),
+                verified=verified,
+                metadata=_durable_reference_metadata(ref.metadata),
+            )
+        )
+    for ref in outcome.artifact_refs:
+        add(
+            MissionSemanticReferencePayload(
+                category="artifact",
+                reference_id=ref.ref_id,
+                reference_kind=ref.kind,
+                title=ref.title,
+                uri=ref.uri,
+                verified=verified,
+                metadata=_durable_reference_metadata(ref.metadata),
+            )
+        )
+    return tuple(references)
+
+
+_TRANSIENT_REFERENCE_METADATA_KEYS = frozenset(
+    {
+        "content",
+        "content_chunks",
+        "preview",
+        "preview_body_chunks",
+        "sandbox_artifacts",
+        "verified_inline",
+    }
+)
+
+
+def _durable_reference_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    """Remove invocation-only payloads from durable semantic projections."""
+
+    def compact(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {str(key): compact(item) for key, item in node.items() if str(key) not in _TRANSIENT_REFERENCE_METADATA_KEYS}
+        if isinstance(node, list | tuple):
+            return [compact(item) for item in node]
+        return node
+
+    return cast(dict[str, Any], compact(value))
+
+
+def _evidence_source_type(reference_kind: str) -> Literal["paper", "web_page", "dataset", "upload"]:
+    normalized = reference_kind.lower()
+    if "dataset" in normalized or "sandbox" in normalized:
+        return "dataset"
+    if "web" in normalized or "search" in normalized:
+        return "web_page"
+    if "paper" in normalized or "publication" in normalized:
+        return "paper"
+    return "upload"
 
 
 def _subagent_port_outcome(batch: SubagentBatchResult) -> MissionPortOutcome:
     failed = [item for item in batch.results if item.status is SubagentStatus.FAILED]
-    evidence = {ref for item in batch.results for ref in item.evidence_refs}
-    artifacts = {ref for item in batch.results for ref in item.artifact_refs}
     useful = [item for item in batch.results if item.status is SubagentStatus.COMPLETED or item.partial_result_available]
     status = MissionPortOutcomeStatus.COMPLETED if useful else MissionPortOutcomeStatus.FAILED
     summary = f"{len(useful)} of {len(batch.results)} subagent jobs produced usable results"
@@ -1038,8 +1266,6 @@ def _subagent_port_outcome(batch: SubagentBatchResult) -> MissionPortOutcome:
             "jobs": [item.model_dump(mode="json") for item in batch.results],
             "failed_job_ids": [item.job_id for item in failed],
         },
-        evidence_count_delta=len(evidence),
-        artifact_count_delta=len(artifacts),
         snapshot_patch={
             "subagent_summary": {
                 "active": 0,

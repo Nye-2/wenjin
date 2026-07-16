@@ -9,9 +9,8 @@ from langchain_core.runnables import RunnableConfig
 from src.agents.middlewares.base import Middleware
 from src.agents.middlewares.config_utils import require_thread_id
 from src.agents.thread_state import ThreadState
+from src.config import get_settings
 from src.services.path_safety import normalize_path_component
-
-DEFAULT_THREAD_DATA_BASE_DIR = ".wenjin/threads"
 
 
 def get_thread_data_root(
@@ -21,7 +20,8 @@ def get_thread_data_root(
 ) -> Path:
     """Resolve the per-thread user-data root path."""
     safe_thread_id = normalize_path_component(thread_id)
-    return Path(base_dir or DEFAULT_THREAD_DATA_BASE_DIR) / safe_thread_id / "user-data"
+    root = Path(base_dir) if base_dir is not None else get_settings().thread_data_root
+    return root / safe_thread_id / "user-data"
 
 
 def delete_thread_directory(
@@ -42,7 +42,7 @@ class ThreadDataMiddleware(Middleware):
     position = "first"
 
     def __init__(self, base_dir: str | None = None, lazy_init: bool = True):
-        self._base_dir = base_dir or DEFAULT_THREAD_DATA_BASE_DIR
+        self._base_dir = base_dir
         self._lazy_init = lazy_init
 
     async def before_model(

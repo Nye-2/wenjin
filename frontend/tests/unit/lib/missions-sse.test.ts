@@ -26,7 +26,6 @@ describe("Mission SSE recovery", () => {
       missionId: "mission-2",
       stateVersion: 3,
       lastItemSeq: 2,
-      replayRequired: false,
       cursor: "cursor-2",
     };
     const stream = new ReadableStream<Uint8Array>({

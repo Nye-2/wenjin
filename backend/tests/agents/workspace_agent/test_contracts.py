@@ -12,20 +12,10 @@ from src.agents.workspace_agent.contracts import (
 
 def _mission_payload() -> dict[str, object]:
     return {
-        "workspace_id": "workspace-1",
-        "thread_id": "thread-1",
-        "user_id": "user-1",
-        "workspace_type": "sci",
-        "raw_user_message_id": "message-1",
-        "mission_idempotency_key": "thread-1:message-1:start",
+        "title": "联邦学习研究空白",
         "objective": "梳理联邦学习与大模型微调的研究空白",
         "mission_policy_id": "sci.research",
         "initial_params": [{"key": "topic", "value": "federated fine-tuning"}],
-        "review_mode": "balanced_default",
-        "model_id": "gpt-5.6-sol",
-        "reasoning_effort": "xhigh",
-        "model_capability_profile_hash": "sha256:profile-v1",
-        "runtime_context_refs": ["prompt:workspace-agent-v1"],
     }
 
 
@@ -35,7 +25,7 @@ def test_start_mission_action_is_strict_and_typed() -> None:
     )
 
     assert isinstance(action, StartMissionAction)
-    assert action.mission.reasoning_effort == "xhigh"
+    assert action.mission.title == "联邦学习研究空白"
     assert action.mission.objective == "梳理联邦学习与大模型微调的研究空白"
 
 
@@ -49,11 +39,19 @@ def test_action_contract_rejects_old_launcher_fields() -> None:
         )
 
 
-def test_action_contract_rejects_unsupported_reasoning_effort() -> None:
+def test_action_contract_rejects_server_owned_fields() -> None:
     payload = _mission_payload()
-    payload["reasoning_effort"] = "minimal"
+    payload["user_id"] = "provider-controlled-user"
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="user_id"):
+        AgentActionAdapter.validate_python(
+            {"action": "start_mission", "mission": payload}
+        )
+
+    payload = _mission_payload()
+    payload["review_mode"] = "review_all"
+
+    with pytest.raises(ValidationError, match="review_mode"):
         AgentActionAdapter.validate_python(
             {"action": "start_mission", "mission": payload}
         )

@@ -28,7 +28,7 @@ from src.sandbox.contracts import (
     content_hash_bytes,
     sandbox_job_id,
 )
-from src.subagent_runtime.contracts import SubagentAction
+from src.subagent_runtime.contracts import SubagentAction, SubagentToolResult
 
 from .conftest import FakeQuality, ScriptedAgent, start_request
 
@@ -39,6 +39,7 @@ class _CompletingWorkerModel:
         self.scopes: list[dict] = []
         self.tool_input_schemas: list[dict] = []
         self.context_budgets: list[int] = []
+        self.tool_budgets: list[int] = []
         self.output_schemas: list[dict] = []
 
     async def next_action(self, job, steps, tool_results):
@@ -46,6 +47,7 @@ class _CompletingWorkerModel:
         self.scopes.append(job.input_scope)
         self.tool_input_schemas.append(job.tool_input_schemas)
         self.context_budgets.append(job.budget.max_context_bytes)
+        self.tool_budgets.append(job.budget.max_tool_steps)
         self.output_schemas.append(job.output_schema)
         return SubagentAction(
             kind="complete",
@@ -64,8 +66,8 @@ class _NoSubagentTools:
         return {
             tool_id: {
                 "type": "object",
-                "properties": {"review_item_id": {"type": "string"}},
-                "required": ["review_item_id"],
+                "properties": {"candidate_ref": {"type": "string"}},
+                "required": ["candidate_ref"],
                 "additionalProperties": False,
             }
             for tool_id in tool_ids
@@ -75,29 +77,44 @@ class _NoSubagentTools:
         raise AssertionError(f"unexpected subagent tool call: {request.tool_name}")
 
 
+class _CandidateContextTools(_NoSubagentTools):
+    async def execute(self, request):
+        assert request.tool_name == "artifact.read_candidate"
+        assert request.arguments == {"candidate_ref": "artifact-candidate:" + "1" * 64}
+        return SubagentToolResult(
+            status="completed",
+            summary="artifact candidate loaded",
+            payload_json={"preview_text": "candidate"},
+            evidence_refs=("artifact-candidate:" + "1" * 64,),
+        )
+
+
 class _FailIfCalledWorkerModel:
     async def next_action(self, job, steps, tool_results):
         raise AssertionError(f"durable result was not adopted for {job.job_id}")
 
 
-class _ReviewingWorkerModel(_CompletingWorkerModel):
+class _AuditingWorkerModel(_CompletingWorkerModel):
     async def next_action(self, job, steps, tool_results):
         self.calls += 1
         self.output_schemas.append(job.output_schema)
+        properties = job.output_schema["properties"]
+        result = {
+            "summary": "The supplied candidate was audited against the requested concern.",
+            "evidence_refs": list(job.selected_refs),
+            "artifact_refs": list(job.selected_refs),
+            "warnings": [],
+        }
+        if "findings" in properties:
+            result["findings"] = ["No unsupported claim was found in the bounded sample."]
+        if "repair_actions" in properties:
+            result["repair_actions"] = []
+        if "reproducibility_findings" in properties:
+            result["reproducibility_findings"] = []
         return SubagentAction(
             kind="complete",
-            summary="Pinned review is ready",
-            result_json={
-                "summary": "The candidate meets the pinned criterion.",
-                "evidence_refs": [],
-                "artifact_refs": [],
-                "warnings": [],
-                "reviewer_role": "problem_parser_reviewer",
-                "verdict": "pass",
-                "criterion_ids": ["question_inventory"],
-                "reviewed_candidate_refs": ["review-item-1"],
-                "note": "The question inventory is complete.",
-            },
+            summary="Pinned audit is ready",
+            result_json=result,
         )
 
 
@@ -129,22 +146,22 @@ def _complete_decision() -> MissionAgentDecision:
     )
 
 
-def _reviewer_spawn_decision() -> MissionAgentDecision:
+def _audit_spawn_decision() -> MissionAgentDecision:
     return MissionAgentDecision(
         decision_id="decision-review-1",
         kind="subagent",
         operation_id="review-1",
         stage_id="problem_understanding",
-        summary="Delegate one bounded candidate review",
+        summary="Delegate one bounded candidate audit",
         payload_json={
             "task_summary": "Review the pending problem brief",
             "input_scope": {
-                "display_name": "题目理解独立复核员",
-                "role_label": "problem_parser_reviewer",
-                "candidate_ref": "review-item-1",
-                "selected_refs": ["review-item-1"],
+                "display_name": "挑刺专家 · 清和",
+                "role_label": "按需质量审计",
+                "candidate_ref": "artifact-candidate:" + "1" * 64,
+                "selected_refs": ["artifact-candidate:" + "1" * 64],
                 "worker_skill_id": "quality-critic",
-                "budget": {"max_context_bytes": 4_096},
+                "budget": {"max_context_bytes": 4_096, "max_tool_steps": 1},
             },
         },
     )
@@ -210,26 +227,26 @@ async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
     runtime_factory,
 ) -> None:
     model = _CompletingWorkerModel()
-    runtime, deps = runtime_factory(agent=ScriptedAgent([_reviewer_spawn_decision(), _complete_decision()]))
+    runtime, deps = runtime_factory(agent=ScriptedAgent([_audit_spawn_decision(), _complete_decision()]))
     runtime.subagents = MissionSubagentRuntimeAdapter(
         store=deps["store"],
         model=model,
-        tools=_NoSubagentTools(),  # type: ignore[arg-type]
+        tools=_CandidateContextTools(),  # type: ignore[arg-type]
         monotonic_clock=deps["clock"].monotonic,
     )
     receipt = await runtime.start(
         start_request(
             runtime_context_json={
-                "tool_policy": {"allowed_tool_ids": ["mission.read_review_candidate"]},
+                "tool_policy": {"allowed_tool_ids": ["artifact.read_candidate"]},
                 "worker_skill_snapshots": {
                     "quality-critic": {
                         "content_hash": "b" * 64,
                         "contract": {
                             "id": "quality-critic",
                             "output_contract": {"type": "object"},
-                            "quality_focus": ["Return an independent verdict"],
+                            "quality_focus": ["Return a bounded diagnostic audit"],
                         },
-                        "allowed_tool_ids": ["mission.read_review_candidate"],
+                        "allowed_tool_ids": ["artifact.read_candidate"],
                     }
                 },
             }
@@ -241,22 +258,23 @@ async def test_subagent_receives_canonical_input_schema_for_each_allowed_tool(
     assert telemetry.outcome is MissionSliceOutcome.COMPLETED
     assert model.tool_input_schemas == [
         {
-            "mission.read_review_candidate": {
+            "artifact.read_candidate": {
                 "type": "object",
-                "properties": {"review_item_id": {"type": "string"}},
-                "required": ["review_item_id"],
+                "properties": {"candidate_ref": {"type": "string"}},
+                "required": ["candidate_ref"],
                 "additionalProperties": False,
             }
         }
     ]
     assert model.context_budgets == [24_000]
+    assert model.tool_budgets == [8]
 
 
 @pytest.mark.asyncio
-async def test_reviewer_output_schema_is_specialized_from_stage_contract(
+async def test_on_demand_critic_uses_pinned_schema_without_stage_authority(
     runtime_factory,
 ) -> None:
-    model = _ReviewingWorkerModel()
+    model = _AuditingWorkerModel()
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     runtime.subagents = MissionSubagentRuntimeAdapter(
         store=deps["store"],
@@ -270,7 +288,7 @@ async def test_reviewer_output_schema_is_specialized_from_stage_contract(
                 "tool_policy": {"allowed_tool_ids": []},
                 "stage_contracts": {
                     "problem_understanding": {
-                        "schema_version": "stage_acceptance_contract.v1",
+                        "schema_version": "stage_acceptance_contract.v2",
                         "contract_id": "math.problem_understanding",
                         "version": 1,
                         "mission_policy_id": "sci_research",
@@ -283,7 +301,6 @@ async def test_reviewer_output_schema_is_specialized_from_stage_contract(
                                 "description": "Every requested question is identified.",
                             }
                         ],
-                        "reviewer_roles": ["problem_parser_reviewer"],
                         "allowed_actions_if_failed": [
                             "revise_existing",
                             "stop_execution",
@@ -304,28 +321,16 @@ async def test_reviewer_output_schema_is_specialized_from_stage_contract(
                                     "evidence_refs",
                                     "artifact_refs",
                                     "warnings",
-                                    "reviewer_role",
-                                    "verdict",
-                                    "criterion_ids",
-                                    "reviewed_candidate_refs",
-                                    "note",
+                                    "findings",
+                                    "repair_actions",
                                 ],
                                 "properties": {
                                     "summary": {"type": "string"},
                                     "evidence_refs": {"type": "array"},
                                     "artifact_refs": {"type": "array"},
                                     "warnings": {"type": "array"},
-                                    "reviewer_role": {"type": "string"},
-                                    "verdict": {
-                                        "type": "string",
-                                        "enum": ["pass", "revise"],
-                                    },
-                                    "criterion_ids": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                    "reviewed_candidate_refs": {"type": "array"},
-                                    "note": {"type": "string"},
+                                    "findings": {"type": "array", "items": {"type": "string"}},
+                                    "repair_actions": {"type": "array", "items": {"type": "string"}},
                                 },
                             },
                             "quality_focus": ["Return a bounded review"],
@@ -354,10 +359,10 @@ async def test_reviewer_output_schema_is_specialized_from_stage_contract(
             task_summary="Review the problem inventory",
             stage_id="problem_understanding",
             input_scope={
-                "display_name": "题意复核员",
-                "role_label": "problem_parser_reviewer",
+                "display_name": "挑刺专家 · 清和",
+                "role_label": "按需质量审计",
                 "worker_skill_id": "quality-critic",
-                "selected_refs": ["review-item-1"],
+                "selected_refs": [],
             },
             frozen_context=SubagentFrozenContext(),
             deadline_monotonic=deps["clock"].monotonic() + 30,
@@ -365,16 +370,23 @@ async def test_reviewer_output_schema_is_specialized_from_stage_contract(
     )
 
     assert outcome.status.value == "completed"
-    properties = model.output_schemas[0]["properties"]
-    assert properties["reviewer_role"]["enum"] == ["problem_parser_reviewer"]
-    assert properties["criterion_ids"]["items"]["enum"] == ["question_inventory"]
+    schema = model.output_schemas[0]
+    assert set(schema["required"]) == {
+        "summary",
+        "evidence_refs",
+        "artifact_refs",
+        "warnings",
+        "findings",
+        "repair_actions",
+    }
+    assert set(schema["properties"]) == set(schema["required"])
 
 
 @pytest.mark.asyncio
-async def test_reviewer_schema_injects_critique_envelope_for_specialized_skill(
+async def test_domain_auditor_schema_is_not_mutated_by_stage_contract(
     runtime_factory,
 ) -> None:
-    model = _ReviewingWorkerModel()
+    model = _AuditingWorkerModel()
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     runtime.subagents = MissionSubagentRuntimeAdapter(
         store=deps["store"],
@@ -388,7 +400,7 @@ async def test_reviewer_schema_injects_critique_envelope_for_specialized_skill(
                 "tool_policy": {"allowed_tool_ids": []},
                 "stage_contracts": {
                     "validation": {
-                        "schema_version": "stage_acceptance_contract.v1",
+                        "schema_version": "stage_acceptance_contract.v2",
                         "contract_id": "math.validation",
                         "version": 1,
                         "mission_policy_id": "sci_research",
@@ -401,7 +413,6 @@ async def test_reviewer_schema_injects_critique_envelope_for_specialized_skill(
                                 "description": "The result can be reproduced.",
                             }
                         ],
-                        "reviewer_roles": ["reproducibility_reviewer"],
                         "allowed_actions_if_failed": [
                             "revise_existing",
                             "stop_execution",
@@ -458,9 +469,9 @@ async def test_reviewer_schema_injects_critique_envelope_for_specialized_skill(
             stage_id="validation",
             input_scope={
                 "display_name": "复现审计员",
-                "role_label": "reproducibility_reviewer",
+                "role_label": "复现审计",
                 "worker_skill_id": "reproducibility-auditor",
-                "selected_refs": ["review-item-1"],
+                "selected_refs": [],
             },
             frozen_context=SubagentFrozenContext(),
             deadline_monotonic=deps["clock"].monotonic() + 30,
@@ -469,16 +480,19 @@ async def test_reviewer_schema_injects_critique_envelope_for_specialized_skill(
 
     assert outcome.status.value == "completed"
     schema = model.output_schemas[0]
-    assert set(
-        [
-            "reviewer_role",
-            "verdict",
-            "criterion_ids",
-            "reviewed_candidate_refs",
-            "note",
-        ]
-    ).issubset(schema["required"])
-    assert schema["properties"]["reviewer_role"]["enum"] == ["reproducibility_reviewer"]
+    assert schema["required"] == [
+        "summary",
+        "evidence_refs",
+        "artifact_refs",
+        "warnings",
+    ]
+    assert set(schema["properties"]) == {
+        "summary",
+        "evidence_refs",
+        "artifact_refs",
+        "warnings",
+        "reproducibility_findings",
+    }
 
 
 @pytest.mark.asyncio

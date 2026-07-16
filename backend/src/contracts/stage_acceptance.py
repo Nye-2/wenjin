@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.reasoning import ReasoningEffort
 from src.contracts.research_evidence import (
     ArtifactRecord,
     EvidenceRecord,
@@ -25,15 +26,12 @@ WorkspaceType = Literal[
     "math_modeling",
     "patent",
 ]
-ModelEffort = Literal["low", "medium", "high", "xhigh"]
 StageDecision = Literal["pass", "revise", "ask_user", "stop"]
 CriterionStatus = Literal["pass", "fail", "unknown"]
-CritiqueVerdict = Literal["pass", "revise"]
 ExemplarVerdict = Literal["below", "meets", "exceeds", "not_compared"]
 FailureAction = Literal[
     "revise_existing",
     "retrieve_more_evidence",
-    "spawn_reviewer",
     "ask_user",
     "degrade_with_notice",
     "stop_execution",
@@ -118,7 +116,7 @@ class StageAcceptanceContract(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["stage_acceptance_contract.v1"]
+    schema_version: Literal["stage_acceptance_contract.v2"]
     contract_id: str
     version: int = Field(ge=1)
     mission_policy_id: str
@@ -130,11 +128,10 @@ class StageAcceptanceContract(BaseModel):
     required_evidence_surfaces: tuple[ResearchSurface, ...] = ()
     required_artifacts: tuple[ArtifactRequirement, ...] = ()
     failure_modes: tuple[str, ...] = ()
-    reviewer_roles: tuple[str, ...] = ()
     allowed_actions_if_failed: tuple[FailureAction, ...]
     max_revision_attempts: int = Field(default=3, ge=0, le=12)
     no_progress_limit: int = Field(default=2, ge=1, le=6)
-    recommended_model_effort: ModelEffort = "high"
+    recommended_model_effort: ReasoningEffort = ReasoningEffort.HIGH
     prerequisite_stage_ids: tuple[str, ...] = ()
     instantiation: StageInstantiationRule = Field(default_factory=StageInstantiationRule)
     all_item_prerequisite_templates: tuple[str, ...] = ()
@@ -177,7 +174,6 @@ class StageAcceptanceContract(BaseModel):
         if any(template.count("{index}") != 1 for template in self.all_item_prerequisite_templates):
             raise ValueError("all-item prerequisite templates must contain {index} exactly once")
         unique_groups = {
-            "reviewer_roles": self.reviewer_roles,
             "prerequisite_stage_ids": self.prerequisite_stage_ids,
             "required_artifact_kinds": tuple(item.kind for item in self.required_artifacts),
             "exemplar_refs": tuple(item.ref_id for item in self.exemplar_refs),
@@ -216,6 +212,16 @@ def stage_instance_index(
     return index
 
 
+def format_stage_instance_id(template: str | None, index: int) -> str:
+    """Build the canonical one-based id for a per-item stage template."""
+
+    if not template or template.count("{index}") != 1:
+        raise ValueError("stage instance template must contain {index} exactly once")
+    if index < 1:
+        raise ValueError("stage instance index must be positive")
+    return template.replace("{index}", str(index))
+
+
 def stage_id_matches_contract(
     contract: StageAcceptanceContract,
     stage_id: str,
@@ -236,16 +242,15 @@ class CriterionAssessment(BaseModel):
     criterion_id: str
     status: CriterionStatus
     supporting_refs: tuple[str, ...] = ()
-    rationale: str = ""
+    rationale: str = Field(min_length=20, max_length=4000)
 
-
-class CritiqueAssessment(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    reviewer_role: str
-    verdict: CritiqueVerdict
-    criterion_ids: tuple[str, ...] = ()
-    note: str = ""
+    @field_validator("criterion_id", "rationale")
+    @classmethod
+    def validate_assessment_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("criterion assessment text must be non-empty")
+        return value
 
 
 class ExemplarComparison(BaseModel):
@@ -280,26 +285,25 @@ class StageAssessmentInput(BaseModel):
     criterion_assessments: tuple[CriterionAssessment, ...] = ()
     evidence: tuple[EvidenceRecord, ...] = ()
     artifacts: tuple[ArtifactRecord, ...] = ()
-    output_refs: tuple[str, ...] = ()
-    critiques: tuple[CritiqueAssessment, ...] = ()
     exemplar_comparisons: tuple[ExemplarComparison, ...] = ()
     blocking_user_inputs: tuple[str, ...] = ()
     partial_output_refs: tuple[str, ...] = ()
-    actual_model_effort: ModelEffort
+    actual_model_effort: ReasoningEffort
     item_seq: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_unique_assessment_ids(self) -> StageAssessmentInput:
         groups = {
             "criterion assessments": tuple(item.criterion_id for item in self.criterion_assessments),
-            "reviewer critiques": tuple(item.reviewer_role for item in self.critiques),
             "exemplar comparisons": tuple(item.exemplar_ref_id for item in self.exemplar_comparisons),
-            "evidence": tuple(item.evidence_id for item in self.evidence),
             "artifacts": tuple(item.artifact_id for item in self.artifacts),
         }
         for label, values in groups.items():
             if len(values) != len(set(values)):
                 raise ValueError(f"duplicate {label} are not allowed")
+        evidence_surfaces = tuple((item.evidence_id, item.surface) for item in self.evidence)
+        if len(evidence_surfaces) != len(set(evidence_surfaces)):
+            raise ValueError("duplicate evidence surfaces are not allowed")
         return self
 
 
@@ -318,11 +322,9 @@ class StageAcceptanceResult(BaseModel):
     missing_criteria: tuple[str, ...] = ()
     missing_evidence_surfaces: tuple[ResearchSurface, ...] = ()
     missing_artifact_kinds: tuple[str, ...] = ()
-    missing_reviewer_roles: tuple[str, ...] = ()
     missing_exemplar_refs: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
     artifact_refs: tuple[str, ...] = ()
-    reviewer_notes: tuple[str, ...] = ()
     blocking_user_inputs: tuple[str, ...] = ()
     partial_output_refs: tuple[str, ...] = ()
     next_action: FailureAction | None = None

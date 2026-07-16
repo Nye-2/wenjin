@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 
 from src.application.handlers.thread_turn_handler import ThreadStreamDelta
 from src.application.results import CompletedThreadTurn, GeneratedThreadReply, PreparedThreadTurn
-from src.gateway.routers import runs, thread_runs
-from src.runtime.chat_turns import ChatTurnDisconnectMode, ChatTurnRunManager, ChatTurnRunRecord, ChatTurnRunStatus, run_chat_turn
+from src.gateway.routers import thread_runs
+from src.runtime.chat_turns import ChatTurnRunManager, run_chat_turn
 from src.runtime.stream_bridge import MemoryStreamBridge
 from src.task.tasks.run import _build_turn_request
 
@@ -70,7 +70,6 @@ class _FakeHandler:
             workspace_id=request.workspace_id,
             title="Run thread",
             model=request.model or "default",
-            skill=request.skill,
             messages=[
                 {
                     "role": "user",
@@ -197,11 +196,7 @@ def _create_client(
     app.dependency_overrides[thread_runs.get_current_user] = _override_user
     app.dependency_overrides[thread_runs.get_thread_turn_handler] = _override_handler
     app.dependency_overrides[thread_runs.get_thread_service] = _override_thread_service
-    app.dependency_overrides[runs.get_current_user] = _override_user
-    app.dependency_overrides[runs.get_thread_turn_handler] = _override_handler
-    app.dependency_overrides[runs.get_thread_service] = _override_thread_service
     app.include_router(thread_runs.router)
-    app.include_router(runs.router)
     return TestClient(app)
 
 
@@ -214,7 +209,7 @@ def test_thread_run_stream_emits_expected_events(monkeypatch: pytest.MonkeyPatch
     )
 
     assert response.status_code == 200
-    assert response.headers["content-location"].startswith("/api/runs/")
+    assert response.headers["content-location"].startswith("/api/threads/thread-1/runs/")
     assert response.headers["content-location"].endswith("/stream")
     assert "event: thread_id" in response.text
     assert "event: content" in response.text
@@ -245,21 +240,10 @@ def test_thread_run_create_and_get(monkeypatch: pytest.MonkeyPatch):
     ids = [item["run_id"] for item in listed.json()]
     assert run_id in ids
 
-
-def test_run_id_stream_endpoint_replays_existing_run(monkeypatch: pytest.MonkeyPatch):
-    client = _create_client(monkeypatch)
-
-    created = client.post(
-        "/threads/thread-1/runs",
-        json={"message": "hello"},
-    )
-    run_id = created.json()["run_id"]
-
-    resumed = client.get(f"/runs/{run_id}/stream")
-    assert resumed.status_code == 200
-    assert resumed.headers["content-location"] == f"/api/runs/{run_id}/stream"
-    assert "event: thread_id" in resumed.text
-    assert "event: done" in resumed.text
+    deleted = client.delete(f"/threads/thread-1/runs/{run_id}")
+    assert deleted.status_code == 204
+    missing = client.get(f"/threads/thread-1/runs/{run_id}")
+    assert missing.status_code == 404
 
 
 def test_thread_scoped_existing_stream_includes_run_content_location(monkeypatch: pytest.MonkeyPatch):
@@ -273,30 +257,9 @@ def test_thread_scoped_existing_stream_includes_run_content_location(monkeypatch
 
     resumed = client.get(f"/threads/thread-1/runs/{run_id}/stream")
     assert resumed.status_code == 200
-    assert resumed.headers["content-location"] == f"/api/runs/{run_id}/stream"
-
-
-def test_run_id_get_endpoint_returns_existing_run(monkeypatch: pytest.MonkeyPatch):
-    client = _create_client(monkeypatch)
-
-    created = client.post(
-        "/threads/thread-1/runs",
-        json={"message": "hello"},
+    assert resumed.headers["content-location"] == (
+        f"/api/threads/thread-1/runs/{run_id}/stream"
     )
-    run_id = created.json()["run_id"]
-
-    fetched = client.get(f"/runs/{run_id}")
-    assert fetched.status_code == 200
-    payload = fetched.json()
-    assert payload["run_id"] == run_id
-    assert payload["thread_id"] == "thread-1"
-
-
-def test_run_id_cancel_endpoint_returns_not_found_for_missing_run(monkeypatch: pytest.MonkeyPatch):
-    client = _create_client(monkeypatch)
-
-    response = client.post("/runs/missing-run/cancel")
-    assert response.status_code == 404
 
 
 def test_thread_wait_returns_thread_values_snapshot(monkeypatch: pytest.MonkeyPatch):
@@ -314,60 +277,6 @@ def test_thread_wait_returns_thread_values_snapshot(monkeypatch: pytest.MonkeyPa
     assert payload["values"]["thread_id"] == "thread-1"
     assert payload["values"]["workspace_id"] == "ws-1"
     assert len(payload["values"]["messages"]) == 2
-
-
-def test_stateless_wait_returns_thread_values_snapshot(monkeypatch: pytest.MonkeyPatch):
-    client = _create_client(monkeypatch)
-
-    response = client.post(
-        "/runs/wait",
-        json={"message": "hello", "workspace_id": "ws-2"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "success"
-    assert payload["thread_id"] == "generated-thread"
-    assert payload["values"]["thread_id"] == "generated-thread"
-    assert payload["values"]["workspace_id"] == "ws-2"
-    assert payload["values"]["messages"][1]["role"] == "assistant"
-
-
-def test_run_id_endpoints_require_run_owner(monkeypatch: pytest.MonkeyPatch):
-    shared_handler = _FakeHandler()
-    run_manager = ChatTurnRunManager()
-    stream_bridge = MemoryStreamBridge(queue_maxsize=64)
-
-    owner_client = _create_client(
-        monkeypatch,
-        user_id="user-1",
-        shared_handler=shared_handler,
-        run_manager=run_manager,
-        stream_bridge=stream_bridge,
-    )
-    intruder_client = _create_client(
-        monkeypatch,
-        user_id="user-2",
-        shared_handler=shared_handler,
-        run_manager=run_manager,
-        stream_bridge=stream_bridge,
-    )
-
-    created = owner_client.post(
-        "/threads/thread-1/runs",
-        json={"message": "hello"},
-    )
-    assert created.status_code == 200
-    run_id = created.json()["run_id"]
-
-    get_response = intruder_client.get(f"/runs/{run_id}")
-    assert get_response.status_code == 404
-
-    cancel_response = intruder_client.post(f"/runs/{run_id}/cancel")
-    assert cancel_response.status_code == 404
-
-    stream_response = intruder_client.get(f"/runs/{run_id}/stream")
-    assert stream_response.status_code == 404
 
 
 def test_thread_scoped_run_endpoints_require_thread_owner(monkeypatch: pytest.MonkeyPatch):
@@ -405,43 +314,3 @@ def test_thread_scoped_run_endpoints_require_thread_owner(monkeypatch: pytest.Mo
 
     cancel_response = intruder_client.post(f"/threads/thread-1/runs/{run_id}/cancel")
     assert cancel_response.status_code == 404
-
-
-def test_run_id_owner_metadata_allows_owner_before_thread_binding(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    shared_handler = _FakeHandler()
-    run_manager = ChatTurnRunManager()
-    stream_bridge = MemoryStreamBridge(queue_maxsize=64)
-    run_id = "run-prebind-owner"
-    run_manager._chat_turns[run_id] = ChatTurnRunRecord(
-        run_id=run_id,
-        thread_id="placeholder-thread",
-        assistant_id="thread",
-        status=ChatTurnRunStatus.pending,
-        on_disconnect=ChatTurnDisconnectMode.continue_,
-        metadata={"_owner_id": "user-1"},
-    )
-
-    owner_client = _create_client(
-        monkeypatch,
-        user_id="user-1",
-        shared_handler=shared_handler,
-        run_manager=run_manager,
-        stream_bridge=stream_bridge,
-    )
-    intruder_client = _create_client(
-        monkeypatch,
-        user_id="user-2",
-        shared_handler=shared_handler,
-        run_manager=run_manager,
-        stream_bridge=stream_bridge,
-    )
-
-    owner_get = owner_client.get(f"/runs/{run_id}")
-    assert owner_get.status_code == 200
-    assert owner_get.json()["run_id"] == run_id
-    assert "_owner_id" not in owner_get.json().get("metadata", {})
-
-    intruder_get = intruder_client.get(f"/runs/{run_id}")
-    assert intruder_get.status_code == 404

@@ -1,29 +1,65 @@
 "use client";
 
-import { useRef, useState } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { LoaderCircle, Paperclip } from "lucide-react";
 import { uploadThreadFiles } from "@/lib/api/threads";
-
-interface AttachedFile {
-  name: string;
-  path: string;
-}
+import type { ThreadAttachment } from "@/lib/api/types";
 
 interface FileAttachButtonProps {
   threadId: string | null;
   workspaceId: string;
-  onAttached: (files: AttachedFile[]) => void;
+  onAttached: (files: ThreadAttachment[]) => void;
+  onError?: (message: string | null) => void;
+  onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
 }
 
-export function FileAttachButton({ threadId, workspaceId, onAttached, disabled }: FileAttachButtonProps) {
+export interface FileAttachButtonHandle {
+  open: () => void;
+}
+
+export const FileAttachButton = forwardRef<
+  FileAttachButtonHandle,
+  FileAttachButtonProps
+>(function FileAttachButton(
+  {
+    threadId,
+    workspaceId,
+    onAttached,
+    onError,
+    onUploadingChange,
+    disabled,
+  },
+  ref,
+) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const unavailable = disabled || uploading || !threadId;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: () => {
+        if (!unavailable) {
+          inputRef.current?.click();
+        }
+      },
+    }),
+    [unavailable],
+  );
 
   async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files?.length || !threadId) return;
 
+    onError?.(null);
     setUploading(true);
+    onUploadingChange?.(true);
     try {
       const result = await uploadThreadFiles({
         threadId,
@@ -32,17 +68,13 @@ export function FileAttachButton({ threadId, workspaceId, onAttached, disabled }
         files: Array.from(files),
       });
       if (result.files?.length) {
-        onAttached(
-          result.files.map((f) => ({
-            name: f.name ?? "file",
-            path: f.path ?? "",
-          })),
-        );
+        onAttached(result.files);
       }
     } catch {
-      // silent
+      onError?.("附件上传失败，请稍后重试。");
     } finally {
       setUploading(false);
+      onUploadingChange?.(false);
       if (inputRef.current) inputRef.current.value = "";
     }
   }
@@ -59,25 +91,33 @@ export function FileAttachButton({ threadId, workspaceId, onAttached, disabled }
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        disabled={disabled || uploading || !threadId}
+        disabled={unavailable}
+        aria-label={uploading ? "附件上传中" : "添加附件"}
+        data-testid="chat-attachment-button"
         title={uploading ? "上传中..." : "添加附件"}
         style={{
-          padding: "4px 8px",
+          width: 32,
+          height: 32,
+          padding: 0,
           borderRadius: "var(--wjn-radius-md)",
           border: "none",
           background: "transparent",
           color: "var(--wjn-text-muted)",
-          fontSize: 20,
-          fontWeight: 300,
-          cursor: disabled || uploading ? "not-allowed" : "pointer",
-          fontFamily: "var(--wjn-font-sans)",
-          opacity: disabled || uploading || !threadId ? 0.3 : 0.7,
+          cursor: unavailable ? "not-allowed" : "pointer",
+          opacity: unavailable ? 0.3 : 0.72,
           lineHeight: 1,
           flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
-        +
+        {uploading ? (
+          <LoaderCircle size={17} aria-hidden="true" className="animate-spin" />
+        ) : (
+          <Paperclip size={17} aria-hidden="true" />
+        )}
       </button>
     </>
   );
-}
+});

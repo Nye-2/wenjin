@@ -57,6 +57,25 @@ def _mission_payload() -> dict:
     }
 
 
+def _mission_view_payload() -> dict:
+    payload = _mission_payload()
+    internal_fields = {
+        "user_id",
+        "mission_policy_id",
+        "snapshot_json",
+        "runtime_context_json",
+        "context_checkpoint_ref",
+        "mission_idempotency_key",
+        "last_command_seq",
+        "last_applied_command_seq",
+        "next_wakeup_at",
+        "lease_owner",
+        "lease_epoch",
+        "lease_expires_at",
+    }
+    return {key: value for key, value in payload.items() if key not in internal_fields}
+
+
 @pytest.mark.asyncio
 async def test_root_client_exposes_composed_mission_domain_and_typed_create() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -114,7 +133,7 @@ async def test_mission_history_client_uses_single_opaque_cursor() -> None:
         assert "before_updated_at" not in kwargs["params"]
         return {
             "status": "ok",
-            "data": {"items": [_mission_payload()], "next_cursor": "next-token"},
+            "data": {"items": [_mission_view_payload()], "next_cursor": "next-token"},
         }
 
     page = await MissionDataServiceClient(request).list_workspace_page(
@@ -136,7 +155,7 @@ async def test_recent_workspace_missions_projects_items_from_page_contract() -> 
         assert kwargs["params"]["cursor"] is None
         return {
             "status": "ok",
-            "data": {"items": [_mission_payload()], "next_cursor": None},
+            "data": {"items": [_mission_view_payload()], "next_cursor": None},
         }
 
     runs = await MissionDataServiceClient(request).list_workspace(
@@ -145,6 +164,28 @@ async def test_recent_workspace_missions_projects_items_from_page_contract() -> 
     )
 
     assert [run.mission_id for run in runs] == ["mission-1"]
+
+
+@pytest.mark.asyncio
+async def test_latest_thread_mission_client_includes_terminal_context() -> None:
+    async def request(method: str, path: str, **kwargs):
+        assert method == "GET"
+        assert path == (
+            "/internal/v1/workspaces/workspace-1/threads/thread-1/latest-mission"
+        )
+        assert kwargs["params"] == {"user_id": "user-1"}
+        mission = _mission_payload()
+        mission["status"] = "failed"
+        return {"status": "ok", "data": mission}
+
+    latest = await MissionDataServiceClient(request).get_latest_for_thread(
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        user_id="user-1",
+    )
+
+    assert latest is not None
+    assert latest.status.value == "failed"
 
 
 @pytest.mark.asyncio

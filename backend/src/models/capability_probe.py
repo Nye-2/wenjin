@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from src.contracts.reasoning import ReasoningEffort
 from src.models.capability_profile import (
     CapabilityProbeCheck,
     CapabilityProfileAssessment,
@@ -22,10 +23,18 @@ from src.models.capability_profile import (
     GenerationTransportObservation,
     ModelCapabilityProbeEvidence,
     ProbeCheckStatus,
-    ReasoningEffort,
+    SearchReceiptKind,
+    WebSearchAPI,
     build_profile_from_probe,
     endpoint_fingerprint,
+    native_search_endpoint,
+    native_search_endpoint_fingerprint,
 )
+from src.services.search.model_native import (
+    build_native_search_payload,
+    parse_native_search_receipt,
+)
+from src.services.search.responses_sse import ResponsesSearchSSEParser
 from src.tools.orchestrator.errors import MalformedToolArgumentsError
 from src.tools.orchestrator.frames import parse_chat_completions_tool_calls
 
@@ -68,6 +77,15 @@ class CapabilityProbeTransport(Protocol):
         payload: dict[str, Any],
         timeout_seconds: float,
     ) -> StreamProbeResult: ...
+
+    async def post_native_search_sse(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        timeout_seconds: float,
+    ) -> dict[str, Any]: ...
 
 
 class HttpCapabilityProbeTransport:
@@ -126,6 +144,31 @@ class HttpCapabilityProbeTransport:
             clean_done=clean_done,
             transport_complete=True,
         )
+
+    async def post_native_search_sse(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
+        parser = ResponsesSearchSSEParser()
+        async with self._client_factory() as client:
+            async with client.stream(
+                "POST",
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout_seconds,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    completed = parser.feed_line(line)
+                    if completed is not None:
+                        await response.aclose()
+                        return completed
+        return parser.finish()
 
 
 async def probe_model_capabilities(
@@ -236,6 +279,56 @@ async def probe_model_capabilities(
             protocol_conformance and reasoning_support[ReasoningEffort.XHIGH],
         )
     )
+    search_endpoint = native_search_endpoint(target.base_url)
+    search_endpoint_hash = native_search_endpoint_fingerprint(target.base_url)
+    search_transport_conformance = False
+    search_receipts: tuple[SearchReceiptKind, ...] = ()
+    web_search_api = WebSearchAPI.NONE
+    try:
+        search_response = await selected_transport.post_native_search_sse(
+            url=search_endpoint,
+            headers=headers,
+            payload=build_native_search_payload(
+                model_name=target.model_name,
+                query="Find and cite the official OpenAI website.",
+            ),
+            timeout_seconds=target.timeout_seconds,
+        )
+        receipt = parse_native_search_receipt(search_response)
+        search_transport_conformance = bool(
+            receipt.search_call_ids and receipt.sources and receipt.citations
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        detail_code = f"{exc.__class__.__name__}:native_search_probe_failed"
+        checks.extend(
+            (
+                _check("native_web_search_call", False, detail_code=detail_code),
+                _check("search_source_citations", False, detail_code=detail_code),
+                _check(
+                    "native_web_search_completed_event_boundary",
+                    False,
+                    detail_code=detail_code,
+                ),
+            )
+        )
+    else:
+        checks.extend(
+            (
+                _check("native_web_search_call", search_transport_conformance),
+                _check("search_source_citations", search_transport_conformance),
+                _check(
+                    "native_web_search_completed_event_boundary",
+                    search_transport_conformance,
+                    detail_code=search_endpoint_hash,
+                ),
+            )
+        )
+        if search_transport_conformance:
+            web_search_api = WebSearchAPI.RESPONSES_WEB_SEARCH
+            search_receipts = (
+                SearchReceiptKind.WEB_SEARCH_CALL,
+                SearchReceiptKind.ANNOTATIONS_SOURCES,
+            )
     evidence = ModelCapabilityProbeEvidence(
         model_id=target.model_id,
         model_name=target.model_name,
@@ -247,6 +340,8 @@ async def probe_model_capabilities(
         ),
         observed_at=_utc_now(),
         checks=tuple(checks),
+        web_search_api=web_search_api,
+        search_receipts=search_receipts,
         transport_observations=(
             GenerationTransportObservation(
                 generation_api=target.generation_api,
@@ -255,6 +350,15 @@ async def probe_model_capabilities(
                     "clean_done_and_close"
                     if protocol_conformance
                     else "selected_generation_api_probe_failed"
+                ),
+            ),
+            GenerationTransportObservation(
+                generation_api=GenerationAPI.RESPONSES,
+                protocol_conformance=search_transport_conformance,
+                detail_code=(
+                    search_endpoint_hash
+                    if search_transport_conformance
+                    else "native_search_probe_failed"
                 ),
             ),
         ),
@@ -344,7 +448,7 @@ def _stream_payload(model_name: str) -> dict[str, Any]:
             {"role": "user", "content": "Reply with WENJIN-PROBE-OK."}
         ],
         "stream": True,
-        "reasoning_effort": "xhigh",
+        "reasoning_effort": "low",
         "store": False,
         "max_tokens": 128,
     }

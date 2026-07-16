@@ -12,8 +12,11 @@ import json
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Literal, Self
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from src.contracts.reasoning import ReasoningEffort
 
 PROFILE_VERSION = "wenjin.model-capability-profile.v1"
 PROBE_VERSION = "wenjin.model-capability-probe.v1"
@@ -26,16 +29,8 @@ class GenerationAPI(StrEnum):
     RESPONSES = "responses"
 
 
-class ReasoningEffort(StrEnum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    XHIGH = "xhigh"
-
-
 class WebSearchAPI(StrEnum):
     RESPONSES_WEB_SEARCH = "responses_web_search"
-    CHAT_SEARCH_MODEL = "chat_search_model"
     NONE = "none"
 
 
@@ -226,16 +221,23 @@ def endpoint_fingerprint(
 
 def native_search_endpoint_fingerprint(base_url: str) -> str:
     """Bind the independently probed Responses SSE search endpoint."""
-    normalized = str(base_url or "").strip().rstrip("/")
-    if normalized.endswith("/v1"):
-        normalized = normalized[:-3]
     return _canonical_hash(
         {
             "completion_boundary": "response.completed",
-            "endpoint": f"{normalized}/responses",
+            "endpoint": native_search_endpoint(base_url),
             "transport": "sse",
         }
     )
+
+
+def native_search_endpoint(base_url: str) -> str:
+    """Resolve the single Responses endpoint used by probing and execution."""
+    parsed = urlsplit(str(base_url or "").strip().rstrip("/"))
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[:-3]
+    path = f"{path}/responses" if path else "/responses"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def build_profile_from_probe(evidence: ModelCapabilityProbeEvidence) -> ModelCapabilityProfile:
@@ -255,11 +257,10 @@ def build_profile_from_probe(evidence: ModelCapabilityProbeEvidence) -> ModelCap
         if protocol_conformance and evidence.check_passed(f"reasoning_effort:{effort.value}")
     )
 
-    search_transport_conforms = False
-    if evidence.web_search_api is WebSearchAPI.RESPONSES_WEB_SEARCH:
-        search_transport_conforms = evidence.transport_conforms(GenerationAPI.RESPONSES)
-    elif evidence.web_search_api is WebSearchAPI.CHAT_SEARCH_MODEL:
-        search_transport_conforms = evidence.transport_conforms(GenerationAPI.CHAT_COMPLETIONS)
+    search_transport_conforms = (
+        evidence.web_search_api is WebSearchAPI.RESPONSES_WEB_SEARCH
+        and evidence.transport_conforms(GenerationAPI.RESPONSES)
+    )
     required_receipts = {
         SearchReceiptKind.WEB_SEARCH_CALL,
         SearchReceiptKind.ANNOTATIONS_SOURCES,
@@ -375,11 +376,11 @@ def gpt56_release_assessment(
     *,
     observed_at: datetime | None = None,
 ) -> CapabilityProfileAssessment:
-    """Locked 2026-07-12 live-probe evidence for the GPT-5.6 release family."""
+    """Locked 2026-07-14 live-probe evidence for the GPT-5.6 release family."""
 
     if model_id not in GPT56_RELEASE_MODEL_IDS:
         raise ValueError(f"Unsupported GPT-5.6 release model: {model_id}")
-    observed = (observed_at or datetime(2026, 7, 12, tzinfo=UTC)).astimezone(UTC)
+    observed = (observed_at or datetime(2026, 7, 14, tzinfo=UTC)).astimezone(UTC)
     model_name = model_id
     base_url = "https://api.nainai.love/v1"
     evidence = ModelCapabilityProbeEvidence(
@@ -401,12 +402,29 @@ def gpt56_release_assessment(
             CapabilityProbeCheck(name="reasoning_effort:medium", status=ProbeCheckStatus.PASSED),
             CapabilityProbeCheck(name="reasoning_effort:high", status=ProbeCheckStatus.PASSED),
             CapabilityProbeCheck(name="reasoning_effort:xhigh", status=ProbeCheckStatus.PASSED),
+            CapabilityProbeCheck(name="native_web_search_call", status=ProbeCheckStatus.PASSED),
+            CapabilityProbeCheck(name="search_source_citations", status=ProbeCheckStatus.PASSED),
+            CapabilityProbeCheck(
+                name="native_web_search_completed_event_boundary",
+                status=ProbeCheckStatus.PASSED,
+                detail_code=native_search_endpoint_fingerprint(base_url),
+            ),
+        ),
+        web_search_api=WebSearchAPI.RESPONSES_WEB_SEARCH,
+        search_receipts=(
+            SearchReceiptKind.WEB_SEARCH_CALL,
+            SearchReceiptKind.ANNOTATIONS_SOURCES,
         ),
         transport_observations=(
             GenerationTransportObservation(
                 generation_api=GenerationAPI.CHAT_COMPLETIONS,
                 protocol_conformance=True,
                 detail_code="clean_done_and_close",
+            ),
+            GenerationTransportObservation(
+                generation_api=GenerationAPI.RESPONSES,
+                protocol_conformance=True,
+                detail_code=native_search_endpoint_fingerprint(base_url),
             ),
         ),
     )
@@ -436,13 +454,13 @@ __all__ = [
     "ModelCapabilityProbeEvidence",
     "ModelCapabilityProfile",
     "ProbeCheckStatus",
-    "ReasoningEffort",
     "SearchReceiptKind",
     "WebSearchAPI",
     "assess_profile_freshness",
     "build_profile_from_probe",
     "endpoint_fingerprint",
     "gpt56_release_assessment",
+    "native_search_endpoint",
     "native_search_endpoint_fingerprint",
     "unverified_capability_assessment",
 ]

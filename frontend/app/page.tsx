@@ -22,6 +22,7 @@ type WorkspaceType =
   | "sci"
   | "thesis"
   | "proposal"
+  | "math_modeling"
   | "patent"
   | "software_copyright";
 
@@ -88,7 +89,7 @@ const COPY: Record<Locale, LandingCopy> = {
       title: "问津 Wenjin",
       subtitle:
         "从一个研究想法开始，学术 Harness 召集定制化专家助手，组织文献、证据、实验与稿件；你在 Prism 里复核引用、修改和最终成稿。",
-      caption: "学术 Harness、专家团队、Library、Run History 与 Prism 文件工作区在同一个 workspace 里协作。",
+      caption: "学术 Harness、研究成员、资料库、研究任务与 Prism 在同一个工作空间里协作。",
       previewAlt: "Wenjin Prism 研究工作台产品预览",
       signals: ["学术 Harness", "专家助手", "证据链", "Prism"],
     },
@@ -96,7 +97,7 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Positioning",
       title: "不是聊天框，也不是模板库。它是研究任务的执行环境。",
       body:
-        "Wenjin 的价值不是生成一段文字，而是让研究上下文持续沉淀：文献、证据、实验材料、后台 workspace memory 和稿件确认都在同一个 workspace 里推进。",
+        "Wenjin 的价值不是生成一段文字，而是让研究上下文持续沉淀：文献、证据、实验材料、项目记忆和稿件确认都在同一个工作空间里推进。",
       ordinaryLabel: "普通智能写作",
       ordinaryTitle: "回答结束后，工作流也断了。",
       ordinaryBody:
@@ -104,7 +105,7 @@ const COPY: Record<Locale, LandingCopy> = {
       wenjinLabel: "Wenjin",
       wenjinTitle: "研究团队带着 workspace 上下文持续工作。",
       wenjinBody:
-        "每次执行都沉淀到 Library、Prism 文件、Decisions、Tasks 和后台 workspace memory，形成能被确认、复用和继续推进的研究链路。",
+        "每次研究任务都会沉淀资料、证据、Prism 稿件、关键决策与项目记忆，形成可确认、可复用、可继续推进的研究链路。",
     },
     loop: {
       eyebrow: "Operating Loop",
@@ -120,7 +121,7 @@ const COPY: Record<Locale, LandingCopy> = {
         {
           index: "02",
           title: "自动组织上下文",
-          body: "文献、引用、材料和后台 workspace memory 进入同一个 workspace。",
+          body: "文献、引用、材料和项目上下文进入同一个工作空间。",
         },
         {
           index: "03",
@@ -137,12 +138,13 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Deliver",
       title: "把科研从临时问答推进到可持续交付。",
       body:
-        "从一个想法开始，进入 workspace，让研究团队组织上下文、推进任务，并在 Prism 中完成最终复核。",
+        "从一个想法开始，进入工作空间，让研究团队组织上下文、推进任务，并在 Prism 中完成最终复核。",
     },
     quickStartItems: {
       sci: "SCI",
       thesis: "学位论文",
       proposal: "项目书",
+      math_modeling: "数学建模",
       patent: "专利",
       software_copyright: "软著",
     },
@@ -162,7 +164,7 @@ const COPY: Record<Locale, LandingCopy> = {
       title: "Wenjin",
       subtitle:
         "From a research idea, an academic harness recruits custom expert assistants to organize literature, evidence, experiments, and drafts while you review citations, edits, and final manuscript state in Prism.",
-      caption: "Academic harness, expert assistants, Library, Run History, and the Prism file workspace move inside one workspace.",
+      caption: "The academic harness, research members, library, Missions, and Prism work together in one workspace.",
       previewAlt: "Wenjin Prism research workbench preview",
       signals: ["Academic Harness", "Expert Assistants", "Evidence Graph", "Prism"],
     },
@@ -170,7 +172,7 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Positioning",
       title: "Not a chat box or a template library. A runtime for research work.",
       body:
-        "Wenjin is not built to generate one isolated answer. It keeps literature, evidence, experiments, hidden workspace memory, and manuscript confirmation moving inside one workspace.",
+        "Wenjin is not built to generate one isolated answer. It keeps literature, evidence, experiments, project memory, and manuscript confirmation moving inside one workspace.",
       ordinaryLabel: "Ordinary assisted writing",
       ordinaryTitle: "Once the answer ends, the workflow breaks.",
       ordinaryBody:
@@ -178,7 +180,7 @@ const COPY: Record<Locale, LandingCopy> = {
       wenjinLabel: "Wenjin",
       wenjinTitle: "The research team keeps working with workspace context.",
       wenjinBody:
-        "Runs write back into Library, Prism files, Decisions, Tasks, and hidden workspace memory, creating a research loop that can be confirmed, reused, and continued.",
+        "Each Mission preserves sources, evidence, Prism drafts, key decisions, and project memory in a research loop that can be confirmed, reused, and continued.",
     },
     loop: {
       eyebrow: "Operating Loop",
@@ -194,7 +196,7 @@ const COPY: Record<Locale, LandingCopy> = {
         {
           index: "02",
           title: "Organize context",
-          body: "Literature, citations, materials, and hidden workspace memory stay in one workspace.",
+          body: "Literature, citations, materials, and project context stay in one workspace.",
         },
         {
           index: "03",
@@ -217,6 +219,7 @@ const COPY: Record<Locale, LandingCopy> = {
       sci: "SCI",
       thesis: "Thesis",
       proposal: "Proposal",
+      math_modeling: "Math modeling",
       patent: "Patent",
       software_copyright: "Software copyright",
     },
@@ -227,6 +230,7 @@ const QUICK_START_ORDER: WorkspaceType[] = [
   "sci",
   "thesis",
   "proposal",
+  "math_modeling",
   "patent",
   "software_copyright",
 ];

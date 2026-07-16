@@ -72,7 +72,6 @@ async def launch_chat_turn_from_create_request(
                     "workspace_id": body.workspace_id,
                     "thread_id": turn_request.thread_id,
                     "model": body.model,
-                    "skill": body.skill,
                 }
             },
             on_disconnect=body.on_disconnect,

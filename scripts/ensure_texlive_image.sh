@@ -9,11 +9,11 @@
 
 set -euo pipefail
 
-IMAGE_NAME="${TEXLIVE_IMAGE_NAME:-${GUANLAN_TEXLIVE_IMAGE:-wenjin/texlive:2024}}"
+IMAGE_NAME="${TEXLIVE_IMAGE_NAME:-${WENJIN_TEXLIVE_IMAGE:-wenjin/texlive:2024}}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-IMAGE_TAR_PATH="${TEXLIVE_IMAGE_TAR:-${GUANLAN_TEXLIVE_IMAGE_TAR:-$PROJECT_ROOT/backend/docker/images/texlive/wenjin-texlive-2024.tar}}"
+IMAGE_TAR_PATH="${TEXLIVE_IMAGE_TAR:-${WENJIN_TEXLIVE_IMAGE_TAR:-$PROJECT_ROOT/backend/docker/images/texlive/wenjin-texlive-2024.tar}}"
 IMAGE_DOCKERFILE="${TEXLIVE_IMAGE_DOCKERFILE:-$PROJECT_ROOT/backend/docker/images/texlive/Dockerfile}"
 IMAGE_BUILD_CONTEXT="${TEXLIVE_IMAGE_CONTEXT:-$PROJECT_ROOT/backend/docker/images/texlive}"
 IMAGE_BASE="${TEXLIVE_BASE_IMAGE:-ubuntu:22.04}"

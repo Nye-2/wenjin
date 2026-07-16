@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from src.academic.cache.redis_client import RedisClient
 from src.dataservice_client.provider import dataservice_client
 from src.task.celery_app import celery_app
 
@@ -20,30 +21,29 @@ _LOCK_TTL = 240  # seconds — must be less than beat interval (300s)
 
 
 async def _process_periodic_rules() -> dict[str, int]:
-    from src.academic.cache.redis_client import redis_client
-
     # Distributed lock to prevent concurrent beat runs from double-granting.
-    if not redis_client.is_connected:
-        try:
-            await redis_client.connect()
-        except Exception:
-            logger.warning("Redis unavailable; running without distributed lock")
+    redis_client = RedisClient()
+    try:
+        await redis_client.connect()
+    except Exception:
+        logger.warning("Redis unavailable; running without distributed lock")
     lock = None
     if redis_client.is_connected:
         lock = redis_client.client.lock(LOCK_KEY, timeout=_LOCK_TTL)
-        if not await lock.acquire(blocking=False):
-            logger.info("another worker holds the periodic credit lock; skipping")
-            return {"rules_evaluated": 0, "rules_fired": 0, "users_granted": 0}
 
     try:
+        if lock is not None and not await lock.acquire(blocking=False):
+            logger.info("another worker holds the periodic credit lock; skipping")
+            return {"rules_evaluated": 0, "rules_fired": 0, "users_granted": 0}
         return await _process_periodic_rules_inner()
     finally:
         if lock is not None:
             try:
                 if await lock.owned():
-                    lock.release()
+                    await lock.release()
             except Exception:
-                pass
+                logger.warning("Failed to release periodic credit lock", exc_info=True)
+        await redis_client.disconnect()
 
 
 async def _process_periodic_rules_inner() -> dict[str, int]:

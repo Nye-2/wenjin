@@ -19,6 +19,7 @@ from src.sandbox.contracts import (
     sandbox_job_id,
 )
 from src.sandbox.exceptions import SandboxMaterializationError, SandboxOutputRefError
+from src.sandbox.runtime import SandboxRuntime
 from src.sandbox.security import SandboxPathError
 from src.sandbox.storage import FilesystemSandboxReceiptStore, SandboxWorkspace
 
@@ -59,7 +60,59 @@ def test_workspace_separates_public_control_and_environments(tmp_path) -> None:
     assert workspace.paths.control_root not in workspace.paths.public_root.parents
     assert not (workspace.paths.public_root / ".wenjin").exists()
     assert (workspace.paths.control_root / "workspace.json").is_file()
+    assert (workspace.paths.control_root / "artifact_objects").is_dir()
     assert stat.S_IMODE(workspace.paths.control_root.stat().st_mode) & 0o077 == 0
+
+
+def test_runtime_hashes_and_mounts_derived_artifact_inputs_read_only(tmp_path) -> None:
+    workspace = _workspace(tmp_path)
+    artifact_path = "/workspace/outputs/q3_plot_data.csv"
+    workspace.write_text(
+        artifact_path,
+        "policy,cost\nB0,1\n",
+        expected_content_hash=None,
+    )
+    operation_input = RunPythonInput(
+        script="print('ok')\n",
+        artifact_input_paths=(artifact_path,),
+    )
+    runtime = object.__new__(SandboxRuntime)
+
+    input_hashes = runtime._input_hashes(workspace, operation_input)
+    request = SandboxOperationRequest.build(
+        provenance=SandboxMissionProvenance(
+            workspace_id="workspace-1",
+            mission_id="mission-1",
+            lease_epoch=1,
+        ),
+        operation_input=operation_input,
+        image_digest=IMAGE_DIGEST,
+        input_hashes=input_hashes,
+    )
+    staging = workspace.create_output_staging(request.operation_key)
+    mounts = runtime._mounts(
+        workspace,
+        request=request,
+        environment_path=None,
+        environment_staging=None,
+        output_staging=staging,
+    )
+
+    assert input_hashes[f"artifact:{artifact_path}"] == workspace.content_hash(
+        artifact_path
+    )
+    artifact_mount = next(mount for mount in mounts if mount.target == artifact_path)
+    assert artifact_mount.source == workspace.resolve_public_path(artifact_path)
+    assert artifact_mount.read_only is True
+    mountpoint = staging / "outputs" / "q3_plot_data.csv"
+    assert mountpoint.is_file()
+    assert mountpoint.stat().st_size == 0
+    workspace.remove_artifact_input_mountpoints(
+        staging=staging,
+        paths=(artifact_path,),
+    )
+    assert not mountpoint.exists()
+    workspace.discard_output_staging(staging)
 
 
 def test_existing_file_write_requires_current_base_hash(tmp_path) -> None:
@@ -82,6 +135,26 @@ def test_existing_file_write_requires_current_base_hash(tmp_path) -> None:
         expected_content_hash=first_hash,
     )
     assert second_hash == content_hash_bytes(b"print(2)\n")
+
+
+def test_stale_output_hash_error_names_the_output_path(tmp_path) -> None:
+    workspace = _workspace(tmp_path)
+    output_path = "/workspace/outputs/result.json"
+    workspace.write_text(output_path, '{"value":1}\n', expected_content_hash=None)
+    staging = tmp_path / "operation_staging" / "job-1"
+    staged_output = staging / "outputs" / "result.json"
+    staged_output.parent.mkdir(parents=True)
+    staged_output.write_text('{"value":2}\n')
+
+    with pytest.raises(
+        SandboxPathError,
+        match=r"output base content hash is stale for /workspace/outputs/result.json",
+    ):
+        workspace.merge_staged_outputs(
+            staging=staging,
+            output_base_hashes={output_path: content_hash_bytes(b"stale")},
+            max_workspace_bytes=1_000_000,
+        )
 
 
 def test_symlink_escape_is_rejected(tmp_path) -> None:
@@ -112,6 +185,46 @@ def test_output_refs_are_opaque_integrity_checked_and_expire(tmp_path) -> None:
     assert workspace.read_output_ref(output.output_ref, now=now) == b"full redacted output"
     with pytest.raises(SandboxOutputRefError, match="expired"):
         workspace.read_output_ref(output.output_ref, now=now + timedelta(seconds=61))
+
+
+def test_registered_artifact_bytes_survive_public_path_replacement(tmp_path) -> None:
+    workspace = _workspace(tmp_path)
+    path = "/workspace/outputs/result.json"
+    original = b'{"objective":4}\n'
+    original_hash = workspace.write_text(
+        path,
+        original.decode(),
+        expected_content_hash=None,
+    )
+    [manifest] = workspace.artifact_manifests_for_paths(
+        paths=(path,),
+        request=_request(),
+        sandbox_job_id="sbxjob_immutable",
+        sandbox_environment_id="sbxenv_immutable",
+        source_script="/workspace/scripts/analysis.py",
+        dataset_paths=(),
+        stdout_truncated=False,
+        stderr_truncated=False,
+        created_at=datetime.now(UTC),
+    )
+
+    workspace.write_text(
+        path,
+        '{"objective":9}\n',
+        expected_content_hash=original_hash,
+    )
+
+    assert workspace.read_bytes(path) != original
+    assert workspace.read_artifact_object(
+        manifest.object_ref,
+        expected_content_hash=manifest.content_hash,
+    ) == original
+    object_path = (
+        workspace.paths.control_root
+        / "artifact_objects"
+        / f"{manifest.object_ref}.bin"
+    )
+    assert stat.S_IMODE(object_path.stat().st_mode) & 0o222 == 0
 
 
 def test_corrupt_output_ref_cannot_escape_control_root_during_cleanup(tmp_path) -> None:

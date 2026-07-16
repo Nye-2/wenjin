@@ -113,6 +113,74 @@ def test_matplotlib_figure_spec_accepts_workspace_output() -> None:
     assert spec.output_targets[0].startswith("/workspace/outputs/")
 
 
+def test_matplotlib_figure_spec_accepts_verified_derived_data() -> None:
+    spec = FigureSpec(
+        figure_id="q3_policy_summary",
+        title="Policy comparison",
+        figure_type="statistical_chart",
+        strategy="matplotlib",
+        purpose="Plot verified third-question results",
+        output_targets=["/workspace/outputs/figures/q3_policy_summary.png"],
+        dataset_paths=["/workspace/outputs/q3_plot_data.csv"],
+    )
+
+    assert spec.dataset_paths == ["/workspace/outputs/q3_plot_data.csv"]
+
+
+def test_figure_spec_rejects_same_path_as_input_and_output() -> None:
+    path = "/workspace/outputs/figures/q3_policy_summary.png"
+
+    with pytest.raises(ValidationError, match="must not overlap"):
+        FigureSpec(
+            figure_id="q3_policy_summary",
+            title="Policy comparison",
+            figure_type="statistical_chart",
+            strategy="matplotlib",
+            purpose="Plot verified third-question results",
+            output_targets=[path],
+            dataset_paths=[path],
+        )
+
+
+def test_deterministic_figure_spec_requires_exactly_one_reviewable_output_target() -> None:
+    base = {
+        "figure_id": "fed_llm_curve",
+        "title": "Federated LLM Accuracy",
+        "figure_type": "experiment_plot",
+        "strategy": "matplotlib",
+        "purpose": "Show benchmark trend",
+    }
+
+    with pytest.raises(ValidationError, match="exactly one reviewable output path"):
+        FigureSpec.model_validate(base)
+
+    with pytest.raises(ValidationError, match="at most 1 item"):
+        FigureSpec.model_validate(
+            {
+                **base,
+                "output_targets": [
+                    "/workspace/outputs/figures/fed_llm_curve/figure.png",
+                    "/workspace/outputs/figures/fed_llm_curve/figure.svg",
+                ],
+            }
+        )
+
+
+def test_academic_visual_schema_explains_reviewable_output_target_path() -> None:
+    schema = AcademicVisualRenderInput.model_json_schema()
+    output_targets = schema["$defs"]["FigureSpec"]["properties"]["output_targets"]
+    dataset_paths = schema["$defs"]["FigureSpec"]["properties"]["dataset_paths"]
+
+    assert output_targets["maxItems"] == 1
+    assert output_targets["items"]["pattern"].startswith("^/workspace/")
+    assert "Deterministic strategies require exactly one" in output_targets["description"]
+    assert "/workspace/outputs/figures/q3_policy_summary.png" in output_targets["description"]
+    assert dataset_paths["items"]["pattern"] == (
+        r"^/workspace/(?:datasets|outputs|reports)/.+"
+    )
+    assert "verified derived data" in dataset_paths["description"]
+
+
 def test_manifest_requires_reviewable_workspace_path() -> None:
     with pytest.raises(ValidationError, match="reviewable workspace artifact"):
         _manifest(intended_output_targets=("/workspace/.wenjin/cache/secret.png",))
@@ -214,6 +282,19 @@ def test_dataset_paths_reject_protected_wenjin_and_traversal() -> None:
             purpose="Show benchmark trend",
             output_targets=["/workspace/outputs/figures/traversal_data/figure.png"],
             dataset_paths=["/workspace/datasets/../private/results.csv"],
+        )
+
+
+def test_dataset_paths_reject_non_data_workspace_roots() -> None:
+    with pytest.raises(ValidationError, match="visual data path must be under"):
+        FigureSpec(
+            figure_id="script_as_data",
+            title="Script as data",
+            figure_type="experiment_plot",
+            strategy="matplotlib",
+            purpose="Reject executable input roots",
+            output_targets=["/workspace/outputs/figures/script_as_data.png"],
+            dataset_paths=["/workspace/scripts/analysis.py"],
         )
 
 

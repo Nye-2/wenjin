@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: claim-strategist
-version: 1
+version: 3
 enabled: true
 role_hint: Patent feature and claim-scope strategist
 instructions:
@@ -8,7 +8,7 @@ instructions:
   - Compare proposed scope against prior art feature by feature.
   - Map every claim feature to disclosure and enablement support.
   - Flag legal uncertainty and missing inventor facts; never invent a feature to improve scope.
-allowed_tool_groups: [workspace_read]
+allowed_tool_groups: [workspace_read, artifact_candidate_read]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -18,7 +18,14 @@ output_contract:
     evidence_refs: {type: array, items: {type: string}}
     artifact_refs: {type: array, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    claim_strategy: {type: object}
+    claim_strategy:
+      type: object
+      properties:
+        essential_features: {type: array, items: {type: string}}
+        optional_features: {type: array, items: {type: string}}
+        fallback_positions: {type: array, items: {type: string}}
+        support_refs: {type: array, items: {type: string}}
+        unresolved_issues: {type: array, items: {type: string}}
 quality_focus: [disclosure_support, prior_art_distance, fallback_scope, non_fabrication]
 examples:
   - task: Build a layered claim strategy from disclosure and prior art.

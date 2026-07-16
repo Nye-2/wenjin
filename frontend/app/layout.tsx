@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 import { I18nProvider } from "@/components/i18n-provider";
 import { WenjinThemeProvider } from "@/components/wenjin-theme-provider";

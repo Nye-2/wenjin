@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from pydantic import ValidationError
 
 from src.agents.workspace_agent.contracts import (
     AgentAction,
@@ -21,9 +22,12 @@ from src.agents.workspace_agent.contracts import (
     WorkspaceAgentReply,
 )
 from src.agents.workspace_agent.prompts import render_workspace_agent_prompt
-from src.mission_runtime import MissionStartRejectedError
+from src.mission_runtime import MissionStartRejectedError, MissionStartRejectionCode
 from src.mission_runtime.contracts import MissionStartRequest
-from src.mission_runtime.production import MissionProductionConfigurationError
+from src.mission_runtime.production import (
+    MissionProductionConfigurationError,
+    MissionProductionConfigurationErrorCode,
+)
 from src.models.provider_schema import strict_provider_schema
 
 
@@ -43,6 +47,7 @@ class WorkspaceMissionPort(Protocol):
         input_kind: str,
         instruction: str,
         request_id: str | None = None,
+        mission_inputs: tuple[dict[str, Any], ...] = (),
     ): ...
 
     async def review(
@@ -76,8 +81,10 @@ _ACTION_MODELS = {
 }
 
 
-def _tool_descriptors() -> list[dict[str, Any]]:
-    return [
+def _tool_descriptors(
+    context: WorkspaceAgentContext | None = None,
+) -> list[dict[str, Any]]:
+    descriptors = [
         {
             "type": "function",
             "function": {
@@ -89,6 +96,51 @@ def _tool_descriptors() -> list[dict[str, Any]]:
         }
         for name, model in _ACTION_MODELS.items()
     ]
+    if context is None:
+        return descriptors
+
+    by_name = {
+        str(item["function"]["name"]): item["function"]["parameters"]
+        for item in descriptors
+    }
+    available_inputs = tuple(item.input_ref for item in context.mission_inputs)
+    start_spec = by_name["start_mission"]["$defs"]["MissionStartSpec"]
+    _bind_array_enum(start_spec["properties"]["input_refs"], available_inputs)
+    _bind_array_enum(
+        by_name["steer_mission"]["properties"]["input_refs"],
+        available_inputs,
+    )
+    policy_ids = [hint.policy_id for hint in context.policy_hints]
+    if policy_ids:
+        start_spec["properties"]["mission_policy_id"]["enum"] = policy_ids
+    parent_schema = start_spec["properties"]["parent_mission_id"]
+    if context.continuation_target is None:
+        parent_schema["anyOf"] = [{"type": "null"}]
+    else:
+        string_branch = next(
+            branch
+            for branch in parent_schema["anyOf"]
+            if branch.get("type") == "string"
+        )
+        string_branch["enum"] = [context.continuation_target.mission_id]
+    if context.active_mission is not None:
+        active_id = context.active_mission.mission_id
+        for action_name in (
+            "steer_mission",
+            "propose_review",
+            "request_commit",
+        ):
+            by_name[action_name]["properties"]["mission_id"]["enum"] = [active_id]
+    return descriptors
+
+
+def _bind_array_enum(schema: dict[str, Any], values: tuple[str, ...]) -> None:
+    unique = list(dict.fromkeys(values))
+    if unique:
+        schema["items"]["enum"] = unique
+        schema["maxItems"] = min(int(schema.get("maxItems") or len(unique)), len(unique))
+        return
+    schema["maxItems"] = 0
 
 
 def parse_provider_action(message: AIMessage) -> AgentAction:
@@ -106,8 +158,15 @@ def parse_provider_action(message: AIMessage) -> AgentAction:
     payload = {**arguments, "action": name}
     try:
         return AgentActionAdapter.validate_python(payload)
-    except Exception as exc:
-        raise WorkspaceAgentProtocolError("WorkspaceAgent returned invalid structured arguments") from exc
+    except ValidationError as exc:
+        issues = [
+            f"{'.'.join(str(part) for part in issue['loc'])}: {issue['msg']}"
+            for issue in exc.errors(include_input=False)[:8]
+        ]
+        detail = "; ".join(issues) or "schema validation failed"
+        raise WorkspaceAgentProtocolError(
+            f"WorkspaceAgent returned invalid structured arguments ({detail})"
+        ) from exc
 
 
 def _conversation_messages(context: WorkspaceAgentContext) -> list[BaseMessage]:
@@ -126,6 +185,32 @@ def _conversation_messages(context: WorkspaceAgentContext) -> list[BaseMessage]:
     return messages
 
 
+def _with_aggregated_usage(
+    response: AIMessage,
+    responses: list[AIMessage],
+) -> AIMessage:
+    """Account for the one bounded protocol-repair call without losing usage."""
+
+    if len(responses) == 1:
+        return response
+    combined: dict[str, Any] = {}
+    for item in responses:
+        usage = item.usage_metadata or {}
+        for key, value in usage.items():
+            if isinstance(value, int):
+                combined[key] = int(combined.get(key) or 0) + value
+            elif isinstance(value, dict):
+                nested = combined.setdefault(key, {})
+                if not isinstance(nested, dict):
+                    continue
+                for nested_key, nested_value in value.items():
+                    if isinstance(nested_value, int):
+                        nested[nested_key] = int(nested.get(nested_key) or 0) + nested_value
+    if not combined:
+        return response
+    return response.model_copy(update={"usage_metadata": combined})
+
+
 class WorkspaceAgent:
     def __init__(self, *, model: BaseChatModel, missions: WorkspaceMissionPort) -> None:
         self._model = model
@@ -133,14 +218,71 @@ class WorkspaceAgent:
 
     async def decide(self, context: WorkspaceAgentContext) -> tuple[AgentAction, AIMessage]:
         bound = self._model.bind_tools(
-            _tool_descriptors(),
+            _tool_descriptors(context),
             tool_choice="required",
             strict=True,
         )
-        response = await bound.ainvoke(_conversation_messages(context))
-        if not isinstance(response, AIMessage):
-            raise WorkspaceAgentProtocolError("WorkspaceAgent provider returned a non-message response")
-        return parse_provider_action(response), response
+        base_messages = _conversation_messages(context)
+        responses: list[AIMessage] = []
+        feedback: str | None = None
+        for attempt in range(2):
+            messages = list(base_messages)
+            if feedback is not None:
+                messages.insert(
+                    1,
+                    SystemMessage(
+                        content=(
+                            "Your previous structured action violated the provider contract. "
+                            f"Correct it now: {feedback}. Return exactly one allowed function "
+                            "call and no prose. input_refs may contain only exact mission-input "
+                            "values offered by the current tool schema; inherited artifact and "
+                            "academic-visual refs are carried by the continuation Mission."
+                        )
+                    ),
+                )
+            response = await bound.ainvoke(messages)
+            if not isinstance(response, AIMessage):
+                raise WorkspaceAgentProtocolError(
+                    "WorkspaceAgent provider returned a non-message response"
+                )
+            responses.append(response)
+            try:
+                action = parse_provider_action(response)
+                self._validate_action_context(action, context)
+            except WorkspaceAgentProtocolError as exc:
+                if attempt == 1:
+                    raise
+                feedback = str(exc)
+                continue
+            return action, _with_aggregated_usage(response, responses)
+        raise WorkspaceAgentProtocolError("WorkspaceAgent could not produce a valid action")
+
+    def _validate_action_context(
+        self,
+        action: AgentAction,
+        context: WorkspaceAgentContext,
+    ) -> None:
+        if isinstance(action, StartMissionAction):
+            self._validate_start_policy(action, context)
+            self._validate_start_parent(action, context)
+            try:
+                context.select_mission_inputs(action.mission.input_refs)
+            except ValueError as exc:
+                raise WorkspaceAgentProtocolError(str(exc)) from exc
+            return
+        if isinstance(action, SteerMissionAction):
+            self._validate_active_target(action.mission_id, context)
+            if action.input_kind.value == "advisory":
+                raise WorkspaceAgentProtocolError(
+                    "Advisory input cannot mutate a mission"
+                )
+            try:
+                context.select_mission_inputs(action.input_refs)
+            except ValueError as exc:
+                raise WorkspaceAgentProtocolError(str(exc)) from exc
+            return
+        if isinstance(action, (ProposeReviewAction, RequestCommitAction)):
+            self._validate_active_target(action.mission_id, context)
 
     async def run(self, context: WorkspaceAgentContext) -> WorkspaceAgentReply:
         action, provider_message = await self.decide(context)
@@ -152,77 +294,98 @@ class WorkspaceAgent:
             text = action.question if not choices else f"{action.question}\n{choices}"
             return WorkspaceAgentReply(text=text, action=action, metadata={"usage": usage})
         if isinstance(action, StartMissionAction):
-            policy_hint = self._validate_start_identity(action, context)
-            if (
-                context.active_mission is not None
-                and context.active_mission.status not in {"completed", "failed", "cancelled"}
-            ):
+            policy_hint = self._validate_start_policy(action, context)
+            parent_mission_id = self._validate_start_parent(action, context)
+            if context.active_mission is not None and context.active_mission.status not in {"completed", "failed", "cancelled"}:
                 question = AskUserAction(
                     request_id=f"mission-choice:{context.user_message_id}",
-                    question=(
-                        f"当前还有“{context.active_mission.title}”在进行。"
-                        "你想继续调整这个任务，还是先取消它再开始新的任务？"
-                    ),
+                    question=(f"当前还有“{context.active_mission.title}”在进行。你想继续调整这个任务，还是先取消它再开始新的任务？"),
                     choices=("继续当前任务", "取消后开始新任务"),
                 )
                 return WorkspaceAgentReply(text=question.question, action=question, metadata={"usage": usage})
             spec = action.mission
             try:
+                selected_inputs = context.select_mission_inputs(spec.input_refs)
+            except ValueError as exc:
+                raise WorkspaceAgentProtocolError(str(exc)) from exc
+            try:
                 receipt = await self._missions.start(
                     MissionStartRequest(
-                        workspace_id=spec.workspace_id,
-                        thread_id=spec.thread_id,
-                        user_id=spec.user_id,
-                        workspace_type=spec.workspace_type,
-                        title=spec.objective[:300],
+                        workspace_id=context.workspace_id,
+                        thread_id=context.thread_id,
+                        user_id=context.user_id,
+                        workspace_type=context.workspace_type,
+                        title=spec.title,
                         objective=spec.objective,
-                        mission_idempotency_key=spec.mission_idempotency_key,
+                        mission_idempotency_key=(f"mission:{context.thread_id}:{context.user_message_id}"),
                         mission_policy_id=spec.mission_policy_id,
-                        review_mode=spec.review_mode.value,
-                        model_id=spec.model_id,
-                        reasoning_effort=spec.reasoning_effort,
+                        parent_mission_id=parent_mission_id,
+                        review_mode=context.review_mode.value,
+                        model_id=context.model_id,
+                        reasoning_effort=context.reasoning_effort,
                         snapshot_json={
-                            "intake": {
-                                item.key: item.value for item in spec.initial_params
-                            }
+                            "intake": {item.key: item.value for item in spec.initial_params},
+                            "mission_inputs": [item.model_dump(mode="json") for item in selected_inputs],
                         },
                         runtime_context_json={
-                            "policy_ref": (
-                                f"{spec.mission_policy_id}@{policy_hint.content_hash}"
-                            ),
+                            "policy_ref": (f"{spec.mission_policy_id}@{policy_hint.content_hash}"),
                             "policy_content_hash": policy_hint.content_hash,
-                            "model_capability_profile_hash": (
-                                spec.model_capability_profile_hash
-                            ),
-                            "context_refs": list(spec.runtime_context_refs),
+                            "model_capability_profile_hash": (context.model_capability_profile_hash),
+                            "context_refs": [item.input_ref for item in selected_inputs],
                         },
                     )
                 )
             except MissionProductionConfigurationError as exc:
-                return WorkspaceAgentReply(
-                    text=(
+                if (
+                    exc.code
+                    is MissionProductionConfigurationErrorCode.NATIVE_SEARCH_UNAVAILABLE
+                ):
+                    text = (
                         "当前模型的联网检索还没有通过完整性验证，因此研究任务没有启动。"
                         "你可以继续和我收紧选题或设计方法；待联网验证恢复后再启动系统检索。"
-                    ),
+                    )
+                else:
+                    text = (
+                        "当前任务的运行配置暂未就绪，因此研究任务没有启动。"
+                        "你的对话和材料已经保留，请稍后重试。"
+                    )
+                return WorkspaceAgentReply(
+                    text=text,
                     action=action,
                     metadata={
                         "usage": usage,
                         "mission_start": {
                             "status": "not_started",
-                            "reason": "runtime_capability_unavailable",
+                            "reason": exc.code.value,
                             "detail": str(exc),
                         },
                     },
                 )
             except MissionStartRejectedError as exc:
+                if exc.code is MissionStartRejectionCode.CONTINUATION_POLICY_CHANGED:
+                    text = (
+                        "这个任务使用的研究方法版本已经更新，无法直接续接旧运行。"
+                        "旧成果仍然保留；请基于现有材料启动一个新任务。"
+                    )
+                elif exc.code is MissionStartRejectionCode.CONTINUATION_PARENT_NOT_TERMINAL:
+                    text = "当前任务仍在进行，请先继续或结束它，再创建续接任务。"
+                elif exc.code in {
+                    MissionStartRejectionCode.CONTINUATION_PARENT_NOT_FOUND,
+                    MissionStartRejectionCode.CONTINUATION_IDENTITY_MISMATCH,
+                }:
+                    text = "没有找到可可靠续接的同一研究任务，请基于现有材料启动一个新任务。"
+                elif exc.code is MissionStartRejectionCode.INVALID_START_STATE:
+                    text = "任务启动信息不完整，因此研究任务没有启动。请重新描述你的目标。"
+                else:
+                    text = str(exc)
                 return WorkspaceAgentReply(
-                    text=str(exc),
+                    text=text,
                     action=action,
                     metadata={
                         "usage": usage,
                         "mission_start": {
                             "status": "not_started",
-                            "reason": "preflight_rejected",
+                            "reason": exc.code.value,
                         },
                     },
                 )
@@ -237,6 +400,10 @@ class WorkspaceAgent:
             self._validate_active_target(action.mission_id, context)
             if action.input_kind.value == "advisory":
                 raise WorkspaceAgentProtocolError("Advisory input cannot mutate a mission")
+            try:
+                selected_inputs = context.select_mission_inputs(action.input_refs)
+            except ValueError as exc:
+                raise WorkspaceAgentProtocolError(str(exc)) from exc
             mission = await self._missions.steer(
                 action.mission_id,
                 command_id=action.command_id,
@@ -244,6 +411,7 @@ class WorkspaceAgent:
                 input_kind=action.input_kind.value,
                 instruction=action.instruction,
                 request_id=action.request_id,
+                mission_inputs=tuple(item.model_dump(mode="json") for item in selected_inputs),
             )
             label = "已取消当前任务。" if action.input_kind.value == "cancel" else "已把你的补充交给当前任务。"
             return WorkspaceAgentReply(text=label, action=action, mission_id=mission.mission_id, metadata={"usage": usage})
@@ -257,7 +425,7 @@ class WorkspaceAgent:
                 decision=action.decision,
                 rationale=action.rationale,
             )
-            return WorkspaceAgentReply(text="已记录你的复核决定。", action=action, mission_id=mission.mission_id, metadata={"usage": usage})
+            return WorkspaceAgentReply(text="已记录你的确认决定。", action=action, mission_id=mission.mission_id, metadata={"usage": usage})
         self._validate_active_target(action.mission_id, context)
         mission = await self._missions.request_commit(
             action.mission_id,
@@ -268,29 +436,34 @@ class WorkspaceAgent:
         return WorkspaceAgentReply(text="已提交保存请求，保存进展会在工作台更新。", action=action, mission_id=mission.mission_id, metadata={"usage": usage})
 
     @staticmethod
-    def _validate_start_identity(
+    def _validate_start_policy(
         action: StartMissionAction,
         context: WorkspaceAgentContext,
     ) -> MissionPolicyHint:
         spec = action.mission
-        expected = {
-            "workspace_id": context.workspace_id,
-            "thread_id": context.thread_id,
-            "user_id": context.user_id,
-            "workspace_type": context.workspace_type,
-            "raw_user_message_id": context.user_message_id,
-            "mission_idempotency_key": f"mission:{context.thread_id}:{context.user_message_id}",
-            "model_id": context.model_id,
-            "reasoning_effort": context.reasoning_effort,
-            "model_capability_profile_hash": context.model_capability_profile_hash,
-        }
-        for field, value in expected.items():
-            if getattr(spec, field) != value:
-                raise WorkspaceAgentProtocolError(f"Provider changed server-owned field: {field}")
         policy_hint = context.policy_hint(spec.mission_policy_id)
         if policy_hint is None:
             raise WorkspaceAgentProtocolError("Provider selected an unknown MissionPolicy")
         return policy_hint
+
+    @staticmethod
+    def _validate_start_parent(
+        action: StartMissionAction,
+        context: WorkspaceAgentContext,
+    ) -> str | None:
+        parent_mission_id = action.mission.parent_mission_id
+        if parent_mission_id is None:
+            return None
+        target = context.continuation_target
+        if target is None or target.mission_id != parent_mission_id:
+            raise WorkspaceAgentProtocolError(
+                "Provider selected a Mission outside the continuation context"
+            )
+        if target.mission_policy_id != action.mission.mission_policy_id:
+            raise WorkspaceAgentProtocolError(
+                "Continuation must keep the parent MissionPolicy"
+            )
+        return parent_mission_id
 
     @staticmethod
     def _validate_active_target(

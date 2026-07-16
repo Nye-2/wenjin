@@ -1,7 +1,7 @@
 """Tests for ThreadState and academic extensions.
 
 Tests the AgentState-based ThreadState with:
-- shared runtime fields (thread_data, title, artifacts, todos, uploaded_files, viewed_images)
+- shared runtime fields (thread_data, title, artifacts, todos, viewed_images)
 - Academic fields (workspace_id, discipline, etc.) as NotRequired
 - Custom reducers (merge_artifacts, merge_cited_references, merge_viewed_images)
 - Dict-like access patterns (replacing Pydantic .attribute access)
@@ -110,14 +110,6 @@ class TestSharedBaseFields:
         state = ThreadState(messages=[], todos=[{"task": "do something"}])
         assert len(state["todos"]) == 1
 
-    def test_uploaded_files_field(self):
-        """Test uploaded_files field."""
-        state = ThreadState(
-            messages=[],
-            uploaded_files=[{"name": "paper.pdf", "path": "/tmp/paper.pdf"}],
-        )
-        assert len(state["uploaded_files"]) == 1
-
     def test_viewed_images_field(self):
         """Test viewed_images field with ViewedImageData."""
         state = ThreadState(
@@ -182,11 +174,6 @@ class TestAcademicFields:
         norms = {"citation_style": "IEEE", "writing_style": "technical"}
         state = ThreadState(messages=[], discipline_norms=norms)
         assert state["discipline_norms"]["citation_style"] == "IEEE"
-
-    def test_current_skill_field(self):
-        """Test current_skill field."""
-        state = ThreadState(messages=[], current_skill="deep-research")
-        assert state["current_skill"] == "deep-research"
 
 # ============ Reducer Tests ============
 

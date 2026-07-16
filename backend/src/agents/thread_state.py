@@ -148,7 +148,6 @@ class ThreadState(AgentState):
         - title: Auto-generated thread title
         - artifacts: String paths with a deduplication reducer
         - todos: Task list for plan mode
-        - uploaded_files: List of uploaded file info dicts
         - viewed_images: Image data dict with merge reducer
 
     Academic-specific fields (NotRequired):
@@ -160,7 +159,6 @@ class ThreadState(AgentState):
         - knowledge_context: Workspace artifact context (was _knowledge_context)
         - memory_context: Long-term user memory context
         - discipline_norms: Discipline-specific norms (was _discipline_norms)
-        - current_skill: Currently executing skill name
         - cited_references: reference ID list with dedup reducer
     """
 
@@ -171,7 +169,6 @@ class ThreadState(AgentState):
     response_blocks: Annotated[list[dict[str, Any]], merge_response_blocks]
     response_metadata: Annotated[dict[str, Any], merge_response_metadata]
     todos: NotRequired[list[Any] | None]
-    uploaded_files: NotRequired[list[dict[str, Any]] | None]
     viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]
 
     # Academic context fields (formerly private attrs)
@@ -186,7 +183,6 @@ class ThreadState(AgentState):
     memory_context: NotRequired[str | None]
     discipline_norms: NotRequired[dict[str, Any] | None]
     template_context: NotRequired[dict[str, Any] | None]
-    current_skill: NotRequired[str | None]
 
     # Citation tracking with deduplication reducer
     cited_references: Annotated[list[str], merge_cited_references]

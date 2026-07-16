@@ -11,12 +11,10 @@ describe("chat stream endpoint routing", () => {
     expect(url).toContain("/threads/thread-1/runs/stream");
   });
 
-  it("routes to stateless runs stream when thread_id is missing", () => {
-    const url = resolveThreadStreamUrl({
-      message: "hello",
-    });
-    expect(url).toContain("/runs/stream");
-    expect(url).not.toContain("/threads/");
+  it("requires a thread-bound chat transport", () => {
+    expect(() => resolveThreadStreamUrl({ message: "hello" })).toThrow(
+      "thread_id is required",
+    );
   });
 
   it("trims and encodes thread_id safely", () => {

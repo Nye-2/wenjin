@@ -12,6 +12,8 @@ from uuid import uuid4
 
 from src.academic.citation.bibtex.parser import BibTeXParser
 from src.academic.literature.search_service import LiteratureSearchService
+from src.contracts.source_projection import serialize_source_projection
+from src.dataservice.domains.source.contracts import SourceProjection
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.source import (
@@ -194,41 +196,8 @@ def _source_import_command(
     )
 
 
-def _serialize_source_reference(source: Any) -> dict[str, Any]:
-    created_at = getattr(source, "created_at", None)
-    updated_at = getattr(source, "updated_at", None)
-    verified_at = getattr(source, "verified_at", None)
-    return {
-        "id": str(source.id),
-        "workspace_id": str(source.workspace_id),
-        "title": source.title,
-        "normalized_title": source.normalized_title,
-        "authors": list(source.authors_json or []),
-        "year": source.year,
-        "venue": source.venue,
-        "publication_type": source.publication_type,
-        "doi": source.doi,
-        "url": source.url,
-        "abstract": source.abstract,
-        "citation_count": source.citation_count,
-        "source_type": source.ingest_kind,
-        "source_label": source.ingest_label,
-        "source_run_id": source.ingest_mission_id,
-        "source_artifact_id": source.ingest_mission_commit_id,
-        "verified_at": verified_at.isoformat() if verified_at else None,
-        "library_status": source.library_status,
-        "evidence_level": source.evidence_level,
-        "fulltext_status": source.fulltext_status,
-        "citation_key": source.citation_key,
-        "bibtex_entry_type": source.bibtex_entry_type,
-        "bibtex_fields": dict(source.bibtex_fields_json or {}),
-        "read_status": source.read_status,
-        "tags": list(source.tags_json or []),
-        "notes": source.notes,
-        "is_deleted": bool(source.is_deleted),
-        "created_at": created_at.isoformat() if created_at else None,
-        "updated_at": updated_at.isoformat() if updated_at else None,
-    }
+def _serialize_source_reference(source: SourceProjection) -> dict[str, object]:
+    return serialize_source_projection(source)
 
 
 class SourceLibraryImportService:

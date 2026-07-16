@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
@@ -14,18 +15,29 @@ from src.academic.services.artifact_service import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService
 from src.agents.middlewares.mission_policy_hints import load_mission_policy_hints
 from src.agents.workspace_agent.agent import WorkspaceAgent
-from src.agents.workspace_agent.contracts import ActiveMissionContext, WorkspaceAgentContext
+from src.agents.workspace_agent.contracts import (
+    ActiveMissionContext,
+    ContinuationMissionContext,
+    SteerMissionAction,
+    WorkspaceAgentContext,
+)
 from src.application.errors import BadRequestError, NotFoundError, PaymentRequiredError
 from src.application.results import (
     CompletedThreadTurn,
     GeneratedThreadReply,
     PreparedThreadTurn,
+    ThreadTurnAttachment,
     ThreadTurnRequest,
 )
 from src.config import get_model_config
+from src.contracts.reasoning import (
+    DEFAULT_REASONING_EFFORT,
+    normalize_reasoning_effort,
+)
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.mission import (
     MissionCancelPayload,
+    MissionReviewMode,
     MissionRunPayload,
     MissionStatus,
 )
@@ -34,9 +46,20 @@ from src.models import create_chat_model, route_chat_model
 from src.models.router import InvalidRequestedModelError
 from src.services import ThreadAccessError, ThreadService
 from src.services.credit_service import CreditService
+from src.services.mission_inputs import MissionInputService
 from src.services.mission_runtime_service import MissionRuntimeService, build_mission_runtime
 from src.services.thread_billing import normalize_token_usage
 from src.services.thread_events import publish_thread_updated, set_thread_status
+from src.services.workspace_uploads import is_image_upload
+
+_MISSION_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+_EXPLICIT_MISSION_REFERENCE_RE = re.compile(
+    rf"(?ix)(?:"
+    rf"(?:续接|继续|重试)\s*(?:父)?任务|"
+    rf"父任务|任务\s*(?:id|编号)|"
+    rf"mission\s*(?:id|run)?|/missions?/"
+    rf")\s*[:：#=/]?\s*(?P<mission_id>{_MISSION_UUID})"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,15 +197,22 @@ def build_thread_initial_state(
     }
 
 
-async def _workspace_type(
+async def _workspace_agent_settings(
     workspace_service: WorkspaceService | None,
     workspace_id: str,
-) -> str:
+) -> tuple[str, MissionReviewMode]:
     service = workspace_service or WorkspaceService()
     workspace = await service.get(workspace_id)
     if workspace is None:
         raise NotFoundError("Workspace not found")
-    return str(getattr(workspace, "workspace_type", None) or getattr(workspace, "type", "")).strip()
+    workspace_type = str(getattr(workspace, "workspace_type", None) or getattr(workspace, "type", "")).strip()
+    settings = getattr(workspace, "settings_json", None)
+    raw_review_mode = settings.get("review_mode") if isinstance(settings, dict) else None
+    return workspace_type, MissionReviewMode(raw_review_mode or MissionReviewMode.BALANCED_DEFAULT.value)
+
+
+def _attachments_require_vision(attachments: tuple[ThreadTurnAttachment, ...]) -> bool:
+    return any(is_image_upload(item.name, item.content_type) for item in attachments)
 
 
 def _profile_hash(model_id: str) -> str:
@@ -212,6 +242,59 @@ def _active_context(mission: MissionRunPayload | None) -> ActiveMissionContext |
     )
 
 
+def _continuation_context(
+    mission: MissionRunPayload | None,
+) -> ContinuationMissionContext | None:
+    if mission is None or mission.status not in {
+        MissionStatus.COMPLETED,
+        MissionStatus.FAILED,
+        MissionStatus.CANCELLED,
+    }:
+        return None
+    policy_id = str(mission.mission_policy_id or "").strip()
+    if not policy_id:
+        return None
+    raw_acceptance = mission.snapshot_json.get("stage_acceptance")
+    passed_stage_ids = tuple(
+        sorted(
+            str(stage_id)
+            for stage_id, result in (
+                raw_acceptance.items()
+                if isinstance(raw_acceptance, dict)
+                else ()
+            )
+            if isinstance(result, dict) and result.get("result") == "pass"
+        )
+    )
+    raw_inputs = mission.snapshot_json.get("mission_inputs")
+    pinned_input_refs = tuple(
+        dict.fromkeys(
+            str(item.get("input_ref") or "").strip()
+            for item in (raw_inputs if isinstance(raw_inputs, list) else ())
+            if isinstance(item, dict)
+            and str(item.get("input_ref") or "").startswith("mission-input:")
+        )
+    )
+    raw_error = mission.snapshot_json.get("last_error")
+    terminal_summary = (
+        str(raw_error.get("summary") or "").strip()[:1000]
+        if isinstance(raw_error, dict)
+        else ""
+    )
+    return ContinuationMissionContext(
+        mission_id=mission.mission_id,
+        title=mission.title[:60],
+        objective=mission.objective[:4000],
+        status=mission.status.value,
+        mission_policy_id=policy_id,
+        passed_stage_ids=passed_stage_ids,
+        pinned_input_refs=pinned_input_refs,
+        evidence_count=mission.evidence_count,
+        artifact_count=mission.artifact_count,
+        terminal_summary=terminal_summary or None,
+    )
+
+
 async def _foreground_mission(
     dataservice: AsyncDataServiceClient,
     *,
@@ -226,16 +309,94 @@ async def _foreground_mission(
     )
 
 
-def _reply_blocks(text: str, *, mission_id: str | None) -> list[dict[str, Any]]:
+async def _latest_mission(
+    dataservice: AsyncDataServiceClient,
+    *,
+    workspace_id: str,
+    thread_id: str,
+    user_id: str,
+) -> MissionRunPayload | None:
+    return await dataservice.missions.get_latest_for_thread(
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        user_id=user_id,
+    )
+
+
+def _explicit_mission_ids(message: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            match.group("mission_id").lower()
+            for match in _EXPLICIT_MISSION_REFERENCE_RE.finditer(message)
+        )
+    )
+
+
+async def _resolve_continuation_target(
+    dataservice: AsyncDataServiceClient,
+    *,
+    message: str,
+    workspace_id: str,
+    thread_id: str,
+    user_id: str,
+) -> MissionRunPayload | None:
+    explicit_ids = _explicit_mission_ids(message)
+    if len(explicit_ids) > 1:
+        raise BadRequestError("一次只能指定一个需要续接的研究任务")
+    if not explicit_ids:
+        return await _latest_mission(
+            dataservice,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+
+    mission = await dataservice.missions.get(explicit_ids[0])
+    if (
+        mission is None
+        or mission.workspace_id != workspace_id
+        or mission.thread_id != thread_id
+        or mission.user_id != user_id
+        or mission.status
+        not in {
+            MissionStatus.COMPLETED,
+            MissionStatus.FAILED,
+            MissionStatus.CANCELLED,
+        }
+        or not mission.mission_policy_id
+    ):
+        raise BadRequestError("指定的研究任务在当前工作区中不可续接")
+    return mission
+
+
+def _reply_blocks(
+    text: str,
+    *,
+    mission_id: str | None,
+    agent_action: str,
+    steer_kind: str | None = None,
+) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [{"kind": "text", "content": text}]
     if mission_id:
+        if agent_action == "steer_mission":
+            label = {
+                "cancel": "研究任务已取消",
+                "pause": "暂停请求已提交",
+            }.get(steer_kind, "研究要求已更新")
+        else:
+            label = {
+                "start_mission": "研究任务已开始",
+                "propose_review": "确认决定已记录",
+                "request_commit": "保存请求已提交",
+            }.get(agent_action, "研究任务已更新")
         blocks.insert(
             0,
             {
                 "kind": "status_line",
-                "label": "研究任务已开始",
+                "label": label,
                 "run_id": mission_id,
                 "tone": "info",
+                "action": agent_action,
             },
         )
     return blocks
@@ -249,6 +410,7 @@ async def generate_thread_response(
     user_message_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     conversation_messages: list[dict[str, Any]] | None = None,
+    mission_input_service: MissionInputService | None = None,
     **_: Any,
 ) -> GeneratedThreadReply:
     workspace_id = str(thread.workspace_id or request.workspace_id or "").strip()
@@ -256,17 +418,28 @@ async def generate_thread_response(
         raise BadRequestError("WorkspaceAgent requires a workspace-bound thread")
     if not user_message_id:
         raise BadRequestError("WorkspaceAgent requires the persisted user message id")
-    workspace_type = await _workspace_type(workspace_service, workspace_id)
+    workspace_type, review_mode = await _workspace_agent_settings(workspace_service, workspace_id)
     model_id = route_chat_model(
         requested_model=request.model,
         thread_model=thread.model,
         require_tools=True,
-        require_vision=bool(request.attachments),
+        require_vision=_attachments_require_vision(request.attachments),
     )
-    effort = str(request.reasoning_effort or "xhigh").strip().lower()
-    if effort not in {"low", "medium", "high", "xhigh"}:
-        raise BadRequestError("Unsupported reasoning effort")
+    try:
+        effort = normalize_reasoning_effort(
+            request.reasoning_effort,
+            default=DEFAULT_REASONING_EFFORT,
+        )
+    except ValueError as exc:
+        raise BadRequestError(str(exc)) from exc
+    assert effort is not None
     model = create_chat_model(model_id, reasoning_effort=effort)
+    input_context = await asyncio.to_thread(
+        (mission_input_service or MissionInputService()).collect_from_messages,
+        conversation_messages or (),
+        workspace_id=workspace_id,
+        thread_id=str(thread.id),
+    )
 
     async with dataservice_client() as dataservice:
         active = await _foreground_mission(
@@ -275,6 +448,15 @@ async def generate_thread_response(
             thread_id=str(thread.id),
             user_id=actor_id,
         )
+        continuation_target = None
+        if active is None:
+            continuation_target = await _resolve_continuation_target(
+                dataservice,
+                message=request.message,
+                workspace_id=workspace_id,
+                thread_id=str(thread.id),
+                user_id=actor_id,
+            )
         context = WorkspaceAgentContext(
             workspace_id=workspace_id,
             workspace_type=workspace_type,
@@ -283,11 +465,15 @@ async def generate_thread_response(
             user_message_id=user_message_id,
             user_message=request.message,
             model_id=model_id,
-            reasoning_effort=effort,
+            reasoning_effort=effort.value,
             model_capability_profile_hash=_profile_hash(model_id),
+            review_mode=review_mode,
             conversation=tuple(conversation_messages or ()),
+            mission_inputs=input_context.manifests,
+            attachment_contexts=input_context.contexts,
             policy_hints=await load_mission_policy_hints(dataservice, workspace_type),
             active_mission=_active_context(active),
+            continuation_target=_continuation_context(continuation_target),
         )
         reply = await WorkspaceAgent(model=model, missions=_LazyMissionPort(dataservice)).run(context)
 
@@ -298,7 +484,16 @@ async def generate_thread_response(
         metadata["mission_id"] = reply.mission_id
     return GeneratedThreadReply(
         content=reply.text,
-        blocks=_reply_blocks(reply.text, mission_id=reply.mission_id),
+        blocks=_reply_blocks(
+            reply.text,
+            mission_id=reply.mission_id,
+            agent_action=reply.action.action,
+            steer_kind=(
+                reply.action.input_kind.value
+                if isinstance(reply.action, SteerMissionAction)
+                else None
+            ),
+        ),
         metadata=metadata,
     )
 
@@ -328,12 +523,14 @@ class ThreadTurnHandler:
         index_service: Any | None = None,
         artifact_service: ArtifactService | None = None,
         reference_service: Any | None = None,
+        mission_input_service: MissionInputService | None = None,
     ) -> None:
         self.thread_service = thread_service
         self.workspace_service = workspace_service
         self.index_service = index_service
         self.artifact_service = artifact_service
         self.reference_service = reference_service
+        self.mission_input_service = mission_input_service or MissionInputService()
 
     async def prepare_turn(self, request: ThreadTurnRequest, *, actor_id: str) -> PreparedThreadTurn:
         thread = await self._get_or_create_owned_thread(request, actor_id=actor_id)
@@ -341,13 +538,31 @@ class ThreadTurnHandler:
         metadata = dict(request.metadata or {})
         if request.attachments:
             metadata["attachments"] = [asdict(item) for item in request.attachments]
+            workspace_id = str(thread.workspace_id or request.workspace_id or "").strip()
+            if not workspace_id:
+                raise BadRequestError("Attachments require a workspace-bound thread")
+            prepared_inputs = await asyncio.to_thread(
+                self.mission_input_service.prepare,
+                workspace_id=workspace_id,
+                thread_id=str(thread.id),
+                attachments=request.attachments,
+            )
+            metadata["mission_inputs"] = [item.model_dump(mode="json") for item in prepared_inputs.manifests]
+            metadata["attachment_contexts"] = [
+                item.model_dump(
+                    mode="json",
+                    exclude={"excerpt", "current_message"},
+                    exclude_none=True,
+                )
+                for item in prepared_inputs.contexts
+            ]
         message = await self.thread_service.add_message(
             thread,
             role="user",
             content=request.message,
             metadata=metadata or None,
         )
-        await set_thread_status(thread.workspace_id, thread.id, status="running", skill=thread.skill, skill_name=None)
+        await set_thread_status(thread.workspace_id, thread.id, status="running")
         message_id = str(message.get("id") or "") if isinstance(message, Mapping) else ""
         return PreparedThreadTurn(request=request, thread=thread, user_message_id=message_id or None)
 
@@ -372,6 +587,7 @@ class ThreadTurnHandler:
                 user_message_id=prepared.user_message_id,
                 workspace_service=self.workspace_service,
                 conversation_messages=messages,
+                mission_input_service=self.mission_input_service,
             )
             return await self._finalize(prepared, actor_id=actor_id, reply=reply)
         except BaseException:
@@ -392,6 +608,7 @@ class ThreadTurnHandler:
                     user_message_id=prepared.user_message_id,
                     workspace_service=self.workspace_service,
                     conversation_messages=messages,
+                    mission_input_service=self.mission_input_service,
                 )
                 async for delta in stream:
                     yield delta
@@ -440,7 +657,11 @@ class ThreadTurnHandler:
         )
         await self.thread_service.set_title_if_empty(prepared.thread, prepared.request.message)
         await publish_thread_updated(prepared.thread)
-        await set_thread_status(prepared.thread.workspace_id, prepared.thread.id, status="completed", skill=prepared.thread.skill, skill_name=None)
+        await set_thread_status(
+            prepared.thread.workspace_id,
+            prepared.thread.id,
+            status="completed",
+        )
         return CompletedThreadTurn(thread=prepared.thread, assistant_message=dict(assistant), reply=reply)
 
     async def _get_or_create_owned_thread(self, request: ThreadTurnRequest, *, actor_id: str):
@@ -450,8 +671,6 @@ class ThreadTurnHandler:
                 user_id=actor_id,
                 workspace_id=request.workspace_id,
                 model=request.model,
-                skill=request.skill,
-                skill_explicit=request.skill_explicit,
             )
         except ThreadAccessError as exc:
             raise NotFoundError("Thread not found") from exc
@@ -503,7 +722,7 @@ class ThreadTurnHandler:
 
     @staticmethod
     async def _fail(thread: Any) -> None:
-        await set_thread_status(thread.workspace_id, thread.id, status="failed", skill=thread.skill, skill_name=None)
+        await set_thread_status(thread.workspace_id, thread.id, status="failed")
 
 
 async def ensure_thread_turn_budget(actor_id: str) -> None:

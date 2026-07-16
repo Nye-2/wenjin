@@ -71,6 +71,9 @@ class MutableClock:
         self._monotonic += seconds
         self._now += timedelta(seconds=seconds)
 
+    def advance_wall_clock(self, seconds: float) -> None:
+        self._now += timedelta(seconds=seconds)
+
 
 class FakeMissionStore:
     def __init__(self, clock: MutableClock) -> None:
@@ -160,13 +163,31 @@ class FakeMissionStore:
             "cancelled",
         }:
             run.next_wakeup_at = patch.next_wakeup_at
-        run.evidence_count += patch.evidence_count_delta
-        run.artifact_count += patch.artifact_count_delta
+        run.evidence_count += sum(item.item_type == "evidence" for item in command.items)
+        run.artifact_count += sum(
+            item.item_type in {"artifact", "output"} for item in command.items
+        )
         run.active_subagent_count += patch.active_subagent_count_delta
 
     def _touch(self, run: MissionRunPayload) -> None:
         run.state_version += 1
         run.updated_at = self.clock.now()
+
+    def seed_items(
+        self,
+        mission_id: str,
+        drafts: list[Any],
+    ) -> list[MissionItemPayload]:
+        """Seed receipt-backed facts before a runtime slice in integration tests."""
+        run = self._require_run(mission_id)
+        appended = self._append_drafts(run, drafts)
+        run.evidence_count += sum(item.item_type == "evidence" for item in drafts)
+        run.artifact_count += sum(
+            item.item_type in {"artifact", "output"}
+            for item in drafts
+        )
+        self._touch(run)
+        return [item.model_copy(deep=True) for item in appended]
 
     async def create(self, command: MissionCreatePayload) -> MissionCreateResultPayload:
         key = (
@@ -385,6 +406,19 @@ class FakeMissionStore:
         ]
         return [item.model_copy(deep=True) for item in items[:limit]]
 
+    async def list_review_items(
+        self,
+        mission_id: str,
+        *,
+        status: list[str] | None = None,
+    ) -> list[MissionReviewItemPayload]:
+        allowed = set(status or ())
+        return [
+            item.model_copy(deep=True)
+            for item in self.review_items[mission_id].values()
+            if not allowed or item.status.value in allowed
+        ]
+
     async def append_command(
         self,
         mission_id: str,
@@ -575,6 +609,7 @@ class FakeMissionStore:
                 review_item_id=draft.review_item_id,
                 mission_id=mission_id,
                 source_item_seq=draft.source_item_seq,
+                output_key=draft.output_key,
                 target_kind=draft.target_kind,
                 target_room=draft.target_room,
                 target_ref=draft.target_ref,
@@ -724,11 +759,15 @@ class FakeReviewCandidates:
             items=[
                 MissionReviewItemDraftPayload(
                     review_item_id=f"review-{request.operation_id}",
+                    output_key="research_draft",
                     target_kind="document",
                     target_room="documents",
                     title="Research draft",
                     risk_level="medium",
-                    preview_json={"text": "draft"},
+                    preview_json={
+                        "text": "draft",
+                        "candidate_ref": request.accepted_candidate_refs[0],
+                    },
                 )
             ],
         )

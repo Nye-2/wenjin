@@ -143,8 +143,8 @@ class TestCreateArtifact:
     @pytest.mark.asyncio
     async def test_create_artifact_with_skill(self, artifact_service, test_workspace):
         """Test artifact creation with skill reference."""
-        skill_name = "deep-research"
-        assert skill_name == "deep-research"
+        skill_name = "research-scout"
+        assert skill_name == "research-scout"
 
     @pytest.mark.asyncio
     async def test_create_artifact_invalid_type(self, artifact_service, test_workspace):

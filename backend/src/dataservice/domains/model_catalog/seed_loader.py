@@ -8,7 +8,7 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from src.config.llm_config import ModelConfig
+from src.config.llm_config import resolve_model_seed
 from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
 from src.models.capability_profile import (
     GPT56_RELEASE_MODEL_IDS,
@@ -17,19 +17,6 @@ from src.models.capability_profile import (
 )
 
 logger = logging.getLogger(__name__)
-
-_CATALOG_ONLY_FIELDS = frozenset(
-    {
-        "category",
-        "enabled",
-        "is_default",
-        "pricing_policy_key",
-        "provider",
-        "provider_name",
-        "trust_level",
-    }
-)
-
 
 class DataServiceModelCatalogSeedLoader:
     """Seed DataService model catalog from LLM env config when empty."""
@@ -115,17 +102,11 @@ class DataServiceModelCatalogSeedLoader:
         category: str,
         default_id: str,
     ) -> dict[str, Any]:
-        model_payload = {
-            key: value
-            for key, value in row.items()
-            if key not in _CATALOG_ONLY_FIELDS
-        }
-        model_payload.setdefault("name", row.get("id", ""))
         try:
-            model = ModelConfig.model_validate(model_payload)
-        except Exception as exc:
+            model = resolve_model_seed(row, secret_source=self.source)
+        except (TypeError, ValueError):
             model_id = str(row.get("id") or "<missing>")
-            raise ValueError(f"invalid {category} model catalog seed {model_id!r}") from exc
+            raise ValueError(f"invalid {category} model catalog seed {model_id!r}") from None
 
         provider_name = str(row.get("provider_name") or row.get("provider") or "Custom").strip()
         enabled = bool(row.get("enabled", True))

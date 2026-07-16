@@ -1,9 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { listModels, type Model } from "@/lib/api";
-import { authorizedFetch } from "@/lib/api/client";
+import {
+  getWorkspace,
+  getWorkspaceSettings,
+  listModels,
+  type Model,
+  updateWorkspace,
+  updateWorkspaceSettings,
+} from "@/lib/api";
 import type { MissionReviewMode } from "@/lib/api/mission-types";
+import {
+  chooseReasoningEffort,
+  REASONING_EFFORT_OPTIONS,
+  type ReasoningEffort,
+} from "@/lib/reasoning-effort";
 import {
   normalizeReviewMode,
   ReviewModeSelector,
@@ -13,17 +24,12 @@ interface SettingsFormProps {
   workspaceId: string;
 }
 
-interface WorkspaceSettings {
-  name: string;
-  auto_compact_threshold: number;
-  default_model: string;
-  review_mode?: MissionReviewMode | null;
-}
-
 export function SettingsForm({ workspaceId }: SettingsFormProps) {
   const [name, setName] = useState("");
   const [autoCompactThreshold, setAutoCompactThreshold] = useState(0.8);
   const [defaultModel, setDefaultModel] = useState("");
+  const [reasoningEffort, setReasoningEffort] =
+    useState<ReasoningEffort>("xhigh");
   const [reviewMode, setReviewMode] = useState<MissionReviewMode>("balanced_default");
   const [models, setModels] = useState<Model[]>([]);
   const [modelsError, setModelsError] = useState(false);
@@ -34,36 +40,41 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
 
   useEffect(() => {
     let cancelled = false;
-    listModels("chat")
-      .then((data) => {
-        if (cancelled) return;
-        setModels(data.models);
-        const defaultOption = data.models.find((model) => model.is_default) ?? data.models[0];
-        if (defaultOption) {
-          setDefaultModel((current) => current || defaultOption.name);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setModelsError(true);
-      });
-    authorizedFetch(`/api/workspaces/${workspaceId}/settings`)
-      .then((res) => {
-        if (!res.ok) throw new Error("设置加载失败");
-        return res.json();
-      })
-      .then((data: WorkspaceSettings) => {
-        if (!cancelled) {
-          if (data.name) setName(data.name);
-          if (data.auto_compact_threshold != null)
-            setAutoCompactThreshold(data.auto_compact_threshold);
-          if (data.default_model) setDefaultModel(data.default_model);
-          setReviewMode(normalizeReviewMode(data.review_mode));
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
+    void Promise.allSettled([
+      listModels("chat"),
+      getWorkspace(workspaceId),
+      getWorkspaceSettings(workspaceId),
+    ]).then(([catalogResult, workspaceResult, settingsResult]) => {
+      if (cancelled) return;
+      const availableModels =
+        catalogResult.status === "fulfilled" ? catalogResult.value.models : [];
+      const settings =
+        settingsResult.status === "fulfilled" ? settingsResult.value : null;
+      const selectedModel =
+        availableModels.find((model) => model.name === settings?.default_model) ??
+        availableModels.find((model) => model.is_default) ??
+        availableModels[0];
+      setModels(availableModels);
+      setModelsError(catalogResult.status === "rejected");
+      if (workspaceResult.status === "fulfilled") {
+        setName(workspaceResult.value.name);
+      }
+      if (settings) {
+        setAutoCompactThreshold(settings.auto_compact_threshold);
+        setReviewMode(normalizeReviewMode(settings.review_mode));
+      }
+      setDefaultModel(selectedModel?.name ?? settings?.default_model ?? "");
+      setReasoningEffort(
+        chooseReasoningEffort(
+          selectedModel?.capability_profile.reasoning_efforts ?? [],
+          settings?.reasoning_effort,
+        ),
+      );
+      if (workspaceResult.status === "rejected" || settingsResult.status === "rejected") {
+        setError("部分工作区设置加载失败");
+      }
+      setLoading(false);
+    });
     return () => {
       cancelled = true;
     };
@@ -74,18 +85,15 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
     setError(null);
     setSaved(false);
     try {
-      const settings: WorkspaceSettings = {
-        name,
-        auto_compact_threshold: autoCompactThreshold,
-        default_model: defaultModel,
-        review_mode: reviewMode,
-      };
-      const res = await authorizedFetch(`/api/workspaces/${workspaceId}/settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      });
-      if (!res.ok) throw new Error("设置保存失败");
+      await Promise.all([
+        updateWorkspace(workspaceId, { name }),
+        updateWorkspaceSettings(workspaceId, {
+          auto_compact_threshold: autoCompactThreshold,
+          default_model: defaultModel,
+          reasoning_effort: reasoningEffort,
+          review_mode: reviewMode,
+        }),
+      ]);
       setSaved(true);
     } catch (err) {
       setError(
@@ -213,7 +221,17 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
           </label>
           <select
             value={defaultModel}
-            onChange={(e) => setDefaultModel(e.target.value)}
+            onChange={(e) => {
+              const nextModelId = e.target.value;
+              const nextModel = models.find((model) => model.name === nextModelId);
+              setDefaultModel(nextModelId);
+              setReasoningEffort(
+                chooseReasoningEffort(
+                  nextModel?.capability_profile.reasoning_efforts ?? [],
+                  reasoningEffort,
+                ),
+              );
+            }}
             data-testid="settings-default-model"
             disabled={modelOptions.length === 0}
             style={{
@@ -236,6 +254,44 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               模型目录加载失败，将保留当前设置。
             </div>
           )}
+        </div>
+
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--wjn-text-secondary)",
+              marginBottom: 6,
+            }}
+          >
+            默认推理强度
+          </label>
+          <select
+            value={reasoningEffort}
+            onChange={(event) =>
+              setReasoningEffort(event.target.value as ReasoningEffort)
+            }
+            data-testid="settings-reasoning-effort"
+            disabled={
+              !models
+                .find((model) => model.name === defaultModel)
+                ?.capability_profile.reasoning_efforts.length
+            }
+            style={{ ...inputStyle, cursor: "pointer" }}
+          >
+            {REASONING_EFFORT_OPTIONS.filter((option) =>
+              (
+                models.find((model) => model.name === defaultModel)
+                  ?.capability_profile.reasoning_efforts ?? []
+              ).includes(option.value),
+            ).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Write mode */}

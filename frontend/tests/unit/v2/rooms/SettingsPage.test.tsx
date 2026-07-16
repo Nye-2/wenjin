@@ -2,13 +2,29 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SettingsPage } from "@/app/(workbench)/workspaces/[id]/components/rooms/SettingsPage";
 
-const mockListModels = vi.hoisted(() => vi.fn());
+const {
+  mockGetWorkspace,
+  mockGetWorkspaceSettings,
+  mockListModels,
+  mockUpdateWorkspace,
+  mockUpdateWorkspaceSettings,
+} = vi.hoisted(() => ({
+  mockGetWorkspace: vi.fn(),
+  mockGetWorkspaceSettings: vi.fn(),
+  mockListModels: vi.fn(),
+  mockUpdateWorkspace: vi.fn(),
+  mockUpdateWorkspaceSettings: vi.fn(),
+}));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
+    getWorkspace: mockGetWorkspace,
+    getWorkspaceSettings: mockGetWorkspaceSettings,
     listModels: mockListModels,
+    updateWorkspace: mockUpdateWorkspace,
+    updateWorkspaceSettings: mockUpdateWorkspaceSettings,
   };
 });
 
@@ -66,16 +82,47 @@ function mockFetch(overrides?: Record<string, unknown>) {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockGetWorkspace.mockReset();
+    mockGetWorkspaceSettings.mockReset();
+    mockListModels.mockReset();
+    mockUpdateWorkspace.mockReset();
+    mockUpdateWorkspaceSettings.mockReset();
+    mockGetWorkspace.mockResolvedValue({
+      id: "ws-1",
+      user_id: "user-1",
+      name: "Test Workspace",
+      type: "sci",
+      config: {},
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    mockGetWorkspaceSettings.mockResolvedValue({
+      workspace_id: "ws-1",
+      auto_compact_threshold: 0.8,
+      default_model: "gpt-5.6-sol",
+      reasoning_effort: "xhigh",
+      review_mode: "balanced_default",
+      settings_json: { review_mode: "balanced_default" },
+      metadata_json: {},
+    });
+    mockUpdateWorkspace.mockResolvedValue({});
+    mockUpdateWorkspaceSettings.mockResolvedValue({});
     mockListModels.mockResolvedValue({
       models: [
         {
           name: "gpt-5.6-sol",
           display_name: "GPT-5.6 Sol (Default)",
-          provider: "sub2api",
+          provider: "OpenAI",
           max_tokens: 128000,
-          supports_thinking: false,
-          supports_reasoning_effort: false,
-          supports_vision: false,
+          generation_api: "chat_completions",
+          capability_profile_version: "probe-v1",
+          capability_profile: {
+            strict_tool_calls: true,
+            streaming: true,
+            reasoning_efforts: ["low", "medium", "high", "xhigh"],
+            vision: true,
+            native_web_search: true,
+          },
           is_default: true,
         },
       ],
@@ -187,6 +234,7 @@ describe("SettingsPage", () => {
       "gpt-5.6-sol",
     );
     expect(screen.getByText("GPT-5.6 Sol (Default)")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-reasoning-effort")).toHaveValue("xhigh");
     expect(screen.getByTestId("review-mode-balanced_default")).toHaveAttribute(
       "aria-checked",
       "true",
@@ -203,18 +251,14 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("settings-saved")).toHaveTextContent(
       "设置已保存",
     );
-    const putCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([url, init]) =>
-        String(url).includes("/api/workspaces/ws-1/settings") &&
-        (init as RequestInit | undefined)?.method === "PUT",
-    );
-    expect(putCall?.[1]).toMatchObject({
-      body: JSON.stringify({
-        name: "My Workspace",
-        auto_compact_threshold: 0.8,
-        default_model: "gpt-5.6-sol",
-        review_mode: "review_all",
-      }),
+    expect(mockUpdateWorkspace).toHaveBeenCalledWith("ws-1", {
+      name: "My Workspace",
+    });
+    expect(mockUpdateWorkspaceSettings).toHaveBeenCalledWith("ws-1", {
+      auto_compact_threshold: 0.8,
+      default_model: "gpt-5.6-sol",
+      reasoning_effort: "xhigh",
+      review_mode: "review_all",
     });
   });
 

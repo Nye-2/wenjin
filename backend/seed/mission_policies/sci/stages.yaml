@@ -1,4 +1,4 @@
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: sci_research.scope_topic
 version: 1
 mission_policy_id: sci_research
@@ -18,7 +18,6 @@ excellent_criteria:
 required_artifacts:
   - kind: research_brief
 failure_modes: [topic_too_broad, missing_materials, infeasible_scope]
-reviewer_roles: [research_scope_reviewer]
 allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 3
 no_progress_limit: 2
@@ -28,7 +27,7 @@ stop_condition: Required user material is unavailable or repeated revisions do n
 anti_examples:
   - A broad topic label is treated as a complete research question.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: sci_research.literature_positioning
 version: 1
 mission_policy_id: sci_research
@@ -53,8 +52,7 @@ required_artifacts:
   - kind: literature_matrix
   - kind: gap_map
 failure_modes: [source_gap, weak_relevance, fabricated_citation, unsupported_gap]
-reviewer_roles: [evidence_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: xhigh
@@ -64,7 +62,7 @@ stop_condition: Native search or required source material remains unavailable af
 anti_examples:
   - A plausible-sounding gap is accepted without a claim-to-source map.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: sci_research.research_question
 version: 1
 mission_policy_id: sci_research
@@ -89,13 +87,12 @@ required_evidence_surfaces: [claim_evidence_alignment]
 required_artifacts:
   - kind: research_question_brief
 failure_modes: [question_too_broad, novelty_only_by_wording, infeasible_validation]
-reviewer_roles: [research_question_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: xhigh
 prerequisite_stage_ids: [literature_positioning]
-advance_condition: The question, gap, feasibility and evidence plan all pass reviewer critique.
+advance_condition: The question, gap, feasibility and evidence plan all satisfy the pinned acceptance criteria.
 stop_condition: No feasible question survives evidence review within the attempt budget.
 exemplar_refs:
   - ref_id: sci.research_question.excellent.v1
@@ -104,7 +101,7 @@ require_exemplar_comparison: true
 anti_examples:
   - Combining two fashionable techniques is called a contribution without a falsifiable gap.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: sci_research.method_design
 version: 1
 mission_policy_id: sci_research
@@ -128,8 +125,7 @@ required_evidence_surfaces: [claim_evidence_alignment]
 required_artifacts:
   - kind: methodology_plan
 failure_modes: [method_handwave, hidden_assumption, unnecessary_complexity]
-reviewer_roles: [methodology_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: xhigh
@@ -139,7 +135,7 @@ stop_condition: Critical method details remain unknowable or infeasible after bo
 anti_examples:
   - Method names replace equations, algorithms, assumptions and implementation detail.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: sci_research.experiment_design
 version: 1
 mission_policy_id: sci_research
@@ -166,8 +162,7 @@ required_artifacts:
   - kind: experiment_plan
     requires_manifest: true
 failure_modes: [data_leakage, weak_baseline, metric_mismatch, irreproducible_plan]
-reviewer_roles: [experiment_reviewer, reproducibility_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: xhigh
@@ -177,7 +172,7 @@ stop_condition: The research question cannot be tested with available data or re
 anti_examples:
   - A single accuracy score against a weak baseline is treated as sufficient validation.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: sci_research.writing_or_revision
 version: 1
 mission_policy_id: sci_research
@@ -194,18 +189,14 @@ minimum_criteria:
   - criterion_id: semantic_preservation
     description: Revisions preserve intended meaning and protected structure.
     required_evidence_surfaces: [writing_semantic_preservation, protected_section_safety]
-  - criterion_id: reviewable_change
-    description: The complete change is previewable and represented by atomic review candidates.
-    required_evidence_surfaces: [review_packet_completeness]
 excellent_criteria:
   - criterion_id: concise_academic_style
     description: The manuscript is precise, appropriately cautious and structurally economical.
-required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, argument_chain, writing_semantic_preservation, protected_section_safety, review_packet_completeness]
+required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, argument_chain, writing_semantic_preservation, protected_section_safety]
 required_artifacts:
   - kind: manuscript_draft
-failure_modes: [unsupported_claim, citation_mismatch, semantic_drift, unreviewable_change]
-reviewer_roles: [manuscript_reviewer, evidence_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+failure_modes: [unsupported_claim, citation_mismatch, semantic_drift]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 5
 no_progress_limit: 2
 recommended_model_effort: xhigh

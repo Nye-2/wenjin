@@ -18,6 +18,7 @@ def strict_provider_schema(schema: dict[str, Any]) -> dict[str, Any]:
     def visit(node: Any) -> None:
         if isinstance(node, dict):
             node.pop("default", None)
+            node.pop("uniqueItems", None)
             properties = node.get("properties")
             if isinstance(properties, dict):
                 node["required"] = list(properties)

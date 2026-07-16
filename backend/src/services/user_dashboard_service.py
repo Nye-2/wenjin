@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.mission import MissionRunPayload, MissionStatus
+from src.dataservice_client.contracts.mission import MissionStatus
 from src.dataservice_client.provider import dataservice_client
 from src.services.credit_service import CreditService
 
@@ -90,36 +90,17 @@ class UserDashboardService:
 
     async def _get_mission_stats(self, user_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         async with self._client() as client:
-            workspaces = await client.list_workspaces(member_user_id=user_id)
-            missions: list[MissionRunPayload] = []
-            for workspace in workspaces:
-                cursor: str | None = None
-                while True:
-                    page = await client.missions.list_workspace_page(
-                        workspace_id=workspace.id,
-                        user_id=user_id,
-                        limit=100,
-                        cursor=cursor,
-                    )
-                    missions.extend(page.items)
-                    cursor = page.next_cursor
-                    if cursor is None:
-                        break
+            summary = await client.missions.get_user_summary(user_id=user_id)
 
         counts = {status: 0 for status in MissionStatus}
-        for mission in missions:
-            counts[mission.status] += 1
+        for raw_status, count in summary.status_counts.items():
+            counts[MissionStatus(raw_status)] = count
 
-        total = len(missions)
+        total = summary.total
         success = counts[MissionStatus.COMPLETED]
         terminal = sum(counts[status] for status in _TERMINAL_MISSION_STATUSES)
         completion_rate = float(round(success / terminal, 4)) if terminal else 0.0
 
-        recent_missions = sorted(
-            missions,
-            key=lambda mission: (mission.updated_at, mission.mission_id),
-            reverse=True,
-        )[:10]
         recent_tasks = [
             {
                 "id": mission.mission_id,
@@ -130,7 +111,7 @@ class UserDashboardService:
                 "created_at": mission.created_at.isoformat(),
                 "completed_at": mission.completed_at.isoformat() if mission.completed_at else None,
             }
-            for mission in recent_missions
+            for mission in summary.recent
         ]
 
         return (

@@ -10,7 +10,9 @@ Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `10_sandbox_
 
 Unify approvals, user questions, permission escalation, external data access, and review waits as mission-level pause/resume. No tool, frontend component, or old execution path should implement its own hidden waiting logic.
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|

@@ -62,7 +62,7 @@ cd backend && .venv/bin/python -m alembic heads
 cd backend && .venv/bin/python -m src.quality.mission_cutover_gate --project-root ..
 ```
 
-Alembic must report one head: `096_mission_aggregate_references` until a later migration intentionally advances it. The cutover gate must report zero findings.
+Alembic must report one head: `101_workspace_reasoning_effort_cutover` until a later migration intentionally advances it. The cutover gate must report zero findings.
 
 ## 5. Start
 
@@ -112,7 +112,7 @@ Native search uses an independent Responses SSE request. It is usable only when 
 
 ## 8. Migration policy
 
-Migrations 086-096 are an irreversible development cutover. Do not recreate removed tables or add dual-read/dual-write code. For a development database containing pre-cutover runtime data:
+Migrations 086-101 are an irreversible development cutover. Do not recreate removed tables or add dual-read/dual-write code. For a development database containing pre-cutover runtime data:
 
 1. stop all services;
 2. drop the development database/volume;
@@ -143,4 +143,4 @@ Use a real browser and complete a multi-turn scenario:
 docker compose down
 ```
 
-Do not use `down -v` unless intentionally reseeding development data. Runtime code rollback across 086-096 is unsupported; restore a matching database snapshot with the matching application version.
+Do not use `down -v` unless intentionally reseeding development data. Runtime code rollback across 086-101 is unsupported; restore a matching database snapshot with the matching application version.

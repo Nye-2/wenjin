@@ -16,13 +16,17 @@ import type {
   LatexPdfAnchor,
   LatexProject,
 } from "@/lib/api";
+import type { ThreadAttachment } from "@/lib/api/types";
 import {
   applyLatexFeedbackRewrite,
   previewLatexFeedbackRewrite,
   protectLatexSection,
   revertLatexFeedbackRewrite,
 } from "@/lib/api";
-import type { SendMessageResult } from "@/stores/chat-store";
+import type {
+  SendMessageOptions,
+  SendMessageResult,
+} from "@/stores/chat-store";
 import { useLatexStore } from "@/stores/latex";
 import {
   buildFeedbackAnchor,
@@ -85,11 +89,8 @@ interface UseLatexFeedbackWorkflowOptions {
   sendChatMessage: (
     workspaceId: string,
     content: string,
-    attachments?: Array<{ name: string; path: string }>,
-    options?: {
-      skill?: string | null;
-      metadata?: Record<string, unknown> | null;
-    },
+    attachments?: ThreadAttachment[],
+    options?: SendMessageOptions,
   ) => Promise<SendMessageResult | void>;
   isChatSending: boolean;
   openFile: (path: string) => Promise<void>;

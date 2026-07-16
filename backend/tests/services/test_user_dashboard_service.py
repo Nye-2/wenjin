@@ -124,9 +124,7 @@ def _mission_payload(
         "parent_mission_id": None,
         "workspace_id": workspace_id,
         "thread_id": None,
-        "user_id": "user-1",
         "workspace_type": "sci",
-        "mission_policy_id": "sci.research",
         "title": f"Mission {mission_id}",
         "objective": f"Objective {mission_id}",
         "status": status,
@@ -134,23 +132,10 @@ def _mission_payload(
         "active_stage_id": None,
         "model_id": "gpt-5.6-sol",
         "reasoning_effort": "xhigh",
-        "snapshot_json": {},
-        "runtime_context_json": {},
-        "context_checkpoint_ref": None,
         "pending_review_count": 0,
         "evidence_count": 0,
         "artifact_count": 0,
         "active_subagent_count": 0,
-        "mission_idempotency_key": None,
-        "last_command_seq": 0,
-        "last_applied_command_seq": 0,
-        "next_wakeup_at": None,
-        "lease_owner": None,
-        "lease_epoch": 0,
-        "lease_expires_at": None,
-        "dispatch_owner": None,
-        "dispatch_epoch": 0,
-        "dispatch_expires_at": None,
         "state_version": 0,
         "last_item_seq": 0,
         "created_at": updated_at.isoformat(),
@@ -161,64 +146,40 @@ def _mission_payload(
 
 
 @pytest.mark.asyncio
-async def test_mission_stats_use_real_dataservice_client_surface_and_pagination() -> None:
-    older = datetime(2026, 3, 25, tzinfo=UTC)
+async def test_mission_stats_use_dataservice_owned_user_projection() -> None:
     newer = datetime(2026, 3, 26, tzinfo=UTC)
-    mission_requests: list[tuple[str, str | None]] = []
+    requests: list[str] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/internal/v1/workspaces":
-            assert request.url.params["member_user_id"] == "user-1"
-            return httpx.Response(
-                200,
-                json={
-                    "status": "ok",
-                    "data": [
-                        {
-                            "id": "workspace-1",
-                            "created_by_user_id": "user-1",
-                            "name": "Workspace 1",
-                            "workspace_type": "sci",
-                        },
-                        {
-                            "id": "workspace-2",
-                            "created_by_user_id": "user-1",
-                            "name": "Workspace 2",
-                            "workspace_type": "sci",
-                        },
+        requests.append(request.url.path)
+        assert request.url.path == "/internal/v1/users/user-1/missions/summary"
+        assert request.url.params["recent_limit"] == "10"
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "total": 7,
+                    "status_counts": {
+                        "completed": 1,
+                        "planning": 1,
+                        "running": 1,
+                        "waiting": 1,
+                        "created": 1,
+                        "failed": 1,
+                        "cancelled": 1,
+                    },
+                    "recent": [
+                        _mission_payload(
+                            "waiting",
+                            workspace_id="workspace-2",
+                            status="waiting",
+                            updated_at=newer,
+                        )
                     ],
                 },
-            )
-
-        workspace_id = request.url.path.split("/")[4]
-        cursor = request.url.params.get("cursor")
-        mission_requests.append((workspace_id, cursor))
-        assert request.url.params["user_id"] == "user-1"
-        assert request.url.params["limit"] == "100"
-
-        pages = {
-            ("workspace-1", None): {
-                "items": [
-                    _mission_payload("completed", workspace_id="workspace-1", status="completed", updated_at=older),
-                    _mission_payload("planning", workspace_id="workspace-1", status="planning", updated_at=older),
-                    _mission_payload("running", workspace_id="workspace-1", status="running", updated_at=older),
-                ],
-                "next_cursor": "workspace-1-next",
             },
-            ("workspace-1", "workspace-1-next"): {
-                "items": [_mission_payload("failed", workspace_id="workspace-1", status="failed", updated_at=older)],
-                "next_cursor": None,
-            },
-            ("workspace-2", None): {
-                "items": [
-                    _mission_payload("waiting", workspace_id="workspace-2", status="waiting", updated_at=newer),
-                    _mission_payload("created", workspace_id="workspace-2", status="created", updated_at=older),
-                    _mission_payload("cancelled", workspace_id="workspace-2", status="cancelled", updated_at=older),
-                ],
-                "next_cursor": None,
-            },
-        }
-        return httpx.Response(200, json={"status": "ok", "data": pages[(workspace_id, cursor)]})
+        )
 
     async with AsyncDataServiceClient(
         base_url="http://dataservice",
@@ -227,11 +188,7 @@ async def test_mission_stats_use_real_dataservice_client_surface_and_pagination(
     ) as client:
         stats, recent = await UserDashboardService(dataservice=client)._get_mission_stats("user-1")
 
-    assert mission_requests == [
-        ("workspace-1", None),
-        ("workspace-1", "workspace-1-next"),
-        ("workspace-2", None),
-    ]
+    assert requests == ["/internal/v1/users/user-1/missions/summary"]
     assert stats == {
         "total": 7,
         "success": 1,

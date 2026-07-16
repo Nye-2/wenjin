@@ -124,8 +124,17 @@ async def check_task_backend() -> dict[str, Any]:
 
 async def _check_worker_metrics_endpoint() -> tuple[bool, str | None]:
     """Fallback worker readiness probe through the worker metrics endpoint."""
+    return await _check_metrics_endpoint("worker")
+
+
+async def _check_mission_worker_metrics_endpoint() -> tuple[bool, str | None]:
+    """Verify the Mission worker that passed sandbox startup preflight."""
+    return await _check_metrics_endpoint("mission-worker")
+
+
+async def _check_metrics_endpoint(host: str) -> tuple[bool, str | None]:
     worker_port = int(get_prometheus_settings().worker_port)
-    target = f"http://worker:{worker_port}/metrics"
+    target = f"http://{host}:{worker_port}/metrics"
 
     def _fetch() -> int:
         with urllib.request.urlopen(target, timeout=1.5) as response:
@@ -193,6 +202,15 @@ async def check_mcp() -> dict[str, Any]:
 
 async def check_sandbox() -> dict[str, Any]:
     """Verify the operation sandbox required by Mission tools."""
+    if celery_settings.enabled:
+        metrics_ok, metrics_error = await _check_mission_worker_metrics_endpoint()
+        return {
+            "status": "healthy" if metrics_ok else "unhealthy",
+            "provider": "docker",
+            "execution_host": "mission-worker",
+            "probe": "release_preflight_then_metrics",
+            **({"error": metrics_error} if metrics_error else {}),
+        }
     try:
         report = await run_sandbox_preflight(release_gate=False)
         return {

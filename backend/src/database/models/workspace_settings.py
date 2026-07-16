@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import CheckConstraint, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,8 +15,7 @@ class WorkspaceSettings(Base, TimestampMixin):
     Attributes:
         workspace_id: FK to workspaces.id (PK, cascade delete)
         default_model: Optional model override for this workspace
-        thinking_enabled: Whether thinking mode is enabled
-        sandbox_provider: Sandbox provider name (default: local)
+        reasoning_effort: Default reasoning effort for new chat turns
         auto_compact_threshold: Context usage ratio that triggers auto-compaction
         metadata_json: Arbitrary metadata blob
     """
@@ -31,11 +30,8 @@ class WorkspaceSettings(Base, TimestampMixin):
     default_model: Mapped[str | None] = mapped_column(
         String(100), nullable=True,
     )
-    thinking_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true",
-    )
-    sandbox_provider: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="local", server_default="local",
+    reasoning_effort: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="xhigh", server_default="xhigh",
     )
     auto_compact_threshold: Mapped[float] = mapped_column(
         nullable=False, default=0.8, server_default="0.8",
@@ -45,6 +41,13 @@ class WorkspaceSettings(Base, TimestampMixin):
     )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="'{}'::jsonb",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "reasoning_effort IN ('low', 'medium', 'high', 'xhigh')",
+            name="ck_workspace_settings_reasoning_effort",
+        ),
     )
 
     # Relationship back to workspace

@@ -13,6 +13,11 @@ export interface ThinkingBlock {
 }
 
 export type StatusTone = "info" | "warn" | "error";
+export type StatusLineAction =
+  | "start_mission"
+  | "steer_mission"
+  | "propose_review"
+  | "request_commit";
 
 export interface StatusLineBlock {
   kind: "status_line";
@@ -20,6 +25,7 @@ export interface StatusLineBlock {
   run_id: string;
   phase_index?: number | null;
   tone: StatusTone;
+  action?: StatusLineAction | null;
 }
 
 export interface Pill {
@@ -278,12 +284,20 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
 
   if (kind === "status_line") {
     const tone = raw.tone === "warn" || raw.tone === "error" ? raw.tone : "info";
+    const action =
+      raw.action === "start_mission" ||
+      raw.action === "steer_mission" ||
+      raw.action === "propose_review" ||
+      raw.action === "request_commit"
+        ? raw.action
+        : null;
     return {
       kind: "status_line",
       label: stringValue(raw.label) ?? (titledDetailText(raw) || "Status update"),
       run_id: stringValue(raw.run_id) ?? "status-line",
       phase_index: typeof raw.phase_index === "number" ? raw.phase_index : null,
       tone,
+      action,
     };
   }
 

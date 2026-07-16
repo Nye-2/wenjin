@@ -16,10 +16,14 @@ export function missionNeedsAttention(view: MissionView): boolean {
 }
 
 export function defaultMissionSurface(view: MissionView): MissionConsoleSurface {
-  if (missionNeedsAttention(view)) return "review";
-  if (view.executionStatus === "running" || view.executionStatus === "planning") {
+  if (
+    view.executionStatus === "created" ||
+    view.executionStatus === "running" ||
+    view.executionStatus === "planning"
+  ) {
     return "progress";
   }
+  if (missionNeedsAttention(view)) return "review";
   if (view.artifactCount > 0) return "artifacts";
   if (view.evidenceCount > 0) return "evidence";
   return "progress";

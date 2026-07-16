@@ -5,17 +5,20 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from src.academic_visual_runtime import (
     AcademicVisualExecutionContext,
+    AcademicVisualReceipt,
     AcademicVisualRenderInput,
     AcademicVisualRuntime,
     AcademicVisualRuntimeError,
 )
 from src.config import get_settings
+from src.contracts.mission_input import MissionInputManifest
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.source import SourceImportPayload
 from src.sandbox import (
@@ -35,8 +38,14 @@ from src.sandbox.contracts import (
     SmokeCheckInput,
 )
 from src.sandbox.security import SandboxPathError, is_artifact_path
+from src.services.mission_inputs import MissionInputStore
 from src.services.search import MODEL_NATIVE_SEARCH_TOOL_ID
 from src.services.workspace_uploads import workspace_upload_root
+from src.tools.mission.artifact_candidates import (
+    artifact_candidate_content_hash,
+    artifact_candidate_ref,
+    valid_artifact_candidate_receipt,
+)
 from src.tools.mission.contracts import (
     CreateArtifactCandidateInput,
     ImportSourceCandidateInput,
@@ -44,7 +53,10 @@ from src.tools.mission.contracts import (
     ListSourceCodeFilesInput,
     ListWorkspaceAssetsInput,
     ListWorkspaceDocumentsInput,
-    ReadMissionReviewCandidateInput,
+    ReadArtifactCandidateInput,
+    ReadMissionInputInput,
+    ReadSandboxArtifactInput,
+    ReadSandboxFileInput,
     ReadSandboxOutputInput,
     ReadSourceCodeFileInput,
     ReadWorkspaceAssetInput,
@@ -115,11 +127,13 @@ class MissionToolHandlers:
         sandbox: SandboxRuntime,
         academic_visual: AcademicVisualRuntime | None = None,
         asset_root: Path | None = None,
+        mission_input_store: MissionInputStore | None = None,
     ) -> None:
         self.dataservice = dataservice
         self.sandbox = sandbox
         self.academic_visual = academic_visual
         self.asset_root = Path(asset_root or get_settings().workspace_asset_root)
+        self.mission_input_store = mission_input_store or MissionInputStore(get_settings().thread_data_root)
 
     async def list_workspace_assets(self, operation: ToolOperation, args: ListWorkspaceAssetsInput) -> ToolHandlerResult:
         assets = await self.dataservice.list_assets(
@@ -144,152 +158,65 @@ class MissionToolHandlers:
         )
         return _success(f"Found {len(refs)} workspace asset(s).", refs=refs)
 
-    async def read_review_candidate(
+    async def _sandbox_artifact_manifest(
         self,
-        operation: ToolOperation,
-        args: ReadMissionReviewCandidateInput,
-    ) -> ToolHandlerResult:
-        view = await self.dataservice.missions.get_view(operation.mission_id)
-        if view is None:
-            raise ToolDispatchError(ToolErrorType.INVALID_INPUT, "Mission is unavailable.")
-        item = next(
-            (
-                candidate
-                for candidate in view.review_items
-                if candidate.review_item_id == args.review_item_id
-            ),
-            None,
-        )
-        if item is None:
-            raise ToolDispatchError(
-                ToolErrorType.INVALID_INPUT,
-                "Review candidate is unavailable in this Mission.",
-            )
-        preview = dict(item.preview_json)
-        preview_body = str(preview.get("body") or "")
-        artifact_previews = await self._review_candidate_artifact_previews(
-            operation,
-            preview=preview,
-        )
-        return ToolHandlerResult(
-            status=ToolOutcomeStatus.SUCCESS,
-            summary=f"Loaded review candidate: {item.title}",
-            evidence_refs=(
-                ToolReference(
-                    ref_id=f"mission-review:{item.review_item_id}",
-                    kind="mission_review_candidate",
-                    title=item.title,
-                    metadata={
-                        "review_item_id": item.review_item_id,
-                        "preview_hash": item.preview_hash,
-                        "preview": preview,
-                        "preview_body_chunks": _text_chunks(
-                            preview_body,
-                            maximum_bytes=36_000,
-                        ),
-                        "sandbox_artifacts": artifact_previews,
-                    },
-                ),
-            ),
-            verification_status=VerificationStatus.VERIFIED,
-        )
-
-    async def _review_candidate_artifact_previews(
-        self,
-        operation: ToolOperation,
-        *,
-        preview: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        raw_refs = preview.get("source_refs")
-        ordered_refs = (
-            [
-                ref
-                for ref in raw_refs
-                if isinstance(ref, str) and ref.startswith("sandbox-artifact:")
-            ]
-            if isinstance(raw_refs, list)
-            else []
-        )
-        if not ordered_refs:
-            return []
-
-        wanted = set(ordered_refs[:6])
-        manifests: dict[str, ToolReference] = {}
-        after_seq = 0
-        while wanted - set(manifests):
-            items = await self.dataservice.missions.list_items(
-                operation.mission_id,
-                after_seq=after_seq,
-                limit=100,
-                item_type="tool_operation_terminal",
-            )
-            for ledger_item in items:
-                try:
-                    outcome = ResearchToolOutcome.model_validate(
-                        ledger_item.payload_json.get("outcome")
-                    )
-                except ValueError:
-                    continue
-                for ref in outcome.artifact_refs:
-                    if ref.ref_id in wanted:
-                        manifests[ref.ref_id] = ref
-            if len(items) < 100:
-                break
-            after_seq = items[-1].seq
-
-        workspace_id = await self._workspace_id(operation)
-        remaining_bytes = 60_000
-        projected: list[dict[str, Any]] = []
-        for ref_id in ordered_refs[:6]:
-            manifest = manifests.get(ref_id)
-            if manifest is None:
-                projected.append({"ref_id": ref_id, "availability": "manifest_unavailable"})
-                continue
-            path = str(manifest.metadata.get("path") or "")
-            content_hash = str(manifest.metadata.get("content_hash") or "")
-            mime_type = str(manifest.metadata.get("kind") or "application/octet-stream")
-            artifact: dict[str, Any] = {
-                "ref_id": ref_id,
-                "path": path,
-                "mime_type": mime_type,
-                "content_hash": content_hash,
-            }
-            if not mime_type.startswith(_TEXT_MIME_PREFIXES):
-                artifact["availability"] = "metadata_only"
-                projected.append(artifact)
-                continue
-            max_bytes = min(24_000, remaining_bytes)
-            if max_bytes <= 0:
-                artifact["availability"] = "candidate_read_budget_exhausted"
-                projected.append(artifact)
-                continue
-            try:
-                content = await self.sandbox.read_artifact_bytes(
-                    workspace_id=workspace_id,
-                    path=path,
-                    expected_content_hash=content_hash,
-                    max_bytes=max_bytes,
+        mission_id: str,
+        artifact_ref: str,
+    ) -> ToolReference | None:
+        for lineage_mission_id in await self._mission_lineage_ids(mission_id):
+            after_seq = 0
+            while True:
+                items = await self.dataservice.missions.list_items(
+                    lineage_mission_id,
+                    after_seq=after_seq,
+                    limit=100,
+                    item_type="artifact",
                 )
-            except (SandboxPathError, OSError):
-                artifact["availability"] = "unavailable_or_changed"
-                projected.append(artifact)
-                continue
-            remaining_bytes -= len(content)
-            artifact.update(
-                {
-                    "availability": "verified_inline",
-                    "content_chunks": _text_chunks(
-                        content.decode("utf-8", errors="replace"),
-                        maximum_bytes=len(content),
-                    ),
-                }
-            )
-            projected.append(artifact)
-        return projected
+                for ledger_item in items:
+                    payload = ledger_item.payload_json
+                    if str(payload.get("reference_id") or "") != artifact_ref:
+                        continue
+                    metadata = payload.get("metadata")
+                    if not isinstance(metadata, dict) or payload.get("verified") is not True:
+                        return None
+                    content_hash = str(metadata.get("content_hash") or "")
+                    digest = content_hash.removeprefix("sha256:")
+                    if len(digest) != 64 or artifact_ref != f"sandbox-artifact:{digest}" or str(metadata.get("object_ref") or "") != f"sbxobj_{digest}":
+                        return None
+                    return ToolReference(
+                        ref_id=artifact_ref,
+                        kind=str(payload.get("kind") or "sandbox_artifact_manifest"),
+                        uri=str(payload.get("uri")) if payload.get("uri") else None,
+                        title=str(payload.get("title")) if payload.get("title") else None,
+                        metadata=metadata,
+                    )
+                if len(items) < 100:
+                    break
+                after_seq = items[-1].seq
+        return None
+
+    async def _mission_lineage_ids(self, mission_id: str) -> tuple[str, ...]:
+        """Return the workspace-scoped continuation chain, newest first."""
+        current = await self.dataservice.missions.get(mission_id)
+        if current is None:
+            return ()
+        workspace_id = str(current.workspace_id)
+        lineage: list[str] = []
+        visited: set[str] = set()
+        while current is not None and len(lineage) < 32:
+            current_id = str(current.mission_id)
+            if current_id in visited or str(current.workspace_id) != workspace_id:
+                break
+            visited.add(current_id)
+            lineage.append(current_id)
+            parent_id = str(getattr(current, "parent_mission_id", "") or "")
+            current = await self.dataservice.missions.get(parent_id) if parent_id else None
+        return tuple(lineage)
 
     async def read_workspace_asset(self, operation: ToolOperation, args: ReadWorkspaceAssetInput) -> ToolHandlerResult:
         workspace_id = await self._workspace_id(operation)
-        asset = await self.dataservice.get_asset(args.asset_id)
+        asset_id = args.asset_ref.removeprefix("asset:")
+        asset = await self.dataservice.get_asset(asset_id)
         if asset is None or asset.workspace_id != workspace_id or asset.deleted_at is not None:
             raise ToolDispatchError(ToolErrorType.NO_RESULTS, "The requested workspace asset was not found.")
         if (asset.mime_type and not asset.mime_type.startswith(_TEXT_MIME_PREFIXES)) or (not asset.mime_type and Path(asset.name).suffix.lower() not in _SOURCE_SUFFIXES):
@@ -307,6 +234,87 @@ class MissionToolHandlers:
         )
         return _success(f"Read {len(content.encode())} byte(s) from {asset.name}.", refs=(ref,), payload_ref=f"asset:{asset.id}")
 
+    async def read_mission_input(
+        self,
+        operation: ToolOperation,
+        args: ReadMissionInputInput,
+    ) -> ToolHandlerResult:
+        mission = await self.dataservice.missions.get(operation.mission_id)
+        if mission is None:
+            raise ToolDispatchError(ToolErrorType.PERMISSION_DENIED, "Mission input scope is unavailable.")
+        if not mission.thread_id:
+            raise ToolDispatchError(
+                ToolErrorType.PERMISSION_DENIED,
+                "The Mission is not bound to a conversation thread.",
+            )
+        raw_manifests = mission.snapshot_json.get("mission_inputs")
+        manifests = raw_manifests if isinstance(raw_manifests, list) else []
+        manifest: MissionInputManifest | None = None
+        for raw in manifests:
+            if not isinstance(raw, dict) or raw.get("input_ref") != args.input_ref:
+                continue
+            try:
+                candidate = MissionInputManifest.model_validate(raw)
+            except ValueError as exc:
+                raise ToolDispatchError(
+                    ToolErrorType.PROVENANCE_MISSING,
+                    "The Mission input manifest failed validation.",
+                ) from exc
+            if candidate.workspace_id != mission.workspace_id:
+                raise ToolDispatchError(
+                    ToolErrorType.PERMISSION_DENIED,
+                    "The Mission input belongs to another workspace.",
+                )
+            if candidate.thread_id != mission.thread_id:
+                raise ToolDispatchError(
+                    ToolErrorType.PERMISSION_DENIED,
+                    "The Mission input belongs to another conversation thread.",
+                )
+            manifest = candidate
+            break
+        if manifest is None:
+            raise ToolDispatchError(
+                ToolErrorType.NO_RESULTS,
+                "The requested input is not pinned to this Mission.",
+            )
+        try:
+            content, truncated = self.mission_input_store.read_text(
+                manifest,
+                workspace_id=mission.workspace_id,
+                thread_id=mission.thread_id,
+                offset=args.offset,
+                max_chars=args.max_chars,
+            )
+        except LookupError as exc:
+            raise ToolDispatchError(ToolErrorType.NO_RESULTS, "The Mission input object is unavailable.") from exc
+        except PermissionError as exc:
+            raise ToolDispatchError(ToolErrorType.PERMISSION_DENIED, "The Mission input cannot be read.") from exc
+        except ValueError as exc:
+            raise ToolDispatchError(
+                ToolErrorType.PROVENANCE_MISSING,
+                "The Mission input failed its integrity check.",
+            ) from exc
+        ref = ToolReference(
+            ref_id=manifest.input_ref,
+            kind="mission_input_text",
+            title=manifest.filename,
+            metadata={
+                "content": content,
+                "offset": args.offset,
+                "truncated": truncated,
+                "content_hash": manifest.content_hash,
+                "source_content_hash": manifest.source_content_hash,
+                "mime_type": manifest.mime_type,
+                "extractor": manifest.extractor,
+                "text_chars": manifest.text_chars,
+            },
+        )
+        return _success(
+            f"Read {len(content)} character(s) from {manifest.filename}.",
+            refs=(ref,),
+            payload_ref=manifest.input_ref,
+        )
+
     async def list_workspace_documents(self, operation: ToolOperation, args: ListWorkspaceDocumentsInput) -> ToolHandlerResult:
         surface = await self.dataservice.get_prism_surface(await self._workspace_id(operation))
         files = list(surface.files[: args.limit]) if surface is not None else []
@@ -315,7 +323,12 @@ class MissionToolHandlers:
                 ref_id=f"prism-file:{item.id}",
                 kind="workspace_document",
                 title=item.path,
-                metadata={"mime_type": item.mime_type, "content_hash": item.content_hash, "file_role": item.file_role},
+                metadata={
+                    "mime_type": item.mime_type,
+                    "content_hash": item.content_hash,
+                    "revision_ref": item.current_version_id,
+                    "file_role": item.file_role,
+                },
             )
             for item in files
             if item.deleted_at is None
@@ -324,7 +337,8 @@ class MissionToolHandlers:
 
     async def read_workspace_document(self, operation: ToolOperation, args: ReadWorkspaceDocumentInput) -> ToolHandlerResult:
         workspace_id = await self._workspace_id(operation)
-        result = await self.dataservice.get_prism_workspace_file(workspace_id, args.file_id)
+        file_id = args.document_ref.removeprefix("prism-file:")
+        result = await self.dataservice.get_prism_workspace_file(workspace_id, file_id)
         if result is None or result.file.workspace_id != workspace_id or result.file.deleted_at is not None:
             raise ToolDispatchError(ToolErrorType.NO_RESULTS, "The requested document file was not found.")
         version = result.current_version
@@ -336,7 +350,13 @@ class MissionToolHandlers:
             ref_id=f"prism-file:{result.file.id}",
             kind="workspace_document_text",
             title=result.file.path,
-            metadata={"content": content, "offset": args.offset, "truncated": truncated, "content_hash": version.content_hash},
+            metadata={
+                "content": content,
+                "offset": args.offset,
+                "truncated": truncated,
+                "content_hash": version.content_hash,
+                "revision_ref": version.id,
+            },
         )
         return _success(f"Read {len(content)} character(s) from {result.file.path}.", refs=(ref,), payload_ref=ref.ref_id)
 
@@ -393,7 +413,7 @@ class MissionToolHandlers:
         return _success("Registered a verified source candidate for review.", refs=(ref,), payload_ref=ref.ref_id, risk="medium")
 
     async def list_source_code_files(self, operation: ToolOperation, args: ListSourceCodeFilesInput) -> ToolHandlerResult:
-        root, asset, single_file = await self._source_root(operation, args.asset_id)
+        root, asset, single_file = await self._source_root(operation, args.asset_ref.removeprefix("asset:"))
         base = _safe_descendant(root, args.relative_dir)
         paths = _list_source_files(
             base=base,
@@ -411,7 +431,7 @@ class MissionToolHandlers:
         return _success(f"Found {len(relative)} source file(s).", refs=(ref,))
 
     async def read_source_code_file(self, operation: ToolOperation, args: ReadSourceCodeFileInput) -> ToolHandlerResult:
-        root, asset, single_file = await self._source_root(operation, args.asset_id)
+        root, asset, single_file = await self._source_root(operation, args.asset_ref.removeprefix("asset:"))
         path = _safe_descendant(root, args.relative_path)
         if not path.is_file() or path.is_symlink() or path.suffix.lower() not in _SOURCE_SUFFIXES or (single_file is not None and path != single_file):
             raise ToolDispatchError(ToolErrorType.NO_RESULTS, "The requested source file is unavailable.")
@@ -430,10 +450,29 @@ class MissionToolHandlers:
         return _success(f"Read {len(content.encode())} byte(s) from {args.relative_path}.", refs=(ref,))
 
     async def sandbox_run_python(self, operation: ToolOperation, args: RunPythonToolInput) -> ToolHandlerResult:
-        return await self._sandbox(operation, RunPythonInput(**args.model_dump()))
+        read_hashes = await self._sandbox_read_hashes(operation.mission_id)
+        return await self._sandbox(
+            operation,
+            RunPythonInput(
+                **args.model_dump(),
+                base_content_hash=read_hashes.get(args.script_path),
+                output_base_hashes={
+                    path: content_hash
+                    for path, content_hash in read_hashes.items()
+                    if is_artifact_path(path)
+                },
+            ),
+        )
 
     async def sandbox_run_notebook(self, operation: ToolOperation, args: RunNotebookToolInput) -> ToolHandlerResult:
-        return await self._sandbox(operation, RunNotebookInput(**args.model_dump()))
+        read_hashes = await self._sandbox_read_hashes(operation.mission_id)
+        return await self._sandbox(
+            operation,
+            RunNotebookInput(
+                **args.model_dump(),
+                base_content_hash=read_hashes.get(args.output_path),
+            ),
+        )
 
     async def sandbox_smoke_check(self, operation: ToolOperation, _args: SmokeCheckToolInput) -> ToolHandlerResult:
         return await self._sandbox(operation, SmokeCheckInput())
@@ -464,13 +503,130 @@ class MissionToolHandlers:
     async def sandbox_read_output(self, operation: ToolOperation, args: ReadSandboxOutputInput) -> ToolHandlerResult:
         return await self._sandbox(operation, ReadOutputRefInput(**args.model_dump()))
 
-    async def create_artifact_candidate(self, operation: ToolOperation, args: CreateArtifactCandidateInput) -> ToolHandlerResult:
-        candidate_id = hashlib.sha256(json.dumps({"mission_id": operation.mission_id, **args.model_dump(mode="json")}, sort_keys=True).encode()).hexdigest()
+    async def sandbox_read_artifact(
+        self,
+        operation: ToolOperation,
+        args: ReadSandboxArtifactInput,
+    ) -> ToolHandlerResult:
+        manifest = await self._sandbox_artifact_manifest(
+            operation.mission_id,
+            args.artifact_ref,
+        )
+        if manifest is None:
+            raise ToolDispatchError(
+                ToolErrorType.NO_RESULTS,
+                "The verified Sandbox artifact is unavailable in this Mission.",
+            )
+        object_ref = str(manifest.metadata.get("object_ref") or "")
+        content_hash = str(manifest.metadata.get("content_hash") or "")
+        mime_type = str(manifest.metadata.get("kind") or "application/octet-stream")
+        size_bytes = int(manifest.metadata.get("size_bytes") or 0)
+        if not mime_type.startswith(_TEXT_MIME_PREFIXES):
+            raise ToolDispatchError(
+                ToolErrorType.INVALID_INPUT,
+                "This Sandbox artifact is not directly readable text.",
+            )
+        if size_bytes <= 0 or size_bytes > 16_777_216:
+            raise ToolDispatchError(
+                ToolErrorType.INVALID_INPUT,
+                "This Sandbox artifact cannot be read through the bounded text reader.",
+            )
+        if args.offset >= size_bytes:
+            raise ToolDispatchError(
+                ToolErrorType.INVALID_INPUT,
+                "The Sandbox artifact offset is outside the content boundary.",
+            )
+        try:
+            content = await self.sandbox.read_artifact_bytes(
+                workspace_id=await self._workspace_id(operation),
+                object_ref=object_ref,
+                expected_content_hash=content_hash,
+                max_bytes=args.max_bytes,
+                offset=args.offset,
+            )
+        except (SandboxPathError, OSError) as exc:
+            raise ToolDispatchError(
+                ToolErrorType.NO_RESULTS,
+                "The verified Sandbox artifact is unavailable or changed.",
+            ) from exc
+        text, consumed_bytes = _decode_utf8_page(content)
+        next_offset = args.offset + consumed_bytes
+        truncated = next_offset < size_bytes
+        ref = manifest.model_copy(
+            update={
+                "metadata": {
+                    **manifest.metadata,
+                    "content": text,
+                    "offset": args.offset,
+                    "next_offset": next_offset if truncated else None,
+                    "truncated": truncated,
+                    "verified_inline": True,
+                }
+            }
+        )
+        return _success(
+            f"Read verified Sandbox artifact bytes {args.offset}:{next_offset} of {size_bytes}.",
+            refs=(ref,),
+            payload_ref=args.artifact_ref,
+        )
+
+    async def sandbox_read_file(
+        self,
+        operation: ToolOperation,
+        args: ReadSandboxFileInput,
+    ) -> ToolHandlerResult:
+        try:
+            content, content_hash = await self.sandbox.read_public_file_bytes(
+                workspace_id=await self._workspace_id(operation),
+                path=args.path,
+                max_bytes=args.max_bytes,
+            )
+        except (SandboxPathError, OSError) as exc:
+            raise ToolDispatchError(
+                ToolErrorType.NO_RESULTS,
+                "The Sandbox file is unavailable or exceeds the read boundary.",
+            ) from exc
+        text = content.decode("utf-8", errors="replace")
         ref = ToolReference(
-            ref_id=f"artifact-candidate:{candidate_id}",
+            ref_id=f"sandbox-file:{content_hash.removeprefix('sha256:')}",
+            kind="sandbox_public_file",
+            title=Path(args.path).name,
+            metadata={
+                "path": args.path,
+                "content": text,
+                "content_hash": content_hash,
+                "size_bytes": len(content),
+            },
+        )
+        return _success(
+            f"Read {len(content)} byte(s) from Sandbox file.",
+            refs=(ref,),
+        )
+
+    async def create_artifact_candidate(self, operation: ToolOperation, args: CreateArtifactCandidateInput) -> ToolHandlerResult:
+        if args.source_refs:
+            available_refs = await self._verified_mission_reference_ids(operation.mission_id)
+            missing_refs = sorted(set(args.source_refs) - available_refs)
+            if missing_refs:
+                raise ToolDispatchError(
+                    ToolErrorType.PROVENANCE_MISSING,
+                    "Artifact candidate source refs must come from verified Mission tool receipts: " + ", ".join(missing_refs[:5]),
+                    recoverable_by_model=True,
+                )
+        content_hash = artifact_candidate_content_hash(args.preview_text)
+        metadata = {
+            **args.model_dump(mode="json"),
+            "content_hash": content_hash,
+            "mission_id": operation.mission_id,
+            "operation_key": operation.operation_key,
+            "materialized": False,
+        }
+        candidate_ref = artifact_candidate_ref(metadata)
+        ref = ToolReference(
+            ref_id=candidate_ref,
             kind="artifact_candidate",
             title=args.title,
-            metadata={**args.model_dump(mode="json"), "mission_id": operation.mission_id, "operation_key": operation.operation_key, "materialized": False},
+            metadata=metadata,
         )
         return ToolHandlerResult(
             status=ToolOutcomeStatus.SUCCESS,
@@ -480,6 +636,145 @@ class MissionToolHandlers:
             risk_level="medium",
             payload_ref=ref.ref_id,
         )
+
+    async def _verified_mission_reference_ids(self, mission_id: str) -> set[str]:
+        references: set[str] = set()
+        for lineage_mission_id in await self._mission_lineage_ids(mission_id):
+            after_seq = 0
+            while True:
+                items = await self.dataservice.missions.list_items(
+                    lineage_mission_id,
+                    after_seq=after_seq,
+                    limit=100,
+                )
+                for item in items:
+                    payload = item.payload_json
+                    reference_id = str(payload.get("reference_id") or "")
+                    if reference_id and payload.get("verified") is True:
+                        references.add(reference_id)
+                if len(items) < 100:
+                    break
+                after_seq = items[-1].seq
+        return references
+
+    async def _sandbox_read_hashes(self, mission_id: str) -> dict[str, str]:
+        """Resolve read-before-write guards from verified Mission receipts."""
+
+        resolved: dict[str, str] = {}
+        for lineage_mission_id in await self._mission_lineage_ids(mission_id):
+            local: dict[str, str] = {}
+            after_seq = 0
+            while True:
+                items = await self.dataservice.missions.list_items(
+                    lineage_mission_id,
+                    after_seq=after_seq,
+                    limit=100,
+                    item_type="evidence",
+                )
+                for item in items:
+                    payload = item.payload_json
+                    metadata = payload.get("metadata")
+                    if (
+                        payload.get("verified") is not True
+                        or str(payload.get("kind") or "")
+                        != "sandbox_public_file"
+                        or not isinstance(metadata, dict)
+                    ):
+                        continue
+                    path = str(metadata.get("path") or "")
+                    content_hash = str(metadata.get("content_hash") or "")
+                    if path.startswith("/workspace/") and re.fullmatch(
+                        r"sha256:[0-9a-f]{64}",
+                        content_hash,
+                    ):
+                        local[path] = content_hash
+                if len(items) < 100:
+                    break
+                after_seq = items[-1].seq
+            for path, content_hash in local.items():
+                resolved.setdefault(path, content_hash)
+        return resolved
+
+    async def read_artifact_candidate(
+        self,
+        operation: ToolOperation,
+        args: ReadArtifactCandidateInput,
+    ) -> ToolHandlerResult:
+        candidate = await self._internal_artifact_candidate_manifest(
+            operation.mission_id,
+            args.candidate_ref,
+        )
+        if candidate is None:
+            raise ToolDispatchError(
+                ToolErrorType.NO_RESULTS,
+                "The verified internal artifact candidate is unavailable in this Mission lineage.",
+            )
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary="Read a verified, unmaterialized internal artifact candidate.",
+            evidence_refs=(candidate,),
+            verification_status=VerificationStatus.VERIFIED,
+            payload_ref=candidate.ref_id,
+        )
+
+    async def _internal_artifact_candidate_manifest(
+        self,
+        mission_id: str,
+        candidate_ref: str,
+    ) -> ToolReference | None:
+        for lineage_mission_id in await self._mission_lineage_ids(mission_id):
+            after_seq = 0
+            while True:
+                items = await self.dataservice.missions.list_items(
+                    lineage_mission_id,
+                    after_seq=after_seq,
+                    limit=100,
+                    item_type="artifact",
+                )
+                for ledger_item in items:
+                    payload = ledger_item.payload_json
+                    if str(payload.get("reference_id") or "") != candidate_ref:
+                        continue
+                    metadata = payload.get("metadata")
+                    kind = str(payload.get("kind") or "")
+                    if payload.get("verified") is not True or not isinstance(metadata, dict):
+                        return None
+                    if candidate_ref.startswith("academic-visual:"):
+                        if kind != "academic_visual_candidate":
+                            return None
+                        try:
+                            receipt = AcademicVisualReceipt.model_validate(metadata)
+                        except ValueError:
+                            return None
+                        if (
+                            candidate_ref
+                            != f"academic-visual:{receipt.candidate.candidate_id}"
+                        ):
+                            return None
+                        return ToolReference(
+                            ref_id=candidate_ref,
+                            kind=kind,
+                            title=str(payload.get("title") or ""),
+                            metadata=receipt.model_dump(mode="json", by_alias=True),
+                        )
+                    if (
+                        kind != "artifact_candidate"
+                        or not valid_artifact_candidate_receipt(
+                            candidate_ref,
+                            metadata,
+                        )
+                    ):
+                        return None
+                    return ToolReference(
+                        ref_id=candidate_ref,
+                        kind="artifact_candidate",
+                        title=str(payload.get("title") or metadata.get("title") or ""),
+                        metadata=metadata,
+                    )
+                if len(items) < 100:
+                    break
+                after_seq = items[-1].seq
+        return None
 
     async def render_academic_visual_candidate(
         self,
@@ -634,46 +929,35 @@ class MissionToolHandlers:
                 raise ToolDispatchError(ToolErrorType.PROVENANCE_MISSING, "Search receipt ref must identify an operation and source.")
             expected_url = _canonical_url(str(args.url))
             matched = False
-            after_seq = 0
-            while True:
-                items = await self.dataservice.missions.list_items(
-                    operation.mission_id,
-                    after_seq=after_seq,
-                    limit=100,
-                    item_type="tool_operation_terminal",
+            receipt = await self.dataservice.missions.get_operation(
+                operation.mission_id,
+                operation_key,
+            )
+            raw_outcome = receipt.receipt_json.get("outcome") if receipt else None
+            try:
+                outcome = ResearchToolOutcome.model_validate(raw_outcome)
+            except ValueError:
+                outcome = None
+            if (
+                outcome is not None
+                and outcome.tool_id == MODEL_NATIVE_SEARCH_TOOL_ID
+                and outcome.status is ToolOutcomeStatus.SUCCESS
+                and outcome.verification_status
+                in {
+                    VerificationStatus.PROVIDER_RECEIPT,
+                    VerificationStatus.VERIFIED,
+                }
+            ):
+                matched = any(
+                    source.source_id == source_id
+                    and _canonical_url(source.canonical_url) == expected_url
+                    and source.verification_status
+                    in {
+                        VerificationStatus.PROVIDER_RECEIPT,
+                        VerificationStatus.VERIFIED,
+                    }
+                    for source in outcome.source_refs
                 )
-                for item in items:
-                    if item.payload_json.get("operation_key") != operation_key:
-                        continue
-                    try:
-                        outcome = ResearchToolOutcome.model_validate(item.payload_json.get("outcome"))
-                    except ValueError:
-                        continue
-                    if (
-                        outcome.tool_id != MODEL_NATIVE_SEARCH_TOOL_ID
-                        or outcome.status is not ToolOutcomeStatus.SUCCESS
-                        or outcome.verification_status
-                        not in {
-                            VerificationStatus.PROVIDER_RECEIPT,
-                            VerificationStatus.VERIFIED,
-                        }
-                    ):
-                        continue
-                    matched = any(
-                        source.source_id == source_id
-                        and _canonical_url(source.canonical_url) == expected_url
-                        and source.verification_status
-                        in {
-                            VerificationStatus.PROVIDER_RECEIPT,
-                            VerificationStatus.VERIFIED,
-                        }
-                        for source in outcome.source_refs
-                    )
-                    if matched:
-                        break
-                if matched or len(items) < 100:
-                    break
-                after_seq = items[-1].seq
             if not matched:
                 raise ToolDispatchError(ToolErrorType.PROVENANCE_MISSING, "No current Mission search receipt verifies this source URL.")
 
@@ -700,9 +984,7 @@ class MissionToolHandlers:
         mission = await self.dataservice.missions.get(operation.mission_id)
         if mission is None or mission.workspace_id == "":
             raise ToolDispatchError(ToolErrorType.PERMISSION_DENIED, "Mission workspace scope is unavailable.")
-        if isinstance(operation_input, RegisterArtifactInput) and not is_artifact_path(
-            operation_input.path
-        ):
+        if isinstance(operation_input, RegisterArtifactInput) and not is_artifact_path(operation_input.path):
             raise ToolDispatchError(
                 ToolErrorType.INVALID_INPUT,
                 "Only files under /workspace/outputs or /workspace/reports can be registered as reviewable artifacts; task scratch is temporary.",
@@ -750,7 +1032,10 @@ class MissionToolHandlers:
             raise ToolDispatchError(
                 _sandbox_error(result.status),
                 result.stderr_preview or "The typed sandbox operation did not complete.",
-                recoverable_by_model=result.retry_disposition.value == "safe_to_retry",
+                recoverable_by_model=(
+                    result.status is SandboxOperationStatus.FAILED
+                    or result.retry_disposition.value == "safe_to_retry"
+                ),
             )
         output_ref = result.stdout_ref.output_ref if result.stdout_ref is not None else None
         summary = result.stdout_preview or f"Sandbox operation {result.operation.value} completed."
@@ -782,7 +1067,12 @@ def _success(
 
 
 def _academic_visual_error(code: str) -> ToolErrorType:
-    if code in {"invalid_figure_strategy", "insufficient_visual_context", "provider_invalid_payload"}:
+    if code in {
+        "invalid_dataset_path",
+        "invalid_figure_strategy",
+        "insufficient_visual_context",
+        "provider_invalid_payload",
+    }:
         return ToolErrorType.INVALID_INPUT
     if code in {
         "reference_asset_unavailable",
@@ -797,6 +1087,16 @@ def _academic_visual_error(code: str) -> ToolErrorType:
         return ToolErrorType.AUTH_REQUIRED
     if code in {"provider_timeout"}:
         return ToolErrorType.TIMEOUT
+    if code in {"sandbox_execution_timeout"}:
+        return ToolErrorType.TIMEOUT
+    if code in {"sandbox_execution_failed"}:
+        return ToolErrorType.EXECUTION_FAILED
+    if code in {"sandbox_policy_denied"}:
+        return ToolErrorType.POLICY_FORBIDDEN
+    if code in {"sandbox_permission_required"}:
+        return ToolErrorType.PERMISSION_DENIED
+    if code in {"sandbox_reconciliation_required"}:
+        return ToolErrorType.RECEIPT_UNKNOWN
     if code in {"image_decode_failed", "image_policy_rejected", "quality_gate_failed"}:
         return ToolErrorType.UNSAFE_OUTPUT
     if code in {"reproducibility_manifest_invalid"}:
@@ -906,10 +1206,18 @@ def _text_chunks(
     chunk_chars: int = 1_800,
 ) -> list[str]:
     bounded = value.encode("utf-8")[:maximum_bytes].decode("utf-8", errors="ignore")
-    return [
-        bounded[index : index + chunk_chars]
-        for index in range(0, len(bounded), chunk_chars)
-    ]
+    return [bounded[index : index + chunk_chars] for index in range(0, len(bounded), chunk_chars)]
+
+
+def _decode_utf8_page(content: bytes) -> tuple[str, int]:
+    """Decode one byte page without splitting a trailing UTF-8 code point."""
+    try:
+        return content.decode("utf-8"), len(content)
+    except UnicodeDecodeError as exc:
+        if exc.reason == "unexpected end of data" and exc.end == len(content):
+            prefix = content[: exc.start]
+            return prefix.decode("utf-8"), len(prefix)
+        return content.decode("utf-8", errors="replace"), len(content)
 
 
 def _sandbox_error(status: SandboxOperationStatus) -> ToolErrorType:
@@ -921,6 +1229,8 @@ def _sandbox_error(status: SandboxOperationStatus) -> ToolErrorType:
         return ToolErrorType.TIMEOUT
     if status is SandboxOperationStatus.RECONCILIATION_REQUIRED:
         return ToolErrorType.RECEIPT_UNKNOWN
+    if status is SandboxOperationStatus.FAILED:
+        return ToolErrorType.EXECUTION_FAILED
     return ToolErrorType.INTERNAL_ERROR
 
 

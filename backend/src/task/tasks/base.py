@@ -250,9 +250,6 @@ def _apply_attachment_preprocess_state(
                 next_preprocess.pop("error", None)
 
             attachment_metadata["preprocess"] = next_preprocess
-            markdown_paths = next_preprocess.get("markdown_paths")
-            if isinstance(markdown_paths, list) and markdown_paths:
-                attachment_metadata["preprocessed_markdown_paths"] = markdown_paths
             changed = True
 
     return changed

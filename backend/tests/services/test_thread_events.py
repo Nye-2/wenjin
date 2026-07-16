@@ -20,7 +20,6 @@ def _make_thread():
         workspace_id="ws-1",
         title="Main thread",
         model="gpt-4o",
-        skill="deep-research",
         message_count=2,
         last_message_preview="latest response",
         last_message_role="assistant",
@@ -40,7 +39,6 @@ def _make_thread_with_usage():
         workspace_id="ws-1",
         title="Usage thread",
         model="gpt-4o",
-        skill="deep-research",
         message_count=2,
         last_message_preview="latest response",
         last_message_role="assistant",
@@ -75,7 +73,6 @@ def test_serialize_thread_summary_includes_preview() -> None:
     summary = serialize_thread_summary(_make_thread())
 
     assert summary["id"] == "thread-1"
-    assert summary["skill_name"] is None
     assert summary["message_count"] == 2
     assert summary["last_message_role"] == "assistant"
     assert summary["last_message_preview"] == "latest response"
@@ -107,7 +104,7 @@ def test_serialize_thread_summary_includes_token_usage() -> None:
 
 
 @pytest.mark.asyncio
-async def test_publish_thread_updated_includes_canonical_activity_item(
+async def test_publish_thread_updated_does_not_duplicate_mission_activity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     publish_workspace_event = AsyncMock()
@@ -121,18 +118,11 @@ async def test_publish_thread_updated_includes_canonical_activity_item(
     publish_workspace_event.assert_awaited_once()
     payload = publish_workspace_event.await_args.args[2]
     assert payload["thread"]["id"] == "thread-1"
-    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed
-    assert payload["activity"]["id"] == "thread:thread-1"
-    assert payload["activity"]["kind"] == "thread"
-    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed
-    assert payload["activity"]["metadata"]["skill"] == "deep-research"
-    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed
-    assert payload["activity"]["summary"] == "latest response"
-    assert "T" in payload["activity"]["occurred_at"]
+    assert "activity" not in payload
 
 
 @pytest.mark.asyncio
-async def test_publish_thread_updated_includes_token_usage_activity_metadata(
+async def test_publish_thread_updated_keeps_usage_on_thread_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     publish_workspace_event = AsyncMock()
@@ -145,12 +135,11 @@ async def test_publish_thread_updated_includes_token_usage_activity_metadata(
 
     payload = publish_workspace_event.await_args.args[2]
     assert payload["thread"]["thread_token_usage"]["total_tokens"] == 16
-    assert payload["activity"]["metadata"]["last_message_token_usage"]["total_tokens"] == 16
-    assert payload["activity"]["metadata"]["thread_token_usage"]["total_tokens"] == 16
+    assert "activity" not in payload
 
 
 @pytest.mark.asyncio
-async def test_publish_thread_deleted_includes_activity_id(
+async def test_publish_thread_deleted_does_not_address_mission_activity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     publish_workspace_event = AsyncMock()
@@ -164,7 +153,7 @@ async def test_publish_thread_deleted_includes_activity_id(
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",
         "thread.deleted",
-        {"thread_id": "thread-9", "activity_id": "thread:thread-9"},
+        {"thread_id": "thread-9"},
     )
 
 
@@ -185,21 +174,15 @@ async def test_set_thread_status_updates_redis_and_publishes_event(
         "ws-1",
         "thread-1",
         status="running",
-        skill="deep-research",
-        skill_name="深度调研",
         subagent_count=0,
     )
 
     mock_redis.set_agent_status.assert_awaited_once_with(
         "thread-1",
         "running",
-        skill="deep-research",
-        skill_name="深度调研",
         subagent_count=0,
-        clear_skill=False,
     )
     publish_workspace_event.assert_awaited_once()
     payload = publish_workspace_event.await_args.args[2]
     assert payload["thread"]["thread_id"] == "thread-1"
-    assert payload["thread"]["current_skill"] == "deep-research"
-    # skill_name now sourced from DB capability catalog; legacy in-process label resolution removed
+    assert payload["thread"]["subagent_count"] == 0

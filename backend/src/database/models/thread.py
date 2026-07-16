@@ -44,7 +44,6 @@ class Thread(Base, UUIDMixin, TimestampMixin):
         default="default",
         server_default="default",
     )
-    skill: Mapped[str | None] = mapped_column(String(100), nullable=True)
     message_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

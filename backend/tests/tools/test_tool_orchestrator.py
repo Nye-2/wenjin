@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -35,6 +36,18 @@ class _Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: int = Field(gt=0)
+
+
+class _NestedSpec(BaseModel):
+    value: int = Field(gt=0)
+
+
+class _NestedBrief(BaseModel):
+    figure_spec: _NestedSpec
+
+
+class _NestedInput(BaseModel):
+    brief: _NestedBrief
 
 
 class _Journal:
@@ -157,14 +170,54 @@ async def test_malformed_arguments_never_reach_handler() -> None:
 
     orchestrator, journal = _orchestrator(handler)
 
-    with pytest.raises(MalformedToolArgumentsError):
+    with pytest.raises(
+        MalformedToolArgumentsError,
+        match=r"value:greater_than.*<extra>:extra_forbidden",
+    ) as captured:
         await orchestrator.invoke(
             "test.read",
-            {"value": 0, "unexpected": True},
+            {"value": 0, "private-client-key": True},
             context=_context(),
             policy=_policy("test.read"),
         )
+    assert "private-client-key" not in str(captured.value)
     assert journal.started == []
+
+
+@pytest.mark.asyncio
+async def test_malformed_arguments_report_safe_nested_schema_path() -> None:
+    async def handler(_operation, _arguments):
+        raise AssertionError("handler must not run")
+
+    registration = build_tool_registration(
+        tool_id="test.nested",
+        tool_version="1.0.0",
+        kind=ToolKind.READ,
+        input_model=_NestedInput,
+        handler=handler,
+        side_effect_class=SideEffectClass.NONE,
+        allowed_callers=(ToolCallerKind.WORKSPACE_AGENT,),
+        required_permissions=("read",),
+    )
+    journal = _Journal()
+    orchestrator = ToolOrchestrator(
+        catalog=ToolCatalog([registration]).freeze(),
+        journal=journal,
+        lease_fence=_Fence(),
+        guard=_Guard(),
+        sleep=_no_sleep,
+    )
+
+    with pytest.raises(
+        MalformedToolArgumentsError,
+        match=r"brief\.figure_spec\.value:greater_than",
+    ):
+        await orchestrator.invoke(
+            "test.nested",
+            {"brief": {"figure_spec": {"value": 0}}},
+            context=_context(),
+            policy=_policy("test.nested"),
+        )
 
 
 @pytest.mark.asyncio
@@ -464,6 +517,24 @@ async def test_guard_failure_is_terminal_and_never_reaches_handler() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handler_value_error_is_not_mislabeled_as_unsafe_output() -> None:
+    async def handler(_operation, _arguments):
+        raise ValueError("runtime input mapping is inconsistent")
+
+    orchestrator, journal = _orchestrator(handler)
+    outcome = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=_context(),
+        policy=_policy("test.read"),
+    )
+
+    assert outcome.error_type is ToolErrorType.INTERNAL_ERROR
+    assert "output contract" not in outcome.summary
+    assert outcome.operation_key in journal.terminals
+
+
+@pytest.mark.asyncio
 async def test_outcome_redacts_secrets_before_journaling() -> None:
     async def handler(_operation, _arguments):
         return ToolHandlerResult(
@@ -507,6 +578,100 @@ async def test_oversized_result_must_be_externalized() -> None:
     assert outcome.status is ToolOutcomeStatus.ERROR
     assert outcome.error_type is ToolErrorType.UNSAFE_OUTPUT
     assert "externalized" in outcome.summary
+
+
+@pytest.mark.asyncio
+async def test_payload_limit_uses_actual_utf8_wire_size() -> None:
+    content = "科研证据" * 100
+
+    async def handler(_operation, _arguments):
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary="Read UTF-8 content.",
+            evidence_refs=(
+                ToolReference(
+                    ref_id="document:utf8",
+                    kind="workspace_document_text",
+                    metadata={"content": content},
+                ),
+            ),
+        )
+
+    actual_size = len(
+        json.dumps(
+            ToolHandlerResult(
+                status=ToolOutcomeStatus.SUCCESS,
+                summary="Read UTF-8 content.",
+                evidence_refs=(
+                    ToolReference(
+                        ref_id="document:utf8",
+                        kind="workspace_document_text",
+                        metadata={"content": content},
+                    ),
+                ),
+            ).model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+    escaped_size = len(
+        json.dumps(
+            {"content": content},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    assert escaped_size > actual_size
+    orchestrator, _journal = _orchestrator(
+        handler,
+        payload_limit_bytes=actual_size,
+    )
+
+    outcome = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=_context(),
+        policy=_policy("test.read"),
+    )
+
+    assert outcome.status is ToolOutcomeStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_redaction_preserves_bounded_reference_content_and_truncation_contract() -> None:
+    content = "正文" * 1500 + "完整结尾"
+
+    async def handler(_operation, _arguments):
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary=f"Read {len(content)} characters.",
+            evidence_refs=(
+                ToolReference(
+                    ref_id="document:one",
+                    kind="workspace_document_text",
+                    metadata={
+                        "content": content,
+                        "offset": 0,
+                        "truncated": False,
+                    },
+                ),
+            ),
+            verification_status=VerificationStatus.VERIFIED,
+        )
+
+    orchestrator, _journal = _orchestrator(handler)
+    outcome = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=_context(),
+        policy=_policy("test.read"),
+    )
+
+    metadata = outcome.evidence_refs[0].metadata
+    assert metadata["content"] == content
+    assert metadata["content"].endswith("完整结尾")
+    assert metadata["truncated"] is False
 
 
 @pytest.mark.asyncio

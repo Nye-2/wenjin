@@ -14,7 +14,6 @@ from .credit_reservation import (
 )
 from .decision import Decision
 from .document_v2 import DocumentV2
-from .generation import GenerationRecord
 from .latex_compile_history import LatexCompileHistory
 from .latex_project import LatexProject
 from .latex_template import LatexTemplate
@@ -89,7 +88,6 @@ __all__ = [
     "LatexTemplate",
     "LatexCompileHistory",
     # Generation
-    "GenerationRecord",
     # Task
     "TaskRecord",
     # Workspace Template

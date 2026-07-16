@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.contracts.reasoning import ReasoningEffort
+
 
 @dataclass(frozen=True, slots=True)
 class ThreadTurnAttachment:
@@ -23,12 +25,9 @@ class ThreadTurnRequest:
     workspace_id: str | None = None
     thread_id: str | None = None
     model: str | None = None
-    skill: str | None = None
-    thinking_enabled: bool = False
-    reasoning_effort: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
     attachments: tuple[ThreadTurnAttachment, ...] = ()
     metadata: dict[str, Any] | None = None
-    skill_explicit: bool = False
 
 
 @dataclass(slots=True)

@@ -131,6 +131,13 @@ async function refreshSession(): Promise<boolean> {
   return refreshPromise;
 }
 
+function expireSession(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  useAuthStore.getState().logout();
+}
+
 export async function authorizedFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
@@ -150,6 +157,7 @@ export async function authorizedFetch(
 
   const refreshed = await refreshSession();
   if (!refreshed) {
+    expireSession();
     return response;
   }
 
@@ -157,6 +165,9 @@ export async function authorizedFetch(
     ...init,
     headers: withAuthorizationHeader(init.headers, getAccessToken()),
   });
+  if (response.status === 401) {
+    expireSession();
+  }
   return response;
 }
 
@@ -196,6 +207,10 @@ class HttpStreamError extends Error {
     super(message);
     this.name = "HttpStreamError";
   }
+}
+
+export function isTerminalEventStreamStatus(status: number | undefined): boolean {
+  return status === 401 || status === 403;
 }
 
 export function subscribeJsonEventStream<T>({
@@ -323,20 +338,21 @@ apiClient.interceptors.response.use(
     if (
       typeof window !== "undefined" &&
       error.response?.status === 401 &&
-      originalRequest &&
-      !originalRequest._retry &&
-      !isAuthRequest(originalRequest.url)
+      !isAuthRequest(originalRequest?.url)
     ) {
-      originalRequest._retry = true;
-      const refreshed = await refreshSession();
-      if (refreshed) {
-        const token = getAccessToken();
-        if (token) {
-          originalRequest.headers = originalRequest.headers ?? {};
-          originalRequest.headers.Authorization = `Bearer ${token}`;
+      if (originalRequest && !originalRequest._retry) {
+        originalRequest._retry = true;
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          const token = getAccessToken();
+          if (token) {
+            originalRequest.headers = originalRequest.headers ?? {};
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+          }
+          return apiClient(originalRequest);
         }
-        return apiClient(originalRequest);
       }
+      expireSession();
     }
 
     const normalizedMessage =

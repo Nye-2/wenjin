@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
+from src.contracts.reasoning import ReasoningEffort
 from src.contracts.review_policy import DEFAULT_REVIEW_MODE, normalize_review_mode
 from src.database.models.workspace import Workspace
 from src.database.models.workspace_settings import WorkspaceSettings
@@ -29,8 +30,7 @@ from src.dataservice.domains.workspace.policies import (
 from src.dataservice.domains.workspace.repository import WorkspaceRepository
 
 _WORKSPACE_SETTINGS_DEFAULTS: dict[str, Any] = {
-    "thinking_enabled": True,
-    "sandbox_provider": "local",
+    "reasoning_effort": ReasoningEffort.XHIGH.value,
     "auto_compact_threshold": 0.8,
     "settings_json": {"review_mode": DEFAULT_REVIEW_MODE},
     "metadata_json": {},
@@ -70,6 +70,8 @@ class DataServiceWorkspaceService:
             await self.session.refresh(workspace)
         else:
             await self.session.flush()
+            await self.session.refresh(workspace)
+            await self.session.refresh(workspace)
         return workspace
 
     async def get_workspace(self, workspace_id: str) -> Workspace | None:
@@ -197,6 +199,7 @@ class DataServiceWorkspaceService:
                 await self.session.refresh(settings)
             else:
                 await self.session.flush()
+                await self.session.refresh(settings)
         return self.to_settings_record(settings)
 
     async def update_workspace_settings(
@@ -209,8 +212,7 @@ class DataServiceWorkspaceService:
             return None
         for field in (
             "default_model",
-            "thinking_enabled",
-            "sandbox_provider",
+            "reasoning_effort",
             "auto_compact_threshold",
             "metadata_json",
         ):
@@ -228,6 +230,7 @@ class DataServiceWorkspaceService:
             await self.session.refresh(settings)
         else:
             await self.session.flush()
+            await self.session.refresh(settings)
         return self.to_settings_record(settings)
 
     async def delete_workspace_settings(self, workspace_id: str) -> bool:
@@ -264,8 +267,7 @@ class DataServiceWorkspaceService:
         return WorkspaceSettingsRecord(
             workspace_id=str(settings.workspace_id),
             default_model=settings.default_model,
-            thinking_enabled=bool(settings.thinking_enabled),
-            sandbox_provider=settings.sandbox_provider,
+            reasoning_effort=ReasoningEffort(settings.reasoning_effort),
             auto_compact_threshold=float(settings.auto_compact_threshold),
             settings_json=settings_json,
             review_mode=settings_json["review_mode"],

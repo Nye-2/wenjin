@@ -13,6 +13,7 @@ from src.dataservice_client.contracts.mission import (
     MissionItemPayload,
     MissionReviewItemPayload,
     MissionRunPayload,
+    MissionViewRunPayload,
 )
 
 
@@ -58,6 +59,33 @@ def mission_run_to_payload(record: MissionRunRecord) -> MissionRunPayload:
     )
 
 
+def mission_run_to_view_payload(record: MissionRunRecord) -> MissionViewRunPayload:
+    return MissionViewRunPayload(
+        mission_id=str(record.mission_id),
+        parent_mission_id=record.parent_mission_id,
+        workspace_id=str(record.workspace_id),
+        thread_id=record.thread_id,
+        workspace_type=record.workspace_type,
+        title=record.title,
+        objective=record.objective,
+        status=record.status,
+        review_mode=record.review_mode,
+        active_stage_id=record.active_stage_id,
+        model_id=record.model_id,
+        reasoning_effort=record.reasoning_effort,
+        pending_review_count=record.pending_review_count,
+        evidence_count=record.evidence_count,
+        artifact_count=record.artifact_count,
+        active_subagent_count=record.active_subagent_count,
+        state_version=record.state_version,
+        last_item_seq=record.last_item_seq,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+    )
+
+
 def mission_item_to_payload(record: MissionItemRecord) -> MissionItemPayload:
     return MissionItemPayload(
         id=str(record.id),
@@ -83,6 +111,7 @@ def mission_review_item_to_payload(
         review_item_id=str(record.review_item_id),
         mission_id=str(record.mission_id),
         source_item_seq=record.source_item_seq,
+        output_key=record.output_key,
         target_kind=record.target_kind,
         target_room=record.target_room,
         target_ref=record.target_ref,
@@ -132,4 +161,5 @@ __all__ = [
     "mission_item_to_payload",
     "mission_review_item_to_payload",
     "mission_run_to_payload",
+    "mission_run_to_view_payload",
 ]

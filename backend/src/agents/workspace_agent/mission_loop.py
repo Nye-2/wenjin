@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import datetime
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
@@ -16,20 +15,96 @@ from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     stage_id_matches_contract,
 )
+from src.dataservice_client.contracts.mission import MissionItemPayload, MissionRunPayload
 from src.mission_runtime.contracts import (
+    MISSION_MODEL_MAX_OUTPUT_TOKENS,
+    MISSION_MODEL_REQUEST_TIMEOUT_SECONDS,
     MissionAgentDecision,
+    MissionAgentProtocolError,
     MissionDecisionKind,
     MissionLoopContext,
 )
+from src.mission_runtime.reference_authority import (
+    canonical_reference_read,
+    canonical_reference_read_for_receipt,
+    evidence_authority_index,
+    is_internal_candidate_reference,
+)
 from src.models import create_chat_model
-from src.models.provider_schema import parse_json_object, strict_provider_schema
-
-
-class WorkspaceMissionLoopProtocolError(RuntimeError):
-    """The provider violated the strict WorkspaceAgent mission-loop contract."""
-
+from src.models.provider_schema import (
+    ProviderToolPayloadError,
+    parse_json_object,
+    strict_provider_schema,
+)
 
 ModelFactory = Callable[..., BaseChatModel]
+
+_AGENT_MISSION_FIELDS = frozenset(
+    {
+        "mission_id",
+        "parent_mission_id",
+        "workspace_id",
+        "thread_id",
+        "workspace_type",
+        "mission_policy_id",
+        "title",
+        "objective",
+        "status",
+        "review_mode",
+        "active_stage_id",
+        "model_id",
+        "reasoning_effort",
+        "snapshot_json",
+        "pending_review_count",
+        "evidence_count",
+        "artifact_count",
+        "active_subagent_count",
+        "last_command_seq",
+        "last_applied_command_seq",
+        "state_version",
+        "last_item_seq",
+        "created_at",
+        "updated_at",
+        "started_at",
+        "completed_at",
+    }
+)
+_AGENT_ITEM_FIELDS = frozenset(
+    {
+        "seq",
+        "item_type",
+        "operation_id",
+        "phase",
+        "stage_id",
+        "producer",
+        "summary",
+        "risk_level",
+        "payload_ref",
+        "created_at",
+    }
+)
+_RECEIPT_ONLY_ITEM_TYPES = frozenset(
+    {
+        "artifact",
+        "context_checkpoint",
+        "evidence",
+        "operation_claim",
+        "operation_terminal",
+        "output",
+    }
+)
+# Keep ordinary academic briefs/specifications available to the parent loop.
+# Large datasets, logs, and generated artifacts still travel by canonical ref.
+_AGENT_INLINE_PAYLOAD_LIMIT_BYTES = 16 * 1024
+_IMMUTABLE_READ_TOOL_IDS = frozenset(
+    {
+        "artifact.read_candidate",
+        "sandbox.read_artifact",
+        "sandbox.read_output_ref",
+        "workspace.read_asset",
+        "workspace.read_input",
+    }
+)
 
 
 class _ProviderMissionPause(BaseModel):
@@ -74,7 +149,15 @@ class _ProviderReviewItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     review_item_id: str = Field(min_length=1, max_length=36)
-    source_item_seq: int | None = Field(ge=1)
+    candidate_ref: str = Field(
+        pattern=r"^(?:artifact-candidate:[0-9a-f]{64}|academic-visual:[A-Za-z0-9._:-]{1,160})$",
+        max_length=180,
+    )
+    output_key: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[a-z0-9][a-z0-9_.:-]*$",
+    )
     target_kind: str = Field(min_length=1, max_length=80)
     target_room: str | None = Field(max_length=80)
     target_ref: str | None = Field(max_length=2048)
@@ -84,9 +167,6 @@ class _ProviderReviewItem(BaseModel):
     summary: str | None = Field(max_length=4000)
     risk_level: Literal["low", "medium", "high"]
     review_required_reason: str | None = Field(max_length=4000)
-    preview_json: str = Field(description="JSON object containing a complete user-previewable candidate, usually markdown content.")
-    preview_ref: str | None = Field(max_length=2048)
-    preview_expires_at: datetime | None = None
 
 
 class _ProviderQualityCriterion(BaseModel):
@@ -95,19 +175,7 @@ class _ProviderQualityCriterion(BaseModel):
     criterion_id: str = Field(min_length=1, max_length=160)
     status: Literal["pass", "fail", "unknown"]
     supporting_refs: list[str] = Field(max_length=100)
-    rationale: str = Field(max_length=4000)
-
-
-class _ProviderQualityArtifact(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    artifact_id: str = Field(min_length=1, max_length=2048)
-    kind: str = Field(min_length=1, max_length=160)
-    content_hash: str = Field(min_length=8, max_length=128)
-    manifest_ref: str | None = Field(max_length=2048)
-    script_ref: str | None = Field(max_length=2048)
-    data_refs: list[str] = Field(max_length=100)
-    metadata_json: str
+    rationale: str = Field(min_length=20, max_length=4000)
 
 
 class _ProviderQualityEvidence(BaseModel):
@@ -115,18 +183,7 @@ class _ProviderQualityEvidence(BaseModel):
 
     evidence_id: str = Field(min_length=1, max_length=2048)
     surface: str = Field(min_length=1, max_length=160)
-    kind: str = Field(min_length=1, max_length=160)
-    source_ref: str | None = Field(max_length=2048)
     claim_ids: list[str] = Field(max_length=100)
-
-
-class _ProviderQualityCritique(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    reviewer_role: str = Field(min_length=1, max_length=160)
-    verdict: Literal["pass", "revise"]
-    criterion_ids: list[str] = Field(max_length=100)
-    note: str = Field(max_length=4000)
 
 
 class _ProviderQualityExemplarComparison(BaseModel):
@@ -136,6 +193,17 @@ class _ProviderQualityExemplarComparison(BaseModel):
     verdict: Literal["below", "meets", "exceeds"]
     criterion_ids: list[str] = Field(max_length=100)
     note: str = Field(max_length=4000)
+
+
+class _ProviderStageItemCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_context_key: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[a-z][a-z0-9_.:-]*$",
+    )
+    count: int = Field(ge=1, le=100)
 
 
 class _ProviderMissionDecision(BaseModel):
@@ -156,12 +224,13 @@ class _ProviderMissionDecision(BaseModel):
     quality_candidate_refs: list[str] = Field(max_length=100)
     quality_criteria: list[_ProviderQualityCriterion] = Field(max_length=100)
     quality_evidence: list[_ProviderQualityEvidence] = Field(default_factory=list, max_length=100)
-    quality_artifacts: list[_ProviderQualityArtifact] = Field(max_length=100)
-    quality_output_refs: list[str] = Field(max_length=100)
-    quality_critiques: list[_ProviderQualityCritique] = Field(max_length=32)
     quality_exemplar_comparisons: list[_ProviderQualityExemplarComparison] = Field(
         default_factory=list,
         max_length=32,
+    )
+    quality_item_counts: list[_ProviderStageItemCount] = Field(
+        default_factory=list,
+        max_length=16,
     )
     quality_blocking_user_inputs: list[str] = Field(max_length=32)
     review_summary: str | None = Field(max_length=4000)
@@ -223,23 +292,19 @@ class _ProviderMissionDecision(BaseModel):
                 )
             return {"task_summary": self.summary, "input_scope": {"jobs": jobs}}
         if self.kind is MissionDecisionKind.QUALITY:
+            item_counts: dict[str, int] = {}
+            for item in self.quality_item_counts:
+                if item.source_context_key in item_counts:
+                    raise ProviderToolPayloadError(
+                        "quality_item_counts contains a duplicate source_context_key"
+                    )
+                item_counts[item.source_context_key] = item.count
             return {
                 "candidate_refs": self.quality_candidate_refs,
+                "item_counts": item_counts,
                 "assessment": {
                     "criterion_assessments": [item.model_dump(mode="json") for item in self.quality_criteria],
                     "evidence": [{**item.model_dump(mode="json"), "status": "unverified", "metadata": {}} for item in self.quality_evidence],
-                    "artifacts": [
-                        {
-                            **item.model_dump(mode="json", exclude={"metadata_json"}),
-                            "metadata": parse_json_object(
-                                item.metadata_json,
-                                field_name="quality_artifacts.metadata_json",
-                            ),
-                        }
-                        for item in self.quality_artifacts
-                    ],
-                    "output_refs": self.quality_output_refs,
-                    "critiques": [item.model_dump(mode="json") for item in self.quality_critiques],
                     "exemplar_comparisons": [item.model_dump(mode="json") for item in self.quality_exemplar_comparisons],
                     "blocking_user_inputs": self.quality_blocking_user_inputs,
                 },
@@ -247,32 +312,59 @@ class _ProviderMissionDecision(BaseModel):
         if self.kind is MissionDecisionKind.REVIEW:
             return {
                 "summary": self.review_summary or self.summary,
-                "items": [
-                    {
-                        **item.model_dump(
-                            mode="json",
-                            exclude={"preview_json"},
-                        ),
-                        "preview_json": parse_json_object(
-                            item.preview_json,
-                            field_name="review_items.preview_json",
-                        ),
-                    }
-                    for item in self.review_items
-                ],
+                "items": [item.model_dump(mode="json") for item in self.review_items],
             }
         if self.kind is MissionDecisionKind.FAIL:
             return {"failure_reason": self.failure_reason or "mission_failed"}
         return {}
 
 
-def mission_decision_tool() -> dict[str, Any]:
+def mission_decision_tool(
+    *,
+    subagent_selected_refs: tuple[str, ...] = (),
+    quality_candidate_refs: tuple[str, ...] = (),
+    quality_evidence_refs: tuple[str, ...] = (),
+    quality_item_count_sources: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    parameters = strict_provider_schema(_ProviderMissionDecision.model_json_schema())
+    candidate_refs = list(dict.fromkeys(quality_candidate_refs))
+    evidence_refs = list(dict.fromkeys(quality_evidence_refs))
+    item_count_sources = list(dict.fromkeys(quality_item_count_sources))
+    authoritative_refs = list(dict.fromkeys((*candidate_refs, *evidence_refs)))
+    if candidate_refs:
+        parameters["properties"]["quality_candidate_refs"]["items"]["enum"] = (
+            candidate_refs
+        )
+    else:
+        parameters["properties"]["quality_candidate_refs"]["maxItems"] = 0
+    definitions = parameters.get("$defs") or {}
+    selected_refs = list(dict.fromkeys(subagent_selected_refs))
+    if selected_refs:
+        definitions["_ProviderSubagentJob"]["properties"]["selected_refs"][
+            "items"
+        ]["enum"] = selected_refs
+    else:
+        definitions["_ProviderSubagentJob"]["properties"]["selected_refs"][
+            "maxItems"
+        ] = 0
+    if evidence_refs:
+        definitions["_ProviderQualityEvidence"]["properties"]["evidence_id"][
+            "enum"
+        ] = evidence_refs
+    if authoritative_refs:
+        definitions["_ProviderQualityCriterion"]["properties"]["supporting_refs"][
+            "items"
+        ]["enum"] = authoritative_refs
+    if item_count_sources:
+        definitions["_ProviderStageItemCount"]["properties"][
+            "source_context_key"
+        ]["enum"] = item_count_sources
     return {
         "type": "function",
         "function": {
             "name": "mission_step",
             "description": "Choose exactly one durable next step for the active Wenjin mission.",
-            "parameters": strict_provider_schema(_ProviderMissionDecision.model_json_schema()),
+            "parameters": parameters,
             "strict": True,
         },
     }
@@ -282,17 +374,21 @@ def parse_mission_decision(message: AIMessage) -> MissionAgentDecision:
     """Accept one provider tool frame and never recover an action from prose."""
     calls = message.tool_calls
     if len(calls) != 1:
-        raise WorkspaceMissionLoopProtocolError("WorkspaceAgent mission loop requires exactly one structured action")
+        raise MissionAgentProtocolError("Return exactly one mission_step action")
     call = calls[0]
     if str(call.get("name") or "") != "mission_step":
-        raise WorkspaceMissionLoopProtocolError("Unknown WorkspaceAgent mission action")
+        raise MissionAgentProtocolError("Return the mission_step action, not another tool")
     arguments = call.get("args")
     if not isinstance(arguments, dict):
-        raise WorkspaceMissionLoopProtocolError("Mission action arguments must be an object")
+        raise MissionAgentProtocolError("mission_step arguments must be a JSON object")
     try:
         return _ProviderMissionDecision.model_validate(arguments).to_domain()
-    except Exception as exc:
-        raise WorkspaceMissionLoopProtocolError("WorkspaceAgent returned malformed mission action arguments") from exc
+    except ValidationError as exc:
+        issues = [f"{'.'.join(str(part) for part in issue['loc'])}:{issue['type']}" for issue in exc.errors(include_input=False)[:8]]
+        detail = ", ".join(issues) or "schema validation failed"
+        raise MissionAgentProtocolError(f"mission_step arguments did not match the schema ({detail})") from exc
+    except ProviderToolPayloadError as exc:
+        raise MissionAgentProtocolError(str(exc)) from exc
 
 
 class WorkspaceMissionLoopAgent:
@@ -303,26 +399,63 @@ class WorkspaceMissionLoopAgent:
 
     async def decide(self, context: MissionLoopContext) -> MissionAgentDecision:
         runtime = _require_runtime_contract(context)
+        reference_inventory = _quality_reference_inventory(
+            _unique_reference_items(
+                [*context.reference_items, *context.recent_items]
+            )
+        )
         model = self._model_factory(
             context.mission.model_id,
             reasoning_effort=context.mission.reasoning_effort.value,
+            request_timeout=MISSION_MODEL_REQUEST_TIMEOUT_SECONDS,
             max_retries=0,
+            max_output_tokens=MISSION_MODEL_MAX_OUTPUT_TOKENS,
         )
         bound = model.bind_tools(
-            [mission_decision_tool()],
+            [
+                mission_decision_tool(
+                    subagent_selected_refs=_subagent_selectable_refs(
+                        reference_inventory
+                    ),
+                    quality_candidate_refs=tuple(
+                        str(item["ref"])
+                        for item in reference_inventory["candidates"]
+                        if item.get("mission_id") == context.mission.mission_id
+                    ),
+                    quality_evidence_refs=tuple(
+                        str(item["ref"])
+                        for item in reference_inventory["evidence"]
+                    ),
+                    quality_item_count_sources=tuple(
+                        sorted(
+                            {
+                                str(instantiation["source_context_key"])
+                                for contract in runtime["stage_contracts"].values()
+                                if isinstance(contract, dict)
+                                and isinstance(
+                                    instantiation := contract.get("instantiation"),
+                                    dict,
+                                )
+                                and instantiation.get("mode") == "per_item"
+                                and instantiation.get("source_context_key")
+                            }
+                        )
+                    ),
+                )
+            ],
             tool_choice="mission_step",
             strict=True,
         )
-        response = await bound.ainvoke(
-            [
-                SystemMessage(content=render_workspace_mission_prompt(runtime)),
-                HumanMessage(content=_render_mission_state(context)),
-            ]
-        )
+        messages = [SystemMessage(content=render_workspace_mission_prompt(runtime))]
+        if context.protocol_feedback:
+            messages.append(SystemMessage(content=(f"Your previous mission_step response violated the structured contract. Correct it now: {context.protocol_feedback}. Return exactly one mission_step tool call and no prose.")))
+        messages.append(HumanMessage(content=_render_mission_state(context)))
+        response = await bound.ainvoke(messages)
         if not isinstance(response, AIMessage):
-            raise WorkspaceMissionLoopProtocolError("WorkspaceAgent mission provider returned a non-message response")
+            raise MissionAgentProtocolError("Return one structured mission_step response")
         decision = parse_mission_decision(response)
         _validate_decision_scope(decision, runtime)
+        _validate_decision_context(decision, context)
         return _attach_usage(decision, response)
 
 
@@ -333,25 +466,419 @@ def _require_runtime_contract(context: MissionLoopContext) -> dict[str, Any]:
     tool_policy = runtime.get("tool_policy")
     skill_snapshots = runtime.get("worker_skill_snapshots")
     if not isinstance(policy, dict) or not isinstance(stages, dict) or not stages:
-        raise WorkspaceMissionLoopProtocolError("Mission policy snapshot is unavailable")
+        raise RuntimeError("Mission policy snapshot is unavailable")
     if not isinstance(tool_policy, dict):
-        raise WorkspaceMissionLoopProtocolError("Mission tool policy snapshot is unavailable")
+        raise RuntimeError("Mission tool policy snapshot is unavailable")
     if not isinstance(skill_snapshots, dict):
-        raise WorkspaceMissionLoopProtocolError("Mission WorkerSkill snapshots are unavailable")
+        raise RuntimeError("Mission WorkerSkill snapshots are unavailable")
     return runtime
 
 
 def _render_mission_state(context: MissionLoopContext) -> str:
+    reference_items = _unique_reference_items(
+        [*context.reference_items, *context.recent_items]
+    )
     payload = {
-        "mission": context.mission.model_dump(mode="json", exclude_none=True),
-        "pending_commands": [item.model_dump(mode="json", exclude_none=True) for item in context.pending_commands],
-        "recent_items": [item.model_dump(mode="json", exclude_none=True) for item in context.recent_items[-24:]],
+        "mission": _agent_mission_projection(context.mission),
+        "pending_commands": [_agent_item_projection(item) for item in context.pending_commands],
+        "recent_items": [_agent_item_projection(item) for item in context.recent_items[-24:]],
+        "quality_reference_inventory": _quality_reference_inventory(
+            reference_items
+        ),
+        "hydrated_reference_reads": _hydrated_reference_reads(reference_items),
         "slice_budget": {
             "model_turns_used": context.model_turns_used,
             "tool_steps_used": context.tool_steps_used,
         },
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _agent_mission_projection(mission: MissionRunPayload) -> dict[str, Any]:
+    """Project durable Mission state without duplicating runtime-owned contracts."""
+    return mission.model_dump(
+        mode="json",
+        include=_AGENT_MISSION_FIELDS,
+        exclude_none=True,
+    )
+
+
+def _agent_item_projection(item: MissionItemPayload) -> dict[str, Any]:
+    """Keep one semantic payload while retaining lightweight ledger receipts."""
+    include = set(_AGENT_ITEM_FIELDS)
+    if item.item_type not in _RECEIPT_ONLY_ITEM_TYPES:
+        include.add("payload_json")
+    projection = item.model_dump(mode="json", include=include, exclude_none=True)
+    payload = projection.get("payload_json")
+    if isinstance(payload, dict):
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > _AGENT_INLINE_PAYLOAD_LIMIT_BYTES:
+            projection["payload_json"] = {
+                "context_externalized": True,
+                "payload_bytes": len(encoded),
+                "payload_keys": sorted(str(key) for key in payload)[:32],
+                "authoritative_ref": item.payload_ref,
+            }
+    return projection
+
+
+def _quality_reference_inventory(
+    items: list[MissionItemPayload],
+) -> dict[str, list[dict[str, Any]]]:
+    """Project exact receipt-backed refs without exposing full receipt payloads."""
+    candidates: dict[tuple[str, str], dict[str, Any]] = {}
+    evidence: dict[str, dict[str, Any]] = {}
+    verified_receipts: dict[str, tuple[str, dict[str, object]]] = {}
+    authorities = evidence_authority_index(items)
+    for item in items:
+        if item.phase.value != "completed":
+            continue
+        payload = item.payload_json
+        payload_reference = str(payload.get("reference_id") or "").strip()
+        payload_kind = str(payload.get("kind") or "").strip()
+        payload_metadata = payload.get("metadata")
+        if (
+            payload_reference
+            and payload_kind
+            and payload.get("verified") is True
+            and isinstance(payload_metadata, dict)
+        ):
+            verified_receipts[payload_reference] = (
+                payload_kind,
+                payload_metadata,
+            )
+        payload_ref = str(item.payload_ref or "").strip()
+        candidate_ref = payload_reference or payload_ref
+        if (
+            is_internal_candidate_reference(candidate_ref)
+            and item.item_type == "artifact"
+            and payload.get("verified") is True
+            and isinstance(payload_metadata, dict)
+        ):
+            authority = authorities.get(candidate_ref)
+            candidates.setdefault(
+                (item.mission_id, candidate_ref),
+                {
+                    "ref": candidate_ref,
+                    "mission_id": item.mission_id,
+                    "stage_id": item.stage_id,
+                    "kind": str(payload.get("kind") or "internal_candidate"),
+                    "title": str(payload.get("title") or item.summary or "")[:300],
+                    "content_evidence_surfaces": (
+                        sorted(authority.surfaces) if authority is not None else []
+                    ),
+                    "supported_claim_refs": (
+                        sorted(authority.supported_claims)
+                        if authority is not None
+                        else []
+                    ),
+                    "subagent_readable": (
+                        canonical_reference_read_for_receipt(
+                            candidate_ref,
+                            kind=payload_kind,
+                            metadata=payload_metadata,
+                        )
+                        is not None
+                    ),
+                },
+            )
+            continue
+    for authority in authorities.values():
+        if authority.kind == "artifact_candidate":
+            continue
+        receipt = verified_receipts.get(authority.evidence_id)
+        evidence[authority.evidence_id] = {
+            "ref": authority.evidence_id,
+            "stage_id": authority.stage_id,
+            "kind": authority.kind,
+            "surfaces": sorted(authority.surfaces),
+            "supported_claim_refs": sorted(authority.supported_claims),
+            "title": authority.title,
+            "subagent_readable": (
+                receipt is not None
+                and canonical_reference_read_for_receipt(
+                    authority.evidence_id,
+                    kind=receipt[0],
+                    metadata=receipt[1],
+                )
+                is not None
+            ),
+        }
+    return {
+        "candidates": list(candidates.values()),
+        "evidence": list(evidence.values()),
+    }
+
+
+def _subagent_selectable_refs(
+    inventory: dict[str, list[dict[str, Any]]],
+) -> tuple[str, ...]:
+    """Expose only receipt-backed refs with one canonical hydration route."""
+
+    refs = (
+        str(item.get("ref") or "")
+        for item in [*inventory["candidates"], *inventory["evidence"]]
+        if item.get("subagent_readable") is True
+    )
+    return tuple(
+        dict.fromkeys(ref for ref in refs if canonical_reference_read(ref) is not None)
+    )
+
+
+def _unique_reference_items(
+    items: list[MissionItemPayload],
+) -> list[MissionItemPayload]:
+    """Merge durable reference projections with recent terminal tool receipts."""
+    by_identity = {(item.mission_id, item.seq): item for item in items}
+    return sorted(
+        by_identity.values(),
+        key=lambda item: (item.created_at, item.mission_id, item.seq),
+    )
+
+
+def _hydrated_reference_reads(
+    items: list[MissionItemPayload],
+) -> list[dict[str, str | None]]:
+    """Project durable successful context hydration independently of recent events."""
+
+    hydrated: dict[str, dict[str, str | None]] = {}
+    for item in items:
+        if item.item_type != "evidence" or item.phase.value != "completed":
+            continue
+        payload = item.payload_json
+        metadata = payload.get("metadata")
+        ref = str(payload.get("reference_id") or item.payload_ref or "").strip()
+        kind = str(payload.get("kind") or "").strip()
+        if (
+            payload.get("verified") is not True
+            or not ref
+            or not kind
+            or not isinstance(metadata, dict)
+        ):
+            continue
+        read = canonical_reference_read_for_receipt(
+            ref,
+            kind=kind,
+            metadata=metadata,
+        )
+        if read is None:
+            continue
+        hydrated[ref] = {
+            "ref": ref,
+            "tool_name": read.tool_name,
+            "stage_id": item.stage_id,
+            "summary": item.summary,
+            "operation_id": item.operation_id,
+        }
+    return list(hydrated.values())
+
+
+def _validate_decision_context(
+    decision: MissionAgentDecision,
+    context: MissionLoopContext,
+) -> None:
+    """Reject invented quality refs while the provider can still self-correct."""
+    inventory = _quality_reference_inventory(
+        _unique_reference_items([*context.reference_items, *context.recent_items])
+    )
+    if decision.kind is MissionDecisionKind.TOOL:
+        tool_name = str(decision.payload_json.get("tool_name") or "")
+        arguments = decision.payload_json.get("arguments")
+        if tool_name in _IMMUTABLE_READ_TOOL_IDS and isinstance(arguments, dict):
+            prior_operation_id = _completed_immutable_read_operation(
+                _unique_reference_items(
+                    [*context.reference_items, *context.recent_items]
+                ),
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+            if prior_operation_id is not None:
+                raise MissionAgentProtocolError(
+                    f"{tool_name} already completed for these immutable arguments as "
+                    f"operation_id={prior_operation_id}; reuse its existing tool_result"
+                )
+        if tool_name == "artifact.read_candidate" and isinstance(arguments, dict):
+            candidate_ref = str(arguments.get("candidate_ref") or "")
+            available = sorted(
+                {
+                    *(
+                        str(item["ref"])
+                        for item in inventory["candidates"]
+                        if (
+                            read := canonical_reference_read(
+                                str(item.get("ref") or "")
+                            )
+                        )
+                        is not None
+                        and read.tool_name == "artifact.read_candidate"
+                    ),
+                    *_lineage_candidate_refs(context.mission),
+                }
+            )
+            if candidate_ref not in available:
+                raise MissionAgentProtocolError(
+                    "artifact.read_candidate candidate_ref must copy an exact internal candidate ref from "
+                    "quality_reference_inventory; received="
+                    f"{candidate_ref!r}, available={available[:8]}"
+                )
+        return
+    if decision.kind is not MissionDecisionKind.QUALITY:
+        return
+    stage_id = decision.stage_id or context.mission.active_stage_id
+    available_candidates = {
+        str(item["ref"])
+        for item in inventory["candidates"]
+        if item.get("stage_id") == stage_id
+        and item.get("mission_id") == context.mission.mission_id
+    }
+    candidate_refs = {
+        str(value)
+        for value in decision.payload_json.get("candidate_refs") or ()
+    }
+    if not candidate_refs:
+        raise MissionAgentProtocolError(
+            "quality_candidate_refs must contain a current-stage ref from "
+            "quality_reference_inventory"
+        )
+    unavailable = sorted(candidate_refs - available_candidates)
+    if unavailable:
+        available = sorted(available_candidates)
+        raise MissionAgentProtocolError(
+            "quality_candidate_refs must copy current-stage refs from "
+            "quality_reference_inventory; unavailable="
+            f"{unavailable[:8]}, available={available[:8]}"
+        )
+
+    assessment = decision.payload_json.get("assessment")
+    if not isinstance(assessment, dict):
+        return
+    declared_evidence = {
+        str(item.get("evidence_id") or "")
+        for item in assessment.get("evidence") or ()
+        if isinstance(item, dict) and str(item.get("evidence_id") or "")
+    }
+    available_evidence = {
+        str(item["ref"]): item
+        for item in inventory["evidence"]
+    }
+    unavailable_evidence = sorted(declared_evidence - set(available_evidence))
+    if unavailable_evidence:
+        available = sorted(available_evidence)
+        raise MissionAgentProtocolError(
+            "quality_evidence.evidence_id must copy refs from "
+            "quality_reference_inventory; unavailable="
+            f"{unavailable_evidence[:8]}, available={available[:8]}"
+        )
+    invalid_surfaces: list[str] = []
+    invalid_claim_scopes: list[str] = []
+    seen_evidence_surfaces: set[tuple[str, str]] = set()
+    for raw in assessment.get("evidence") or ():
+        if not isinstance(raw, dict):
+            continue
+        evidence_id = str(raw.get("evidence_id") or "")
+        surface = str(raw.get("surface") or "")
+        pair = (evidence_id, surface)
+        if pair in seen_evidence_surfaces:
+            raise MissionAgentProtocolError(
+                "quality_evidence cannot repeat the same evidence_id and surface"
+            )
+        seen_evidence_surfaces.add(pair)
+        authority = available_evidence.get(evidence_id)
+        if authority is None:
+            continue
+        allowed_surfaces = {str(value) for value in authority.get("surfaces") or ()}
+        if surface not in allowed_surfaces:
+            invalid_surfaces.append(
+                f"{evidence_id}:{surface} (allowed={sorted(allowed_surfaces)})"
+            )
+            continue
+        if surface == "claim_evidence_alignment":
+            claim_ids = {
+                str(value) for value in raw.get("claim_ids") or () if str(value)
+            }
+            supported_claims = {
+                str(value)
+                for value in authority.get("supported_claim_refs") or ()
+                if str(value)
+            }
+            if not claim_ids or not claim_ids.issubset(supported_claims):
+                invalid_claim_scopes.append(
+                    f"{evidence_id}:claims={sorted(claim_ids)} "
+                    f"(supported={sorted(supported_claims)})"
+                )
+    if invalid_surfaces:
+        raise MissionAgentProtocolError(
+            "quality_evidence.surface must copy an exact surface from "
+            f"quality_reference_inventory; invalid={invalid_surfaces[:8]}"
+        )
+    if invalid_claim_scopes:
+        raise MissionAgentProtocolError(
+            "claim_evidence_alignment requires non-empty claim_ids listed in the "
+            "evidence inventory; invalid="
+            f"{invalid_claim_scopes[:8]}"
+        )
+    allowed_support = candidate_refs | declared_evidence
+    used_support = {
+        str(ref)
+        for criterion in assessment.get("criterion_assessments") or ()
+        if isinstance(criterion, dict)
+        for ref in criterion.get("supporting_refs") or ()
+    }
+    invalid_support = sorted(used_support - allowed_support)
+    if invalid_support:
+        raise MissionAgentProtocolError(
+            "criterion supporting_refs must be quality_candidate_refs or declared "
+            f"quality_evidence.evidence_id values; invalid={invalid_support[:8]}"
+        )
+
+
+def _lineage_candidate_refs(mission: MissionRunPayload) -> set[str]:
+    raw_lineage = mission.snapshot_json.get("mission_lineage")
+    upstream = raw_lineage.get("upstream_refs") if isinstance(raw_lineage, dict) else None
+    candidates = {
+        str(item.get("target_ref") or "")
+        for item in (upstream if isinstance(upstream, list) else ())
+        if isinstance(item, dict)
+    }
+    return {ref for ref in candidates if is_internal_candidate_reference(ref)}
+
+
+def _completed_immutable_read_operation(
+    items: list[MissionItemPayload],
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> str | None:
+    for hydrated in _hydrated_reference_reads(items):
+        ref = str(hydrated["ref"] or "")
+        read = canonical_reference_read(ref)
+        if (
+            read is not None
+            and read.tool_name == tool_name
+            and read.arguments == arguments
+        ):
+            return str(hydrated["operation_id"] or f"receipt:{ref}")
+    terminal_operation_ids = {
+        str(item.operation_id)
+        for item in items
+        if item.item_type == "tool_result"
+        and item.phase.value == "completed"
+        and item.operation_id
+    }
+    for item in reversed(items):
+        if (
+            item.item_type != "tool_call"
+            or not item.operation_id
+            or item.operation_id not in terminal_operation_ids
+        ):
+            continue
+        payload = item.payload_json
+        if (
+            str(payload.get("tool_name") or "") == tool_name
+            and payload.get("arguments") == arguments
+        ):
+            return item.operation_id
+    return None
 
 
 def _stage_id_is_pinned(
@@ -362,7 +889,7 @@ def _stage_id_is_pinned(
         contracts = tuple(StageAcceptanceContract.model_validate(candidate) for candidate in stages.values())
         return any(stage_id_matches_contract(contract, stage_id) for contract in contracts)
     except ValidationError as exc:
-        raise WorkspaceMissionLoopProtocolError("Pinned stage contract is malformed") from exc
+        raise RuntimeError("Pinned stage contract is malformed") from exc
 
 
 def _validate_decision_scope(
@@ -371,25 +898,44 @@ def _validate_decision_scope(
 ) -> None:
     stages = runtime["stage_contracts"]
     if decision.stage_id is not None and not _stage_id_is_pinned(stages, decision.stage_id):
-        raise WorkspaceMissionLoopProtocolError(f"Mission action selected an unpinned stage: {decision.stage_id}")
+        raise MissionAgentProtocolError(f"Select a stage pinned by MissionPolicy; received {decision.stage_id}")
     if decision.kind is MissionDecisionKind.TOOL:
         tool_name = str(decision.payload_json.get("tool_name") or "")
         allowed = runtime["tool_policy"].get("allowed_tool_ids") or []
         if tool_name not in allowed:
-            raise WorkspaceMissionLoopProtocolError(f"Mission action selected a tool outside the pinned policy: {tool_name}")
+            raise MissionAgentProtocolError(f"Select an allowed Mission tool; {tool_name} is outside the pinned policy")
+    if decision.kind is MissionDecisionKind.QUALITY:
+        candidate_refs = decision.payload_json.get("candidate_refs")
+        if not isinstance(candidate_refs, list) or not candidate_refs or any(
+            not isinstance(ref, str) or not is_internal_candidate_reference(ref)
+            for ref in candidate_refs
+        ):
+            raise MissionAgentProtocolError("Quality requires verified artifact-candidate or academic-visual refs")
     if decision.kind is MissionDecisionKind.SUBAGENT:
         input_scope = decision.payload_json.get("input_scope")
         if not isinstance(input_scope, dict):
-            raise WorkspaceMissionLoopProtocolError("Subagent input_scope must be an object")
+            raise MissionAgentProtocolError("Subagent input_scope must be an object")
         jobs = input_scope.get("jobs", [])
         if jobs and not isinstance(jobs, list):
-            raise WorkspaceMissionLoopProtocolError("Subagent jobs must be a list")
+            raise MissionAgentProtocolError("Subagent jobs must be a list")
         allowed_tools = set(runtime["tool_policy"].get("allowed_tool_ids") or [])
         skill_snapshots = runtime["worker_skill_snapshots"]
         allowed_skills = set(skill_snapshots)
         for job in jobs:
             if not isinstance(job, dict):
-                raise WorkspaceMissionLoopProtocolError("Subagent job must be an object")
+                raise MissionAgentProtocolError("Each subagent job must be an object")
+            selected_refs = job.get("selected_refs") or []
+            if not isinstance(selected_refs, list) or any(
+                not isinstance(ref, str) or canonical_reference_read(ref) is None
+                for ref in selected_refs
+            ):
+                raise MissionAgentProtocolError(
+                    "Subagent selected_refs must be exact receipt-backed refs with a canonical reader"
+                )
+            if len(selected_refs) != len(set(selected_refs)):
+                raise MissionAgentProtocolError(
+                    "Subagent selected_refs must contain unique refs"
+                )
             forbidden = {
                 "worker_skill",
                 "allowed_tools",
@@ -402,15 +948,28 @@ def _validate_decision_scope(
             }
             supplied = sorted(forbidden.intersection(job))
             if supplied:
-                raise WorkspaceMissionLoopProtocolError("Subagent job attempted to provide runtime-owned skill configuration: " + ", ".join(supplied))
+                raise MissionAgentProtocolError("Subagent jobs cannot provide runtime-owned skill configuration: " + ", ".join(supplied))
             skill_id = str(job.get("worker_skill_id") or "")
             if not skill_id or skill_id not in allowed_skills:
-                raise WorkspaceMissionLoopProtocolError("Subagent job requested an unpinned worker skill")
+                raise MissionAgentProtocolError("Subagent job must select a pinned WorkerSkill")
             snapshot = skill_snapshots.get(skill_id)
             if not isinstance(snapshot, dict) or not isinstance(snapshot.get("contract"), dict):
-                raise WorkspaceMissionLoopProtocolError("Pinned WorkerSkill snapshot is malformed")
+                raise RuntimeError("Pinned WorkerSkill snapshot is malformed")
             if not set(snapshot.get("allowed_tool_ids") or ()).issubset(allowed_tools):
-                raise WorkspaceMissionLoopProtocolError("Pinned WorkerSkill exceeds the Mission tool policy")
+                raise RuntimeError("Pinned WorkerSkill exceeds the Mission tool policy")
+            skill_tools = set(snapshot.get("allowed_tool_ids") or ())
+            unreadable = []
+            for ref in selected_refs:
+                read = canonical_reference_read(ref)
+                if read is None or read.tool_name not in skill_tools:
+                    unreadable.append(
+                        f"{ref} (requires {read.tool_name if read else 'no canonical reader'})"
+                    )
+            if unreadable:
+                raise MissionAgentProtocolError(
+                    f"WorkerSkill {skill_id} cannot hydrate selected_refs: "
+                    + ", ".join(unreadable)
+                )
 
 
 def _attach_usage(
@@ -427,7 +986,6 @@ def _attach_usage(
 
 __all__ = [
     "WorkspaceMissionLoopAgent",
-    "WorkspaceMissionLoopProtocolError",
     "mission_decision_tool",
     "parse_mission_decision",
 ]

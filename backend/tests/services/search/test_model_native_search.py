@@ -14,8 +14,8 @@ from src.models.capability_profile import (
     WebSearchAPI,
     build_profile_from_probe,
     endpoint_fingerprint,
-    gpt56_release_assessment,
     native_search_endpoint_fingerprint,
+    unverified_capability_assessment,
 )
 from src.services.model_catalog_cache import RuntimeModelConfig
 from src.services.search.model_native import (
@@ -147,7 +147,7 @@ def test_native_search_parser_rejects_prose_or_incomplete_receipts(response: dic
 
 
 @pytest.mark.asyncio
-async def test_current_release_returns_gap_when_sse_boundary_probe_failed() -> None:
+async def test_unverified_profile_returns_gap_before_executor_dispatch() -> None:
     executor_called = False
 
     async def executor(**_kwargs):
@@ -155,7 +155,14 @@ async def test_current_release_returns_gap_when_sse_boundary_probe_failed() -> N
         executor_called = True
         return _provider_response()
 
-    runtime = _runtime(gpt56_release_assessment("gpt-5.6-sol"))
+    runtime = _runtime(
+        unverified_capability_assessment(
+            model_id="gpt-5.6-sol",
+            model_name="gpt-5.6-sol",
+            base_url="https://api.nainai.love/v1",
+            generation_api=GenerationAPI.CHAT_COMPLETIONS,
+        )
+    )
     handler = ModelNativeSearchHandler(
         executor=executor,
         model_resolver=lambda _model_id: runtime,

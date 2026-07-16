@@ -49,4 +49,5 @@ backend/docker/images/texlive/*.tar
 .superpowers/
 .worktrees/
 frontend/test-results/
+.playwright-cli/
 frontend/public/pdfjs/

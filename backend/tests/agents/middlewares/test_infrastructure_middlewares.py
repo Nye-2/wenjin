@@ -5,7 +5,6 @@ import pytest
 from src.agents.middlewares.dangling_tool_call import DanglingToolCallMiddleware
 from src.agents.middlewares.thread_data import ThreadDataMiddleware
 from src.agents.middlewares.title import TitleMiddleware
-from src.agents.middlewares.uploads import UploadsMiddleware
 
 
 class TestThreadDataMiddleware:
@@ -37,30 +36,6 @@ class TestThreadDataMiddleware:
 
         with pytest.raises(RuntimeError, match="ThreadDataMiddleware requires config.configurable.thread_id"):
             await mw.before_model({"messages": [], "thread_data": None}, {"configurable": {}})
-
-
-class TestUploadsMiddleware:
-    @pytest.mark.asyncio
-    async def test_injects_file_info(self):
-        from langchain_core.messages import HumanMessage
-        mw = UploadsMiddleware()
-        state = {
-            "messages": [HumanMessage(content="Hello")],
-            "uploaded_files": [{"name": "test.pdf", "path": "/tmp/test.pdf", "size": 1024}],
-        }
-        config = {"configurable": {}}
-        result = await mw.before_model(state, config)
-        # Should inject file info into conversation
-        assert result is not None
-
-    @pytest.mark.asyncio
-    async def test_noop_without_files(self):
-        from langchain_core.messages import HumanMessage
-        mw = UploadsMiddleware()
-        state = {"messages": [HumanMessage(content="Hello")], "uploaded_files": None}
-        config = {"configurable": {}}
-        result = await mw.before_model(state, config)
-        assert result == {}
 
 
 class TestDanglingToolCallMiddleware:

@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 
+from src.contracts.research_evidence import EvidenceRecord
 from src.contracts.stage_acceptance import (
     FailureAction,
     ResolvedStageInstance,
@@ -14,6 +15,7 @@ from src.contracts.stage_acceptance import (
     StageAssessmentInput,
     StageDecision,
     StageProgressState,
+    format_stage_instance_id,
 )
 
 
@@ -22,10 +24,15 @@ def evaluate_stage_acceptance(
     assessment: StageAssessmentInput,
     *,
     previous_state: StageProgressState | None = None,
+    total_items: int | None = None,
 ) -> StageAcceptanceResult:
     """Evaluate one attempt without trusting prose or model effort labels."""
 
-    instance = resolve_stage_instance(contract, sequence_index=assessment.sequence_index)
+    instance = resolve_stage_instance(
+        contract,
+        sequence_index=assessment.sequence_index,
+        total_items=total_items,
+    )
     if assessment.stage_id != instance.stage_id:
         raise ValueError(f"assessment stage {assessment.stage_id!r} does not match resolved stage {instance.stage_id!r}")
     if contract.instantiation.mode == "per_item" and assessment.contract_stage_id is None:
@@ -35,10 +42,13 @@ def evaluate_stage_acceptance(
 
     previous = previous_state or StageProgressState()
     criterion_results = {item.criterion_id: item for item in assessment.criterion_assessments}
-    evidence_by_id = {item.evidence_id: item for item in assessment.evidence}
+    evidence_by_id: dict[str, list[EvidenceRecord]] = {}
+    for item in assessment.evidence:
+        evidence_by_id.setdefault(item.evidence_id, []).append(item)
     artifacts_by_id = {item.artifact_id: item for item in assessment.artifacts}
-    passing_critiques = [item for item in assessment.critiques if item.verdict == "pass"]
-    known_refs = set(evidence_by_id) | set(artifacts_by_id) | set(assessment.output_refs)
+    # Only server-reconstructed evidence and artifact receipts can satisfy a
+    # criterion. Model-authored references are never quality authority.
+    known_refs = set(evidence_by_id) | set(artifacts_by_id)
 
     satisfied_criteria: list[str] = []
     missing_criteria: list[str] = []
@@ -52,15 +62,15 @@ def evaluate_stage_acceptance(
             missing_criteria.append(criterion.criterion_id)
             continue
         if criterion.required_evidence_surfaces:
-            supported_surfaces = {evidence_by_id[ref].surface for ref in support_refs if ref in evidence_by_id and evidence_by_id[ref].status == "verified"}
+            supported_surfaces = {
+                evidence.surface
+                for ref in support_refs
+                for evidence in evidence_by_id.get(ref, ())
+                if evidence.status == "verified"
+            }
             if not set(criterion.required_evidence_surfaces) <= supported_surfaces:
                 missing_criteria.append(criterion.criterion_id)
                 continue
-        if contract.reviewer_roles and not any(
-            criterion.criterion_id in critique.criterion_ids for critique in passing_critiques
-        ):
-            missing_criteria.append(criterion.criterion_id)
-            continue
         satisfied_criteria.append(criterion.criterion_id)
 
     verified_surfaces = {item.surface for item in assessment.evidence if item.status == "verified"}
@@ -72,9 +82,6 @@ def evaluate_stage_acceptance(
         if len(matching) < requirement.minimum_count:
             missing_artifact_kinds.append(requirement.kind)
 
-    critique_by_role = {item.reviewer_role: item for item in assessment.critiques}
-    missing_reviewer_roles = sorted(role for role in contract.reviewer_roles if role not in critique_by_role or critique_by_role[role].verdict != "pass")
-
     comparison_by_ref = {item.exemplar_ref_id: item for item in assessment.exemplar_comparisons}
     missing_exemplar_refs: list[str] = []
     if contract.require_exemplar_comparison:
@@ -85,7 +92,6 @@ def evaluate_stage_acceptance(
             missing_criteria,
             missing_evidence_surfaces,
             missing_artifact_kinds,
-            missing_reviewer_roles,
             missing_exemplar_refs,
         )
     )
@@ -94,7 +100,6 @@ def evaluate_stage_acceptance(
             missing_criteria=missing_criteria,
             missing_evidence_surfaces=missing_evidence_surfaces,
             missing_artifact_kinds=missing_artifact_kinds,
-            missing_reviewer_roles=missing_reviewer_roles,
             missing_exemplar_refs=missing_exemplar_refs,
             satisfied_criteria=satisfied_criteria,
             observed_evidence_refs=list(evidence_by_id),
@@ -123,7 +128,6 @@ def evaluate_stage_acceptance(
         next_action = _repair_action(
             contract,
             missing_evidence=bool(missing_evidence_surfaces),
-            missing_review=bool(missing_reviewer_roles),
         )
 
     revision_count = previous.revision_count + (1 if result == "revise" else 0)
@@ -137,7 +141,6 @@ def evaluate_stage_acceptance(
         last_failed_criteria=tuple(missing_criteria),
         next_repair_action=next_action,
     )
-    reviewer_notes = tuple(item.note for item in assessment.critiques if item.note.strip())
     return StageAcceptanceResult(
         contract_ref=contract.immutable_ref(),
         stage_id=instance.stage_id,
@@ -149,11 +152,9 @@ def evaluate_stage_acceptance(
         missing_criteria=tuple(missing_criteria),
         missing_evidence_surfaces=tuple(missing_evidence_surfaces),
         missing_artifact_kinds=tuple(missing_artifact_kinds),
-        missing_reviewer_roles=tuple(missing_reviewer_roles),
         missing_exemplar_refs=tuple(missing_exemplar_refs),
         evidence_refs=tuple(evidence_by_id),
         artifact_refs=tuple(artifacts_by_id),
-        reviewer_notes=reviewer_notes,
         blocking_user_inputs=assessment.blocking_user_inputs,
         partial_output_refs=assessment.partial_output_refs,
         next_action=next_action,
@@ -199,15 +200,15 @@ def resolve_stage_instance(
             raise ValueError("per_item stage contract requires sequence_index >= 1")
         if total_items is not None and sequence_index > total_items:
             raise ValueError("sequence_index exceeds total_items")
-        stage_id = _format_stage_template(rule.instance_id_template or "", sequence_index)
-        prerequisites.extend(_format_stage_template(template, sequence_index) for template in rule.same_item_prerequisite_templates)
+        stage_id = format_stage_instance_id(rule.instance_id_template, sequence_index)
+        prerequisites.extend(format_stage_instance_id(template, sequence_index) for template in rule.same_item_prerequisite_templates)
         if sequence_index > 1:
-            prerequisites.extend(_format_stage_template(template, sequence_index - 1) for template in rule.previous_item_prerequisite_templates)
+            prerequisites.extend(format_stage_instance_id(template, sequence_index - 1) for template in rule.previous_item_prerequisite_templates)
 
     if contract.all_item_prerequisite_templates:
         if total_items is None or total_items < 1:
             raise ValueError("all-item prerequisites require total_items >= 1")
-        prerequisites.extend(_format_stage_template(template, index) for index in range(1, total_items + 1) for template in contract.all_item_prerequisite_templates)
+        prerequisites.extend(format_stage_instance_id(template, index) for index in range(1, total_items + 1) for template in contract.all_item_prerequisite_templates)
     return ResolvedStageInstance(
         stage_id=stage_id,
         contract_stage_id=contract.stage_id,
@@ -252,13 +253,10 @@ def _repair_action(
     contract: StageAcceptanceContract,
     *,
     missing_evidence: bool,
-    missing_review: bool,
 ) -> FailureAction:
     allowed = set(contract.allowed_actions_if_failed)
     if missing_evidence and "retrieve_more_evidence" in allowed:
         return "retrieve_more_evidence"
-    if missing_review and "spawn_reviewer" in allowed:
-        return "spawn_reviewer"
     return "revise_existing"
 
 
@@ -266,7 +264,3 @@ def _failure_fingerprint(**values: list[str]) -> str:
     payload = {key: sorted(value) for key, value in sorted(values.items())}
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _format_stage_template(template: str, index: int) -> str:
-    return template.replace("{index}", str(index))

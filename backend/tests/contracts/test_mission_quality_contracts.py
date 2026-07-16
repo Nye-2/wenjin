@@ -15,7 +15,7 @@ def test_contract_hash_is_stable_across_mapping_order() -> None:
 
 def test_stage_contract_is_frozen_and_hash_changes_with_semantics() -> None:
     contract = StageAcceptanceContract(
-        schema_version="stage_acceptance_contract.v1",
+        schema_version="stage_acceptance_contract.v2",
         contract_id="sci.scope",
         version=1,
         mission_policy_id="sci",

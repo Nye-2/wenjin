@@ -17,6 +17,24 @@ from src.contracts.versioned import ImmutableContractRef, contract_sha256
 PolicyVisibility = Literal["route_hint", "internal"]
 
 
+def _open_object_schema_paths(schema: object, *, path: str = "output_contract") -> list[str]:
+    if isinstance(schema, list):
+        findings: list[str] = []
+        for index, value in enumerate(schema):
+            findings.extend(_open_object_schema_paths(value, path=f"{path}[{index}]"))
+        return findings
+    if not isinstance(schema, dict):
+        return []
+    findings = []
+    if schema.get("type") == "object":
+        properties = schema.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            findings.append(path)
+    for key, value in schema.items():
+        findings.extend(_open_object_schema_paths(value, path=f"{path}.{key}"))
+    return findings
+
+
 class MissionPolicyDisplay(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -108,20 +126,34 @@ class MissionAntiExample(BaseModel):
     failure_reason: str
 
 
+class CompletionTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    stage_ids: tuple[str, ...] = Field(min_length=1)
+    terminal_output_kinds: tuple[str, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_values(self) -> CompletionTarget:
+        if len(self.stage_ids) != len(set(self.stage_ids)):
+            raise ValueError("completion target stage_ids must be unique")
+        if len(self.terminal_output_kinds) != len(set(self.terminal_output_kinds)):
+            raise ValueError("completion target terminal_output_kinds must be unique")
+        return self
+
+
 class CompletionContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     default_target: str
-    target_stage_sets: dict[str, tuple[str, ...]]
-    terminal_outputs: tuple[str, ...]
+    targets: dict[str, CompletionTarget]
     allow_safe_partial_outputs: bool = True
 
     @model_validator(mode="after")
     def validate_targets(self) -> CompletionContract:
-        if self.default_target not in self.target_stage_sets:
-            raise ValueError("completion default_target must exist in target_stage_sets")
-        if not self.target_stage_sets or any(not stage_ids for stage_ids in self.target_stage_sets.values()):
-            raise ValueError("every completion target requires at least one stage")
+        if self.default_target not in self.targets:
+            raise ValueError("completion default_target must exist in targets")
+        if not self.targets:
+            raise ValueError("completion contract requires at least one target")
         return self
 
 
@@ -258,6 +290,17 @@ class WorkerSkill(BaseModel):
         baseline = {"summary", "evidence_refs", "artifact_refs", "warnings"}
         if not baseline <= required:
             raise ValueError("output_contract must require summary, evidence_refs, artifact_refs, and warnings")
+        properties = self.output_contract.get("properties")
+        artifact_refs = properties.get("artifact_refs") if isinstance(properties, dict) else None
+        if (
+            isinstance(artifact_refs, dict)
+            and int(artifact_refs.get("minItems") or 0) > 0
+            and "artifact_render" not in self.allowed_tool_groups
+        ):
+            raise ValueError("worker skills that require artifact refs must allow artifact_render")
+        open_paths = _open_object_schema_paths(self.output_contract)
+        if open_paths:
+            raise ValueError("output_contract contains open object schema(s): " + ", ".join(open_paths[:8]))
         if not self.quality_focus or not self.examples:
             raise ValueError("worker skills require quality focus and at least one example")
         return self

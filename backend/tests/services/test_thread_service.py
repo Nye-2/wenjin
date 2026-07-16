@@ -69,7 +69,6 @@ class _FakeConversationDataService:
             workspace_id=command.workspace_id,
             title=command.title,
             model=command.model,
-            skill=command.skill,
             message_count=0,
             created_at=command.created_at,
             updated_at=command.updated_at,
@@ -164,7 +163,6 @@ def _make_thread(
     user_id: str = "user-1",
     workspace_id: str | None = None,
     title: str | None = None,
-    skill: str | None = None,
 ) -> ConversationThreadPayload:
     return ConversationThreadPayload(
         id="thread-1",
@@ -172,7 +170,6 @@ def _make_thread(
         workspace_id=workspace_id,
         title=title,
         model="gpt-4o",
-        skill=skill,
         message_count=0,
         last_message_preview=None,
         last_message_role=None,
@@ -206,7 +203,6 @@ class TestThreadService:
                 workspace_id="ws-1",
                 title="Draft thread",
                 model="resolved-tool-model",
-                skill="deep-research",
             )
 
         persisted = fake_dataservice.create_conversation_thread.await_args.args[0]
@@ -215,12 +211,10 @@ class TestThreadService:
         assert persisted.workspace_id == "ws-1"
         assert persisted.title == "Draft thread"
         assert persisted.model == "resolved-tool-model"
-        assert persisted.skill == "deep-research"
         assert thread.user_id == "user-1"
         assert thread.workspace_id == "ws-1"
         assert thread.title == "Draft thread"
         assert thread.model == "resolved-tool-model"
-        assert thread.skill == "deep-research"
 
     @pytest.mark.asyncio
     async def test_create_thread_without_model_uses_resolved_default(self, service):
@@ -232,7 +226,6 @@ class TestThreadService:
             thread = await service.create_thread(user_id="user-1")
 
         assert thread.model == "resolved-model-id"
-        assert thread.skill is None
 
     @pytest.mark.asyncio
     async def test_create_thread_rejects_invalid_explicit_model(self, service, fake_dataservice):
@@ -297,35 +290,13 @@ class TestThreadService:
         service._dataservice.update_conversation_thread.assert_awaited_once()  # noqa: SLF001
 
     @pytest.mark.asyncio
-    async def test_get_or_create_thread_updates_skill_when_explicitly_selected(
-        self,
-        service,
-        mock_db_session,
-    ):
-        """Existing thread skill is updated when user explicitly selects another skill."""
-        thread = _make_thread(workspace_id="ws-1", skill="deep-research")
-        _store_thread(service, thread)
-
-        resolved = await service.get_or_create_thread(
-            user_id="user-1",
-            thread_id="thread-1",
-            workspace_id="ws-1",
-            skill="literature-review",
-            skill_explicit=True,
-        )
-
-        assert resolved.id == thread.id
-        assert resolved.skill == "literature-review"
-        service._dataservice.update_conversation_thread.assert_awaited_once()  # noqa: SLF001
-
-    @pytest.mark.asyncio
     async def test_get_or_create_thread_reuses_latest_workspace_thread_without_thread_id(
         self,
         service,
         mock_db_session,
     ):
         """Workspace chat should reuse the latest thread when no explicit thread id is given."""
-        thread = _make_thread(workspace_id="ws-1", skill="deep-research")
+        thread = _make_thread(workspace_id="ws-1")
         _store_thread(service, thread)
 
         resolved = await service.get_or_create_thread(
@@ -539,7 +510,7 @@ class TestThreadService:
         assert preprocess["message"] == "Document preprocessing completed"
         assert preprocess["progress"] == 100
         assert preprocess["current_step"] == "complete"
-        assert attachment_metadata["preprocessed_markdown_paths"] == ["/references/_preprocessed/paper/doc_0.md"]
+        assert preprocess["markdown_paths"] == ["/references/_preprocessed/paper/doc_0.md"]
         service._dataservice.update_conversation_thread.assert_awaited_once()  # noqa: SLF001
 
     @pytest.mark.asyncio

@@ -85,6 +85,7 @@ def _item(
         review_item_id=item_id,
         mission_id="mission-1",
         source_item_seq=1,
+        output_key="document",
         target_kind=kind,
         target_room="documents",
         target_ref=target_ref,
@@ -330,6 +331,125 @@ async def test_domain_writer_attaches_mission_commit_provenance() -> None:
     assert command.source_mission_item_seq == 1
     assert command.source_mission_commit_id == "commit-1"
     assert receipt.provenance["mission_commit_id"] == "commit-1"
+
+
+@pytest.mark.asyncio
+async def test_prism_target_reader_resolves_canonical_ref_at_dataservice_boundary() -> None:
+    current = SimpleNamespace(
+        file=SimpleNamespace(
+            id="file-1",
+            current_version_id="version-1",
+            content_hash="old-hash",
+        )
+    )
+    dataservice = SimpleNamespace(
+        get_prism_workspace_file=AsyncMock(return_value=current),
+    )
+    item = _item(
+        "item-1",
+        status="accepted",
+        target_ref="prism-file:file-1",
+        base_hash="old-hash",
+        base_revision="version-1",
+    )
+
+    snapshot = await MissionDomainWriter(dataservice).read_target(
+        item,
+        workspace_id="workspace-1",
+    )
+
+    dataservice.get_prism_workspace_file.assert_awaited_once_with("workspace-1", "file-1")
+    assert snapshot.target_ref == "prism-file:file-1"
+    assert snapshot.revision_ref == "version-1"
+    assert snapshot.content_hash == "old-hash"
+
+
+@pytest.mark.asyncio
+async def test_prism_target_writer_updates_raw_id_and_returns_canonical_receipt() -> None:
+    written = SimpleNamespace(
+        file=SimpleNamespace(
+            id="file-1",
+            current_version_id="version-2",
+            content_hash="new-hash",
+        ),
+        version=SimpleNamespace(id="version-2"),
+        skipped_reason=None,
+    )
+    dataservice = SimpleNamespace(
+        update_prism_workspace_file=AsyncMock(return_value=written),
+    )
+    item = _item(
+        "item-1",
+        status="accepted",
+        target_ref="prism-file:file-1",
+        base_hash="old-hash",
+        base_revision="version-1",
+    )
+
+    receipt = await MissionDomainWriter(dataservice).apply(
+        item,
+        workspace_id="workspace-1",
+        mission_commit_id="commit-1",
+        actor_user_id="user-1",
+    )
+
+    args = dataservice.update_prism_workspace_file.await_args.args
+    assert args[:2] == ("workspace-1", "file-1")
+    assert args[2].expected_current_hash == "old-hash"
+    assert receipt.target_ref == "prism-file:file-1"
+    assert receipt.revision_ref == "version-2"
+
+
+@pytest.mark.asyncio
+async def test_prism_new_file_writer_uses_create_only_and_rejects_path_conflict() -> None:
+    existing = SimpleNamespace(
+        file=SimpleNamespace(
+            id="file-existing",
+            current_version_id="version-1",
+            content_hash="existing-hash",
+        ),
+        version=None,
+        changed=False,
+        skipped_reason="already_exists",
+    )
+    dataservice = SimpleNamespace(
+        upsert_prism_workspace_file=AsyncMock(return_value=existing),
+    )
+    item = _item("item-1", status="accepted")
+    item.preview_json["materialization"]["payload"]["path"] = "paper/main.tex"
+
+    with pytest.raises(ValueError, match="target_path_conflict"):
+        await MissionDomainWriter(dataservice).apply(
+            item,
+            workspace_id="workspace-1",
+            mission_commit_id="commit-1",
+            actor_user_id="user-1",
+        )
+
+    command = dataservice.upsert_prism_workspace_file.await_args.args[1]
+    assert command.create_only is True
+
+
+@pytest.mark.asyncio
+async def test_prism_target_writer_rejects_legacy_raw_id() -> None:
+    dataservice = SimpleNamespace(update_prism_workspace_file=AsyncMock())
+    item = _item(
+        "item-1",
+        status="accepted",
+        target_ref="file-1",
+        base_hash="old-hash",
+        base_revision="version-1",
+    )
+
+    with pytest.raises(ValueError, match="invalid_prism_file_target_ref"):
+        await MissionDomainWriter(dataservice).apply(
+            item,
+            workspace_id="workspace-1",
+            mission_commit_id="commit-1",
+            actor_user_id="user-1",
+        )
+
+    dataservice.update_prism_workspace_file.assert_not_awaited()
 
 
 @pytest.mark.asyncio

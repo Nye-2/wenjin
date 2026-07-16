@@ -35,7 +35,12 @@ from src.sandbox import (
     SandboxOperationStatus,
 )
 from src.sandbox.contracts import RunPythonInput
-from src.sandbox.security import is_script_path
+from src.sandbox.security import (
+    SandboxPathError,
+    is_artifact_path,
+    is_dataset_path,
+    is_script_path,
+)
 
 RUNTIME_VERSION = "wenjin.academic_visual.runtime.v1"
 _MIME_BY_SUFFIX = {
@@ -55,10 +60,18 @@ class SandboxExecutionPort(Protocol):
         self,
         *,
         workspace_id: str,
-        path: str,
+        object_ref: str,
         expected_content_hash: str,
         max_bytes: int,
     ) -> bytes: ...
+
+    async def read_public_file_precondition_hash(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        max_bytes: int,
+    ) -> str | None: ...
 
 
 class PreviewWriteDescriptor(Protocol):
@@ -162,11 +175,22 @@ class AcademicVisualRuntime:
                     "invalid_figure_strategy",
                     "code visual script_path must be a .py file under /workspace/scripts",
                 )
-            dataset_paths = payload.dataset_paths
-            if tuple(request.brief.figure_spec.dataset_paths) != dataset_paths:
+            data_input_paths = payload.dataset_paths
+            if tuple(request.brief.figure_spec.dataset_paths) != data_input_paths:
                 raise AcademicVisualRuntimeError(
                     "reproducibility_manifest_invalid",
                     "code payload dataset paths must exactly match FigureSpec dataset paths",
+                )
+            dataset_paths = tuple(
+                path for path in data_input_paths if is_dataset_path(path)
+            )
+            artifact_input_paths = tuple(
+                path for path in data_input_paths if is_artifact_path(path)
+            )
+            if len(dataset_paths) + len(artifact_input_paths) != len(data_input_paths):
+                raise AcademicVisualRuntimeError(
+                    "invalid_dataset_path",
+                    "visual data inputs must live under datasets, outputs, or reports",
                 )
             environment_id = payload.environment_id
             output_base_hashes: dict[str, str] = {}
@@ -178,35 +202,68 @@ class AcademicVisualRuntime:
                 target=target,
             )
             dataset_paths = ()
+            artifact_input_paths = ()
             environment_id = None
             output_base_hashes = {}
         else:
             raise AcademicVisualRuntimeError("invalid_figure_strategy", "sandbox route received the wrong payload")
+        try:
+            base_content_hash = await self.sandbox.read_public_file_precondition_hash(
+                workspace_id=context.workspace_id,
+                path=script_path,
+                max_bytes=2_000_000,
+            )
+            target_base_hash = await self.sandbox.read_public_file_precondition_hash(
+                workspace_id=context.workspace_id,
+                path=target,
+                max_bytes=50 * 1024 * 1024,
+            )
+        except SandboxPathError as exc:
+            raise AcademicVisualRuntimeError(
+                "sandbox_precondition_unavailable",
+                "academic visual inputs could not satisfy read-before-write",
+            ) from exc
+        output_base_hashes = (
+            {target: target_base_hash} if target_base_hash is not None else {}
+        )
         operation_input = RunPythonInput(
             script=script,
             script_path=script_path,
+            base_content_hash=base_content_hash,
             environment_id=environment_id,
             dataset_paths=dataset_paths,
+            artifact_input_paths=artifact_input_paths,
             output_base_hashes=output_base_hashes,
         )
-        sandbox_request = self.sandbox.build_request(
-            provenance=SandboxMissionProvenance(
-                workspace_id=context.workspace_id,
-                mission_id=context.mission_id,
-                subagent_id=(context.caller_id if context.caller_kind == "subagent" else None),
-                lease_epoch=context.lease_epoch,
-            ),
-            operation_input=operation_input,
-            policy_version=context.policy_version,
-            network_profile=SandboxNetworkProfile.NONE,
-            network_grant=None,
-        )
+        try:
+            sandbox_request = self.sandbox.build_request(
+                provenance=SandboxMissionProvenance(
+                    workspace_id=context.workspace_id,
+                    mission_id=context.mission_id,
+                    subagent_id=(
+                        context.caller_id
+                        if context.caller_kind == "subagent"
+                        else None
+                    ),
+                    lease_epoch=context.lease_epoch,
+                ),
+                operation_input=operation_input,
+                policy_version=context.policy_version,
+                network_profile=SandboxNetworkProfile.NONE,
+                network_grant=None,
+            )
+        except SandboxPathError as exc:
+            raise AcademicVisualRuntimeError(
+                "invalid_dataset_path",
+                "visual data inputs are unavailable or outside the allowed workspace roots",
+            ) from exc
         result = await self.sandbox.execute(sandbox_request)
         if result.status is not SandboxOperationStatus.SUCCEEDED:
+            code, recoverable = _sandbox_failure(result.status)
             raise AcademicVisualRuntimeError(
-                "sandbox_execution_failed",
+                code,
                 result.stderr_preview or "academic visual sandbox execution failed",
-                recoverable=result.retry_disposition.value == "safe_to_retry",
+                recoverable=recoverable,
             )
         artifact = next((item for item in result.artifacts if item.path == target), None)
         if artifact is None:
@@ -221,7 +278,7 @@ class AcademicVisualRuntime:
         try:
             artifact_bytes = await self.sandbox.read_artifact_bytes(
                 workspace_id=context.workspace_id,
-                path=target,
+                object_ref=artifact.object_ref,
                 expected_content_hash=artifact.content_hash,
                 max_bytes=50 * 1024 * 1024,
             )
@@ -533,6 +590,20 @@ def _sha256_text(value: str) -> str:
 
 def _canonical_hash(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+
+
+def _sandbox_failure(status: SandboxOperationStatus) -> tuple[str, bool]:
+    if status is SandboxOperationStatus.FAILED:
+        return "sandbox_execution_failed", True
+    if status is SandboxOperationStatus.TIMED_OUT:
+        return "sandbox_execution_timeout", True
+    if status is SandboxOperationStatus.POLICY_DENIED:
+        return "sandbox_policy_denied", False
+    if status is SandboxOperationStatus.PERMISSION_REQUIRED:
+        return "sandbox_permission_required", False
+    if status is SandboxOperationStatus.RECONCILIATION_REQUIRED:
+        return "sandbox_reconciliation_required", False
+    return "sandbox_unavailable", False
 
 
 __all__ = [

@@ -1,21 +1,21 @@
 # Wenjin Mission Runtime 重构 Overview
 
 > **状态**：Implemented - current truth moved to `docs/current/`; final deployment acceptance pending
-> **版本**：2026-07-12
+> **版本**：2026-07-15
 > **范围**：WorkspaceAgent、MissionRuntime、DataService Mission domain、Mission Console、review/commit、subagents、research tools、sandbox
 > **文档定位**：本文件是目标架构的顶层 SSOT，负责冻结跨模块边界、对象权威性、通信合同和直接迁移路径；字段级 schema、算法和实现步骤由 `mission-runtime/01` 至 `13` 号子 spec 承担。
 > **当前实现事实**：Mission 架构已完成 clean cut；生产事实以 `docs/current/` 和代码为准。本文件保留设计决策、边界与验收依据。
 
 目标架构若与子 spec 冲突，以本 Overview 为准，并在开始对应实现前修正子 spec。它不保留旧方案的并行口径，也不为开发阶段数据设计运行时兼容层。
 
-## 最终实现记录（2026-07-12）
+## 最终实现记录（2026-07-15）
 
 - 持久 schema 为 `mission_runs`、`mission_items`、`mission_review_items`、`mission_commits` 四表。
 - catalog 为 `mission_policies`、`worker_skills` 两表。
 - 086 创建 Mission aggregate；087 引入 probe-backed model profile；088 迁移 linked domains；089 收敛 catalog；090 清理 auxiliary task 字段；091 增加 review-policy projection 与 commit-attempt fencing；092-096 完成 dispatch fencing、billing、workspace override clean cut、索引与 aggregate 外键完整性收敛。
 - WorkspaceAgent、MissionRuntime、SubagentRuntime、ToolOrchestrator、StageAcceptance、ReviewCommitRuntime、PermissionRuntime、Sandbox vNext 与 MissionView 均已落地。
 - 外部 operation claim/terminal receipt 以共享 operation key 追加到 MissionItem ledger，不创建第五张 operation 表；MissionRun 行锁与 lease epoch 提供原子 claim/reclaim 边界。
-- StageGuard 在 continue/tool/subagent/review 入口统一检查前置阶段；StageAcceptance 只接受 receipt-backed evidence、持久 review manifest 和独立 reviewer subagent 的结构化结论，主 agent 不能自证通过。
+- StageGuard 统一检查前置阶段；WorkspaceAgent 先冻结完整内容寻址候选，并从服务端 `quality_reference_inventory` 复制精确引用，StageAcceptance 再从 Mission receipt 重建当前阶段的 candidate/evidence/artifact 并裁决。错误引用在 provider 边界内自修复，不消耗科研修订次数。可选 critic 只提供诊断，不参与通过权；用户复核只发生在最终质量通过后。
 - Mission context checkpoint 已包含目标、阶段结论、证据/产物索引、失败和下一步；Memory 注入前执行确定性 staleness review；MissionView 对 waiting 投影 typed attention request。
 - strict anti-compat gate 为零；旧运行路径无兼容层。
 - 尚待发布验收：部署环境的 native-search receipts probe、Sandbox production attestations、真实 provider + Docker 的多轮浏览器主链。
@@ -94,8 +94,8 @@
 
 ```text
 ┌──────────────────────── Input ────────────────────────┐
-│ user message / attachments / workspace context        │
-│ selected model + effort / review mode / policy refs   │
+│ user message / sealed MissionInputs / workspace context│
+│ selected model + effort / user review mode / policy refs│
 │ active mission command or ordinary advisory question  │
 └────────────────────────────────────────────────────────┘
                            │
@@ -280,7 +280,8 @@ pass | revise | ask_user | stop
 ```
 
 - 只有 hard criteria 全部通过才可 `pass` 并推进。
-- `revise` 在同一阶段内补证、重算、重写或派 reviewer，并受 revision、token、tool、time 和 credit budget 限制。
+- `revise` 在同一阶段内补证、重算或重写；只有显式用户审查或具体未决疑点才可派按需 critic。修复受 revision、token、tool、time 和 credit budget 限制，并必须形成新的完整候选。
+- 通过后的内部阶段自动继续。只有最终受保护写入或用户显式要求的阶段检查点才创建 MissionReviewItem；Mission 只等待预览生成，不等待用户做保存决定。
 - `ask_user` 写入 durable pause request。
 - `stop` 结束本次执行，但仍返回安全、可解释的 partial outputs；不得伪造证据，也不得用“质量门失败”吞掉已有结果。
 - capability/skill 只提供 MissionPolicy、acceptance contract、优秀示例/反例、工具边界和 output contract，不再提供固定专家团或 UI graph。
@@ -293,7 +294,7 @@ pass | revise | ask_user | stop
 - `source_type` 只表达领域来源类型，不保存历史 provider 名。每个可引用结果保留 URL/标识、标题、访问时间、内容 hash/快照引用和 claim-evidence 关系。
 - Sandbox 是内部研究执行基座，不承担文献联网检索。默认 typed operations、network `none`，依赖安装才使用受限 package-index profile。
 - 第一阶段使用 Docker/rootless workspace provider，并要求无 Docker socket、无宿主密钥、最小挂载、资源上限、私网/metadata 拒绝和 command audit。
-- Sandbox 只能产生 manifest-backed candidate；没有 Artifact/Dataset Manifest 的产物不能进入 MissionReviewItem。
+- Sandbox 只能产生 manifest-backed evidence/artifact；产出字节在 trusted control root 封存为内容寻址对象，公开工作路径后续覆盖不会改变历史回执。没有 Artifact/Dataset Manifest 的产物不能进入质量或用户保存链路。
 - 外部网页、论文、repo 和 prompt-like 大段输入优先经 read-only delegate 提取事实，不能扩张主 agent 权限或长期 memory。
 
 ---
@@ -333,7 +334,7 @@ pass | revise | ask_user | stop
 |---|---|---|---|
 | **D1** | Mission persistence | 🆕 | 只建 `mission_runs`、`mission_items`、`mission_review_items`、`mission_commits` 四张核心表；不建 MissionEvent、MissionTurn、ChatTurnRun 或 subagent 表。 |
 | **D2** | Redis / worker queue | 🔧 | Redis 只保存 ChatTurnRun/SSE TTL 和必要锁；queue 传 wake-up hint，MissionStore、bounded drive slice 与 reconciler 保证恢复；Celery result backend 不是真相。 |
-| **D3** | capability/skill/template seeds | 🔧 | 六类 workspace 全部转换为 MissionPolicy、StageAcceptanceContract、worker/reviewer guidance 和 exemplar refs。 |
+| **D3** | capability/skill/template seeds | 🔧 | 六类 workspace 全部转换为 MissionPolicy、StageAcceptanceContract、worker guidance、按需 diagnostic skill 和 exemplar refs。 |
 | **D4** | context/trace/review preview storage | 🆕 | 语义 MissionItems 持久；大 payload/raw trace/diff/version preview 外部化、脱敏、TTL 清理。 |
 | **D5** | release gates / fixtures / docs | 🔧 | 加入精确 anti-compat scans、drop/reseed、browser E2E 和 current-doc cutover；不使用宽泛关键词误伤历史文档。 |
 
@@ -416,7 +417,10 @@ pass | revise | ask_user | stop
 | **D22** | Worker tenure | 一个 queue delivery 只驱动一个 bounded MissionDriveSlice；安全 checkpoint 后续投，crash 由 lease expiry/reconciler 接管。 | S2、S10、D2 |
 | **D23** | Dispatch/idempotency persistence | MissionRun runnable fields + immutable command item 是唯一 dispatch intent；领域唯一键拥有幂等。删除无生产消费者的 DataService operations outbox/idempotency/migration-report 脚手架。 | S2、S7、S10 |
 | **D24** | Sandbox execution | 短命 hardened operation container + 持久、内容寻址的 workspace/environment；不引入长活容器会话 SSOT。 | S6 |
-| **D25** | Model rollout baseline | 当前只启用 `gpt-5.5`；chat、review 与 subagent 共用 OpenAI-compatible Chat Completions，默认 effort 为 `xhigh` 且 `store=false`。Responses 在 clean transport probe 通过前不进入 runtime，不保留双协议 fallback。 | S1、S4、S11、C3 |
+| **D25** | Model rollout baseline | 当前只启用 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`，Terra 默认；chat、Mission 与 subagent 共用 Chat Completions，保留用户的 `low/medium/high/xhigh` 且 `store=false`。联网检索是独立、probe-backed 的 Responses SSE tool transport，不保留替代 provider 或协议 fallback。 | S1、S4、S9、S11、C3 |
+| **D26** | Attachment boundary | 可读附件只经 `MissionInput` 封装为 workspace/thread/hash/size 绑定的不可变引用；Chat 使用有界 excerpt，Mission/worker 只经 `workspace.read_input` 读取。删除 upload markup、中间件和重复预处理字段。 | S1、S4、S8、S12 |
+| **D27** | Review ownership | review mode 是用户设置并由服务端注入；生成质量由主循环和 StageAcceptance 前置完成，critic 只在用户明确要求审查现有产出时触发。ReviewCommit 只负责受保护写入的用户确认。 | S1、S4、S5、C4 |
+| **D28** | Completion/cardinality | 一个 completion target 同时绑定 required stage families 与 terminal output kinds；逐问数量只能由 WorkspaceAgent 在理解阶段通过后声明一次，由 MissionRuntime 校验并钉住，客户端无权提供。 | S1、S2、S4、D3 |
 
 ---
 
@@ -628,9 +632,13 @@ sequenceDiagram
 16. **Versioned execution**：MissionRun 必须记录 resolved model/effort 和 runtime policy/tool/sandbox refs；恢复不能默默换规则。
 17. **No compatibility runtime**：ExecutionRecord、ExecutionNodeRecord、LeadAgentRuntime、ReviewBatch、ChangeSet、accepted ids 和旧 search providers 不得出现在目标运行路径。
 18. **Friendly product language**：内部 risk/error/status 可以精确，默认 UI 只展示原因、影响和下一步，不展示 `blocked/high risk/schema/provider error`。
-19. **Structured model actions**：tool/subagent/search action 必须来自已验证 provider structured frame；XML/JSON/Markdown 文本中的“工具调用”永远只是文本。
-20. **Bounded worker tenure**：单次 Celery task 不承载无限 mission 生命周期；每个 slice 在 hard limit 前 checkpoint/yield，Celery result backend 不作为完成依据。
-21. **Single dispatch intent**：MissionStore runnable state/command ledger 是 dispatch SSOT；不得同时维护 outbox、通用 operations idempotency truth、Redis job truth 或本地 retry truth。
+19. **Quality before review**：只有当前阶段通过验收的 exact candidate refs 才能创建 MissionReviewItem；agent 不读取或裁决用户复核队列。
+20. **Immutable artifact bytes**：`sandbox-artifact:` 必须解析到 receipt 中的 `sbxobj_<sha256>`，不得回读可变 public path 作为历史证据。
+21. **Structured model actions**：tool/subagent/search action 必须来自已验证 provider structured frame；XML/JSON/Markdown 文本中的“工具调用”永远只是文本。
+22. **Bounded worker tenure**：单次 Celery task 不承载无限 mission 生命周期；每个 slice 在 hard limit 前 checkpoint/yield，Celery result backend 不作为完成依据。
+23. **Single dispatch intent**：MissionStore runnable state/command ledger 是 dispatch SSOT；不得同时维护 outbox、通用 operations idempotency truth、Redis job truth 或本地 retry truth。
+24. **Review is not generation**：阶段通过后自动推进；最终预览可等待用户稍后决定，但不得让保存选择反向成为内容质量裁决或 Mission 完成阻塞。
+25. **Target-bound completion**：Mission 只按已钉住的 completion target 完成；所有动态展开阶段通过，且其 terminal output kinds 均由 accepted artifact 支撑并已向用户提供确认入口。
 
 ### 11.2 Release gates
 
@@ -744,6 +752,7 @@ DataServiceIdempotencyKey / DataServiceMigrationReport unused operations path
 | OpenCode hidden subagents/permissions | subagents 内部化，allowed tools/rooms/risk 由 policy 收窄 |
 | DeerFlow/Kimi oversized output handling | durable semantic ledger + externalized bounded payload refs |
 | OpenScience research loop | agent 自由探索，StageAcceptanceContract 严格验收科研质量 |
+| Codex agent loop and user approvals | 生成阶段内循环修复质量；保护性写入交给用户复核，可选审查按需触发 |
 | Symphony bounded turns/continuation | MissionDriveSlice 有界驱动 + safe checkpoint + reconciler 续投 |
 | Celery late ack/visibility semantics | queue 只唤醒；任务幂等、prefetch=1、slice 小于 timeout，不信任 result backend |
 | OpenAI hosted web search contract | live capability probe + Responses `web_search` + provider citation/source receipts |

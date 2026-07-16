@@ -40,25 +40,25 @@ minimum_context:
     requirement: optional
 stage_contract_refs:
   - contract_id: sci_research.scope_topic
-    schema_version: stage_acceptance_contract.v1
-    sha256: c970d894bb25094e148fc213b6ee82fb7b5b31f073488b8741640b85179539f1
+    schema_version: stage_acceptance_contract.v2
+    sha256: 46f481f6e9e652a87a05373afe9710171a6159f9f0b7a1fa7bb6be8ed95932e0
   - contract_id: sci_research.literature_positioning
-    schema_version: stage_acceptance_contract.v1
-    sha256: dc2b60aca221b66c5c5675cfed222030ccf1b4c06c24927c4e24b4d0b42e16ae
+    schema_version: stage_acceptance_contract.v2
+    sha256: 12867893f8695b0cad79d699388a1e6685f09eba3c9cf3dd2cc6ef76c46b140e
   - contract_id: sci_research.research_question
-    schema_version: stage_acceptance_contract.v1
-    sha256: 85e3e524954a05bac2642a110a2c8e12928f3afb3361bfcd8a0da2c04f3c9590
+    schema_version: stage_acceptance_contract.v2
+    sha256: 210e58cb1d138b98afa0863cbb07ff2848fa56bade9ee1410c6e78bcd813ad5b
   - contract_id: sci_research.method_design
-    schema_version: stage_acceptance_contract.v1
-    sha256: 87bd9bbd1d50d87573824fa1ab2ff5015272e039d437152a94a2f22810ed2263
+    schema_version: stage_acceptance_contract.v2
+    sha256: 32c0902e3ad74787c136b0db781ef6296166a6905cef175af9124125b9771585
   - contract_id: sci_research.experiment_design
-    schema_version: stage_acceptance_contract.v1
-    sha256: 7caf36bd2753166e361a6f4e4092185d4777eb5797e7691c06711db140e0c530
+    schema_version: stage_acceptance_contract.v2
+    sha256: 4466fba9b98a9cfd4f68bdbf8f212746f72e1d4d29a4d9824ad075b7c1ec7b8e
   - contract_id: sci_research.writing_or_revision
-    schema_version: stage_acceptance_contract.v1
-    sha256: e4586949a1b26f62d66105258bb53ccc944b4ef674ddf9f39512f4e3fb487a9f
+    schema_version: stage_acceptance_contract.v2
+    sha256: 85f04e0709670f0d1984cdc27fdbeeac02b7a83d621757ccdcd888135a8067b9
 tool_policy:
-  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, artifact_render, academic_visual_render, draft_stage]
+  allowed_tool_groups: [workspace_read, artifact_candidate_read, model_native_web_search, source_import, sandbox_compute, sandbox_read, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell]
 allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, experiment-analyst, academic-visual-engineer, manuscript-writer, citation-auditor, reproducibility-auditor, quality-critic]
 review_policy:
@@ -78,12 +78,19 @@ anti_examples:
     failure_reason: 缺少真实 gap、可证伪问题和证据路径。
 completion_contract:
   default_target: literature_positioning
-  target_stage_sets:
-    literature_positioning: [scope_topic, literature_positioning]
-    research_question: [scope_topic, literature_positioning, research_question]
-    method_and_experiment: [scope_topic, literature_positioning, research_question, method_design, experiment_design]
-    full_manuscript: [scope_topic, literature_positioning, research_question, method_design, experiment_design, writing_or_revision]
-  terminal_outputs: [research_brief, literature_matrix, gap_map, research_question_brief, methodology_plan, experiment_plan, manuscript_draft]
+  targets:
+    literature_positioning:
+      stage_ids: [scope_topic, literature_positioning]
+      terminal_output_kinds: [literature_matrix, gap_map]
+    research_question:
+      stage_ids: [scope_topic, literature_positioning, research_question]
+      terminal_output_kinds: [research_question_brief]
+    method_and_experiment:
+      stage_ids: [scope_topic, literature_positioning, research_question, method_design, experiment_design]
+      terminal_output_kinds: [methodology_plan, experiment_plan]
+    full_manuscript:
+      stage_ids: [scope_topic, literature_positioning, research_question, method_design, experiment_design, writing_or_revision]
+      terminal_output_kinds: [manuscript_draft]
   allow_safe_partial_outputs: true
 delivery_profile_refs:
   - {profile_id: academic_manuscript, version: 1}

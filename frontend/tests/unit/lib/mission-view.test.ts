@@ -15,6 +15,7 @@ function view(): MissionView {
     title: "梳理联邦微调研究空白",
     executionStatus: "completed",
     statusLabel: "研究已完成",
+    activity: { state: "completed", title: "研究任务已完成" },
     attentionRequest: null,
     createdAt: "2026-07-11T00:00:00Z",
     updatedAt: "2026-07-11T00:10:00Z",
@@ -32,7 +33,7 @@ function view(): MissionView {
     reviewSummary: { pending: 2, needsMoreEvidence: 0, accepted: 0, committed: 0 },
     reviewMode: "balanced_default",
     reviewPolicy: { protectedOutputsRequireConfirmation: true, draftOutputsMayBeAutomatic: true },
-    reviewSelectionRevision: 3,
+    reviewSelectionRevision: "review-selection-revision-3",
     commitSummary: { pending: 0, applying: 0, committed: 0, failed: 0 },
     qualityHighlights: [],
     lastItemSeq: 18,
@@ -51,6 +52,13 @@ describe("MissionView projection", () => {
 
   it("uses server suggestions without selecting protected review items", () => {
     expect(suggestedReviewSelection(view())).toEqual(["r-low"]);
+  });
+
+  it("keeps active generation on progress even when an output is already confirmable", () => {
+    const mission = view();
+    mission.executionStatus = "running";
+
+    expect(defaultMissionSurface(mission)).toBe("progress");
   });
 
 });

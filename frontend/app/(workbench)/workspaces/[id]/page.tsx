@@ -18,8 +18,14 @@ import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-type-config";
 import { useMissionUiStore } from "@/stores/mission-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { AutoCompactToast } from "./components/AutoCompactToast";
-import { ChatPanel } from "./components/ChatPanel";
-import { MissionConsole } from "./components/mission-console/MissionConsole";
+import {
+  ChatPanel,
+  type ChatPanelHandle,
+} from "./components/ChatPanel";
+import {
+  MissionConsole,
+  type MissionChatAction,
+} from "./components/mission-console/MissionConsole";
 import { useMissionWorkspace } from "./components/mission-console/useMissionWorkspace";
 import { LibraryDrawer } from "./components/rooms/LibraryDrawer";
 import { MissionHistoryDrawer } from "./components/rooms/RunsDrawer";
@@ -49,7 +55,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const [workspace, setWorkspace] = useState<{ name: string; type: string } | null>(null);
   const [isNarrow, setIsNarrow] = useState(false);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>("chat");
+  const [pendingChatAction, setPendingChatAction] =
+    useState<MissionChatAction | null>(null);
   const splitRootRef = useRef<HTMLDivElement>(null);
+  const chatPanelRef = useRef<ChatPanelHandle>(null);
 
   const splitRatio = useWorkbenchLayoutStore((state) => state.splitRatio);
   const setSplitRatio = useWorkbenchLayoutStore((state) => state.setSplitRatio);
@@ -66,6 +75,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     id,
     focusedMissionId,
   );
+  const missionIsGenerating = Boolean(
+    view && ["created", "planning", "running"].includes(view.executionStatus),
+  );
+  const visibleReviewCount =
+    view && !missionIsGenerating
+      ? view.reviewSummary.pending + view.reviewSummary.needsMoreEvidence
+      : 0;
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -81,9 +97,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   }, [clearWorkspaceFocus, id]);
 
   useEffect(() => {
-    if (!view) return;
-    setBadgeCount(view.reviewSummary.pending + view.reviewSummary.needsMoreEvidence);
-  }, [setBadgeCount, view]);
+    setBadgeCount(visibleReviewCount);
+  }, [setBadgeCount, visibleReviewCount]);
 
   useEffect(() => {
     if (focusedMissionId && focusedMissionId !== view?.missionId) {
@@ -124,6 +139,24 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     closePanel();
     setMobileSurface("chat");
   }, [closePanel]);
+
+  const handleMissionChatAction = useCallback((action: MissionChatAction) => {
+    setPendingChatAction(action);
+    setMobileSurface("chat");
+  }, []);
+
+  useEffect(() => {
+    if (mobileSurface !== "chat" || pendingChatAction === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (pendingChatAction === "attach") {
+        chatPanelRef.current?.openAttachment();
+      } else {
+        chatPanelRef.current?.focusComposer();
+      }
+      setPendingChatAction(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [mobileSurface, pendingChatAction]);
 
   const onResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -168,14 +201,14 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         workspaceName={workspace?.name}
         workspaceTypeLabel={typeConfig?.title}
         activeSurface="workbench"
-        pendingReviewCount={view?.reviewSummary.pending ?? 0}
+        pendingReviewCount={visibleReviewCount}
         missionStatus={view?.executionStatus === "waiting" ? "waiting" : view && ["created", "planning", "running"].includes(view.executionStatus) ? "running" : null}
         onOpenHub={() => setHubOpen(true)}
       />
       <WorkspaceHubDrawer
         open={hubOpen}
         activeRoom={activeRoom}
-        pendingReviewCount={view?.reviewSummary.pending ?? 0}
+        pendingReviewCount={visibleReviewCount}
         completedRunCount={view?.executionStatus === "completed" ? 1 : 0}
         onClose={() => setHubOpen(false)}
         onRoomSelect={setActiveRoom}
@@ -184,7 +217,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       {isNarrow && panelOpen ? (
         <div className="flex h-10 shrink-0 border-b border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-1" role="tablist" aria-label="工作区视图">
           <MobileTab active={mobileSurface === "chat"} label="对话" onClick={() => setMobileSurface("chat")} />
-          <MobileTab active={mobileSurface === "mission"} label="研究任务" badge={view?.reviewSummary.pending} onClick={() => setMobileSurface("mission")} />
+          <MobileTab active={mobileSurface === "mission"} label="研究任务" badge={visibleReviewCount} onClick={() => setMobileSurface("mission")} />
         </div>
       ) : null}
 
@@ -192,6 +225,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         {(!isNarrow || mobileSurface === "chat") && !isFullscreen ? (
           <div className="min-w-0" data-testid="chat-region" style={{ width: !isNarrow && panelOpen ? `${splitRatio * 100}%` : "100%" }}>
             <ChatPanel
+              ref={chatPanelRef}
               workspaceId={id}
               workspaceName={workspace?.name}
               typeConfig={typeConfig}
@@ -221,7 +255,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
         {view && panelOpen && (!isNarrow || mobileSurface === "mission" || isFullscreen) ? (
           <div className="min-w-0 flex-1" data-testid="mission-region">
-            <MissionConsole view={view} compact={isNarrow} onClose={closeMission} onViewChange={setView} />
+            <MissionConsole
+              view={view}
+              compact={isNarrow}
+              onClose={closeMission}
+              onViewChange={setView}
+              onChatAction={handleMissionChatAction}
+            />
           </div>
         ) : null}
 

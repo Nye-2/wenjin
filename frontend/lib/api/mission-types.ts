@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "@/lib/reasoning-effort";
+
 export type MissionExecutionStatus =
   | "created"
   | "planning"
@@ -12,7 +14,6 @@ export type MissionReviewMode =
   | "balanced_default"
   | "auto_draft";
 
-export type MissionReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type MissionRiskLevel = "low" | "medium" | "high";
 export type MissionItemPhase =
   | "started"
@@ -45,7 +46,7 @@ export interface MissionSubagentView {
   id: string;
   name: string;
   role: string;
-  status: "queued" | "working" | "done" | "needs_input";
+  status: "queued" | "working" | "done" | "needs_input" | "failed" | "cancelled";
   summary?: string | null;
 }
 
@@ -145,6 +146,26 @@ export interface MissionAttentionRequest {
   actions: MissionAttentionAction[];
 }
 
+export type MissionActivityState =
+  | "starting"
+  | "working"
+  | "collaborating"
+  | "retrying"
+  | "recovering"
+  | "waiting"
+  | "reviewing"
+  | "completed"
+  | "unavailable"
+  | "stopped";
+
+export interface MissionActivityView {
+  state: MissionActivityState;
+  title: string;
+  summary?: string | null;
+  attempt?: number | null;
+  retryAt?: string | null;
+}
+
 export interface MissionView {
   missionId: string;
   workspaceId: string;
@@ -153,6 +174,7 @@ export interface MissionView {
   objective?: string | null;
   executionStatus: MissionExecutionStatus;
   statusLabel: string;
+  activity: MissionActivityView;
   attentionRequest: MissionAttentionRequest | null;
   createdAt: string;
   updatedAt: string;
@@ -177,11 +199,13 @@ export interface MissionView {
     protectedOutputsRequireConfirmation: boolean;
     draftOutputsMayBeAutomatic: boolean;
   };
-  reviewSelectionRevision: number;
+  reviewSelectionRevision: string;
   commitSummary: MissionCommitSummary;
   qualityHighlights: string[];
   lastItemSeq: number;
   stateVersion: number;
+  isStale?: boolean;
+  loadError?: string | null;
 }
 
 export interface MissionSummary {
@@ -195,6 +219,16 @@ export interface MissionSummary {
   pendingReviewCount: number;
   evidenceCount: number;
   artifactCount: number;
+}
+
+export interface MissionWorkspaceSummary {
+  total: number;
+  statusCounts: Record<string, number>;
+  pendingReviewCount: number;
+  evidenceCount: number;
+  artifactCount: number;
+  latest: MissionSummary | null;
+  active: MissionSummary | null;
 }
 
 export interface MissionItem {
@@ -215,24 +249,22 @@ export interface MissionPage<T> {
   nextCursor: string | null;
 }
 
+export interface MissionProjectionPage<T> {
+  items: T[];
+  nextCursor: number | null;
+  total: number;
+}
+
 export interface MissionReviewDecision {
   reviewItemId: string;
   decision: "accepted" | "rejected" | "needs_more_evidence";
 }
 
 export interface MissionEventHint {
-  type:
-    | "mission.created"
-    | "mission.updated"
-    | "mission.item.appended"
-    | "mission.review.updated"
-    | "mission.commit.updated"
-    | "mission.terminal"
-    | "mission.snapshot.changed";
+  type: "mission.updated";
   missionId: string;
   stateVersion: number;
   lastItemSeq: number;
-  replayRequired: boolean;
   cursor: string;
 }
 
@@ -241,7 +273,7 @@ export interface ModelCapabilityProfile {
   generationApi: string | null;
   strictToolCalls: boolean;
   streaming: boolean;
-  reasoningEfforts: MissionReasoningEffort[];
+  reasoningEfforts: ReasoningEffort[];
   vision: boolean;
   nativeWebSearch: boolean;
 }

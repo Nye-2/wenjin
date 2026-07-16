@@ -119,6 +119,12 @@ class MissionRunRecord(Base):
             "updated_at",
             "mission_id",
         ),
+        Index(
+            "ix_mission_runs_user_updated_mission",
+            "user_id",
+            "updated_at",
+            "mission_id",
+        ),
         Index("ix_mission_runs_thread_created", "thread_id", "created_at"),
         Index(
             "ix_mission_runs_due_wakeup",
@@ -334,6 +340,7 @@ class MissionReviewItemRecord(Base):
             "risk_level",
         ),
         Index("ix_mission_review_items_target_room", "mission_id", "target_room"),
+        Index("ix_mission_review_items_output", "mission_id", "output_key", "created_at"),
         UniqueConstraint(
             "mission_id",
             "review_item_id",
@@ -355,6 +362,7 @@ class MissionReviewItemRecord(Base):
         nullable=False,
     )
     source_item_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    output_key: Mapped[str] = mapped_column(String(160), nullable=False)
     target_kind: Mapped[str] = mapped_column(String(80), nullable=False)
     target_room: Mapped[str | None] = mapped_column(String(80), nullable=True)
     target_ref: Mapped[str | None] = mapped_column(Text, nullable=True)

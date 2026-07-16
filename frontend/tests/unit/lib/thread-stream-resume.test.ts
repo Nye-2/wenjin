@@ -54,7 +54,7 @@ describe("chat stream resume", () => {
     const firstResponse = buildSseResponse(
       [
         'id: evt-1',
-        'data: {"type":"thread_id","thread_id":"thread-1","skill":null,"skill_name":null}',
+        'data: {"type":"thread_id","thread_id":"thread-1"}',
         "",
         'id: evt-2',
         'data: {"type":"content","content":"hello "}',
@@ -95,7 +95,7 @@ describe("chat stream resume", () => {
         },
         (content) => chunks.push(content),
         undefined,
-        ({ threadId }) => threadIds.push(threadId),
+        (threadId) => threadIds.push(threadId),
         undefined,
         (error) => reject(new Error(`unexpected stream error: ${error}`)),
         () => resolve()
@@ -158,7 +158,7 @@ describe("chat stream resume", () => {
 
     await new Promise<void>((resolve, reject) => {
       streamThread(
-        { message: "hello" },
+        { message: "hello", thread_id: "thread-1" },
         () => {},
         undefined,
         undefined,
@@ -169,7 +169,7 @@ describe("chat stream resume", () => {
     });
 
     expect(mockAuthorizedFetch.mock.calls[1]?.[0]).toBe(
-      "/api/runs/run-meta/stream"
+      "/api/threads/thread-1/runs/run-meta/stream"
     );
     const secondRequest = mockAuthorizedFetch.mock.calls[1]?.[1] as
       | RequestInit
@@ -193,7 +193,7 @@ describe("chat stream resume", () => {
       .mockResolvedValueOnce(new Response("", { status: 202 }));
 
     const stop = streamThread(
-      { message: "hello" },
+      { message: "hello", thread_id: "thread-1" },
       () => {},
       undefined,
       undefined,
@@ -208,7 +208,7 @@ describe("chat stream resume", () => {
     await Promise.resolve();
 
     expect(mockAuthorizedFetch.mock.calls[1]?.[0]).toBe(
-      "/api/runs/run-live/cancel?action=interrupt"
+      "/api/threads/thread-1/runs/run-live/cancel?action=interrupt"
     );
     const cancelRequest = mockAuthorizedFetch.mock.calls[1]?.[1] as
       | RequestInit
@@ -229,7 +229,7 @@ describe("chat stream resume", () => {
         "data: null",
         "",
       ].join("\n"),
-      { "Content-Location": "/api/runs/run-end/stream" }
+      { "Content-Location": "/api/threads/thread-1/runs/run-end/stream" }
     );
 
     mockAuthorizedFetch.mockResolvedValueOnce(response);

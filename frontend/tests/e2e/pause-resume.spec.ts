@@ -30,9 +30,7 @@ test("entry=resume restores history without auto-launching a new run", async ({
     },
   });
 
-  await page.goto(
-    "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=resume&paper_title=x",
-  );
+  await page.goto("/workspaces/ws-1?entry=resume");
 
   await expect(page.getByText(/上一轮已经完成初步分析/)).toBeVisible();
   await expect

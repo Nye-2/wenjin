@@ -4,10 +4,14 @@
  */
 
 import { create } from "zustand";
-import { authorizedFetch } from "@/lib/api/client";
+import {
+  authorizedFetch,
+  readErrorMessage,
+} from "@/lib/api/client";
 import type { AgentBlock } from "@/lib/api/blocks";
 import { normalizeChatBlock } from "@/lib/api/blocks";
-import type { ReasoningEffort } from "@/lib/api/types";
+import type { ThreadAttachment } from "@/lib/api/types";
+import type { ReasoningEffort } from "@/lib/reasoning-effort";
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
@@ -25,7 +29,6 @@ export type Message = {
 };
 
 export type SendMessageOptions = {
-  skill?: string | null;
   model?: string | null;
   reasoning_effort?: ReasoningEffort | null;
   metadata?: Record<string, unknown> | null;
@@ -34,6 +37,7 @@ export type SendMessageOptions = {
 export type SendMessageResult = {
   missionId?: string | null;
   status?: string | null;
+  error?: string | null;
 };
 
 // ── Event type (discriminated union) ────────────────────────────────────────
@@ -63,20 +67,25 @@ type ChatEvent =
 interface ChatState {
   activeWorkspaceId: string | null;
   messagesByWorkspace: Record<string, Message[]>;
+  threadIdsByWorkspace: Record<string, string>;
   messages: Message[];
   currentAssistantId: string | null;
   isSending: boolean;
+  activeRequestId: string | null;
+  activeRequestWorkspaceId: string | null;
+  activeAbortController: AbortController | null;
   /** Tracks assistant message IDs that have received their first post-stream
    *  block — subsequent finalize_block events append, the first one replaces. */
   finalizedMessageIds: Set<string>;
   setActiveWorkspace(workspaceId: string): void;
   getWorkspaceMessages(workspaceId: string): Message[];
+  getThreadId(workspaceId: string): string | null;
   handleEvent(event: ChatEvent, workspaceId?: string): void;
   loadHistory(workspaceId: string): Promise<string | null>;
   sendMessage(
     workspaceId: string,
     content: string,
-    attachments?: Array<{ name: string; path: string }>,
+    attachments?: ThreadAttachment[],
     options?: SendMessageOptions,
   ): Promise<SendMessageResult | void>;
   reset(): void;
@@ -111,6 +120,42 @@ function normalizeStoreBlocks(rawBlocks: unknown): Block[] {
 
 function appendBlockWithoutDuplicate(blocks: Block[], block: Block): Block[] {
   return [...blocks, block];
+}
+
+function deserializeThreadMessages(rawMessages: unknown): Message[] {
+  if (!Array.isArray(rawMessages)) return [];
+  return rawMessages.map((raw) => {
+    const message = raw as Record<string, unknown>;
+    const blocks = normalizeStoreBlocks(message.blocks);
+    return {
+      id: (message.id as string) || crypto.randomUUID(),
+      role:
+        (message.role as "user" | "assistant" | "system") || "assistant",
+      blocks: blocks.length
+        ? blocks
+        : [{ kind: "text" as const, content: String(message.content || "") }],
+      createdAt:
+        (message.created_at as string) || new Date().toISOString(),
+      metadata:
+        typeof message.metadata === "object" && message.metadata
+          ? (message.metadata as Record<string, unknown>)
+          : undefined,
+    };
+  });
+}
+
+function mergeMessagesById(existing: Message[], incoming: Message[]): Message[] {
+  const seen = new Set(existing.map((message) => message.id));
+  return [
+    ...incoming.filter((message) => !seen.has(message.id)),
+    ...existing,
+  ];
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof DOMException && error.name === "AbortError"
+  ) || (error instanceof Error && error.name === "AbortError");
 }
 
 function normalizeWorkspaceKey(workspaceId: string | null | undefined): string {
@@ -155,18 +200,36 @@ function syncActiveMessages(
 export const useChatStoreV2 = create<ChatState>((set, get) => ({
   activeWorkspaceId: null,
   messagesByWorkspace: {},
+  threadIdsByWorkspace: {},
   messages: [],
   currentAssistantId: null,
   isSending: false,
+  activeRequestId: null,
+  activeRequestWorkspaceId: null,
+  activeAbortController: null,
   finalizedMessageIds: new Set<string>(),
 
   setActiveWorkspace(workspaceId: string) {
+    const before = get();
+    const switchingWorkspace =
+      Boolean(before.activeWorkspaceId) &&
+      before.activeWorkspaceId !== workspaceId;
+    if (switchingWorkspace) {
+      before.activeAbortController?.abort();
+    }
     const workspaceKey = normalizeWorkspaceKey(workspaceId);
     set((state) => {
       const currentKey = normalizeWorkspaceKey(state.activeWorkspaceId);
       const messagesByWorkspace = { ...state.messagesByWorkspace };
+      const outgoingMessages = switchingWorkspace && state.currentAssistantId
+        ? state.messages.filter(
+            (message) =>
+              message.id !== state.currentAssistantId ||
+              message.blocks.length > 0,
+          )
+        : state.messages;
       if (state.activeWorkspaceId || state.messages.length > 0) {
-        messagesByWorkspace[currentKey] = state.messages;
+        messagesByWorkspace[currentKey] = outgoingMessages;
       }
       const shouldPromoteCurrentMessages =
         !state.activeWorkspaceId &&
@@ -182,12 +245,25 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         activeWorkspaceId: workspaceId,
         messages: nextMessages,
         messagesByWorkspace,
+        ...(switchingWorkspace
+          ? {
+              isSending: false,
+              currentAssistantId: null,
+              activeRequestId: null,
+              activeRequestWorkspaceId: null,
+              activeAbortController: null,
+            }
+          : {}),
       };
     });
   },
 
   getWorkspaceMessages(workspaceId: string) {
     return readWorkspaceMessages(get(), workspaceId);
+  },
+
+  getThreadId(workspaceId: string) {
+    return get().threadIdsByWorkspace[normalizeWorkspaceKey(workspaceId)] ?? null;
   },
 
   handleEvent(event: ChatEvent, workspaceId?: string) {
@@ -366,12 +442,17 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   },
 
   reset() {
+    get().activeAbortController?.abort();
     set({
       activeWorkspaceId: null,
       messagesByWorkspace: {},
+      threadIdsByWorkspace: {},
       messages: [],
       isSending: false,
       currentAssistantId: null,
+      activeRequestId: null,
+      activeRequestWorkspaceId: null,
+      activeAbortController: null,
       finalizedMessageIds: new Set<string>(),
     });
   },
@@ -379,8 +460,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   async loadHistory(workspaceId: string): Promise<string | null> {
     const workspaceKey = normalizeWorkspaceKey(workspaceId);
     const state = get();
-    const existingMessages = readWorkspaceMessages(state, workspaceId);
-    if (existingMessages.length > 0) return null; // already loaded for this workspace
+    const cachedThreadId = state.threadIdsByWorkspace[workspaceKey];
+    if (cachedThreadId) return cachedThreadId;
+    const shouldHydrateMessages =
+      readWorkspaceMessages(state, workspaceId).length === 0;
 
     try {
       const res = await authorizedFetch(
@@ -389,39 +472,35 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       );
       if (!res.ok) return null;
       const thread = await res.json();
-
-      if (thread.messages && thread.messages.length > 0) {
-        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => {
-          const blocks = normalizeStoreBlocks(m.blocks);
+      const threadId = typeof thread.id === "string" ? thread.id : "";
+      if (!threadId) return null;
+      const loaded = shouldHydrateMessages
+        ? deserializeThreadMessages(thread.messages)
+        : null;
+      set((current) => {
+        const threadIdsByWorkspace = {
+          ...current.threadIdsByWorkspace,
+          [workspaceKey]: threadId,
+        };
+        if (loaded === null) return { threadIdsByWorkspace };
+        const messagesByWorkspace = {
+          ...current.messagesByWorkspace,
+          [workspaceKey]: loaded,
+        };
+        if (
+          current.activeWorkspaceId === workspaceId ||
+          !current.activeWorkspaceId
+        ) {
           return {
-            id: (m.id as string) || crypto.randomUUID(),
-            role: (m.role as "user" | "assistant" | "system") || "assistant",
-            blocks: blocks.length
-              ? blocks
-              : [{ kind: "text" as const, content: String(m.content || "") }],
-            createdAt: (m.created_at as string) || new Date().toISOString(),
-            metadata:
-              typeof m.metadata === "object" && m.metadata
-                ? (m.metadata as Record<string, unknown>)
-                : undefined,
+            activeWorkspaceId: workspaceId,
+            messages: loaded,
+            messagesByWorkspace,
+            threadIdsByWorkspace,
           };
-        });
-        set((current) => {
-          const messagesByWorkspace = {
-            ...current.messagesByWorkspace,
-            [workspaceKey]: loaded,
-          };
-          if (current.activeWorkspaceId === workspaceId || !current.activeWorkspaceId) {
-            return {
-              activeWorkspaceId: workspaceId,
-              messages: loaded,
-              messagesByWorkspace,
-            };
-          }
-          return { messagesByWorkspace };
-        });
-      }
-      return thread.id as string;
+        }
+        return { messagesByWorkspace, threadIdsByWorkspace };
+      });
+      return threadId;
     } catch {
       return null;
     }
@@ -430,14 +509,31 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   async sendMessage(
     workspaceId: string,
     content: string,
-    attachments: Array<{ name: string; path: string }> = [],
+    attachments: ThreadAttachment[] = [],
     options: SendMessageOptions = {},
   ) {
     const { isSending } = get();
     if (isSending || !content.trim()) return;
     get().setActiveWorkspace(workspaceId);
-    set({ isSending: true });
+    const requestId = crypto.randomUUID();
+    const abortController = new AbortController();
+    const hadWorkspaceMessages =
+      get().getWorkspaceMessages(workspaceId).length > 0;
+    set({
+      isSending: true,
+      activeRequestId: requestId,
+      activeRequestWorkspaceId: workspaceId,
+      activeAbortController: abortController,
+    });
     let launchedResult: SendMessageResult | null = null;
+    const isCurrentRequest = () => {
+      const state = get();
+      return (
+        state.activeRequestId === requestId &&
+        state.activeRequestWorkspaceId === workspaceId &&
+        state.activeWorkspaceId === workspaceId
+      );
+    };
 
     const userMsgId = crypto.randomUUID();
     get().handleEvent({
@@ -446,15 +542,15 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         id: userMsgId,
         content,
         timestamp: new Date().toISOString(),
-        metadata: options.metadata ?? undefined,
+        metadata: {
+          ...(options.metadata ?? {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
+        },
       },
     });
 
     try {
       const threadRequestPayload: Record<string, string> = {};
-      if (typeof options.skill === "string" && options.skill.trim()) {
-        threadRequestPayload.skill = options.skill.trim();
-      }
       if (typeof options.model === "string" && options.model.trim()) {
         threadRequestPayload.model = options.model.trim();
       }
@@ -470,31 +566,34 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: threadRequestBody,
+          signal: abortController.signal,
         },
       );
-      if (!threadRes.ok) throw new Error("Failed to create thread");
+      if (!isCurrentRequest()) return;
+      if (!threadRes.ok) {
+        throw new Error(
+          await readErrorMessage(threadRes, "无法连接对话，请稍后重试"),
+        );
+      }
       const thread = await threadRes.json();
-      const threadId = thread.id;
+      if (!isCurrentRequest()) return;
+      const threadId = typeof thread.id === "string" ? thread.id : "";
+      if (!threadId) throw new Error("对话线程无效，请稍后重试");
+      const workspaceKey = normalizeWorkspaceKey(workspaceId);
+      set((state) => ({
+        threadIdsByWorkspace: {
+          ...state.threadIdsByWorkspace,
+          [workspaceKey]: threadId,
+        },
+      }));
 
-      // Load existing messages if store is empty (first call after page load)
-      if (get().getWorkspaceMessages(workspaceId).length === 0 && thread.messages?.length > 0) {
-        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => {
-          const blocks = normalizeStoreBlocks(m.blocks);
-          return {
-            id: (m.id as string) || crypto.randomUUID(),
-            role: (m.role as "user" | "assistant" | "system") || "assistant",
-            blocks: blocks.length
-              ? blocks
-              : [{ kind: "text" as const, content: String(m.content || "") }],
-            createdAt: (m.created_at as string) || new Date().toISOString(),
-            metadata:
-              typeof m.metadata === "object" && m.metadata
-                ? (m.metadata as Record<string, unknown>)
-                : undefined,
-          };
-        });
+      if (!hadWorkspaceMessages && Array.isArray(thread.messages)) {
+        const loaded = deserializeThreadMessages(thread.messages);
         set((state) => ({
-          ...syncActiveMessages(state, loaded),
+          ...syncActiveMessages(
+            state,
+            mergeMessagesById(state.messages, loaded),
+          ),
         }));
       }
 
@@ -508,15 +607,8 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       const runPayload: Record<string, unknown> = {
         message: content,
         workspace_id: workspaceId,
-        attachments: attachments.map((a) => ({
-          name: a.name,
-          path: a.path,
-          kind: "transient",
-        })),
+        attachments,
       };
-      if (typeof options.skill === "string" && options.skill.trim()) {
-        runPayload.skill = options.skill.trim();
-      }
       if (typeof options.model === "string" && options.model.trim()) {
         runPayload.model = options.model.trim();
       }
@@ -537,10 +629,16 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(runPayload),
+          signal: abortController.signal,
         },
       );
 
-      if (!res.ok) throw new Error("Failed to start run");
+      if (!isCurrentRequest()) return;
+      if (!res.ok) {
+        throw new Error(
+          await readErrorMessage(res, "对话未能启动，请稍后重试"),
+        );
+      }
       if (!res.body) throw new Error("No response body");
 
       // Parse SSE from fetch response
@@ -551,6 +649,11 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       let frameEvent: string | null = null;
 
       const flushFrame = () => {
+        if (!isCurrentRequest()) {
+          frameData = [];
+          frameEvent = null;
+          return;
+        }
         if (!frameData.length) {
           frameEvent = null;
           return;
@@ -590,7 +693,11 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
                   type: "chat.assistant.finalize_block",
                   block,
                 });
-                if (block.kind === "status_line" && block.run_id.trim()) {
+                if (
+                  block.kind === "status_line" &&
+                  block.action === "start_mission" &&
+                  block.run_id.trim()
+                ) {
                   launchedResult = {
                     missionId: block.run_id.trim(),
                     status: "launched",
@@ -621,6 +728,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
       while (true) {
         const { done, value } = await reader.read();
+        if (!isCurrentRequest()) return;
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -655,12 +763,43 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       }
       flushFrame();
 
+      if (!isCurrentRequest()) return;
       get().handleEvent({ type: "chat.assistant.completion" });
       return launchedResult ?? undefined;
-    } catch {
+    } catch (error: unknown) {
+      if (!isCurrentRequest() || isAbortError(error)) {
+        return;
+      }
+      if (!get().currentAssistantId) {
+        get().handleEvent({
+          type: "chat.assistant.start",
+          data: { message_id: crypto.randomUUID() },
+        });
+      }
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : "消息未能发送，请稍后重试";
+      get().handleEvent({
+        type: "chat.assistant.block",
+        block: {
+          kind: "status_line",
+          label: message,
+          run_id: "chat-send-error",
+          tone: "error",
+        },
+      });
       get().handleEvent({ type: "chat.assistant.completion" });
+      return { status: "failed", error: message };
     } finally {
-      set({ isSending: false });
+      if (get().activeRequestId === requestId) {
+        set({
+          isSending: false,
+          activeRequestId: null,
+          activeRequestWorkspaceId: null,
+          activeAbortController: null,
+        });
+      }
     }
   },
 }));

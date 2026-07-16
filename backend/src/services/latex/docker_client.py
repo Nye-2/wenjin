@@ -184,7 +184,7 @@ class DockerClient:
 
         candidates: list[Path] = []
 
-        env_specific = os.getenv("GUANLAN_TEXLIVE_IMAGE_TAR")
+        env_specific = os.getenv("WENJIN_TEXLIVE_IMAGE_TAR")
         if env_specific:
             candidates.append(Path(env_specific))
 

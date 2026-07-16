@@ -74,6 +74,7 @@ GENERATIVE_FIGURE_TYPES = frozenset(
 )
 SCHEMATIC_TYPES = frozenset({"geometric_schematic", "simulation_snapshot"})
 SCHEMATIC_STRATEGIES = frozenset({"python_schematic"})
+_VISUAL_DATA_PATH_PATTERN = r"^/workspace/(?:datasets|outputs|reports)/.+"
 
 
 def _validate_figure_route(
@@ -147,10 +148,37 @@ class FigureSpec(BaseModel):
     visual_profile_id: str | None = Field(default=None, max_length=120)
     palette_id: str | None = Field(default=None, max_length=120)
     purpose: str = Field(min_length=1, max_length=1000)
-    output_targets: list[str] = Field(default_factory=list, max_length=4)
+    output_targets: list[str] = Field(
+        default_factory=list,
+        max_length=1,
+        description=(
+            "Deterministic strategies require exactly one absolute reviewable image "
+            "path under /workspace/outputs/ or /workspace/reports/; for example "
+            "/workspace/outputs/figures/q3_policy_summary.png. This is a file path, "
+            "not a format, use case, or asset kind. Generative strategies may omit it."
+        ),
+        examples=[["/workspace/outputs/figures/q3_policy_summary.png"]],
+        json_schema_extra={
+            "items": {
+                "type": "string",
+                "pattern": r"^/workspace/(?:outputs|reports)/.+\.(?:png|webp|svg|pdf)$",
+            }
+        },
+    )
     caption: str | None = Field(default=None, max_length=4000)
     alt_text: str | None = Field(default=None, max_length=4000)
-    dataset_paths: list[str] = Field(default_factory=list, max_length=64)
+    dataset_paths: list[str] = Field(
+        default_factory=list,
+        max_length=64,
+        description=(
+            "Read-only data inputs for deterministic rendering. Use registered data under "
+            "/workspace/datasets/ or verified derived data under /workspace/outputs/ or "
+            "/workspace/reports/."
+        ),
+        json_schema_extra={
+            "items": {"type": "string", "pattern": _VISUAL_DATA_PATH_PATTERN}
+        },
+    )
 
     @property
     def schema(self) -> str:
@@ -164,7 +192,7 @@ class FigureSpec(BaseModel):
     @field_validator("dataset_paths")
     @classmethod
     def _validate_dataset_paths(cls, paths: list[str]) -> list[str]:
-        return [_ensure_safe_workspace_path(path) for path in paths]
+        return [_ensure_visual_data_path(path) for path in paths]
 
     @model_validator(mode="after")
     def _validate_strategy_and_targets(self) -> FigureSpec:
@@ -173,8 +201,17 @@ class FigureSpec(BaseModel):
             strategy=self.strategy,
             evidence_level=self.evidence_level,
         )
+        if self.strategy not in AI_IMAGE_STRATEGIES and len(self.output_targets) != 1:
+            raise ValueError(
+                "deterministic academic visuals require exactly one reviewable output "
+                "path, such as /workspace/outputs/figures/result.png"
+            )
         for path in self.output_targets:
             _ensure_reviewable_workspace_artifact(path, field_name="output target")
+            if not path.lower().endswith((".png", ".webp", ".svg", ".pdf")):
+                raise ValueError("visual output target must end in .png, .webp, .svg, or .pdf")
+        if set(self.output_targets).intersection(self.dataset_paths):
+            raise ValueError("visual data inputs and output targets must not overlap")
         return self
 
 
@@ -217,7 +254,16 @@ class CodeVisualPayload(BaseModel):
     source_code: str = Field(min_length=1, max_length=200_000)
     script_path: str
     environment_id: str | None = Field(default=None, min_length=1, max_length=100)
-    dataset_paths: tuple[str, ...] = ()
+    dataset_paths: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "The same read-only data paths declared by FigureSpec.dataset_paths; paths may "
+            "come from datasets or verified outputs/reports."
+        ),
+        json_schema_extra={
+            "items": {"type": "string", "pattern": _VISUAL_DATA_PATH_PATTERN}
+        },
+    )
 
     @field_validator("script_path")
     @classmethod
@@ -227,7 +273,7 @@ class CodeVisualPayload(BaseModel):
     @field_validator("dataset_paths")
     @classmethod
     def _validate_dataset_paths(cls, paths: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(_ensure_safe_workspace_path(path) for path in paths)
+        return tuple(_ensure_visual_data_path(path) for path in paths)
 
 
 class StructuredVisualPayload(BaseModel):
@@ -418,6 +464,21 @@ def _ensure_safe_workspace_path(path: str) -> str:
         raise ValueError("unsafe workspace path")
     if is_workspace_protected_path(normalized) or is_workspace_internal_path(normalized):
         raise ValueError("unsafe workspace path")
+    return normalized
+
+
+def _ensure_visual_data_path(path: str) -> str:
+    normalized = _ensure_safe_workspace_path(path)
+    parts = normalized.split("/")
+    if len(parts) < 4 or parts[1:3] not in (
+        ["workspace", "datasets"],
+        ["workspace", "outputs"],
+        ["workspace", "reports"],
+    ):
+        raise ValueError(
+            "visual data path must be under /workspace/datasets, /workspace/outputs, "
+            "or /workspace/reports"
+        )
     return normalized
 
 

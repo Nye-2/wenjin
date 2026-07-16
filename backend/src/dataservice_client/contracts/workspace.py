@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.reasoning import ReasoningEffort
 from src.contracts.review_policy import DEFAULT_REVIEW_MODE, ReviewMode, normalize_review_mode
 
 WORKSPACE_TYPES = ("thesis", "sci", "proposal", "software_copyright", "math_modeling", "patent")
@@ -109,8 +110,7 @@ class WorkspaceSettingsPayload(BaseModel):
 
     workspace_id: str
     default_model: str | None = None
-    thinking_enabled: bool = True
-    sandbox_provider: str = "local"
+    reasoning_effort: ReasoningEffort = ReasoningEffort.XHIGH
     auto_compact_threshold: float = 0.8
     settings_json: dict[str, Any] = Field(default_factory=dict)
     review_mode: ReviewMode = DEFAULT_REVIEW_MODE
@@ -134,8 +134,7 @@ class WorkspaceSettingsUpdatePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     default_model: str | None = Field(default=None, max_length=100)
-    thinking_enabled: bool | None = None
-    sandbox_provider: str | None = Field(default=None, max_length=50)
+    reasoning_effort: ReasoningEffort | None = None
     auto_compact_threshold: float | None = None
     settings_json: dict[str, Any] | None = None
     review_mode: ReviewMode | None = None

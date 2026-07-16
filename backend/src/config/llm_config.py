@@ -4,16 +4,19 @@ This module parses model configurations from environment variables
 (LLM_MODELS, LLM_IMAGE_MODELS) and provides access functions.
 
 Configuration format (.env file):
-    LLM_MODELS=[{"id":"gpt-5.6-sol","model":"gpt-5.6-sol","api_key":"sk-xxx","base_url":"https://api.example/v1","generation_api":"chat_completions"}]
-    LLM_IMAGE_MODELS=[{"id":"image-model","model":"image-model","api_key":"sk-xxx","base_url":"https://images.example/v1"}]
+    OPENAI_API_KEY=sk-xxx
+    LLM_MODELS=[{"id":"gpt-5.6-sol","model":"gpt-5.6-sol","api_key_env":"OPENAI_API_KEY","base_url":"https://api.example/v1","generation_api":"chat_completions"}]
+    LLM_IMAGE_MODELS=[{"id":"image-model","model":"image-model","api_key_env":"OPENAI_API_KEY","base_url":"https://images.example/v1"}]
 
-Required fields: id, model, api_key, base_url
+Required seed fields: id, model, api_key_env, base_url
 """
 
 import json
 import logging
 import os
+import re
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -111,17 +114,14 @@ def _maybe_load_env_file() -> None:
 
 
 class ModelConfig(BaseModel):
-    """Model configuration with required and optional fields.
-
-    Each model must have independent api_key and base_url.
-    """
+    """Resolved model configuration used by runtime transports."""
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     # Required fields
     id: str = Field(..., description="Unique model identifier (used by frontend)")
     model: str = Field(..., description="Actual model string for API calls")
-    api_key: str = Field(..., description="Model-specific API key")
+    api_key: str = Field(..., description="Resolved provider API key")
     base_url: str = Field(..., description="Model-specific base URL")
 
     # Optional fields with defaults
@@ -143,6 +143,55 @@ class ModelConfig(BaseModel):
     )
     pricing_policy_id: str | None = Field(default=None, description="Bound model_usage pricing policy id/key")
 
+_SECRET_ENV_NAME_PATTERN = re.compile(r"[A-Z][A-Z0-9_]*")
+_CATALOG_ONLY_FIELDS = frozenset(
+    {
+        "category",
+        "enabled",
+        "is_default",
+        "pricing_policy_key",
+        "provider",
+        "provider_name",
+        "trust_level",
+    }
+)
+
+
+def resolve_model_seed(
+    data: dict[str, Any],
+    *,
+    secret_source: Mapping[str, str] | None = None,
+) -> ModelConfig:
+    """Resolve one environment seed into a runtime model configuration.
+
+    Seed JSON stores only the environment-variable name. Direct secrets are
+    rejected so every provider transport shares one explicit secret source.
+    """
+    required_fields = ["id", "model", "api_key_env", "base_url"]
+    missing = [field for field in required_fields if not data.get(field)]
+    if missing:
+        raise ValueError(f"model seed missing required fields: {missing}")
+    if "api_key" in data:
+        raise ValueError("model seed must reference api_key_env, not embed api_key")
+
+    secret_env_name = str(data["api_key_env"]).strip()
+    if _SECRET_ENV_NAME_PATTERN.fullmatch(secret_env_name) is None:
+        raise ValueError("api_key_env must be an uppercase environment-variable name")
+    source = os.environ if secret_source is None else secret_source
+    api_key = str(source.get(secret_env_name) or "").strip()
+    if not api_key:
+        raise ValueError(f"model seed secret environment variable is unset: {secret_env_name}")
+
+    payload = {
+        key: value
+        for key, value in data.items()
+        if key not in _CATALOG_ONLY_FIELDS and key != "api_key_env"
+    }
+    payload["api_key"] = api_key
+    payload.setdefault("name", data.get("id", ""))
+    return ModelConfig.model_validate(payload)
+
+
 def _parse_model_from_json(data: dict[str, Any]) -> ModelConfig | None:
     """
     Parse a ModelConfig from JSON data.
@@ -153,32 +202,13 @@ def _parse_model_from_json(data: dict[str, Any]) -> ModelConfig | None:
     Returns:
         ModelConfig if parsing succeeds, None if required fields are missing
     """
-    required_fields = ["id", "model", "api_key", "base_url"]
-    missing = [f for f in required_fields if not data.get(f)]
-
-    if missing:
-        logger.warning("Model config missing required fields: %s. Skipping.", missing)
-        return None
-
     try:
-        catalog_only_fields = {
-            "category",
-            "enabled",
-            "is_default",
-            "pricing_policy_key",
-            "provider",
-            "provider_name",
-            "trust_level",
-        }
-        payload = {
-            key: value
-            for key, value in data.items()
-            if key not in catalog_only_fields
-        }
-        payload.setdefault("name", data.get("id", ""))
-        return ModelConfig.model_validate(payload)
-    except Exception as e:
-        logger.warning("Failed to parse model config: %s. Skipping.", e)
+        return resolve_model_seed(data)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Failed to resolve model seed %r. Skipping.",
+            str(data.get("id") or "<missing>"),
+        )
         return None
 
 

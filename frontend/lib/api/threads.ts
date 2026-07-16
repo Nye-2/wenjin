@@ -12,7 +12,6 @@ export async function ensureWorkspaceThread(
   workspaceId: string,
   data: {
     model?: string;
-    skill?: string | null;
   } = {}
 ): Promise<Thread> {
   const response = await apiClient.post(

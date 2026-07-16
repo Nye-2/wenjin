@@ -50,4 +50,13 @@ describe("api client URL normalization", () => {
       "https://example.com/api",
     );
   });
+
+  it("treats authentication failures as terminal event-stream responses", async () => {
+    const { isTerminalEventStreamStatus } = await import("@/lib/api/client");
+
+    expect(isTerminalEventStreamStatus(401)).toBe(true);
+    expect(isTerminalEventStreamStatus(403)).toBe(true);
+    expect(isTerminalEventStreamStatus(500)).toBe(false);
+    expect(isTerminalEventStreamStatus(undefined)).toBe(false);
+  });
 });

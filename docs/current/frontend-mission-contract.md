@@ -1,7 +1,7 @@
 # Frontend Mission Contract
 
 > Status: Current source of truth
-> Updated: 2026-07-11
+> Updated: 2026-07-15
 
 ## Purpose
 
@@ -9,7 +9,7 @@ The frontend is chat-native. It renders conversation and a canonical `MissionVie
 
 ## Launch and steering
 
-The frontend sends user messages through thread run endpoints. `WorkspaceAgent` may return ordinary blocks or a mission receipt. The canonical mission id is read from `status_line.run_id`. The UI must not infer a task from prose, a feature id, or local optimistic state.
+The frontend sends user messages through thread run endpoints. `WorkspaceAgent` may return ordinary blocks or a mission receipt. The canonical mission id is read from `status_line.run_id`, while its typed `action` states whether the turn started, steered, reviewed, or committed a Mission. Only `action=start_mission` may trigger the Mission Console peek. The UI must not infer a launch from prose, a feature id, an existing Mission id, or local optimistic state.
 
 Subsequent chat turns can start, steer, pause, resume, cancel, review, commit, or change review mode through the agent or explicit Mission actions. The focused mission is context, not a permanent right-panel route selection.
 
@@ -50,6 +50,8 @@ The frontend may derive presentation-only labels, counts, grouping, and panel fo
 
 Conversation blocks remain ordered and streamable: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, and `tool_result`. Thinking is progressive UI feedback, not hidden durable mission state. Result cards link to Mission outputs and use `run_id` as the durable Mission id.
 
+Chat transport state is workspace-scoped. A workspace switch aborts the previous request, removes an empty optimistic assistant placeholder, and rejects every stale stream frame. Attachment upload is part of send readiness: the composer remains disabled until preprocessing returns the immutable thread attachment ref.
+
 Provider or tool internals are mapped to user-safe language. Raw schema names, stack traces, sandbox paths, prompts, and unbounded logs do not appear in default chat.
 
 ## Mission Console behavior
@@ -64,11 +66,13 @@ Provider or tool internals are mapped to user-safe language. Raw schema names, s
 
 The console surfaces progress, current stage, team, evidence, artifacts, review, and saved results. Tool diagnostics remain behind a detail affordance.
 
+Artifacts are acceptance-backed current outputs, not a dump of internal candidate revisions. DataService projects at most one current result per stable `output_key` or protected materialization destination; superseded, rejected, and unaccepted candidates remain trace-only. The artifact page total is therefore the user-visible result count, while internal Mission ledger counters stay diagnostic.
+
 When execution is `waiting`, `MissionView.attention_request` is the only UI contract for the required response. It includes the durable request id, reason, user-facing summary and impact, required inputs, and allowed actions. Chat and Mission Console render this projection directly; they do not infer a request from timers, status labels, or raw snapshot fields.
 
 ## Review interaction
 
-Protected review items cannot be silently batch-accepted. The UI explains why confirmation is needed in domain language. It supports per-item selection, accept, reject/skip, request more evidence, undo decision, and partial save. Commit buttons are enabled from server-projected eligibility.
+Protected outputs are presented as user confirmations, not automated reviewer verdicts. The UI explains why confirmation is useful in domain language and supports per-item selection, accept, skip, request more evidence, undo decision, and partial save. Content quality has already been handled inside generation; an optional audit is started only when the user asks or identifies a concrete concern. Commit buttons are enabled from server-projected eligibility.
 
 Review modes are presented as user choices, but their semantics come from backend policy:
 
@@ -93,3 +97,5 @@ Admin analytics uses `GET /api/dashboard/admin/analytics/mission-stats`. There i
 5. The right panel is optional context, never a prerequisite to continue chatting.
 6. No technical failure wording is shown when a concrete user action can be stated.
 7. No retired workflow route, store, card grid, or dual projection may be reintroduced.
+8. Only a typed `start_mission` status action may open or peek the Mission Console.
+9. An aborted or stale chat stream cannot mutate another workspace.

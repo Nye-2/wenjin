@@ -32,26 +32,28 @@ class WorkspaceSummaryService:
         workspace_type: str,
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        del user_id
         if self._dataservice is not None:
-            missions = await self._dataservice.missions.list_workspace(
+            summary = await self._dataservice.missions.get_workspace_summary(
                 workspace_id=workspace_id,
-                limit=100,
+                user_id=user_id,
             )
         else:
             async with dataservice_client() as client:
-                missions = await client.missions.list_workspace(
+                summary = await client.missions.get_workspace_summary(
                     workspace_id=workspace_id,
-                    limit=100,
+                    user_id=user_id,
                 )
 
-        completed = sum(item.status == MissionStatus.COMPLETED for item in missions)
-        active = sum(item.status in _ACTIVE for item in missions)
-        failed = sum(item.status in {MissionStatus.FAILED, MissionStatus.CANCELLED} for item in missions)
-        total = len(missions)
+        completed = summary.status_counts.get(MissionStatus.COMPLETED.value, 0)
+        active = sum(summary.status_counts.get(status.value, 0) for status in _ACTIVE)
+        failed = sum(
+            summary.status_counts.get(status.value, 0)
+            for status in (MissionStatus.FAILED, MissionStatus.CANCELLED)
+        )
+        total = summary.total
         percent = int(completed * 100 / total) if total else 0
-        current = next((item for item in missions if item.status in _ACTIVE), None)
-        latest = missions[0] if missions else None
+        current = summary.active
+        latest = summary.latest
 
         recent = await self._activity_service.get_activity(workspace_id, limit=1)
         recent_items = recent.get("items", [])
@@ -59,7 +61,7 @@ class WorkspaceSummaryService:
         phase_source = current or latest
         current_phase = {
             "mission_id": phase_source.mission_id if phase_source else None,
-            "mission_policy_id": phase_source.mission_policy_id if phase_source else None,
+            "mission_policy_id": None,
             "title": phase_source.title if phase_source else "描述你的研究目标",
             "status": phase_source.status.value if phase_source else "not_started",
             "description": (phase_source.objective if phase_source else "问津会在对话中理解目标并组织研究任务。"),
@@ -68,7 +70,7 @@ class WorkspaceSummaryService:
         if current is not None:
             next_step = {
                 "mission_id": current.mission_id,
-                "mission_policy_id": current.mission_policy_id,
+                "mission_policy_id": None,
                 "title": "继续当前研究任务",
                 "description": current.objective,
                 "reason": "任务已有可恢复进展。",

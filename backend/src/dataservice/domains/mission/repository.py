@@ -85,6 +85,21 @@ class MissionRepository:
         )
         return result.scalar_one_or_none()
 
+    async def find_latest_for_thread(
+        self,
+        thread_id: str,
+    ) -> MissionRunRecord | None:
+        result = await self.session.execute(
+            select(MissionRunRecord)
+            .where(MissionRunRecord.thread_id == thread_id)
+            .order_by(
+                MissionRunRecord.created_at.desc(),
+                MissionRunRecord.mission_id.desc(),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_runs(
         self,
         *,
@@ -134,6 +149,59 @@ class MissionRepository:
                 ),
             )
             .order_by(MissionRunRecord.updated_at.asc(), MissionRunRecord.mission_id.asc())
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def aggregate_workspace_runs(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str | None = None,
+    ) -> list[tuple[str, int, int, int, int]]:
+        statement = (
+            select(
+                MissionRunRecord.status,
+                func.count(MissionRunRecord.mission_id),
+                func.coalesce(func.sum(MissionRunRecord.pending_review_count), 0),
+                func.coalesce(func.sum(MissionRunRecord.evidence_count), 0),
+                func.coalesce(func.sum(MissionRunRecord.artifact_count), 0),
+            )
+            .where(MissionRunRecord.workspace_id == workspace_id)
+            .group_by(MissionRunRecord.status)
+        )
+        if user_id is not None:
+            statement = statement.where(MissionRunRecord.user_id == user_id)
+        result = await self.session.execute(statement)
+        return [
+            (str(status), int(count), int(pending), int(evidence), int(artifacts))
+            for status, count, pending, evidence, artifacts in result.all()
+        ]
+
+    async def aggregate_user_runs(self, *, user_id: str) -> list[tuple[str, int]]:
+        result = await self.session.execute(
+            select(
+                MissionRunRecord.status,
+                func.count(MissionRunRecord.mission_id),
+            )
+            .where(MissionRunRecord.user_id == user_id)
+            .group_by(MissionRunRecord.status)
+        )
+        return [(str(status), int(count)) for status, count in result.all()]
+
+    async def list_user_runs(
+        self,
+        *,
+        user_id: str,
+        limit: int,
+    ) -> list[MissionRunRecord]:
+        result = await self.session.execute(
+            select(MissionRunRecord)
+            .where(MissionRunRecord.user_id == user_id)
+            .order_by(
+                MissionRunRecord.updated_at.desc(),
+                MissionRunRecord.mission_id.desc(),
+            )
             .limit(limit)
         )
         return list(result.scalars())
@@ -384,10 +452,16 @@ class MissionRepository:
         *,
         mission_id: str,
         status: list[str] | None = None,
+        output_keys: list[str] | None = None,
+        for_update: bool = False,
     ) -> list[MissionReviewItemRecord]:
         statement = select(MissionReviewItemRecord).where(MissionReviewItemRecord.mission_id == mission_id).order_by(MissionReviewItemRecord.created_at.asc())
         if status:
             statement = statement.where(MissionReviewItemRecord.status.in_(status))
+        if output_keys:
+            statement = statement.where(MissionReviewItemRecord.output_key.in_(output_keys))
+        if for_update:
+            statement = statement.with_for_update()
         result = await self.session.execute(statement)
         return list(result.scalars())
 

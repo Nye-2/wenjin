@@ -51,8 +51,6 @@ async def build_chat_turn_wait_payload(
             "workspace_id": thread.workspace_id,
             "title": thread.title,
             "model": thread.model,
-            "skill": thread.skill,
-            "skill_name": None,
             "messages": messages,
         }
     )

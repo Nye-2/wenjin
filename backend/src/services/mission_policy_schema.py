@@ -48,7 +48,11 @@ def resolve_mission_policy_bundle(
         resolved.append(contract)
 
     stage_ids = {contract.stage_id for contract in resolved}
-    required_stage_ids = {stage_id for stage_ids in policy.completion_contract.target_stage_sets.values() for stage_id in stage_ids}
+    required_stage_ids = {
+        stage_id
+        for target in policy.completion_contract.targets.values()
+        for stage_id in target.stage_ids
+    }
     missing_completion_stages = required_stage_ids - stage_ids
     if missing_completion_stages:
         raise ValueError("completion contract references unknown stages: " + ", ".join(sorted(missing_completion_stages)))

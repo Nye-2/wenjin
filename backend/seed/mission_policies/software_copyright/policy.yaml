@@ -39,14 +39,14 @@ minimum_context:
   target_template:
     requirement: optional
 stage_contract_refs:
-  - {contract_id: software_copyright_application.materials_inventory, schema_version: stage_acceptance_contract.v1, sha256: d6a726306cbb06715bdb1cdcd1b9e380884955245af77f99b686534ce5916e6d}
-  - {contract_id: software_copyright_application.architecture_description, schema_version: stage_acceptance_contract.v1, sha256: cf5047eda2b1eb03efa6270a733df400b5d26ce5b87d9cfb0e6d18d2f6843e49}
-  - {contract_id: software_copyright_application.evidence_alignment, schema_version: stage_acceptance_contract.v1, sha256: 7bbfdb0063293fa618013f78a8864e9e64526adec7ad1b0917e0b45762776426}
-  - {contract_id: software_copyright_application.application_pack, schema_version: stage_acceptance_contract.v1, sha256: 49536421ef735e09de394464b131189b90741f628c93e1495d05736963414362}
+  - {contract_id: software_copyright_application.materials_inventory, schema_version: stage_acceptance_contract.v2, sha256: a3e2df4f15ebf185751b644327a15185f81471d3645cdf5bcaae4264781ad507}
+  - {contract_id: software_copyright_application.architecture_description, schema_version: stage_acceptance_contract.v2, sha256: e19ecc5d23e4f80106c7bb0c959faf45877429d84a34b6cb9b3f228144b6ecd4}
+  - {contract_id: software_copyright_application.evidence_alignment, schema_version: stage_acceptance_contract.v2, sha256: dde53a5fda4ef6e60eefb791684c02ec9e3f59a1f020ba33e1fe181243a8ad3b}
+  - {contract_id: software_copyright_application.application_pack, schema_version: stage_acceptance_contract.v2, sha256: f4cfaf8c1b9819cc36d95ea52c951d361be108f3944451f6c7cff9ebd899c14d}
 tool_policy:
-  allowed_tool_groups: [workspace_read, source_code_read, sandbox_compute, artifact_render, academic_visual_render, draft_stage]
+  allowed_tool_groups: [workspace_read, artifact_candidate_read, source_code_read, sandbox_compute, sandbox_read, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell, synthetic_screenshot_generation]
-allowed_worker_skills: [task-scope-planner, software-documenter, academic-visual-engineer, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, software-documenter, academic-visual-engineer, compliance-auditor, quality-critic]
 review_policy:
   default_mode: balanced_default
   allowed_modes: [review_all, balanced_default, auto_draft]
@@ -61,11 +61,16 @@ anti_examples:
     failure_reason: 破坏申请材料真实性和证据链。
 completion_contract:
   default_target: full_application
-  target_stage_sets:
-    architecture_pack: [materials_inventory, architecture_description]
-    evidence_pack: [materials_inventory, architecture_description, evidence_alignment]
-    full_application: [materials_inventory, architecture_description, evidence_alignment, application_pack]
-  terminal_outputs: [software_evidence_inventory, software_architecture_pack, software_evidence_map, software_copyright_pack]
+  targets:
+    architecture_pack:
+      stage_ids: [materials_inventory, architecture_description]
+      terminal_output_kinds: [software_architecture_pack]
+    evidence_pack:
+      stage_ids: [materials_inventory, architecture_description, evidence_alignment]
+      terminal_output_kinds: [software_evidence_map]
+    full_application:
+      stage_ids: [materials_inventory, architecture_description, evidence_alignment, application_pack]
+      terminal_output_kinds: [software_copyright_pack]
   allow_safe_partial_outputs: true
 delivery_profile_refs:
   - {profile_id: software_copyright_cn_application, version: 1}

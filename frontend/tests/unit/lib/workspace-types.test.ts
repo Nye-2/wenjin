@@ -22,6 +22,7 @@ describe("workspace type registry", () => {
     expect(WORKSPACE_TYPE_CONFIG.math_modeling.title).toBe("数学建模工作台");
     expect(WORKSPACE_TYPE_CONFIG.math_modeling.welcome.body).toContain("上传赛题 PDF");
     expect(WORKSPACE_TYPE_CONFIG.math_modeling.welcome.chips).toHaveLength(4);
+    expect(WORKSPACE_TYPE_CONFIG.math_modeling.welcome.chips[0]?.action).toBe("attach");
     expect(isWorkspaceThreadCockpitEnabled(workspace("math_modeling"))).toBe(true);
   });
 });

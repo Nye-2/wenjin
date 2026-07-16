@@ -15,16 +15,18 @@ import {
   MessageCircle,
   Minimize2,
   Paperclip,
+  RefreshCw,
   Search,
   Users,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import {
   commitMissionReviews,
   decideMissionReviews,
+  getMissionView,
   listMissionArtifacts,
   listMissionEvidence,
   listMissionItems,
@@ -52,7 +54,10 @@ interface MissionConsoleProps {
   compact?: boolean;
   onClose(): void;
   onViewChange(view: MissionView): void;
+  onChatAction(action: MissionChatAction): void;
 }
+
+export type MissionChatAction = "focus" | "attach";
 
 const SURFACES = [
   { id: "progress", label: "进展", icon: CircleDot },
@@ -67,6 +72,7 @@ export function MissionConsole({
   compact = false,
   onClose,
   onViewChange,
+  onChatAction,
 }: MissionConsoleProps) {
   const panelMode = useMissionUiStore((state) => state.panelMode);
   const surface = useMissionUiStore((state) => state.surface);
@@ -81,6 +87,7 @@ export function MissionConsole({
         data-testid="mission-console-peek"
       >
         <MissionHeader view={view} onClose={onClose} />
+        <MissionStaleNotice view={view} onViewChange={onViewChange} />
         <button
           type="button"
           className="group flex flex-1 flex-col items-start gap-4 px-5 py-6 text-left hover:bg-[var(--wjn-surface-subtle)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--wjn-accent)]"
@@ -90,15 +97,15 @@ export function MissionConsole({
             <StatusMark status={view.executionStatus} />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-[var(--wjn-text)]">
-                {view.attentionRequest?.title ?? view.activeStage?.title ?? view.statusLabel}
+                {view.attentionRequest?.title ?? view.activity.title}
               </div>
               <p className="mt-1 line-clamp-3 text-sm leading-6 text-[var(--wjn-text-secondary)]">
-                {view.attentionRequest?.summary ?? view.activeStage?.summary ?? view.teamSummary ?? "问津正在推进这项研究任务。"}
+                {view.attentionRequest?.summary ?? view.activity.summary ?? view.activeStage?.summary ?? "问津正在推进这项研究任务。"}
               </p>
             </div>
           </div>
           <div className="mt-auto flex w-full items-center justify-between border-t border-[var(--wjn-line)] pt-4 text-xs text-[var(--wjn-text-muted)]">
-            <span>{view.attentionRequest ? "回复后将从当前进度继续" : `${view.subagents.length} 位成员参与`}</span>
+            <span>{view.attentionRequest ? "回复后将从当前进度继续" : activityMeta(view)}</span>
             <span className="flex items-center gap-1 text-[var(--wjn-accent-strong)]">
               展开任务 <ChevronRight size={14} />
             </span>
@@ -115,6 +122,7 @@ export function MissionConsole({
       data-testid="mission-console"
     >
       <MissionHeader view={view} onClose={onClose} />
+      <MissionStaleNotice view={view} onViewChange={onViewChange} />
       <div
         className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--wjn-line)] px-3 py-2"
         role="tablist"
@@ -154,7 +162,9 @@ export function MissionConsole({
         })}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {surface === "progress" ? <ProgressSurface view={view} /> : null}
+        {surface === "progress" ? (
+          <ProgressSurface view={view} onChatAction={onChatAction} />
+        ) : null}
         {surface === "review" ? (
           <ReviewSurface view={view} onViewChange={onViewChange} />
         ) : null}
@@ -164,6 +174,92 @@ export function MissionConsole({
       </div>
     </aside>
   );
+}
+
+function MissionStaleNotice({
+  view,
+  onViewChange,
+}: {
+  view: MissionView;
+  onViewChange(view: MissionView): void;
+}) {
+  const [retrying, setRetrying] = useState(false);
+  const [retryFailed, setRetryFailed] = useState(false);
+  if (!view.isStale && !view.loadError) return null;
+
+  const retry = async () => {
+    setRetrying(true);
+    setRetryFailed(false);
+    try {
+      onViewChange(await getMissionView(view.missionId));
+    } catch {
+      setRetryFailed(true);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-b border-[var(--wjn-line)] bg-[var(--wjn-review-soft)] px-4 py-2.5" data-testid="mission-stale-notice">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-[var(--wjn-text)]">当前显示的是上次已加载的任务进度</div>
+        <div className="mt-0.5 text-[11px] text-[var(--wjn-text-secondary)]">
+          {retryFailed ? "刷新仍未完成，请稍后再试。" : "最新进度暂时未能同步。"}
+        </div>
+      </div>
+      <button type="button" disabled={retrying} onClick={() => void retry()} className="flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs font-medium text-[var(--wjn-accent-strong)] hover:bg-[var(--wjn-surface-subtle)] disabled:opacity-45">
+        <RefreshCw size={13} className={retrying ? "animate-spin" : undefined} />
+        重试
+      </button>
+    </div>
+  );
+}
+
+function MissionActivity({ view }: { view: MissionView }) {
+  return (
+    <section className="border-l-2 border-[var(--wjn-accent-line)] pl-3" data-testid="mission-activity">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-[var(--wjn-text)]">{view.activity.title}</h3>
+        <span className="bg-[var(--wjn-accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--wjn-accent-strong)]">
+          {activityStateLabel(view.activity.state)}
+        </span>
+      </div>
+      {view.activity.summary ? (
+        <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-secondary)]">{view.activity.summary}</p>
+      ) : null}
+      {view.activity.attempt || view.activity.retryAt ? (
+        <p className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">{activityMeta(view)}</p>
+      ) : null}
+    </section>
+  );
+}
+
+function activityStateLabel(state: MissionView["activity"]["state"]): string {
+  return {
+    starting: "准备中",
+    working: "推进中",
+    collaborating: "协作中",
+    retrying: "重试中",
+    recovering: "调整中",
+    waiting: "等待回应",
+    reviewing: "等待确认",
+    completed: "已完成",
+    unavailable: "稍后再试",
+    stopped: "已停止",
+  }[state];
+}
+
+function activityMeta(view: MissionView): string {
+  const { activity } = view;
+  if (activity.retryAt) {
+    const retryAt = new Date(activity.retryAt);
+    if (Number.isFinite(retryAt.getTime())) {
+      return `${activity.attempt ? `第 ${activity.attempt} 次尝试，` : ""}${retryAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 继续`;
+    }
+  }
+  if (activity.attempt) return `正在进行第 ${activity.attempt} 次尝试`;
+  if (activity.state === "collaborating") return `${view.subagents.length} 位成员参与`;
+  return activityStateLabel(activity.state);
 }
 
 function MissionHeader({ view, onClose }: { view: MissionView; onClose(): void }) {
@@ -177,7 +273,7 @@ function MissionHeader({ view, onClose }: { view: MissionView; onClose(): void }
           {view.title}
         </h2>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[var(--wjn-text-muted)]">
-          <span>{view.statusLabel}</span>
+          <span>{view.activity.title}</span>
           <span aria-hidden="true">·</span>
           <span>{formatMissionDuration(view.durationSeconds)}</span>
         </div>
@@ -194,10 +290,29 @@ function MissionHeader({ view, onClose }: { view: MissionView; onClose(): void }
   );
 }
 
-function ProgressSurface({ view }: { view: MissionView }) {
+function ProgressSurface({
+  view,
+  onChatAction,
+}: {
+  view: MissionView;
+  onChatAction(action: MissionChatAction): void;
+}) {
   return (
     <div className="space-y-7 px-5 py-5" data-testid="mission-progress">
-      {view.attentionRequest ? <AttentionRequestCard view={view} /> : null}
+      {view.objective ? (
+        <section className="border-b border-[var(--wjn-line)] pb-4">
+          <h3 className="text-[11px] font-semibold text-[var(--wjn-text-muted)]">
+            任务目标
+          </h3>
+          <p className="mt-1 line-clamp-4 text-sm leading-6 text-[var(--wjn-text-secondary)]">
+            {view.objective}
+          </p>
+        </section>
+      ) : null}
+      {view.attentionRequest ? (
+        <AttentionRequestCard view={view} onChatAction={onChatAction} />
+      ) : null}
+      {!view.attentionRequest ? <MissionActivity view={view} /> : null}
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-xs font-semibold text-[var(--wjn-text)]">当前推进</h3>
@@ -251,7 +366,7 @@ function ProgressSurface({ view }: { view: MissionView }) {
                       {member.name}
                     </span>
                     <span className="shrink-0 text-[11px] text-[var(--wjn-text-muted)]">
-                      {member.status === "working" ? "推进中" : member.status === "done" ? "已完成" : "等待中"}
+                      {subagentStatusLabel(member.status)}
                     </span>
                   </div>
                   <div className="text-xs text-[var(--wjn-text-secondary)]">{member.role}</div>
@@ -270,7 +385,24 @@ function ProgressSurface({ view }: { view: MissionView }) {
   );
 }
 
-function AttentionRequestCard({ view }: { view: MissionView }) {
+function subagentStatusLabel(status: MissionView["subagents"][number]["status"]): string {
+  return {
+    queued: "等待中",
+    working: "推进中",
+    done: "已完成",
+    needs_input: "待补充",
+    failed: "未完成",
+    cancelled: "已停止",
+  }[status];
+}
+
+function AttentionRequestCard({
+  view,
+  onChatAction,
+}: {
+  view: MissionView;
+  onChatAction(action: MissionChatAction): void;
+}) {
   const request = view.attentionRequest;
   const setSurface = useMissionUiStore((state) => state.setSurface);
   if (!request) return null;
@@ -281,10 +413,10 @@ function AttentionRequestCard({ view }: { view: MissionView }) {
       return;
     }
     if (actionType === "upload_file") {
-      document.querySelector<HTMLButtonElement>('button[title="添加附件"]')?.click();
+      onChatAction("attach");
       return;
     }
-    document.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer-input"]')?.focus();
+    onChatAction("focus");
   };
 
   return (
@@ -340,18 +472,18 @@ function ReviewSurface({
   onViewChange(view: MissionView): void;
 }) {
   const selected = useMissionUiStore((state) => state.selectedReviewItemIds);
-  const selectionRevision = useMissionUiStore((state) => state.selectionRevision);
-  const setReviewSelection = useMissionUiStore((state) => state.setReviewSelection);
   const toggleReviewItem = useMissionUiStore((state) => state.toggleReviewItem);
+  const selectionRevisionRef = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pending = view.reviewItems.filter((item) => item.status === "pending");
 
   useEffect(() => {
-    if (selectionRevision !== view.reviewSelectionRevision) {
-      setReviewSelection(suggestedReviewSelection(view), view.reviewSelectionRevision);
+    if (selectionRevisionRef.current !== view.reviewSelectionRevision) {
+      selectionRevisionRef.current = view.reviewSelectionRevision;
+      replaceReviewSelection(suggestedReviewSelection(view));
     }
-  }, [selectionRevision, setReviewSelection, view]);
+  }, [view]);
 
   const selectedPending = pending.filter((item) => selected.has(item.id));
   const selectedHasProtected = selectedPending.some((item) => !item.batchAcceptable);
@@ -363,11 +495,10 @@ function ReviewSurface({
     try {
       const next = await decideMissionReviews({
         missionId: view.missionId,
-        reviewSelectionRevision: view.reviewSelectionRevision,
         decisions: selectedPending.map((item) => ({ reviewItemId: item.id, decision })),
       });
       onViewChange(next);
-      setReviewSelection([], next.reviewSelectionRevision);
+      replaceReviewSelection([]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认失败");
     } finally {
@@ -384,11 +515,10 @@ function ReviewSurface({
     try {
       const next = await decideMissionReviews({
         missionId: view.missionId,
-        reviewSelectionRevision: view.reviewSelectionRevision,
         decisions: [{ reviewItemId, decision }],
       });
       onViewChange(next);
-      setReviewSelection([], next.reviewSelectionRevision);
+      replaceReviewSelection([]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认失败");
     } finally {
@@ -434,15 +564,17 @@ function ReviewSurface({
           {pending.map((item) => {
             const protectedItem = item.requiresExplicitReview;
             return (
-              <label key={item.id} className="flex cursor-pointer gap-3 py-4">
-                <input
-                  type="checkbox"
-                  checked={selected.has(item.id)}
-                  onChange={() => toggleReviewItem(item.id)}
-                  aria-label={`选择 ${item.title}`}
-                  className="mt-1 h-4 w-4 accent-[var(--wjn-accent)]"
-                />
-                <span className="min-w-0 flex-1">
+              <div key={item.id} className="flex gap-3 py-4">
+                <label className="mt-1 flex h-5 w-5 shrink-0 cursor-pointer items-start">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(item.id)}
+                    onChange={() => toggleReviewItem(item.id)}
+                    aria-label={`选择 ${item.title}`}
+                    className="h-4 w-4 accent-[var(--wjn-accent)]"
+                  />
+                </label>
+                <div className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-[var(--wjn-text)]">{item.title}</span>
                     <span className="rounded-full bg-[var(--wjn-review-soft)] px-2 py-0.5 text-[10px] text-[var(--wjn-review)]">
@@ -461,12 +593,11 @@ function ReviewSurface({
                   ) : null}
                   <ReviewPreview missionId={view.missionId} item={item} />
                   {!item.batchAcceptable ? (
-                    <span className="mt-2 flex gap-2">
+                    <div className="mt-2 flex gap-2">
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={(event) => {
-                          event.preventDefault();
+                        onClick={() => {
                           void decideOne(item.id, "accepted");
                         }}
                         className="wjn-button-secondary h-7 px-2.5 text-[11px]"
@@ -476,8 +607,7 @@ function ReviewSurface({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={(event) => {
-                          event.preventDefault();
+                        onClick={() => {
                           void decideOne(item.id, "needs_more_evidence");
                         }}
                         className="h-7 px-2.5 text-[11px] text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)]"
@@ -487,18 +617,17 @@ function ReviewSurface({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={(event) => {
-                          event.preventDefault();
+                        onClick={() => {
                           void decideOne(item.id, "rejected");
                         }}
                         className="h-7 px-2.5 text-[11px] text-[var(--wjn-error)] hover:bg-[var(--wjn-error-soft)]"
                       >
                         不采纳
                       </button>
-                    </span>
+                    </div>
                   ) : null}
-                </span>
-              </label>
+                </div>
+              </div>
             );
           })}
         </div>
@@ -511,11 +640,11 @@ function ReviewSurface({
           {view.reviewSummary.needsMoreEvidence} 项内容还需要补充证据，暂不会写入工作区。
         </div>
       ) : null}
-      {view.reviewItems.some((item) => item.status !== "pending") ? (
+      {view.reviewItems.some((item) => item.status !== "pending" && item.status !== "superseded") ? (
         <div className="mt-4 border-t border-[var(--wjn-line)] pt-3">
           <h4 className="mb-2 text-xs font-semibold text-[var(--wjn-text)]">已处理内容</h4>
           <div className="divide-y divide-[var(--wjn-line)]">
-            {view.reviewItems.filter((item) => item.status !== "pending").map((item) => (
+            {view.reviewItems.filter((item) => item.status !== "pending" && item.status !== "superseded").map((item) => (
               <div key={item.id} className="flex items-center justify-between gap-3 py-2.5 text-xs">
                 <span className="min-w-0 truncate text-[var(--wjn-text-secondary)]">{item.title}</span>
                 <span className={item.status === "committed" ? "text-[var(--wjn-success)]" : item.status === "needs_more_evidence" ? "text-[var(--wjn-review)]" : "text-[var(--wjn-text-muted)]"}>
@@ -675,7 +804,7 @@ function EvidenceSurface({ view }: { view: MissionView }) {
     try {
       const page = await listMissionEvidence({ missionId: view.missionId, cursor: nextCursor });
       setEvidenceItems((current) => appendUnique(current, page.items));
-      setNextCursor(page.nextCursor == null ? null : Number(page.nextCursor));
+      setNextCursor(page.nextCursor);
     } catch (reason) {
       setLoadError(reason instanceof Error ? reason.message : "更多证据加载失败");
     } finally {
@@ -731,16 +860,12 @@ function ArtifactSurface({ view }: { view: MissionView }) {
     setLoadingMore(true);
     setLoadError(null);
     try {
-      const committedReviewItemIds = new Set(
-        view.reviewItems.filter((item) => item.status === "committed").map((item) => item.id),
-      );
       const page = await listMissionArtifacts({
         missionId: view.missionId,
         cursor: nextCursor,
-        committedReviewItemIds,
       });
       setArtifactItems((current) => appendUnique(current, page.items));
-      setNextCursor(page.nextCursor == null ? null : Number(page.nextCursor));
+      setNextCursor(page.nextCursor);
     } catch (reason) {
       setLoadError(reason instanceof Error ? reason.message : "更多成果加载失败");
     } finally {
@@ -781,18 +906,26 @@ function appendUnique<T extends { id: string }>(current: T[], incoming: T[]): T[
   return [...current, ...incoming.filter((item) => !known.has(item.id))];
 }
 
+function replaceReviewSelection(ids: string[]): void {
+  useMissionUiStore.setState({ selectedReviewItemIds: new Set(ids) });
+}
+
 function TraceSurface({ view }: { view: MissionView }) {
   const [items, setItems] = useState<MissionItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const load = async (nextCursor?: string | null) => {
     setLoading(true);
+    setError(null);
     try {
       const page = await listMissionItems({ missionId: view.missionId, cursor: nextCursor, limit: 30 });
       setItems((current) => (nextCursor ? [...current, ...page.items] : page.items));
       setCursor(page.nextCursor);
       setStarted(true);
+    } catch {
+      setError("任务轨迹暂时未能加载，请重试。");
     } finally {
       setLoading(false);
     }
@@ -801,7 +934,8 @@ function TraceSurface({ view }: { view: MissionView }) {
     return (
       <div className="px-5 py-5" data-testid="mission-trace-idle">
         <QuietEmpty icon={History} title="按需查看任务轨迹" detail="这里展示阶段、工具与成员的语义摘要，不显示原始日志和工具 JSON。" />
-        <button type="button" onClick={() => void load(null)} className="wjn-button-secondary mx-auto mt-4 flex h-8 items-center px-3 text-xs">加载任务轨迹</button>
+        {error ? <p role="alert" className="mt-3 text-center text-xs text-[var(--wjn-error)]">{error}</p> : null}
+        <button type="button" disabled={loading} onClick={() => void load(null)} className="wjn-button-secondary mx-auto mt-4 flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-45">{loading ? <LoaderCircle size={14} className="animate-spin" /> : null}{error ? "重新加载任务轨迹" : "加载任务轨迹"}</button>
       </div>
     );
   }
@@ -818,7 +952,8 @@ function TraceSurface({ view }: { view: MissionView }) {
           </div>
         ))}
       </div>
-      {cursor ? <button type="button" disabled={loading} onClick={() => void load(cursor)} className="wjn-button-secondary mt-4 flex h-8 w-full items-center justify-center gap-2 text-xs">{loading ? <LoaderCircle size={14} className="animate-spin" /> : null}加载更早记录</button> : null}
+      {error ? <p role="alert" className="mt-3 text-xs text-[var(--wjn-error)]">{error}</p> : null}
+      {cursor ? <button type="button" disabled={loading} onClick={() => void load(cursor)} className="wjn-button-secondary mt-4 flex h-8 w-full items-center justify-center gap-2 text-xs">{loading ? <LoaderCircle size={14} className="animate-spin" /> : null}{error ? "重试加载更早记录" : "加载更早记录"}</button> : null}
     </div>
   );
 }

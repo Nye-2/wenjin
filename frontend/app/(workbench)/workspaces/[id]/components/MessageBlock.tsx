@@ -7,13 +7,13 @@ import type {
   ResultCardBlock as AgentResultCardBlock,
 } from "@/lib/api/blocks";
 import type { Block } from "@/stores/chat-store";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
 
-const markdownComponents = {
+const messageMarkdownComponents: Components = {
   a: ({
     href,
     children,
@@ -336,14 +336,11 @@ export const MessageBlock = memo(function MessageBlock({
   switch (block.kind) {
     case "text":
       return (
-        <div className="prose-chat">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={markdownComponents}
-          >
-            {block.content}
-          </ReactMarkdown>
-        </div>
+        <MarkdownRenderer
+          content={block.content}
+          className="prose-chat"
+          components={messageMarkdownComponents}
+        />
       );
     case "thinking":
       return <ThinkingBlock content={block.text} />;

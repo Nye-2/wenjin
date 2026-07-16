@@ -28,17 +28,25 @@ class CutoverFinding:
 PRODUCTION_ROOTS = (
     "backend/src",
     "backend/seed",
+    "backend/skills",
     "frontend/app",
     "frontend/components",
     "frontend/hooks",
     "frontend/lib",
     "frontend/stores",
+    "scripts",
 )
 PRODUCTION_FILES = (
     ".env.example",
+    "backend/Dockerfile",
     "backend/config.yaml",
+    "backend/extensions_config.json",
+    "backend/pyproject.toml",
+    "docker-compose.yml",
 )
-SOURCE_SUFFIXES = frozenset({".json", ".py", ".toml", ".ts", ".tsx", ".yaml", ".yml"})
+SOURCE_SUFFIXES = frozenset(
+    {".json", ".py", ".sh", ".toml", ".ts", ".tsx", ".yaml", ".yml"}
+)
 EXCLUDED_PRODUCTION_FILES = frozenset(
     {"backend/src/quality/mission_cutover_gate.py"}
 )
@@ -48,6 +56,7 @@ FORBIDDEN_PRODUCTION_PATH_PREFIXES = {
     "old_execution_path": ("backend/src/execution/",),
     "old_operations_path": ("backend/src/dataservice/domains/operations/",),
     "old_capability_seed_path": ("backend/seed/capabilities/",),
+    "old_public_skill_path": ("backend/skills/public/",),
 }
 
 RULES: tuple[CutoverRule, ...] = (
@@ -76,14 +85,24 @@ RULES: tuple[CutoverRule, ...] = (
         re.compile(r"semantic_scholar|curated_academic|deep_search", re.IGNORECASE),
     ),
     CutoverRule(
+        "old_search_provider_dependency",
+        re.compile(r'^\s*"(?:arxiv|semanticscholar)[<=>~!]', re.IGNORECASE),
+        ("backend/pyproject.toml",),
+    ),
+    CutoverRule(
         "old_brand_config",
         re.compile(r"\bGUANLAN_[A-Z0-9_]+\b"),
-        (
-            ".env.example",
-            "backend/config.yaml",
-            "backend/seed",
-            "backend/src/config/config_loader.py",
+    ),
+    CutoverRule(
+        "old_thread_skill_selector",
+        re.compile(
+            r"\bskill_explicit\b|\bcurrent_skill(?:_name)?\b|\bskills_path\b"
+            r"|\bthread\.skill\b|\bgeneration_records\b"
         ),
+    ),
+    CutoverRule(
+        "heterogeneous_workspace_activity_projection",
+        re.compile(r"\bbuild_(?:task|thread)_activity_item\b"),
     ),
     CutoverRule(
         "old_fixed_subagent_config",
@@ -116,7 +135,23 @@ RULES: tuple[CutoverRule, ...] = (
     ),
     CutoverRule(
         "unsupported_chat_search_tool",
-        re.compile(r"web_search_preview"),
+        re.compile(r"web_search_preview|chat_search_model"),
+    ),
+    CutoverRule(
+        "global_chat_turn_route",
+        re.compile(r"[\"'`](?:/api)?/runs/(?:stream|wait|\{run_id\})"),
+        (
+            "backend/src/gateway",
+            "frontend/app",
+            "frontend/components",
+            "frontend/hooks",
+            "frontend/lib",
+            "frontend/stores",
+        ),
+    ),
+    CutoverRule(
+        "configurable_sandbox_provider",
+        re.compile(r"\bsandbox_provider\b"),
     ),
     CutoverRule(
         "old_harness_runtime",
@@ -233,7 +268,10 @@ def _production_files(project_root: Path) -> Iterable[Path]:
         if not source_root.exists():
             continue
         for path in sorted(source_root.rglob("*")):
-            if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
+            skill_markdown = relative_root == "backend/skills" and path.suffix == ".md"
+            if not path.is_file() or (
+                path.suffix not in SOURCE_SUFFIXES and not skill_markdown
+            ):
                 continue
             relative_path = path.relative_to(project_root).as_posix()
             if relative_path not in EXCLUDED_PRODUCTION_FILES:

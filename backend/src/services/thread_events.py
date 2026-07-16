@@ -10,10 +10,6 @@ from src.services.thread_billing import (
     extract_persisted_message_usage,
     summarize_persisted_messages_usage,
 )
-from src.services.workspace_activity_contracts import (
-    build_thread_activity_item,
-    serialize_activity_item,
-)
 from src.workspace_events import publish_workspace_event
 
 if TYPE_CHECKING:
@@ -86,8 +82,6 @@ def serialize_thread_summary(thread: Thread) -> dict[str, Any]:
         "workspace_id": thread.workspace_id,
         "title": thread.title,
         "model": thread.model,
-        "skill": thread.skill,
-        "skill_name": None,
         "message_count": message_count,
         "last_message_preview": resolved_last_preview,
         "last_message_role": resolved_last_message_role,
@@ -107,60 +101,7 @@ async def publish_thread_updated(thread: Thread) -> None:
     await publish_workspace_event(
         thread.workspace_id,
         "thread.updated",
-        {
-            "thread": thread_summary,
-            "activity": serialize_activity_item(
-                build_thread_activity_item(
-                    thread_id=str(thread_summary["id"]),
-                    workspace_id=(
-                        str(thread_summary["workspace_id"])
-                        if thread_summary.get("workspace_id") is not None
-                        else None
-                    ),
-                    title=(
-                        str(thread_summary["title"])
-                        if thread_summary.get("title") is not None
-                        else None
-                    ),
-                    skill=(
-                        str(thread_summary["skill"])
-                        if thread_summary.get("skill") is not None
-                        else None
-                    ),
-                    skill_name=(
-                        str(thread_summary["skill_name"])
-                        if thread_summary.get("skill_name") is not None
-                        else None
-                    ),
-                    message_count=int(thread_summary.get("message_count") or 0),
-                    last_message_preview=(
-                        str(thread_summary["last_message_preview"])
-                        if thread_summary.get("last_message_preview") is not None
-                        else None
-                    ),
-                    last_message_role=(
-                        str(thread_summary["last_message_role"])
-                        if thread_summary.get("last_message_role") is not None
-                        else None
-                    ),
-                    last_message_token_usage=(
-                        dict(thread_summary["last_message_token_usage"])
-                        if isinstance(thread_summary.get("last_message_token_usage"), dict)
-                        else None
-                    ),
-                    thread_token_usage=(
-                        dict(thread_summary["thread_token_usage"])
-                        if isinstance(thread_summary.get("thread_token_usage"), dict)
-                        else None
-                    ),
-                    occurred_at=(
-                        str(thread_summary["updated_at"])
-                        if thread_summary.get("updated_at") is not None
-                        else None
-                    ),
-                )
-            ),
-        },
+        {"thread": thread_summary},
     )
 
 
@@ -169,7 +110,7 @@ async def publish_thread_deleted(workspace_id: str | None, thread_id: str) -> No
     await publish_workspace_event(
         workspace_id,
         "thread.deleted",
-        {"thread_id": thread_id, "activity_id": f"thread:{thread_id}"},
+        {"thread_id": thread_id},
     )
 
 
@@ -178,16 +119,9 @@ async def set_thread_status(
     thread_id: str,
     *,
     status: str,
-    skill: str | None,
-    skill_name: str | None = None,
     subagent_count: int = 0,
 ) -> None:
     """Best-effort thread status update for Redis and workspace SSE."""
-    # Capability/skill catalog now lives in the DB. Callers may pass an explicit
-    # ``skill_name`` for display, but this path no longer resolves it from a
-    # thread.skill foreign key.
-    resolved_skill_name = skill_name
-
     try:
         from src.academic.cache.redis_client import redis_client
         from src.config import redis_settings
@@ -196,10 +130,7 @@ async def set_thread_status(
             await redis_client.set_agent_status(
                 thread_id,
                 status,
-                skill=skill,
-                skill_name=resolved_skill_name,
                 subagent_count=subagent_count,
-                clear_skill=skill is None,
             )
 
         await publish_workspace_event(
@@ -209,8 +140,6 @@ async def set_thread_status(
                 "thread": {
                     "thread_id": thread_id,
                     "status": status,
-                    "current_skill": skill,
-                    "current_skill_name": resolved_skill_name,
                     "subagent_count": subagent_count,
                 }
             },

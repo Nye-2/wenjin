@@ -22,16 +22,17 @@ class WorkspaceActivityService:
         user_id: str | None = None,
         limit: int = 40,
     ) -> dict[str, Any]:
-        del user_id
         if self._dataservice is not None:
             missions = await self._dataservice.missions.list_workspace(
                 workspace_id=workspace_id,
+                user_id=user_id,
                 limit=limit,
             )
         else:
             async with dataservice_client() as client:
                 missions = await client.missions.list_workspace(
                     workspace_id=workspace_id,
+                    user_id=user_id,
                     limit=limit,
                 )
         items = [self._mission_item(mission) for mission in missions]
@@ -49,15 +50,8 @@ class WorkspaceActivityService:
             "summary": mission.objective,
             "status": mission.status.value,
             "thread_id": mission.thread_id,
-            "task_id": None,
-            "artifact_id": None,
             "mission_id": mission.mission_id,
-            "mission_policy_id": mission.mission_policy_id,
-            "skill": None,
-            "skill_name": None,
-            "created_by_skill": None,
-            "created_by_skill_name": None,
-            "subagent_type": None,
+            "mission_policy_id": None,
             "metadata": {
                 "active_stage_id": mission.active_stage_id,
                 "pending_review_count": mission.pending_review_count,

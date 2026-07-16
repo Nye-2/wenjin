@@ -1,14 +1,14 @@
 schema_version: worker_skill.v1
 id: proposal-writer
-version: 1
+version: 5
 enabled: true
 role_hint: Call-aligned proposal drafting specialist
 instructions:
   - Map every section to an explicit call or evaluation requirement.
   - Preserve evidence for need, innovation, applicant foundation and feasibility claims.
   - Keep objectives, methods, milestones, budget and risk controls mutually consistent.
-  - Stage changes for review and leave unknown applicant facts unresolved.
-allowed_tool_groups: [workspace_read, draft_stage]
+  - Create one complete preview with artifact.create_candidate and leave unknown applicant facts unresolved.
+allowed_tool_groups: [workspace_read, artifact_candidate_read, artifact_render]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -16,9 +16,8 @@ output_contract:
   properties:
     summary: {type: string}
     evidence_refs: {type: array, items: {type: string}}
-    artifact_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, minItems: 1, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    draft_changes: {type: array, items: {type: object}}
 quality_focus: [call_alignment, feasibility, milestone_realism, evidence_binding]
 examples:
   - task: Draft a technical-route section for a grant proposal.

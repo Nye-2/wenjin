@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
+from src.contracts.mission_input import (
+    MISSION_INPUT_REF_PATTERN,
+    MissionInputContext,
+    MissionInputManifest,
+)
+from src.contracts.reasoning import ReasoningEffort
 from src.dataservice_client.contracts.mission import MissionReviewMode
 
 
@@ -30,32 +37,17 @@ class MissionInitialParameter(StrictContract):
 
 
 class MissionStartSpec(StrictContract):
-    workspace_id: str = Field(min_length=1)
-    thread_id: str = Field(min_length=1)
-    user_id: str = Field(min_length=1)
-    workspace_type: str = Field(min_length=1)
-    raw_user_message_id: str = Field(min_length=1)
-    mission_idempotency_key: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=60)
     objective: str = Field(min_length=1, max_length=20_000)
     mission_policy_id: str = Field(min_length=1, max_length=120)
+    parent_mission_id: str | None = Field(default=None, max_length=36)
     initial_params: tuple[MissionInitialParameter, ...] = ()
-    review_mode: MissionReviewMode = MissionReviewMode.BALANCED_DEFAULT
-    model_id: str = Field(min_length=1, max_length=160)
-    reasoning_effort: Literal["low", "medium", "high", "xhigh"]
-    model_capability_profile_hash: str = Field(min_length=8, max_length=160)
-    runtime_context_refs: tuple[str, ...] = ()
+    input_refs: tuple[str, ...] = Field(default=(), max_length=32)
 
     @field_validator(
-        "workspace_id",
-        "thread_id",
-        "user_id",
-        "workspace_type",
-        "raw_user_message_id",
-        "mission_idempotency_key",
+        "title",
         "objective",
         "mission_policy_id",
-        "model_id",
-        "model_capability_profile_hash",
     )
     @classmethod
     def strip_required_text(cls, value: str) -> str:
@@ -63,6 +55,15 @@ class MissionStartSpec(StrictContract):
         if not normalized:
             raise ValueError("value must not be blank")
         return normalized
+
+    @field_validator("input_refs")
+    @classmethod
+    def validate_input_refs(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("input_refs must be unique")
+        if any(re.fullmatch(MISSION_INPUT_REF_PATTERN, value) is None for value in values):
+            raise ValueError("input_refs must be canonical Mission input references")
+        return values
 
 
 class AnswerAction(StrictContract):
@@ -89,6 +90,16 @@ class SteerMissionAction(StrictContract):
     input_kind: MissionInputKind
     instruction: str = Field(min_length=1, max_length=8000)
     request_id: str | None = Field(default=None, max_length=160)
+    input_refs: tuple[str, ...] = Field(default=(), max_length=32)
+
+    @field_validator("input_refs")
+    @classmethod
+    def validate_input_refs(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("input_refs must be unique")
+        if any(re.fullmatch(MISSION_INPUT_REF_PATTERN, value) is None for value in values):
+            raise ValueError("input_refs must be canonical Mission input references")
+        return values
 
 
 class ProposeReviewAction(StrictContract):
@@ -113,11 +124,13 @@ class MissionPolicyHint(StrictContract):
     positive_examples: tuple[str, ...] = Field(default=(), max_length=4)
     negative_examples: tuple[str, ...] = Field(default=(), max_length=4)
     required_context: tuple[str, ...] = Field(default=(), max_length=8)
+    completion_targets: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    default_completion_target: str = Field(min_length=1, max_length=120)
 
 
 class ActiveMissionContext(StrictContract):
     mission_id: str = Field(min_length=1, max_length=160)
-    title: str = Field(min_length=1, max_length=300)
+    title: str = Field(min_length=1, max_length=60)
     objective: str = Field(min_length=1, max_length=4000)
     status: Literal["created", "planning", "running", "waiting", "completed", "failed", "cancelled"]
     active_stage_id: str | None = Field(default=None, max_length=120)
@@ -125,6 +138,19 @@ class ActiveMissionContext(StrictContract):
     pending_review_count: int = Field(default=0, ge=0)
     evidence_count: int = Field(default=0, ge=0)
     artifact_count: int = Field(default=0, ge=0)
+
+
+class ContinuationMissionContext(StrictContract):
+    mission_id: str = Field(min_length=1, max_length=36)
+    title: str = Field(min_length=1, max_length=60)
+    objective: str = Field(min_length=1, max_length=4000)
+    status: Literal["completed", "failed", "cancelled"]
+    mission_policy_id: str = Field(min_length=1, max_length=120)
+    passed_stage_ids: tuple[str, ...] = Field(default=(), max_length=100)
+    pinned_input_refs: tuple[str, ...] = Field(default=(), max_length=32)
+    evidence_count: int = Field(default=0, ge=0)
+    artifact_count: int = Field(default=0, ge=0)
+    terminal_summary: str | None = Field(default=None, max_length=1000)
 
 
 class WorkspaceAgentContext(StrictContract):
@@ -135,23 +161,29 @@ class WorkspaceAgentContext(StrictContract):
     user_message_id: str = Field(min_length=1, max_length=160)
     user_message: str = Field(min_length=1, max_length=20_000)
     model_id: str = Field(min_length=1, max_length=160)
-    reasoning_effort: Literal["low", "medium", "high", "xhigh"]
+    reasoning_effort: ReasoningEffort
     model_capability_profile_hash: str = Field(min_length=8, max_length=160)
+    review_mode: MissionReviewMode
     conversation: tuple[dict[str, Any], ...] = Field(default=(), max_length=80)
+    mission_inputs: tuple[MissionInputManifest, ...] = Field(default=(), max_length=32)
+    attachment_contexts: tuple[MissionInputContext, ...] = Field(default=(), max_length=32)
     policy_hints: tuple[MissionPolicyHint, ...] = Field(default=(), max_length=24)
     active_mission: ActiveMissionContext | None = None
+    continuation_target: ContinuationMissionContext | None = None
 
     def policy_hint(self, policy_id: str) -> MissionPolicyHint | None:
         return next((hint for hint in self.policy_hints if hint.policy_id == policy_id), None)
 
+    def select_mission_inputs(self, input_refs: tuple[str, ...]) -> tuple[MissionInputManifest, ...]:
+        available = {item.input_ref: item for item in self.mission_inputs}
+        missing = [ref for ref in input_refs if ref not in available]
+        if missing:
+            raise ValueError("selected Mission input is unavailable in this conversation")
+        return tuple(available[ref] for ref in input_refs)
+
 
 AgentAction = Annotated[
-    AnswerAction
-    | AskUserAction
-    | StartMissionAction
-    | SteerMissionAction
-    | ProposeReviewAction
-    | RequestCommitAction,
+    AnswerAction | AskUserAction | StartMissionAction | SteerMissionAction | ProposeReviewAction | RequestCommitAction,
     Field(discriminator="action"),
 ]
 

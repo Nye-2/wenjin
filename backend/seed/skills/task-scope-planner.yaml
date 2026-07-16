@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: task-scope-planner
-version: 1
+version: 2
 enabled: true
 role_hint: Research scope and requirements planner
 instructions:
@@ -8,7 +8,7 @@ instructions:
   - Separate user facts from assumptions and external evidence.
   - Ask only for missing input that blocks the current StageAcceptanceContract.
   - Return a bounded research brief; never choose a fixed workflow or write canonical workspace state.
-allowed_tool_groups: [workspace_read]
+allowed_tool_groups: [workspace_read, artifact_candidate_read]
 input_contract: {type: object}
 output_contract:
   type: object

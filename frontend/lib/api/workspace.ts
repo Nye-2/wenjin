@@ -10,7 +10,6 @@ import type {
   ReferenceListResponse,
   UploadReferenceResponse,
   WorkspaceReference,
-  TaskStatus,
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceCreate,
@@ -19,6 +18,8 @@ import type {
   WorkspacePrismEnsureResponse,
   WorkspacePrismSurfaceResponse,
   WorkspaceSummaryData,
+  WorkspaceSettings,
+  WorkspaceSettingsUpdate,
   WorkspaceTemplate,
 } from "@/lib/api/types";
 
@@ -29,6 +30,24 @@ export async function listWorkspaces(): Promise<{ workspaces: Workspace[] }> {
 
 export async function getWorkspace(id: string): Promise<Workspace> {
   const response = await apiClient.get(`/workspaces/${id}`);
+  return response.data;
+}
+
+export async function getWorkspaceSettings(
+  workspaceId: string,
+): Promise<WorkspaceSettings> {
+  const response = await apiClient.get(`/workspaces/${workspaceId}/settings`);
+  return response.data;
+}
+
+export async function updateWorkspaceSettings(
+  workspaceId: string,
+  settings: WorkspaceSettingsUpdate,
+): Promise<WorkspaceSettings> {
+  const response = await apiClient.put(
+    `/workspaces/${workspaceId}/settings`,
+    settings,
+  );
   return response.data;
 }
 
@@ -402,25 +421,6 @@ export async function listArtifacts(
     params,
   });
   return response.data;
-}
-
-export async function getTaskStatus(taskId: string): Promise<TaskStatus> {
-  const response = await apiClient.get(`/tasks/${taskId}`);
-  return response.data;
-}
-
-export async function listTasks(params?: {
-  status?: string;
-  task_type?: string;
-  workspace_id?: string;
-  limit?: number;
-}): Promise<{ tasks: TaskStatus[]; count: number }> {
-  const response = await apiClient.get("/tasks", { params });
-  return response.data;
-}
-
-export async function cancelTask(taskId: string): Promise<void> {
-  await apiClient.delete(`/tasks/${taskId}`);
 }
 
 export async function getWorkspaceDashboard(

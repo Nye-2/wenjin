@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from src.dataservice.domains.source.contracts import SourceProjection
-
 _PROCEEDINGS_BIBTEX_TYPES = {"conference", "inproceedings", "proceedings"}
 
 
@@ -73,40 +71,6 @@ def normalize_doi(value: object) -> str | None:
         if lower.startswith(prefix):
             return normalized[len(prefix) :].strip().lower() or None
     return normalized.lower()
-
-
-def serialize_reference_projection(source: SourceProjection) -> dict[str, object]:
-    return {
-        "id": source.id,
-        "workspace_id": source.workspace_id,
-        "title": source.title,
-        "normalized_title": source.normalized_title,
-        "authors": list(source.authors_json or []),
-        "year": source.year,
-        "venue": source.venue,
-        "publication_type": source.publication_type,
-        "doi": source.doi,
-        "url": source.url,
-        "abstract": source.abstract,
-        "citation_count": source.citation_count,
-        "source_type": source.ingest_kind,
-        "source_label": source.ingest_label,
-        "source_run_id": source.ingest_mission_id,
-        "source_artifact_id": None,
-        "verified_at": source.verified_at.isoformat() if source.verified_at else None,
-        "library_status": source.library_status,
-        "evidence_level": source.evidence_level,
-        "fulltext_status": source.fulltext_status,
-        "citation_key": source.citation_key,
-        "bibtex_entry_type": source.bibtex_entry_type,
-        "bibtex_fields": dict(source.bibtex_fields_json or {}),
-        "read_status": source.read_status,
-        "tags": list(source.tags_json or []),
-        "notes": source.notes,
-        "is_deleted": bool(source.is_deleted),
-        "created_at": source.created_at.isoformat() if source.created_at else None,
-        "updated_at": source.updated_at.isoformat() if source.updated_at else None,
-    }
 
 
 def serialize_source_asset(source_asset: object, workspace_asset: object | None) -> dict[str, object]:

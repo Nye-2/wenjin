@@ -1,16 +1,16 @@
 # 10 Sandbox vNext Spec
 
 Status: Implemented
-Updated: 2026-07-11
+Updated: 2026-07-15
 
 Implementation outcome: typed Docker operation containers, pinned environments/images, path/network hardening, read-before-write, bounded outputs, manifests, receipts, and preflight are implemented. Production still must provide real rootless/userns, digest, quota, mount, and egress attestations.
 Depends on: `09_permission_pause.md`, `07_review_commit_runtime.md`
 
 ## Goal
 
-Keep Wenjin's sandbox as a research execution substrate, not a user-facing terminal. First implementation target is Docker/rootless workspace provider. Product contract must stay provider-neutral for later K8s/E2B/Daytona options.
+Keep Wenjin's sandbox as a research execution substrate, not a user-facing terminal. Docker/rootless operation containers are the single runtime implementation. Typed operations isolate the agent-facing contract from Docker internals; they are not a provider compatibility layer.
 
-## Current Code Anchors
+## Cutover Baseline
 
 | Current file | Current responsibility | Target action |
 |---|---|---|
@@ -22,9 +22,11 @@ Keep Wenjin's sandbox as a research execution substrate, not a user-facing termi
 | `backend/src/agents/harness/output_budget.py` | Externalized large outputs into internal refs | Keep; ensure MissionItem references bounded previews |
 | `backend/src/agents/lead_agent/v2/sandbox_*` | Lead-owned sandbox runtime helpers | Move to SandboxRuntime, delete Lead ownership |
 
+The table above records the deleted or reshaped pre-cutover paths; none is a current runtime authority.
+
 ## Provider
 
-First phase:
+Canonical runtime:
 
 ```text
 rootless Docker operation-container provider
@@ -42,15 +44,7 @@ Every operation container must enforce:
 - hard CPU, memory+swap, pids, wall-time, output, and disk/quota limits.
 - image digest pinning and environment manifest; no unreviewed runtime image drift.
 
-Future:
-
-```text
-k8s/provisioner
-E2B
-Daytona
-```
-
-Do not expose Docker-specific fields in user-facing mission output.
+Alternative sandbox providers are out of scope. Supporting one later requires an explicit architecture revision and clean cutover, not dormant adapters, provider enums, or dual paths. Docker-specific implementation fields still stay out of user-facing Mission output.
 
 ## Execution and Environment Model
 
@@ -59,10 +53,11 @@ Use short-lived operation containers and persistent content-addressed state:
 ```text
 SandboxWorkspace   durable public files for a workspace
 SandboxEnvironment immutable env_id = hash(image_digest + runtime + lockfile)
+SandboxArtifactObject immutable sbxobj_<sha256> bytes in trusted control storage
 SandboxJob         one bounded typed operation / container
 ```
 
-- Do not keep a long-lived container/session as a second runtime owner. Container crash/removal cannot lose public files, dependency identity, or operation receipts.
+- Do not keep a long-lived container/session as a second runtime owner. Container crash/removal cannot lose public files, sealed artifact bytes, dependency identity, or operation receipts.
 - `sandbox.install_dependencies` is the only writer of an environment directory. It runs with `package_index_only`, produces a resolved lock + environment manifest, and seals the resulting env for read-only mounts in later jobs.
 - A job mounts the selected environment read-only and writes only approved public output paths/tmpfs. Reproducibility records image digest, env id, lock hash, command schema version, and input hashes.
 - Environment/workspace/job metadata stays in existing sandbox/asset domains and MissionItems; this design adds no mission table or long-lived container table.
@@ -119,12 +114,16 @@ sandbox.smoke_check
 sandbox.install_dependencies
 sandbox.register_dataset
 sandbox.register_artifact
+sandbox.read_artifact
+sandbox.read_file
 sandbox.read_output_ref
 ```
 
 No free-form shell as default user mission tool.
 
 Provider implementation note: a typed operation may compile to a shell command internally, but that shell string is not exposed as a user/agent capability. Every compiled command must pass CommandAuditPolicy and produce structured command metadata before execution.
+
+Read-before-write is receipt-driven. The agent reads an existing stable script or output with `sandbox.read_file`, then submits complete replacement content. Mission tool handlers resolve the latest verified path/hash receipt and inject internal Sandbox preconditions; model-facing tool schemas expose neither base hashes nor output-hash maps. A stale receipt fails closed, and creating numbered/versioned paths to avoid the guard is not supported.
 
 ## Network Profiles
 
@@ -194,10 +193,10 @@ Sandbox can only stage candidates:
 ```text
 ArtifactManifest
 ResearchToolOutcome
-MissionReviewItem
+sealed SandboxArtifactObject
 ```
 
-ReviewCommitRuntime writes accepted artifact to asset/room. Sandbox tool never directly commits rooms.
+The WorkspaceAgent may use those receipts as evidence or source refs for an internal candidate. Only a stage-accepted candidate can later become a MissionReviewItem. Sandbox never creates user-review state or directly commits rooms.
 
 Mission linkage:
 
@@ -229,6 +228,7 @@ prompt-injection neutralization
 - `package_index_only` cannot access arbitrary web.
 - Trusted control/manifests are not reachable through the writable public workspace mount and cannot be forged by task code.
 - Dependency environment survives operation-container removal, is content-addressed, and is mounted read-only after sealing.
+- Every produced reviewable artifact is copied once into `control/artifact_objects/sbxobj_<sha256>.bin`; receipts read that immutable object rather than the mutable public path.
 - Artifact without manifest cannot become MissionReviewItem.
 - Internal output ref cannot be registered as artifact.
 - Read-before-write required for existing file patch.

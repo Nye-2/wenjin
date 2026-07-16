@@ -20,7 +20,6 @@ class _FakeThread:
     workspace_id: str | None
     title: str | None
     model: str
-    skill: str | None = None
     messages: list[dict] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -133,7 +132,6 @@ def test_get_thread_state_contains_values_and_active_tasks():
             workspace_id="ws-1",
             title="State Thread",
             model="tool-a",
-            skill="deep-research",
             messages=[
                 {"role": "user", "content": "hello"},
                 {"role": "assistant", "content": "hi"},
@@ -163,7 +161,6 @@ def test_get_thread_state_contains_values_and_active_tasks():
     payload = response.json()
     assert payload["values"]["thread_id"] == "thread-1"
     assert payload["values"]["workspace_id"] == "ws-1"
-    assert payload["values"]["skill"] == "deep-research"
     assert payload["values"]["messages"][0]["content"] == "canonical hello"
     assert payload["next"] == ["run"]
     assert payload["tasks"]

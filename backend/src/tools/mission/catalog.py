@@ -21,7 +21,10 @@ from src.tools.mission.contracts import (
     ListSourceCodeFilesInput,
     ListWorkspaceAssetsInput,
     ListWorkspaceDocumentsInput,
-    ReadMissionReviewCandidateInput,
+    ReadArtifactCandidateInput,
+    ReadMissionInputInput,
+    ReadSandboxArtifactInput,
+    ReadSandboxFileInput,
     ReadSandboxOutputInput,
     ReadSourceCodeFileInput,
     ReadWorkspaceAssetInput,
@@ -45,10 +48,10 @@ from src.tools.orchestrator import (
 WORKSPACE_READ_TOOL_IDS = (
     "workspace.list_assets",
     "workspace.read_asset",
+    "workspace.read_input",
     "workspace.list_documents",
     "workspace.read_document",
     "workspace.search_source_text",
-    "mission.read_review_candidate",
 )
 SOURCE_IMPORT_TOOL_IDS = ("source.import_candidate",)
 SOURCE_CODE_READ_TOOL_IDS = ("source_code.list_files", "source_code.read_file")
@@ -59,16 +62,23 @@ SANDBOX_COMPUTE_TOOL_IDS = (
     "sandbox.install_dependencies",
     "sandbox.register_dataset",
     "sandbox.register_artifact",
+)
+SANDBOX_READ_TOOL_IDS = (
+    "sandbox.read_artifact",
+    "sandbox.read_file",
     "sandbox.read_output_ref",
 )
+ARTIFACT_CANDIDATE_READ_TOOL_IDS = ("artifact.read_candidate",)
 ARTIFACT_RENDER_TOOL_IDS = ("artifact.create_candidate",)
 ACADEMIC_VISUAL_RENDER_TOOL_IDS = ("academic_visual.render_candidate",)
 
 MISSION_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "workspace_read": WORKSPACE_READ_TOOL_IDS,
+    "artifact_candidate_read": ARTIFACT_CANDIDATE_READ_TOOL_IDS,
     "source_import": SOURCE_IMPORT_TOOL_IDS,
     "source_code_read": SOURCE_CODE_READ_TOOL_IDS,
     "sandbox_compute": SANDBOX_COMPUTE_TOOL_IDS,
+    "sandbox_read": SANDBOX_READ_TOOL_IDS,
     "artifact_render": ARTIFACT_RENDER_TOOL_IDS,
     "academic_visual_render": ACADEMIC_VISUAL_RENDER_TOOL_IDS,
 }
@@ -131,6 +141,12 @@ class LazyProductionSandbox:
     async def read_artifact_bytes(self, **kwargs):
         return await self._get().read_artifact_bytes(**kwargs)
 
+    async def read_public_file_bytes(self, **kwargs):
+        return await self._get().read_public_file_bytes(**kwargs)
+
+    async def read_public_file_precondition_hash(self, **kwargs):
+        return await self._get().read_public_file_precondition_hash(**kwargs)
+
 
 def build_mission_tool_registrations(
     *,
@@ -159,10 +175,10 @@ def build_mission_tool_registrations(
     return (
         read("workspace.list_assets", ListWorkspaceAssetsInput, handlers.list_workspace_assets, "workspace_read"),
         read("workspace.read_asset", ReadWorkspaceAssetInput, handlers.read_workspace_asset, "workspace_read"),
+        read("workspace.read_input", ReadMissionInputInput, handlers.read_mission_input, "workspace_read"),
         read("workspace.list_documents", ListWorkspaceDocumentsInput, handlers.list_workspace_documents, "workspace_read"),
         read("workspace.read_document", ReadWorkspaceDocumentInput, handlers.read_workspace_document, "workspace_read"),
         read("workspace.search_source_text", SearchWorkspaceSourceTextInput, handlers.search_workspace_source_text, "workspace_read"),
-        read("mission.read_review_candidate", ReadMissionReviewCandidateInput, handlers.read_review_candidate, "workspace_read"),
         _build(
             "source.import_candidate",
             ToolKind.WRITE_CANDIDATE,
@@ -190,7 +206,9 @@ def build_mission_tool_registrations(
         ),
         mutation("sandbox.register_dataset", RegisterDatasetToolInput, handlers.sandbox_register_dataset, "sandbox_compute"),
         mutation("sandbox.register_artifact", RegisterArtifactToolInput, handlers.sandbox_register_artifact, "sandbox_compute"),
-        read("sandbox.read_output_ref", ReadSandboxOutputInput, handlers.sandbox_read_output, "sandbox_compute"),
+        read("sandbox.read_artifact", ReadSandboxArtifactInput, handlers.sandbox_read_artifact, "sandbox_read"),
+        read("sandbox.read_file", ReadSandboxFileInput, handlers.sandbox_read_file, "sandbox_read"),
+        read("sandbox.read_output_ref", ReadSandboxOutputInput, handlers.sandbox_read_output, "sandbox_read"),
         _build(
             "artifact.create_candidate",
             ToolKind.WRITE_CANDIDATE,
@@ -198,7 +216,14 @@ def build_mission_tool_registrations(
             handlers.create_artifact_candidate,
             SideEffectClass.IDEMPOTENT,
             "artifact_render",
-            provenance=("source_refs", "mission_receipt"),
+            provenance=("mission_receipt",),
+            payload_limit_bytes=262_144,
+        ),
+        read(
+            "artifact.read_candidate",
+            ReadArtifactCandidateInput,
+            handlers.read_artifact_candidate,
+            "artifact_candidate_read",
         ),
         _build(
             "academic_visual.render_candidate",
@@ -254,6 +279,7 @@ def _build(
 
 __all__ = [
     "ACADEMIC_VISUAL_RENDER_TOOL_IDS",
+    "ARTIFACT_CANDIDATE_READ_TOOL_IDS",
     "ARTIFACT_RENDER_TOOL_IDS",
     "MISSION_TOOL_GROUPS",
     "SANDBOX_COMPUTE_TOOL_IDS",

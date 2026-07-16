@@ -23,6 +23,13 @@ def _payload(skill_id: str = "research-scout") -> dict:
         "output_contract": {
             "type": "object",
             "required": ["summary", "evidence_refs", "artifact_refs", "warnings"],
+            "properties": {
+                "summary": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "artifact_refs": {"type": "array", "items": {"type": "string"}},
+                "warnings": {"type": "array", "items": {"type": "string"}},
+            },
+            "additionalProperties": False,
         },
         "quality_focus": ["source identity"],
         "examples": [

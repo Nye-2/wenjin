@@ -102,6 +102,13 @@ class PrismRepository:
         )
         return result.scalar_one_or_none()
 
+    async def lock_document(self, document_id: str) -> None:
+        await self.session.execute(
+            select(PrismDocumentRecord.id)
+            .where(PrismDocumentRecord.id == document_id)
+            .with_for_update()
+        )
+
     async def get_file_by_path(self, document_id: str, path: str) -> PrismFileRecord | None:
         result = await self.session.execute(
             select(PrismFileRecord)

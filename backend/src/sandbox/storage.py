@@ -127,7 +127,7 @@ class SandboxWorkspace:
             path.chmod(mode)
         for name in PUBLIC_WORKSPACE_DIRS:
             (self.paths.public_root / name).mkdir(parents=True, exist_ok=True, mode=0o750)
-        for name in ("receipts", "output_refs", "manifests"):
+        for name in ("artifact_objects", "receipts", "output_refs", "manifests"):
             (self.paths.control_root / name).mkdir(parents=True, exist_ok=True, mode=0o700)
         manifest = {
             "schema": "wenjin.sandbox.workspace.v2",
@@ -193,11 +193,13 @@ class SandboxWorkspace:
             if host_path.is_symlink() or not host_path.is_file():
                 raise SandboxPathError("staged artifact is missing or unsafe")
             mime, _ = mimetypes.guess_type(host_path.name)
+            object_ref, content_hash, size_bytes = self._seal_artifact_object(host_path)
             manifests.append(
                 SandboxArtifactManifest(
                     path=path,
+                    object_ref=object_ref,
                     kind=mime or "application/octet-stream",
-                    content_hash=_content_hash_file(host_path),
+                    content_hash=content_hash,
                     source_script=source_script,
                     dataset_paths=dataset_paths,
                     sandbox_environment_id=sandbox_environment_id,
@@ -207,11 +209,49 @@ class SandboxWorkspace:
                     network_profile=request.network_profile,
                     stdout_truncated=stdout_truncated,
                     stderr_truncated=stderr_truncated,
-                    size_bytes=host_path.stat().st_size,
+                    size_bytes=size_bytes,
                     created_at=created_at,
                 )
             )
         return tuple(manifests)
+
+    def _seal_artifact_object(self, source: Path) -> tuple[str, str, int]:
+        self.initialize()
+        content_hash = _content_hash_file(source)
+        object_ref = f"sbxobj_{content_hash.removeprefix('sha256:')}"
+        root = self.paths.control_root / "artifact_objects"
+        target = root / f"{object_ref}.bin"
+        if target.exists():
+            if target.is_symlink() or not target.is_file():
+                raise SandboxPathError("sandbox artifact object is unsafe")
+            if _content_hash_file(target) != content_hash:
+                raise SandboxPathError("sandbox artifact object failed integrity check")
+            os.chmod(target, 0o400)
+            return object_ref, content_hash, target.stat().st_size
+        _atomic_copy_file(source, target, mode=0o400)
+        if _content_hash_file(target) != content_hash:
+            target.unlink(missing_ok=True)
+            raise SandboxPathError("sandbox artifact changed while being sealed")
+        return object_ref, content_hash, target.stat().st_size
+
+    def read_artifact_object(
+        self,
+        object_ref: str,
+        *,
+        expected_content_hash: str,
+    ) -> bytes:
+        self.initialize()
+        expected_ref = f"sbxobj_{expected_content_hash.removeprefix('sha256:')}"
+        if object_ref != expected_ref:
+            raise SandboxPathError("sandbox artifact object identity is invalid")
+        root = self.paths.control_root / "artifact_objects"
+        path = root / f"{object_ref}.bin"
+        if path.parent != root or path.is_symlink() or not path.is_file():
+            raise SandboxPathError("sandbox artifact object is unavailable")
+        content = path.read_bytes()
+        if not content or content_hash_bytes(content) != expected_content_hash:
+            raise SandboxPathError("sandbox artifact object failed integrity check")
+        return content
 
     def register_dataset(
         self,
@@ -274,6 +314,80 @@ class SandboxWorkspace:
             (staging / name).mkdir(parents=True, exist_ok=True, mode=0o770)
         return staging
 
+    def prepare_artifact_input_mountpoints(
+        self,
+        *,
+        staging: Path,
+        paths: tuple[str, ...],
+    ) -> None:
+        """Create inert files required for nested read-only Docker mounts."""
+
+        resolved_staging = self._validated_output_staging(staging)
+        mountpoints: list[Path] = []
+        for path in paths:
+            if not is_artifact_path(path):
+                raise SandboxPathError(
+                    "artifact input mountpoints must live under outputs or reports"
+                )
+            mountpoint = resolved_staging / path.removeprefix("/workspace/")
+            if mountpoint.exists() or mountpoint.is_symlink():
+                raise SandboxMaterializationError(
+                    "artifact input mountpoint already exists and requires reconciliation"
+                )
+            mountpoints.append(mountpoint)
+        created: list[Path] = []
+        try:
+            for mountpoint in mountpoints:
+                mountpoint.parent.mkdir(parents=True, exist_ok=True, mode=0o770)
+                mountpoint.touch(mode=0o400, exist_ok=False)
+                created.append(mountpoint)
+        except OSError as exc:
+            for mountpoint in reversed(created):
+                mountpoint.unlink(missing_ok=True)
+            raise SandboxMaterializationError(
+                "failed to prepare artifact input mountpoints"
+            ) from exc
+
+    def remove_artifact_input_mountpoints(
+        self,
+        *,
+        staging: Path,
+        paths: tuple[str, ...],
+    ) -> None:
+        """Remove inert nested-mount files after a confirmed container exit."""
+
+        resolved_staging = self._validated_output_staging(staging)
+        mountpoints = [
+            resolved_staging / path.removeprefix("/workspace/") for path in paths
+        ]
+        for mountpoint in mountpoints:
+            if (
+                mountpoint.is_symlink()
+                or not mountpoint.is_file()
+                or mountpoint.stat().st_size != 0
+            ):
+                raise SandboxMaterializationError(
+                    "artifact input mountpoint changed and requires reconciliation"
+                )
+        try:
+            for mountpoint in mountpoints:
+                mountpoint.unlink()
+        except OSError as exc:
+            raise SandboxMaterializationError(
+                "failed to remove artifact input mountpoints"
+            ) from exc
+
+    def _validated_output_staging(self, staging: Path) -> Path:
+        sandbox_root = self.paths.workspace_root.parents[1].resolve()
+        resolved = staging.resolve(strict=True)
+        if (
+            sandbox_root not in resolved.parents
+            or "operation_staging" not in resolved.parts
+            or not resolved.name.startswith("sbxop_")
+        ):
+            raise SandboxPathError("operation output staging is outside the managed root")
+        return resolved
+
     def discard_output_staging(self, staging: Path | None) -> None:
         if staging is None or not staging.exists():
             return
@@ -304,8 +418,11 @@ class SandboxWorkspace:
                 target = self.resolve_public_path(virtual_path)
                 staged.append((virtual_path, source, target))
         staged_paths = {path for path, _, _ in staged}
-        if set(output_base_hashes).difference(staged_paths):
-            raise SandboxPathError("output base hash references a file not produced by this operation")
+        output_base_hashes = {
+            path: content_hash
+            for path, content_hash in output_base_hashes.items()
+            if path in staged_paths
+        }
         projected_size = self.public_size_bytes()
         for virtual_path, source, target in staged:
             expected = output_base_hashes.get(virtual_path)
@@ -315,7 +432,10 @@ class SandboxWorkspace:
                 if expected is None:
                     raise SandboxPathError("existing artifact writes require a base content hash")
                 if _content_hash_file(target) != expected:
-                    raise SandboxPathError("artifact base content hash is stale")
+                    raise SandboxPathError(
+                        f"output base content hash is stale for {virtual_path}; "
+                        "read that output path again and use its current content hash"
+                    )
                 projected_size -= target.stat().st_size
             elif expected is not None:
                 raise SandboxPathError("artifact base hash was supplied for a missing target")

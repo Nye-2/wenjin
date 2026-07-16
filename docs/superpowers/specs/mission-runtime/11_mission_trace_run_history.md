@@ -10,7 +10,9 @@ Depends on: `02_mission_runtime.md`, `08_mission_console_frontend.md`
 
 Provide fast mission history summary and lazy-loaded full trace without making trace the runtime SSOT. Users should see understandable progress and evidence; developers can inspect structured trace when needed.
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|

@@ -179,6 +179,24 @@ async def cancel_chat_turn(
     )
 
 
+@router.delete("/{thread_id}/runs/{run_id}", status_code=204)
+async def delete_chat_turn(
+    thread_id: str,
+    run_id: str,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    thread_service: ThreadService = Depends(get_thread_service),
+    run_manager: ChatTurnRunManager = Depends(get_chat_turn_run_manager),
+) -> Response:
+    await _require_owned_thread(
+        thread_service=thread_service,
+        thread_id=thread_id,
+        actor_id=str(current_user.id),
+    )
+    await get_chat_turn_or_404(run_manager, run_id, thread_id=thread_id)
+    await run_manager.cleanup(run_id, delay=0, remove_persistent=True)
+    return Response(status_code=204)
+
+
 @router.get("/{thread_id}/runs/{run_id}/join")
 async def join_chat_turn(
     thread_id: str,

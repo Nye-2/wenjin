@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: reproducibility-auditor
-version: 1
+version: 3
 enabled: true
 role_hint: Reproducibility and artifact provenance auditor
 instructions:
@@ -8,7 +8,7 @@ instructions:
   - Require content hashes and artifact manifests for computed results.
   - Check that figures and tables trace to scripts and data.
   - Distinguish reproducible, partially reproducible and unverifiable outputs.
-allowed_tool_groups: [workspace_read, sandbox_compute]
+allowed_tool_groups: [workspace_read, artifact_candidate_read, sandbox_compute, sandbox_read]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -18,7 +18,17 @@ output_contract:
     evidence_refs: {type: array, items: {type: string}}
     artifact_refs: {type: array, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    reproducibility_findings: {type: array, items: {type: object}}
+    reproducibility_findings:
+      type: array
+      items:
+        type: object
+        properties:
+          component: {type: string}
+          status: {type: string, enum: [reproducible, partial, unverifiable]}
+          observed_value: {type: string}
+          expected_value: {type: string}
+          repair_action: {type: string}
+          evidence_refs: {type: array, items: {type: string}}
 quality_focus: [manifest_completeness, input_provenance, rerun_path, figure_data_trace]
 examples:
   - task: Audit a modeling result package.

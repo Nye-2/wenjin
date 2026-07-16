@@ -34,6 +34,11 @@ async def load_mission_policy_hints(
                 positive_examples=policy.routing.positive_examples[:4],
                 negative_examples=policy.routing.negative_examples[:4],
                 required_context=required[:8],
+                completion_targets={
+                    target_id: target.stage_ids
+                    for target_id, target in policy.completion_contract.targets.items()
+                },
+                default_completion_target=policy.completion_contract.default_target,
             )
         )
     return tuple(hints[:24])

@@ -126,7 +126,7 @@ class MissionPolicyLoader:
                 try:
                     if schema_version == "mission_policy.v1":
                         policies.append((yaml_path, MissionPolicy.model_validate(raw)))
-                    elif schema_version == "stage_acceptance_contract.v1":
+                    elif schema_version == "stage_acceptance_contract.v2":
                         contracts.append(StageAcceptanceContract.model_validate(raw))
                     else:
                         raise ValueError(f"unsupported schema_version {schema_version!r}")

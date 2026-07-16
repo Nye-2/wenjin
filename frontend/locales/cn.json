@@ -151,7 +151,7 @@
         "badge": "Workbench",
         "product": "Wenjin Workspace",
         "tagline": "运行可见：从意图到证据链",
-        "description": "Chat 收集意图，Lead Agent 在右侧推进任务，过程中的节点、工具、证据和候选成果都可以被查看、编辑和审阅。",
+        "description": "Chat 理解意图并启动或调整研究任务，右侧 Mission Console 按需展示进展、研究成员、证据和待确认成果。",
         "keywords": "运行轨迹 · 证据表 · 候选成果审阅"
       },
       "rewriting": {

@@ -73,11 +73,26 @@ def test_factory_honors_explicit_transport_limits() -> None:
             "gpt-5.6-sol",
             request_timeout=12,
             max_retries=0,
+            max_output_tokens=32000,
         )
 
     kwargs = model_cls.call_args.kwargs
     assert kwargs["timeout"] == 12
     assert kwargs["max_retries"] == 0
+    assert kwargs["max_tokens"] == 32000
+
+
+def test_factory_bounds_call_output_budget_by_catalog_limit() -> None:
+    with patch("src.models.factory.ReasoningChatOpenAI") as model_cls:
+        create_chat_model("gpt-5.6-sol", max_output_tokens=256000)
+
+    assert model_cls.call_args.kwargs["max_tokens"] == 128000
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_factory_rejects_non_positive_call_output_budget(value: int) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        create_chat_model("gpt-5.6-sol", max_output_tokens=value)
 
 
 @pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])

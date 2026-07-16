@@ -11,12 +11,9 @@ vi.mock("@/lib/api/client", () => ({
 }));
 
 import {
-  cancelRun,
   cancelThreadRun,
   createThreadRun,
-  getRun,
   getThreadRun,
-  waitRun,
   waitThreadRun,
 } from "@/lib/api/runs";
 
@@ -48,50 +45,23 @@ describe("runs api wrappers", () => {
     );
   });
 
-  it("encodes run id for read routes", async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: { run_id: "run/1" } })
-      .mockResolvedValueOnce({ data: { run_id: "run/2" } });
+  it("encodes run id for thread-bound read routes", async () => {
+    mockGet.mockResolvedValueOnce({ data: { run_id: "run/1" } });
 
     await getThreadRun("thread-1", "run/1");
-    await getRun("run/2");
 
-    expect(mockGet).toHaveBeenNthCalledWith(
-      1,
-      "/threads/thread-1/runs/run%2F1"
-    );
-    expect(mockGet).toHaveBeenNthCalledWith(2, "/runs/run%2F2");
+    expect(mockGet).toHaveBeenCalledWith("/threads/thread-1/runs/run%2F1");
   });
 
-  it("builds cancel query string for scoped and stateless run cancellation", async () => {
+  it("builds a thread-bound cancel query string", async () => {
     mockPost.mockResolvedValue({ data: null });
 
     await cancelThreadRun("thread-1", "run-1", {
       action: "rollback",
       wait: true,
     });
-    await cancelRun("run-2", {
-      action: "interrupt",
-      wait: false,
-    });
-
-    expect(mockPost).toHaveBeenNthCalledWith(
-      1,
+    expect(mockPost).toHaveBeenCalledWith(
       "/threads/thread-1/runs/run-1/cancel?action=rollback&wait=true"
     );
-    expect(mockPost).toHaveBeenNthCalledWith(
-      2,
-      "/runs/run-2/cancel?action=interrupt&wait=false"
-    );
-  });
-
-  it("posts stateless wait requests", async () => {
-    mockPost.mockResolvedValueOnce({
-      data: { run_id: "run-3", thread_id: "thread-3", status: "success" },
-    });
-
-    await waitRun({ message: "hello" });
-
-    expect(mockPost).toHaveBeenCalledWith("/runs/wait", { message: "hello" });
   });
 });

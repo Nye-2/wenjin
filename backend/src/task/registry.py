@@ -46,13 +46,13 @@ class TaskTypeConfig:
 # Task type registry
 TASK_REGISTRY: dict[str, TaskTypeConfig] = {
     DOCUMENT_PREPROCESS_TASK: TaskTypeConfig(
-        queue=TaskQueue.LONG_RUNNING,
+        queue=TaskQueue.DEFAULT,
         timeout=900,
         retry=1,
         description="Async preprocessing for large uploaded documents",
     ),
     REFERENCE_PREPROCESS_TASK: TaskTypeConfig(
-        queue=TaskQueue.LONG_RUNNING,
+        queue=TaskQueue.DEFAULT,
         timeout=1200,
         retry=1,
         description="Async preprocessing and page-indexing for reference-library assets",

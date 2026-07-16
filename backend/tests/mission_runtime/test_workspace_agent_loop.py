@@ -6,7 +6,10 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from src.agents.workspace_agent.mission_loop import WorkspaceMissionLoopAgent
-from src.mission_runtime.contracts import StageQualityOutcome
+from src.dataservice_client.contracts.mission import MissionItemDraftPayload
+from src.mission_runtime.contracts import (
+    StageQualityOutcome,
+)
 
 from .conftest import start_request
 
@@ -42,7 +45,7 @@ class PinnedStartContext:
                     },
                     "stage_contracts": {
                         "scope_topic": {
-                            "schema_version": "stage_acceptance_contract.v1",
+                            "schema_version": "stage_acceptance_contract.v2",
                             "contract_id": "sci_research.scope_topic",
                             "version": 1,
                             "mission_policy_id": "sci_research",
@@ -81,7 +84,10 @@ class PassingQuality:
         return StageQualityOutcome(
             verdict="pass",
             summary="scope contract passed",
-            payload_json={"result": "pass"},
+            payload_json={
+                "result": "pass",
+                "artifact_refs": ["artifact-candidate:" + "a" * 64],
+            },
         )
 
 
@@ -133,14 +139,19 @@ def decision_message(arguments: dict) -> AIMessage:
         "subagent_jobs": subagent_jobs,
         "quality_candidate_refs": payload.get("candidate_refs", []),
         "quality_criteria": payload.get("assessment", {}).get("criterion_assessments", []),
-        "quality_artifacts": payload.get("assessment", {}).get("artifacts", []),
-        "quality_output_refs": payload.get("assessment", {}).get("output_refs", []),
-        "quality_critiques": payload.get("assessment", {}).get("critiques", []),
+        "quality_evidence": payload.get("assessment", {}).get("evidence", []),
+        "quality_exemplar_comparisons": payload.get("assessment", {}).get(
+            "exemplar_comparisons", []
+        ),
+        "quality_item_counts": [
+            {"source_context_key": key, "count": value}
+            for key, value in payload.get("item_counts", {}).items()
+        ],
         "quality_blocking_user_inputs": payload.get("assessment", {}).get(
             "blocking_user_inputs", []
         ),
-        "review_summary": None,
-        "review_items": [],
+        "review_summary": payload.get("summary") if kind == "review" else None,
+        "review_items": payload.get("items", []) if kind == "review" else [],
         "failure_reason": payload.get("failure_reason"),
         "pause_request": None,
     }
@@ -176,7 +187,37 @@ async def test_fake_model_drives_plan_quality_and_complete(runtime_factory) -> N
                     "operation_id": "quality:scope-topic:1",
                     "stage_id": "scope_topic",
                     "summary": "Evaluate the pinned scope contract",
-                    "payload_json": {"candidate_refs": ["artifact://scope"]},
+                    "payload_json": {
+                        "candidate_refs": ["artifact-candidate:" + "a" * 64]
+                    },
+                }
+            ),
+            decision_message(
+                {
+                    "decision_id": "review-1",
+                    "kind": "review",
+                    "operation_id": "review:scope-topic:1",
+                    "stage_id": "scope_topic",
+                    "summary": "Expose the accepted scope for user review",
+                    "payload_json": {
+                        "summary": "The scope brief is ready",
+                        "items": [
+                            {
+                                "review_item_id": "scope-review-1",
+                                "candidate_ref": "artifact-candidate:" + "a" * 64,
+                                "output_key": "scope_brief",
+                                "target_kind": "document",
+                                "target_room": "documents",
+                                "target_ref": None,
+                                "base_revision_ref": None,
+                                "base_hash": None,
+                                "title": "研究范围",
+                                "summary": "已完成范围界定",
+                                "risk_level": "medium",
+                                "review_required_reason": "保存前由用户确认",
+                            }
+                        ],
+                    },
                 }
             ),
             decision_message(
@@ -190,6 +231,7 @@ async def test_fake_model_drives_plan_quality_and_complete(runtime_factory) -> N
         ]
     )
     agent = WorkspaceMissionLoopAgent(model_factory=lambda *_args, **_kwargs: model)
+    candidate_ref = "artifact-candidate:" + "a" * 64
     runtime, deps = runtime_factory(
         agent=agent,
         start_context=PinnedStartContext(),
@@ -199,13 +241,32 @@ async def test_fake_model_drives_plan_quality_and_complete(runtime_factory) -> N
     receipt = await runtime.start(
         start_request(mission_policy_id="sci_research")
     )
+    deps["store"].seed_items(
+        receipt.mission_id,
+        [
+            MissionItemDraftPayload(
+                item_type="artifact",
+                phase="completed",
+                stage_id="scope_topic",
+                producer="tool_orchestrator",
+                summary="Scope candidate frozen",
+                    payload_json={
+                        "reference_id": candidate_ref,
+                        "kind": "artifact_candidate",
+                        "verified": True,
+                        "metadata": {},
+                    },
+                payload_ref=candidate_ref,
+            )
+        ],
+    )
     result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
 
     mission = await deps["store"].get(receipt.mission_id)
     assert result.outcome.value == "completed"
     assert mission is not None and mission.status.value == "completed"
     assert mission.snapshot_json["stage_acceptance"]["scope_topic"]["result"] == "pass"
-    assert len(model.bind_calls) == 3
+    assert len(model.bind_calls) == 4
     assert all(call[1]["strict"] is True for call in model.bind_calls)
 
 

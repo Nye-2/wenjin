@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { deleteRunLifecycle } from "@/lib/api/runs";
+import { deleteThreadRun } from "@/lib/api/runs";
 
 describe("runs lifecycle wrappers", () => {
-  it("DELETEs /api/runs/{id}", async () => {
+  it("DELETEs a thread-bound run", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await deleteRunLifecycle("r1");
+    await deleteThreadRun("thread-1", "r1");
     expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/runs/r1",
+      "/api/threads/thread-1/runs/r1",
       expect.objectContaining({ method: "DELETE" }),
     );
   });
@@ -18,9 +18,9 @@ describe("runs lifecycle wrappers", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await deleteRunLifecycle("run/with/slashes");
+    await deleteThreadRun("thread/1", "run/with/slashes");
     expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/runs/run%2Fwith%2Fslashes",
+      "/api/threads/thread%2F1/runs/run%2Fwith%2Fslashes",
       expect.objectContaining({ method: "DELETE" }),
     );
   });
@@ -29,6 +29,6 @@ describe("runs lifecycle wrappers", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("internal", { status: 500 }),
     );
-    await expect(deleteRunLifecycle("r1")).rejects.toThrow(/500/);
+    await expect(deleteThreadRun("thread-1", "r1")).rejects.toThrow(/500/);
   });
 });

@@ -35,9 +35,8 @@ async def test_get_or_create_default(test_session):
         await test_session.refresh(row)
 
     assert row.workspace_id == "ws-1"
-    assert row.thinking_enabled is True
+    assert row.reasoning_effort == "xhigh"
     assert row.auto_compact_threshold == pytest.approx(0.8)
-    assert row.sandbox_provider == "local"
     assert row.default_model is None
     assert row.metadata_json == {}
 

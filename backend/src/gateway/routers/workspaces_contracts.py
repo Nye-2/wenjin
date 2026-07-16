@@ -45,15 +45,8 @@ class WorkspaceActivityItemResponse(BaseModel):
     summary: str | None = None
     status: str | None = None
     thread_id: str | None = None
-    task_id: str | None = None
-    artifact_id: str | None = None
     mission_id: str | None = None
     mission_policy_id: str | None = None
-    skill: str | None = None
-    skill_name: str | None = None
-    created_by_skill: str | None = None
-    created_by_skill_name: str | None = None
-    subagent_type: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -73,7 +73,8 @@ The canonical groups are resolved against the frozen production ToolCatalog:
 | `workspace_read` | workspace assets, documents, and indexed source text |
 | `source_import` | import verified source candidates into the Library |
 | `source_code_read` | bounded software-project source reads |
-| `sandbox_compute` | Python/notebook/smoke checks, dependencies, manifests, output reads |
+| `sandbox_compute` | Python/notebook execution, smoke checks, dependencies and artifact registration |
+| `sandbox_read` | Bounded reads of verified Sandbox artifacts, files and output refs |
 | `artifact_render` | create reviewable artifact candidates |
 | `draft_stage` | port-backed atomic review candidates |
 

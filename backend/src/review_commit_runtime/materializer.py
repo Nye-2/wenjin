@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ _ASSET_SUFFIX_BY_MIME = {
     "image/svg+xml": ".svg",
     "image/webp": ".webp",
 }
+_PRISM_FILE_REF_PATTERN = re.compile(r"^prism-file:([A-Za-z0-9-]+)$")
 
 
 class MissionDomainWriter:
@@ -53,11 +55,12 @@ class MissionDomainWriter:
         if item.target_ref is None:
             return TargetSnapshot()
         if item.target_kind in {"document", "prism_file", "prism_file_change", "prism_structure"}:
-            current = await self._dataservice.get_prism_workspace_file(workspace_id, item.target_ref)
+            file_id = _prism_file_id(item.target_ref)
+            current = await self._dataservice.get_prism_workspace_file(workspace_id, file_id)
             if current is None:
                 raise LookupError("materialization_target_not_found")
             return TargetSnapshot(
-                target_ref=current.file.id,
+                target_ref=f"prism-file:{current.file.id}",
                 revision_ref=current.file.current_version_id,
                 content_hash=current.file.content_hash,
             )
@@ -283,6 +286,7 @@ class MissionDomainWriter:
     ) -> MaterializationReceipt:
         metadata = {**dict(payload.get("metadata_json") or {}), **provenance}
         if item.target_ref:
+            file_id = _prism_file_id(item.target_ref)
             command = PrismFileContentUpdatePayload.model_validate(
                 {
                     "content_inline": payload.get("content_inline"),
@@ -297,13 +301,14 @@ class MissionDomainWriter:
             )
             result = await self._dataservice.update_prism_workspace_file(
                 workspace_id,
-                item.target_ref,
+                file_id,
                 command,
             )
         else:
             command = PrismWorkspaceFileUpsertPayload.model_validate(
                 {
                     **payload,
+                    "create_only": True,
                     "created_by": actor_user_id,
                     "mission_review_item_id": item.review_item_id,
                     "mission_commit_id": provenance["mission_commit_id"],
@@ -313,12 +318,21 @@ class MissionDomainWriter:
             result = await self._dataservice.upsert_prism_workspace_file(workspace_id, command)
         if result.skipped_reason == "hash_mismatch":
             raise ValueError("stale_target_precondition")
+        if result.skipped_reason == "already_exists":
+            raise ValueError("target_path_conflict")
         return _receipt(
-            target_ref=result.file.id,
+            target_ref=f"prism-file:{result.file.id}",
             revision_ref=result.version.id if result.version else result.file.current_version_id,
             content_hash=result.file.content_hash or str(payload["content_hash"]),
             provenance=provenance,
         )
+
+
+def _prism_file_id(target_ref: str) -> str:
+    match = _PRISM_FILE_REF_PATTERN.fullmatch(target_ref)
+    if match is None:
+        raise ValueError("invalid_prism_file_target_ref")
+    return match.group(1)
 
 
 def _receipt(

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.contracts.reasoning import ReasoningEffort
 from src.models.capability_profile import (
     SearchReceiptKind,
     WebSearchAPI,
@@ -37,6 +38,25 @@ from src.tools.orchestrator import (
 from src.tools.orchestrator.catalog import ToolRegistration
 
 MODEL_NATIVE_SEARCH_TOOL_ID = "research.search_web"
+
+
+def build_native_search_payload(
+    *,
+    model_name: str,
+    query: str,
+    reasoning_effort: ReasoningEffort = ReasoningEffort.XHIGH,
+) -> dict[str, Any]:
+    """Build the canonical provider-native Responses search request."""
+    return {
+        "model": model_name,
+        "input": query,
+        "tools": [{"type": "web_search"}],
+        "tool_choice": "required",
+        "include": ["web_search_call.action.sources"],
+        "store": False,
+        "stream": True,
+        "reasoning": {"effort": reasoning_effort.value},
+    }
 
 
 class ModelNativeSearchInput(BaseModel):
@@ -447,6 +467,7 @@ __all__ = [
     "NativeSearchReceipt",
     "NativeSearchReceiptError",
     "NativeSearchSource",
+    "build_native_search_payload",
     "model_native_search_registration",
     "native_search_capability",
     "parse_native_search_receipt",

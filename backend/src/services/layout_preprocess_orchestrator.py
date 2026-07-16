@@ -97,10 +97,6 @@ class LayoutPreprocessOrchestrator:
             output_virtual_root=output_virtual_root,
         )
         metadata["preprocess"] = preprocess_result.to_metadata()
-        preprocess_metadata = metadata["preprocess"]
-        markdown_paths = preprocess_metadata.get("markdown_paths") if isinstance(preprocess_metadata, dict) else None
-        if isinstance(markdown_paths, list) and markdown_paths:
-            metadata["preprocessed_markdown_paths"] = markdown_paths
         return LayoutPreprocessDispatch(metadata=metadata)
 
     async def schedule_document_preprocess(

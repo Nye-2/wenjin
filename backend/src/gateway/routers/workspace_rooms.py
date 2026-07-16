@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from src.academic.services.workspace_service import WorkspaceService
+from src.contracts.reasoning import ReasoningEffort
 from src.contracts.review_policy import ReviewMode, normalize_review_mode
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.rooms import (
@@ -118,8 +119,7 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     default_model: str | None = None
-    thinking_enabled: bool | None = None
-    sandbox_provider: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
     auto_compact_threshold: float | None = None
     review_mode: ReviewMode | None = None
     metadata_json: dict[str, Any] | None = None

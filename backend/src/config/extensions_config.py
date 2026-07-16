@@ -53,22 +53,14 @@ class McpServerConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class SkillStateConfig(BaseModel):
-    """Configuration for a single skill's state."""
-
-    enabled: bool = Field(default=True)
-
-
 class ExtensionsConfig(BaseModel):
-    """Extensions configuration for MCP servers and skill state."""
+    """Extensions configuration for MCP servers."""
 
     mcp_servers: dict[str, McpServerConfig] = Field(
         default_factory=dict,
         alias="mcpServers",
     )
-    skills: dict[str, SkillStateConfig] = Field(default_factory=dict)
-
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     @classmethod
     def default_config_path(cls) -> Path:
@@ -86,7 +78,7 @@ class ExtensionsConfig(BaseModel):
                 )
             return explicit_path
 
-        env_var = "GUANLAN_EXTENSIONS_CONFIG_PATH"
+        env_var = "WENJIN_EXTENSIONS_CONFIG_PATH"
         env_path = os.getenv(env_var)
         if env_path:
             candidate = Path(env_path).expanduser()
@@ -119,14 +111,6 @@ class ExtensionsConfig(BaseModel):
             for name, config in self.mcp_servers.items()
             if config.enabled
         }
-
-    def is_skill_enabled(self, skill_name: str, skill_category: str) -> bool:
-        """Return whether a skill is enabled."""
-        skill_config = self.skills.get(skill_name)
-        if skill_config is None:
-            return skill_category in ("public", "custom")
-        return skill_config.enabled
-
 
 _extensions_config: ExtensionsConfig | None = None
 

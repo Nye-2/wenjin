@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
 
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import { WorkspaceActionLink } from "../WorkspaceActionLink";
 
@@ -11,7 +11,7 @@ interface ResultPreviewRendererProps {
   preview: WorkspaceResultPreview;
 }
 
-const markdownComponents = {
+const previewMarkdownComponents: Components = {
   h1: ({ children }: { children?: React.ReactNode }) => (
     <h1
       style={{
@@ -302,10 +302,11 @@ function PreviewTextBody({
 }) {
   if (preview.previewMode === "markdown" || preview.previewMode === "outline") {
     return (
-      <div data-testid="result-preview-markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-          {content}
-        </ReactMarkdown>
+      <div data-testid="result-preview-markdown" className="prose-chat">
+        <MarkdownRenderer
+          content={content}
+          components={previewMarkdownComponents}
+        />
       </div>
     );
   }

@@ -14,10 +14,10 @@ import type {
 export function resolveThreadStreamUrl(data: RunRequest): string {
   const threadId =
     typeof data.thread_id === "string" ? data.thread_id.trim() : "";
-  if (threadId) {
-    return `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/stream`;
+  if (!threadId) {
+    throw new Error("thread_id is required for chat turn streaming");
   }
-  return `${API_BASE_URL}/runs/stream`;
+  return `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/stream`;
 }
 
 function toRunStreamUrl(contentLocation: string): string {
@@ -52,11 +52,7 @@ export function streamThread(
   data: RunRequest,
   onMessage: (content: string) => void,
   onReasoning?: (content: string) => void,
-  onThreadId?: (context: {
-    threadId: string;
-    skill: string | null;
-    skillName: string | null;
-  }) => void,
+  onThreadId?: (threadId: string) => void,
   onAssistantMessage?: (message: ThreadMessage) => void,
   onError?: (error: string) => void,
   onDone?: () => void,
@@ -111,17 +107,15 @@ export function streamThread(
           activeRunId = json.run_id.trim();
         }
         if (activeRunId && !resumeUrl) {
-          resumeUrl = `${API_BASE_URL}/runs/${encodeURIComponent(activeRunId)}/stream`;
+          const threadId = requestPayload.thread_id?.trim();
+          if (threadId) {
+            resumeUrl = `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(activeRunId)}/stream`;
+          }
         }
       }
       switch (json.type) {
         case "thread_id":
-          onThreadId?.({
-            threadId: json.thread_id,
-            skill: typeof json.skill === "string" ? json.skill : null,
-            skillName:
-              typeof json.skill_name === "string" ? json.skill_name : null,
-          });
+          onThreadId?.(json.thread_id);
           break;
         case "content":
           onMessage(json.content);
@@ -308,8 +302,13 @@ export function streamThread(
 
   return () => {
     if (!controller.signal.aborted && !finished && activeRunId) {
+      const threadId = requestPayload.thread_id?.trim();
+      if (!threadId) {
+        controller.abort();
+        return;
+      }
       void authorizedFetch(
-        `${API_BASE_URL}/runs/${encodeURIComponent(activeRunId)}/cancel?action=interrupt`,
+        `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(activeRunId)}/cancel?action=interrupt`,
         { method: "POST", keepalive: true }
       ).catch(() => {
         // Best effort: UI abort should not fail if cancel request errors.

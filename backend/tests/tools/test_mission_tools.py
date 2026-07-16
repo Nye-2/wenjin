@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.academic_visual_runtime import AcademicVisualRuntimeError
 from src.mission_runtime.production import StrictToolExecutionGuard
 from src.sandbox.contracts import (
     SandboxOperationRequest,
@@ -14,18 +15,28 @@ from src.sandbox.contracts import (
     SandboxOperationStatus,
     SandboxRetryDisposition,
 )
+from src.services.mission_inputs import MissionInputStore
 from src.services.search import MODEL_NATIVE_SEARCH_TOOL_ID
 from src.tools.mission import MISSION_TOOL_GROUPS, MissionToolHandlers, build_mission_tool_registrations
+from src.tools.mission.artifact_candidates import (
+    artifact_candidate_content_hash,
+    artifact_candidate_ref,
+)
 from src.tools.mission.contracts import (
     MISSION_TOOL_INPUT_MODELS,
     AcademicVisualRenderInput,
     CreateArtifactCandidateInput,
     ImportSourceCandidateInput,
     ListSourceCodeFilesInput,
-    ReadMissionReviewCandidateInput,
+    ReadArtifactCandidateInput,
+    ReadMissionInputInput,
+    ReadSandboxArtifactInput,
+    ReadSandboxFileInput,
     ReadSourceCodeFileInput,
     ReadWorkspaceAssetInput,
+    ReadWorkspaceDocumentInput,
     RegisterArtifactToolInput,
+    RunPythonToolInput,
     SmokeCheckToolInput,
 )
 from src.tools.orchestrator import (
@@ -40,7 +51,6 @@ from src.tools.orchestrator import (
     ToolOrchestrator,
     ToolOutcomeStatus,
     ToolPolicy,
-    ToolReference,
     VerificationStatus,
 )
 
@@ -48,13 +58,18 @@ IMAGE_DIGEST = f"sha256:{'a' * 64}"
 
 
 def test_every_mission_tool_group_id_has_one_canonical_input_model() -> None:
-    grouped_ids = {
-        tool_id
-        for tool_ids in MISSION_TOOL_GROUPS.values()
-        for tool_id in tool_ids
-    }
+    grouped_ids = {tool_id for tool_ids in MISSION_TOOL_GROUPS.values() for tool_id in tool_ids}
 
     assert set(MISSION_TOOL_INPUT_MODELS) == grouped_ids
+
+
+def test_run_python_schema_states_full_replacement_semantics() -> None:
+    schema = RunPythonToolInput.model_json_schema(mode="validation")
+
+    assert "complete replacement" in schema["properties"]["script"]["description"].lower()
+    assert "before execution" in schema["properties"]["script"]["description"].lower()
+    assert "base_content_hash" not in schema["properties"]
+    assert "output_base_hashes" not in schema["properties"]
 
 
 def _operation(*, lease_epoch: int = 4) -> ToolOperation:
@@ -76,20 +91,85 @@ def _operation(*, lease_epoch: int = 4) -> ToolOperation:
     )
 
 
+def _academic_visual_receipt_metadata(
+    *,
+    candidate_id: str = "avc_q3_summary",
+) -> dict[str, object]:
+    content_hash = "sha256:" + "b" * 64
+    artifact_ref = "sandbox-artifact:" + "b" * 64
+    return {
+        "schema": "wenjin.academic_visual.receipt.v1",
+        "candidate": {
+            "schema": "wenjin.academic_visual.candidate.v1",
+            "candidate_id": candidate_id,
+            "figure_id": "q3-policy-summary",
+            "figure_type": "data_plot",
+            "strategy": "matplotlib",
+            "evidence_level": "evidence",
+            "sandbox_artifact_ref": artifact_ref,
+            "review_preview_ref": "sandbox-preview:q3-policy-summary",
+            "preview_hash": content_hash,
+            "content_hash": content_hash,
+            "mime_type": "image/png",
+            "width": 1600,
+            "height": 900,
+            "renderer_id": "wenjin-matplotlib",
+            "renderer_version": "1",
+            "context_hash": content_hash,
+            "source_refs": [],
+            "dataset_refs": [],
+            "quality_receipt": {},
+        },
+        "manifest": {
+            "schema": "wenjin.figure_generation.artifact.v2",
+            "figure_id": "q3-policy-summary",
+            "figure_type": "data_plot",
+            "strategy": "matplotlib",
+            "evidence_level": "evidence",
+            "candidate": {
+                "kind": "sandbox_artifact",
+                "ref": artifact_ref,
+                "content_hash": content_hash,
+            },
+            "intended_output_targets": [
+                "/workspace/outputs/figures/q3_policy_summary.png"
+            ],
+            "renderer_id": "wenjin-matplotlib",
+            "renderer_version": "1",
+            "dataset_refs": [],
+            "source_refs": [],
+        },
+    }
+
+
 class _Missions:
-    def __init__(self, items=(), view=None) -> None:
+    def __init__(self, items=(), view=None, operations=None, mission_inputs=(), thread_id="thread-1") -> None:
         self.items = list(items)
         self.view = view
+        self.operations = operations or {}
+        self.mission_inputs = list(mission_inputs)
+        self.thread_id = thread_id
 
     async def get(self, mission_id: str):
         assert mission_id == "mission-1"
-        return SimpleNamespace(workspace_id="workspace-1")
+        return SimpleNamespace(
+            mission_id="mission-1",
+            parent_mission_id=None,
+            workspace_id="workspace-1",
+            thread_id=self.thread_id,
+            snapshot_json={"mission_inputs": self.mission_inputs},
+        )
 
     async def list_items(self, mission_id: str, **_kwargs):
         assert mission_id == "mission-1"
         after_seq = int(_kwargs.get("after_seq") or 0)
         limit = int(_kwargs.get("limit") or 100)
-        return [item for index, item in enumerate(self.items, start=1) if int(getattr(item, "seq", index)) > after_seq][:limit]
+        item_type = _kwargs.get("item_type")
+        return [item for index, item in enumerate(self.items, start=1) if int(getattr(item, "seq", index)) > after_seq and (item_type is None or getattr(item, "item_type", None) == item_type)][:limit]
+
+    async def get_operation(self, mission_id: str, operation_key: str):
+        assert mission_id == "mission-1"
+        return self.operations.get(operation_key)
 
     async def get_view(self, mission_id: str):
         assert mission_id == "mission-1"
@@ -97,8 +177,8 @@ class _Missions:
 
 
 class _DataService:
-    def __init__(self, *, asset=None, mission_items=(), mission_view=None, prism_surface=None, prism_file=None) -> None:
-        self.missions = _Missions(mission_items, mission_view)
+    def __init__(self, *, asset=None, mission_items=(), mission_view=None, mission_operations=None, mission_inputs=(), mission_thread_id="thread-1", prism_surface=None, prism_file=None) -> None:
+        self.missions = _Missions(mission_items, mission_view, mission_operations, mission_inputs, mission_thread_id)
         self.asset = asset
         self.prism_surface = prism_surface
         self.prism_file = prism_file
@@ -164,15 +244,51 @@ class _Sandbox:
         self,
         *,
         workspace_id: str,
-        path: str,
+        object_ref: str,
         expected_content_hash: str,
         max_bytes: int,
+        offset: int | None = None,
     ) -> bytes:
+        assert workspace_id == "workspace-1"
+        content = self.artifact_contents[object_ref]
+        assert f"sha256:{hashlib.sha256(content).hexdigest()}" == expected_content_hash
+        if offset is None:
+            assert len(content) <= max_bytes
+            return content
+        return content[offset : offset + max_bytes]
+
+    async def read_public_file_bytes(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        max_bytes: int,
+    ) -> tuple[bytes, str]:
         assert workspace_id == "workspace-1"
         content = self.artifact_contents[path]
         assert len(content) <= max_bytes
-        assert f"sha256:{hashlib.sha256(content).hexdigest()}" == expected_content_hash
-        return content
+        return content, f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
+class _FailedSandbox(_Sandbox):
+    async def execute(self, request: SandboxOperationRequest) -> SandboxOperationResult:
+        self.requests.append(request)
+        now = datetime.now(UTC)
+        return SandboxOperationResult(
+            operation_key=request.operation_key,
+            sandbox_job_id="sandbox-job-failed",
+            provenance=request.provenance,
+            operation=request.operation,
+            image_digest=request.image_digest,
+            policy_version=request.policy_version,
+            command_schema_version=request.command_schema_version,
+            status=SandboxOperationStatus.FAILED,
+            retry_disposition=SandboxRetryDisposition.DO_NOT_RETRY,
+            exit_code=1,
+            stderr_preview="AssertionError: average wait exceeds 10 minutes",
+            started_at=now,
+            finished_at=now,
+        )
 
 
 def test_every_policy_group_has_canonical_registrations_and_narrow_permissions() -> None:
@@ -192,17 +308,16 @@ def test_every_policy_group_has_canonical_registrations_and_narrow_permissions()
     assert by_id["sandbox.install_dependencies"].network_profile == "package_index_only"
     assert by_id["academic_visual.render_candidate"].network_profile == "academic_visual_scoped"
     assert by_id["academic_visual.render_candidate"].payload_limit_bytes == 524_288
-    assert all(
-        descriptor.network_profile == "none"
-        for tool_id, descriptor in by_id.items()
-        if tool_id not in {"sandbox.install_dependencies", "academic_visual.render_candidate"}
-    )
+    assert all(descriptor.network_profile == "none" for tool_id, descriptor in by_id.items() if tool_id not in {"sandbox.install_dependencies", "academic_visual.render_candidate"})
 
 
 def test_mission_tool_handlers_use_configured_workspace_asset_root(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "src.tools.mission.runtime.get_settings",
-        lambda: SimpleNamespace(workspace_asset_root=tmp_path / "configured-assets"),
+        lambda: SimpleNamespace(
+            workspace_asset_root=tmp_path / "configured-assets",
+            thread_data_root=tmp_path / "threads",
+        ),
     )
 
     handlers = MissionToolHandlers(
@@ -211,6 +326,109 @@ def test_mission_tool_handlers_use_configured_workspace_asset_root(monkeypatch, 
     )
 
     assert handlers.asset_root == tmp_path / "configured-assets"
+
+
+@pytest.mark.asyncio
+async def test_read_mission_input_requires_pinned_manifest_and_verifies_content(tmp_path) -> None:
+    store = MissionInputStore(tmp_path / "inputs")
+    manifest = store.put_text(
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        filename="problem.txt",
+        mime_type="text/plain",
+        extractor="plain_text",
+        text="Question 1: formulate the objective and capacity constraints.",
+        source_content_hash=f"sha256:{'e' * 64}",
+        source_size_bytes=58,
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_inputs=[manifest.model_dump(mode="json")]),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        mission_input_store=store,
+    )
+
+    result = await handlers.read_mission_input(
+        _operation(),
+        ReadMissionInputInput(input_ref=manifest.input_ref),
+    )
+
+    assert result.payload_ref == manifest.input_ref
+    assert result.evidence_refs[0].metadata["content"].startswith("Question 1")
+    with pytest.raises(ToolDispatchError) as exc_info:
+        await handlers.read_mission_input(
+            _operation(),
+            ReadMissionInputInput(input_ref=f"mission-input:{'f' * 64}"),
+        )
+    assert exc_info.value.error_type is ToolErrorType.NO_RESULTS
+
+
+@pytest.mark.asyncio
+async def test_read_mission_input_rejects_cross_thread_manifest(tmp_path) -> None:
+    store = MissionInputStore(tmp_path / "inputs")
+    manifest = store.put_text(
+        workspace_id="workspace-1",
+        thread_id="thread-2",
+        filename="problem.txt",
+        mime_type="text/plain",
+        extractor="plain_text",
+        text="Question 1: formulate the objective.",
+        source_content_hash=f"sha256:{'d' * 64}",
+        source_size_bytes=36,
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_inputs=[manifest.model_dump(mode="json")]),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        mission_input_store=store,
+    )
+
+    with pytest.raises(ToolDispatchError) as exc_info:
+        await handlers.read_mission_input(
+            _operation(),
+            ReadMissionInputInput(input_ref=manifest.input_ref),
+        )
+
+    assert exc_info.value.error_type is ToolErrorType.PERMISSION_DENIED
+
+
+@pytest.mark.asyncio
+async def test_workspace_document_refs_include_revision_preconditions() -> None:
+    file = SimpleNamespace(
+        id="file-1",
+        workspace_id="workspace-1",
+        document_id="document-1",
+        path="analysis.md",
+        file_role="generated",
+        mime_type="text/markdown",
+        current_version_id="version-1",
+        content_hash="hash-1",
+        deleted_at=None,
+    )
+    version = SimpleNamespace(
+        id="version-1",
+        content_inline="complete document",
+        content_hash="hash-1",
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(
+            prism_surface=SimpleNamespace(files=[file]),
+            prism_file=SimpleNamespace(file=file, current_version=version),
+        ),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+
+    listed = await handlers.list_workspace_documents(
+        _operation(),
+        MISSION_TOOL_INPUT_MODELS["workspace.list_documents"](),
+    )
+    read = await handlers.read_workspace_document(
+        _operation(),
+        ReadWorkspaceDocumentInput(document_ref="prism-file:file-1"),
+    )
+
+    assert listed.evidence_refs[0].ref_id == "prism-file:file-1"
+    assert listed.evidence_refs[0].metadata["revision_ref"] == "version-1"
+    assert read.evidence_refs[0].metadata["revision_ref"] == "version-1"
+    assert read.evidence_refs[0].metadata["content_hash"] == "hash-1"
 
 
 @pytest.mark.asyncio
@@ -263,17 +481,7 @@ async def test_academic_visual_prism_context_is_revision_and_hash_bound() -> Non
     assert resolved == selection
     assert resolved_hash == selection_hash
 
-    stale = request.model_copy(
-        update={
-            "brief": request.brief.model_copy(
-                update={
-                    "prism_context_ref": request.brief.prism_context_ref.model_copy(
-                        update={"selection_hash": f"sha256:{'0' * 64}"}
-                    )
-                }
-            )
-        }
-    )
+    stale = request.model_copy(update={"brief": request.brief.model_copy(update={"prism_context_ref": request.brief.prism_context_ref.model_copy(update={"selection_hash": f"sha256:{'0' * 64}"})})})
     with pytest.raises(ToolDispatchError, match="selection changed"):
         await handlers._resolve_visual_prism_context("workspace-1", stale)
 
@@ -341,6 +549,56 @@ async def test_deterministic_academic_visual_exposes_reproducibility_evidence() 
 
 
 @pytest.mark.asyncio
+async def test_academic_visual_script_failure_is_recoverable_execution_error() -> None:
+    class _AcademicVisual:
+        async def render_candidate(self, _request, *, context):
+            assert context.workspace_id == "workspace-1"
+            raise AcademicVisualRuntimeError(
+                "sandbox_execution_failed",
+                "AssertionError: Unexpected columns",
+                recoverable=True,
+            )
+
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+        academic_visual=_AcademicVisual(),  # type: ignore[arg-type]
+    )
+    request = AcademicVisualRenderInput.model_validate(
+        {
+            "brief": {
+                "figure_spec": {
+                    "figure_id": "result-chart",
+                    "title": "Result chart",
+                    "figure_type": "experiment_plot",
+                    "strategy": "matplotlib",
+                    "purpose": "Plot verified results",
+                    "output_targets": [
+                        "/workspace/outputs/figures/result-chart.png"
+                    ],
+                },
+                "intended_use": "manuscript",
+                "audience": "researchers",
+                "target_language": "English",
+                "aspect_ratio": "3:2",
+                "composition": "comparison chart",
+            },
+            "render": {
+                "kind": "code",
+                "source_code": "raise AssertionError('Unexpected columns')",
+                "script_path": "/workspace/scripts/result_chart.py",
+            },
+        }
+    )
+
+    with pytest.raises(ToolDispatchError, match="Unexpected columns") as error:
+        await handlers.render_academic_visual_candidate(_operation(), request)
+
+    assert error.value.error_type is ToolErrorType.EXECUTION_FAILED
+    assert error.value.recoverable_by_model is True
+
+
+@pytest.mark.asyncio
 async def test_source_code_read_is_owner_scoped_and_single_file_cannot_escape(tmp_path) -> None:
     upload_root = tmp_path / "uploads"
     workspace_root = upload_root / "workspace-1"
@@ -363,17 +621,17 @@ async def test_source_code_read_is_owner_scoped_and_single_file_cannot_escape(tm
         asset_root=upload_root,
     )
 
-    listing = await handlers.list_source_code_files(_operation(), ListSourceCodeFilesInput(asset_id="asset-1"))
+    listing = await handlers.list_source_code_files(_operation(), ListSourceCodeFilesInput(asset_ref="asset:asset-1"))
     assert listing.evidence_refs[0].metadata["files"] == ["main.py"]
     read = await handlers.read_source_code_file(
         _operation(),
-        ReadSourceCodeFileInput(asset_id="asset-1", relative_path="main.py"),
+        ReadSourceCodeFileInput(asset_ref="asset:asset-1", relative_path="main.py"),
     )
     assert "allowed" in read.evidence_refs[0].metadata["content"]
     with pytest.raises(ToolDispatchError):
         await handlers.read_source_code_file(
             _operation(),
-            ReadSourceCodeFileInput(asset_id="asset-1", relative_path="secret.py"),
+            ReadSourceCodeFileInput(asset_ref="asset:asset-1", relative_path="secret.py"),
         )
 
     foreign = SimpleNamespace(**{**asset.__dict__, "workspace_id": "workspace-2"})
@@ -383,7 +641,7 @@ async def test_source_code_read_is_owner_scoped_and_single_file_cannot_escape(tm
         asset_root=upload_root,
     )
     with pytest.raises(ToolDispatchError):
-        await foreign_handlers.list_source_code_files(_operation(), ListSourceCodeFilesInput(asset_id="asset-1"))
+        await foreign_handlers.list_source_code_files(_operation(), ListSourceCodeFilesInput(asset_ref="asset:asset-1"))
 
 
 @pytest.mark.asyncio
@@ -409,7 +667,7 @@ async def test_workspace_asset_rejects_tampered_database_paths(tmp_path, tampere
     with pytest.raises(ToolDispatchError):
         await handlers.read_workspace_asset(
             _operation(),
-            ReadWorkspaceAssetInput(asset_id="asset-1"),
+            ReadWorkspaceAssetInput(asset_ref="asset:asset-1"),
         )
 
 
@@ -436,7 +694,7 @@ async def test_workspace_asset_rejects_symlink_escape(tmp_path) -> None:
     )
 
     with pytest.raises(ToolDispatchError):
-        await handlers.read_workspace_asset(_operation(), ReadWorkspaceAssetInput(asset_id="asset-1"))
+        await handlers.read_workspace_asset(_operation(), ReadWorkspaceAssetInput(asset_ref="asset:asset-1"))
 
 
 @pytest.mark.asyncio
@@ -462,21 +720,10 @@ async def test_source_url_import_requires_current_mission_search_receipt() -> No
         ),
         verification_status=VerificationStatus.PROVIDER_RECEIPT,
     )
-    item = SimpleNamespace(
-        seq=101,
-        payload_json={
-            "operation_key": outcome.operation_key,
-            "outcome": outcome.model_dump(mode="json"),
-        },
+    receipt = SimpleNamespace(receipt_json={"outcome": outcome.model_dump(mode="json")})
+    dataservice = _DataService(
+        mission_operations={outcome.operation_key: receipt},
     )
-    filler = [
-        SimpleNamespace(
-            seq=index,
-            payload_json={"operation_key": f"other-{index}", "outcome": {}},
-        )
-        for index in range(1, 101)
-    ]
-    dataservice = _DataService(mission_items=[*filler, item])
     dataservice.import_source.return_value = SimpleNamespace(
         source=SimpleNamespace(id="source-1", title="Paper", url=url, citation_key="Paper2026"),
         created=True,
@@ -524,6 +771,78 @@ async def test_sandbox_tool_binds_mission_workspace_and_lease_receipt() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_python_derives_read_before_write_hashes_from_verified_receipts() -> None:
+    sandbox = _Sandbox()
+    script_hash = f"sha256:{'1' * 64}"
+    output_hash = f"sha256:{'2' * 64}"
+    mission_items = (
+        SimpleNamespace(
+            seq=1,
+            item_type="evidence",
+            payload_json={
+                "verified": True,
+                "kind": "sandbox_public_file",
+                "metadata": {
+                    "path": "/workspace/scripts/q1_validation.py",
+                    "content_hash": script_hash,
+                },
+            },
+        ),
+        SimpleNamespace(
+            seq=2,
+            item_type="evidence",
+            payload_json={
+                "verified": True,
+                "kind": "sandbox_public_file",
+                "metadata": {
+                    "path": "/workspace/outputs/q1_solution_validation.json",
+                    "content_hash": output_hash,
+                },
+            },
+        ),
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_items=mission_items),  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+    )
+
+    await handlers.sandbox_run_python(
+        _operation(),
+        RunPythonToolInput(
+            script="print('ok')",
+            script_path="/workspace/scripts/q1_validation.py",
+        ),
+    )
+
+    [request] = sandbox.requests
+    assert request.operation_input.base_content_hash == script_hash
+    assert request.operation_input.output_base_hashes == {
+        "/workspace/outputs/q1_solution_validation.json": output_hash,
+    }
+
+
+@pytest.mark.asyncio
+async def test_failed_sandbox_computation_is_a_model_recoverable_execution_failure() -> None:
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=_FailedSandbox(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ToolDispatchError) as captured:
+        await handlers.sandbox_run_python(
+            _operation(),
+            RunPythonToolInput(
+                script="raise AssertionError('average wait exceeds 10 minutes')",
+                script_path="/workspace/scripts/q1_validation.py",
+            ),
+        )
+
+    assert captured.value.error_type is ToolErrorType.EXECUTION_FAILED
+    assert captured.value.recoverable_by_model is True
+    assert "average wait exceeds 10 minutes" in captured.value.user_safe_summary
+
+
+@pytest.mark.asyncio
 async def test_sandbox_artifact_registration_rejects_temporary_scratch_as_recoverable_input() -> None:
     sandbox = _Sandbox()
     handlers = MissionToolHandlers(
@@ -547,67 +866,185 @@ async def test_sandbox_artifact_registration_rejects_temporary_scratch_as_recove
 
 
 @pytest.mark.asyncio
-async def test_review_candidate_includes_chunked_body_and_verified_sandbox_artifacts() -> None:
-    candidate_id = "review-1"
-    path = "/workspace/outputs/solution.py"
-    source = ("print('verified solution')\n" * 120).encode()
-    content_hash = f"sha256:{hashlib.sha256(source).hexdigest()}"
-    artifact_ref = ToolReference(
-        ref_id=f"sandbox-artifact:{content_hash.removeprefix('sha256:')}",
-        kind="sandbox_artifact_manifest",
-        metadata={
-            "path": path,
-            "kind": "text/x-python",
-            "content_hash": content_hash,
-        },
-    )
-    outcome = ResearchToolOutcome(
-        operation_id="operation-1",
-        operation_key="operation-key-1",
-        producer="workspace-agent",
-        tool_id="sandbox.run_python",
-        tool_version="1.0.0",
-        status=ToolOutcomeStatus.SUCCESS,
-        observed_at=datetime.now(UTC),
-        summary="Produced a verified solution artifact.",
-        artifact_refs=(artifact_ref,),
-        verification_status=VerificationStatus.VERIFIED,
-    )
+async def test_verified_sandbox_artifact_is_directly_readable_by_canonical_ref() -> None:
+    path = "/workspace/outputs/result.json"
+    source = b'{"objective": 4, "checks": {"conservation": true}}'
+    digest = hashlib.sha256(source).hexdigest()
+    artifact_ref = f"sandbox-artifact:{digest}"
+    object_ref = f"sbxobj_{digest}"
     mission_item = SimpleNamespace(
         seq=1,
-        payload_json={"outcome": outcome.model_dump(mode="json")},
-    )
-    body = "完整候选正文。" * 700
-    review_item = SimpleNamespace(
-        review_item_id=candidate_id,
-        title="问题 1 可复现求解",
-        preview_hash="a" * 64,
-        preview_json={"body": body, "source_refs": [artifact_ref.ref_id]},
+        item_type="artifact",
+        payload_json={
+            "reference_id": artifact_ref,
+            "kind": "sandbox_artifact_manifest",
+            "title": "result.json",
+            "uri": None,
+            "metadata": {
+                "path": path,
+                "object_ref": object_ref,
+                "kind": "application/json",
+                "content_hash": f"sha256:{digest}",
+                "size_bytes": len(source),
+            },
+            "verified": True,
+        },
     )
     sandbox = _Sandbox()
-    sandbox.artifact_contents[path] = source
+    sandbox.artifact_contents[object_ref] = source
     handlers = MissionToolHandlers(
-        dataservice=_DataService(
-            mission_items=[mission_item],
-            mission_view=SimpleNamespace(review_items=[review_item]),
-        ),  # type: ignore[arg-type]
+        dataservice=_DataService(mission_items=[mission_item]),  # type: ignore[arg-type]
         sandbox=sandbox,  # type: ignore[arg-type]
     )
 
-    result = await handlers.read_review_candidate(
+    result = await handlers.sandbox_read_artifact(
         _operation(),
-        ReadMissionReviewCandidateInput(review_item_id=candidate_id),
+        ReadSandboxArtifactInput(artifact_ref=artifact_ref),
     )
 
-    metadata = result.evidence_refs[0].metadata
-    assert "".join(metadata["preview_body_chunks"]) == body
-    [artifact] = metadata["sandbox_artifacts"]
-    assert artifact["availability"] == "verified_inline"
-    assert "".join(artifact["content_chunks"]).encode() == source
+    assert result.evidence_refs[0].ref_id == artifact_ref
+    assert result.evidence_refs[0].metadata["content"] == source.decode()
+    assert result.evidence_refs[0].metadata["verified_inline"] is True
 
 
 @pytest.mark.asyncio
-async def test_artifact_render_only_emits_review_candidate_manifest() -> None:
+async def test_verified_sandbox_artifact_supports_bounded_pagination() -> None:
+    path = "/workspace/outputs/long-result.json"
+    source = ("科研结果" * 5_000).encode()
+    digest = hashlib.sha256(source).hexdigest()
+    artifact_ref = f"sandbox-artifact:{digest}"
+    object_ref = f"sbxobj_{digest}"
+    mission_item = SimpleNamespace(
+        seq=1,
+        item_type="artifact",
+        payload_json={
+            "reference_id": artifact_ref,
+            "kind": "sandbox_artifact_manifest",
+            "title": "long-result.json",
+            "uri": None,
+            "metadata": {
+                "path": path,
+                "object_ref": object_ref,
+                "kind": "application/json",
+                "content_hash": f"sha256:{digest}",
+                "size_bytes": len(source),
+            },
+            "verified": True,
+        },
+    )
+    sandbox = _Sandbox()
+    sandbox.artifact_contents[object_ref] = source
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_items=[mission_item]),  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+    )
+
+    first = await handlers.sandbox_read_artifact(
+        _operation(),
+        ReadSandboxArtifactInput(artifact_ref=artifact_ref, max_bytes=24_000),
+    )
+    first_metadata = first.evidence_refs[0].metadata
+    second = await handlers.sandbox_read_artifact(
+        _operation(),
+        ReadSandboxArtifactInput(
+            artifact_ref=artifact_ref,
+            offset=first_metadata["next_offset"],
+            max_bytes=24_000,
+        ),
+    )
+
+    assert first_metadata["truncated"] is True
+    assert first_metadata["next_offset"] == 24_000
+    assert second.evidence_refs[0].metadata["offset"] == 24_000
+
+
+@pytest.mark.asyncio
+async def test_continuation_can_read_verified_artifact_from_parent_mission() -> None:
+    path = "/workspace/outputs/result.json"
+    source = b'{"objective": 1, "checks": {"conservation": true}}'
+    digest = hashlib.sha256(source).hexdigest()
+    artifact_ref = f"sandbox-artifact:{digest}"
+    object_ref = f"sbxobj_{digest}"
+    parent_item = SimpleNamespace(
+        seq=1,
+        item_type="artifact",
+        payload_json={
+            "reference_id": artifact_ref,
+            "kind": "sandbox_artifact_manifest",
+            "title": "result.json",
+            "uri": None,
+            "metadata": {
+                "path": path,
+                "object_ref": object_ref,
+                "kind": "application/json",
+                "content_hash": f"sha256:{digest}",
+                "size_bytes": len(source),
+            },
+            "verified": True,
+        },
+    )
+
+    class _LineageMissions:
+        async def get(self, mission_id: str):
+            missions = {
+                "mission-1": SimpleNamespace(
+                    mission_id="mission-1",
+                    parent_mission_id="mission-parent",
+                    workspace_id="workspace-1",
+                ),
+                "mission-parent": SimpleNamespace(
+                    mission_id="mission-parent",
+                    parent_mission_id=None,
+                    workspace_id="workspace-1",
+                ),
+            }
+            return missions.get(mission_id)
+
+        async def list_items(self, mission_id: str, **_kwargs):
+            return [parent_item] if mission_id == "mission-parent" else []
+
+    sandbox = _Sandbox()
+    sandbox.artifact_contents[object_ref] = source
+    dataservice = _DataService()
+    dataservice.missions = _LineageMissions()
+    handlers = MissionToolHandlers(
+        dataservice=dataservice,  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+    )
+
+    result = await handlers.sandbox_read_artifact(
+        _operation(),
+        ReadSandboxArtifactInput(artifact_ref=artifact_ref),
+    )
+
+    assert result.evidence_refs[0].ref_id == artifact_ref
+    assert result.evidence_refs[0].metadata["content"] == source.decode()
+
+
+@pytest.mark.asyncio
+async def test_sandbox_file_read_returns_exact_read_before_write_hash() -> None:
+    path = "/workspace/scripts/q1_validation.py"
+    source = b"print('validated')\n"
+    sandbox = _Sandbox()
+    sandbox.artifact_contents[path] = source
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+    )
+
+    result = await handlers.sandbox_read_file(
+        _operation(),
+        ReadSandboxFileInput(path=path),
+    )
+
+    metadata = result.evidence_refs[0].metadata
+    assert metadata["path"] == path
+    assert metadata["content"] == source.decode()
+    assert metadata["content_hash"] == f"sha256:{hashlib.sha256(source).hexdigest()}"
+
+
+@pytest.mark.asyncio
+async def test_artifact_render_emits_service_hashed_text_candidate() -> None:
     handlers = MissionToolHandlers(
         dataservice=_DataService(),  # type: ignore[arg-type]
         sandbox=_Sandbox(),  # type: ignore[arg-type]
@@ -615,18 +1052,191 @@ async def test_artifact_render_only_emits_review_candidate_manifest() -> None:
     result = await handlers.create_artifact_candidate(
         _operation(),
         CreateArtifactCandidateInput(
-            title="Result chart",
-            artifact_kind="chart",
-            source_refs=("sandbox-artifact:abc",),
-            mime_type="image/png",
-            sandbox_artifact_path="/workspace/outputs/chart.png",
+            title="Result brief",
+            artifact_kind="modeling_result_brief",
+            preview_text="# Result\n\nVerified objective: 4.",
         ),
     )
 
     [candidate] = result.artifact_refs
     assert candidate.kind == "artifact_candidate"
+    assert candidate.metadata["content_hash"] == "sha256:" + hashlib.sha256(b"# Result\n\nVerified objective: 4.").hexdigest()
     assert candidate.metadata["materialized"] is False
     assert candidate.metadata["mission_id"] == "mission-1"
+
+
+@pytest.mark.asyncio
+async def test_artifact_candidate_rejects_unverified_source_refs() -> None:
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ToolDispatchError) as captured:
+        await handlers.create_artifact_candidate(
+            _operation(),
+            CreateArtifactCandidateInput(
+                title="Result brief",
+                artifact_kind="modeling_result_brief",
+                source_refs=("prism-file:missing",),
+                preview_text="# Result",
+            ),
+        )
+
+    assert captured.value.error_type is ToolErrorType.PROVENANCE_MISSING
+    assert captured.value.recoverable_by_model is True
+
+
+@pytest.mark.asyncio
+async def test_artifact_candidate_accepts_verified_upstream_candidate_as_provenance() -> None:
+    upstream_preview = "# Problem understanding\n\nThree questions were identified."
+    upstream_metadata = {
+        "title": "Problem understanding",
+        "artifact_kind": "problem_brief",
+        "source_refs": [],
+        "mime_type": "text/markdown",
+        "preview_text": upstream_preview,
+        "metadata": {},
+        "content_hash": artifact_candidate_content_hash(upstream_preview),
+        "mission_id": "mission-1",
+        "operation_key": "upstream-operation",
+        "materialized": False,
+    }
+    upstream_ref = artifact_candidate_ref(upstream_metadata)
+    upstream_item = SimpleNamespace(
+        seq=7,
+        item_type="artifact",
+        payload_json={
+            "reference_id": upstream_ref,
+            "kind": "artifact_candidate",
+            "title": "Problem understanding",
+            "verified": True,
+            "metadata": upstream_metadata,
+        },
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_items=(upstream_item,)),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+
+    result = await handlers.create_artifact_candidate(
+        _operation(),
+        CreateArtifactCandidateInput(
+            title="Question one model",
+            artifact_kind="question_model_spec",
+            source_refs=(upstream_ref,),
+            preview_text="# Model\n\nDerived from the accepted problem understanding.",
+        ),
+    )
+
+    [candidate] = result.artifact_refs
+    assert candidate.metadata["source_refs"] == [upstream_ref]
+
+
+@pytest.mark.asyncio
+async def test_artifact_candidate_can_be_read_from_verified_mission_receipt() -> None:
+    preview = "# 第一问\n\n$J=1$"
+    metadata = {
+        "title": "第一问",
+        "artifact_kind": "document",
+        "mime_type": "text/markdown",
+        "preview_text": preview,
+        "content_hash": artifact_candidate_content_hash(preview),
+        "source_refs": ["sandbox-artifact:" + "a" * 64],
+        "materialized": False,
+    }
+    candidate_ref = artifact_candidate_ref(metadata)
+    item = SimpleNamespace(
+        seq=7,
+        item_type="artifact",
+        payload_json={
+            "reference_id": candidate_ref,
+            "kind": "artifact_candidate",
+            "title": "第一问",
+            "verified": True,
+            "metadata": metadata,
+        },
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_items=(item,)),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+
+    result = await handlers.read_artifact_candidate(
+        _operation(),
+        ReadArtifactCandidateInput(candidate_ref=candidate_ref),
+    )
+
+    assert result.verification_status is VerificationStatus.VERIFIED
+    assert result.payload_ref == candidate_ref
+    assert result.evidence_refs[0].metadata["preview_text"] == preview
+
+
+@pytest.mark.asyncio
+async def test_academic_visual_can_be_read_as_internal_candidate() -> None:
+    candidate_id = "avc_q3_summary"
+    candidate_ref = f"academic-visual:{candidate_id}"
+    metadata = _academic_visual_receipt_metadata(candidate_id=candidate_id)
+    item = SimpleNamespace(
+        seq=8,
+        item_type="artifact",
+        payload_json={
+            "reference_id": candidate_ref,
+            "kind": "academic_visual_candidate",
+            "title": "第三问策略对比",
+            "verified": True,
+            "metadata": metadata,
+        },
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_items=(item,)),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+
+    result = await handlers.read_artifact_candidate(
+        _operation(),
+        ReadArtifactCandidateInput(candidate_ref=candidate_ref),
+    )
+
+    assert result.verification_status is VerificationStatus.VERIFIED
+    assert result.payload_ref == candidate_ref
+    assert result.evidence_refs[0].kind == "academic_visual_candidate"
+    assert result.evidence_refs[0].metadata["candidate"]["candidate_id"] == candidate_id
+
+
+@pytest.mark.asyncio
+async def test_artifact_candidate_accepts_verified_academic_visual_provenance() -> None:
+    candidate_id = "avc_q3_summary"
+    visual_ref = f"academic-visual:{candidate_id}"
+    item = SimpleNamespace(
+        seq=8,
+        item_type="artifact",
+        payload_json={
+            "reference_id": visual_ref,
+            "kind": "academic_visual_candidate",
+            "title": "第三问策略对比",
+            "verified": True,
+            "metadata": _academic_visual_receipt_metadata(
+                candidate_id=candidate_id
+            ),
+        },
+    )
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_items=(item,)),  # type: ignore[arg-type]
+        sandbox=_Sandbox(),  # type: ignore[arg-type]
+    )
+
+    result = await handlers.create_artifact_candidate(
+        _operation(),
+        CreateArtifactCandidateInput(
+            title="完整数学建模论文",
+            artifact_kind="math_modeling_paper",
+            source_refs=(visual_ref,),
+            preview_text="# 完整论文\n\n![第三问策略对比](academic-visual:avc_q3_summary)",
+        ),
+    )
+
+    assert result.artifact_refs[0].metadata["source_refs"] == [visual_ref]
 
 
 class _Journal:
@@ -681,11 +1291,11 @@ async def test_pinned_group_permission_passes_catalog_preflight_end_to_end() -> 
     outcome = await orchestrator.invoke(
         "artifact.create_candidate",
         {
-            "title": "Chart",
-            "artifact_kind": "chart",
-            "source_refs": ["sandbox-artifact:abc"],
-            "mime_type": "image/png",
-            "sandbox_artifact_path": "/workspace/outputs/chart.png",
+            "title": "Result brief",
+            "artifact_kind": "modeling_result_brief",
+            "source_refs": [],
+            "mime_type": "text/markdown",
+            "preview_text": "# Result\n\nVerified objective: 4.",
         },
         context=context,
         policy=policy,

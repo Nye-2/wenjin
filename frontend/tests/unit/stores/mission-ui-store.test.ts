@@ -6,10 +6,23 @@ describe("mission-ui-store", () => {
 
   it("stores focus and panel preferences without lifecycle truth", () => {
     useMissionUiStore.getState().peekMission("mission-1");
-    expect(useMissionUiStore.getState()).toMatchObject({ activeMissionId: "mission-1", panelMode: "peek" });
+    expect(useMissionUiStore.getState()).toMatchObject({ focusedMissionId: "mission-1", panelMode: "peek" });
     expect("executionStatus" in useMissionUiStore.getState()).toBe(false);
     useMissionUiStore.getState().focusMission("mission-1", "review");
     expect(useMissionUiStore.getState()).toMatchObject({ focusedMissionId: "mission-1", panelMode: "expanded", surface: "review" });
+  });
+
+  it("follows a newly launched Mission even while an older Mission is expanded", () => {
+    useMissionUiStore.getState().focusMission("mission-old", "artifacts");
+
+    useMissionUiStore.getState().peekMission("mission-new");
+
+    expect(useMissionUiStore.getState()).toMatchObject({
+      focusedMissionId: "mission-new",
+      highlightedMissionId: "mission-new",
+      panelMode: "expanded",
+      surface: "artifacts",
+    });
   });
 
   it("tracks a review selection only for its server revision", () => {

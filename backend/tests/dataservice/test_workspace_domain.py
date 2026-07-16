@@ -33,8 +33,7 @@ class FakeSession:
 def _settings_row(workspace_id: str = "ws-1") -> WorkspaceSettings:
     return WorkspaceSettings(
         workspace_id=workspace_id,
-        thinking_enabled=True,
-        sandbox_provider="local",
+        reasoning_effort="xhigh",
         auto_compact_threshold=0.8,
         settings_json={},
         metadata_json={},
@@ -103,13 +102,27 @@ async def test_get_or_create_workspace_settings_creates_default_record() -> None
     record = await service.get_or_create_workspace_settings("ws-1")
 
     values = service.repository.create_workspace_settings_from_values.call_args.kwargs["values"]  # type: ignore[attr-defined]
-    assert values["thinking_enabled"] is True
-    assert values["sandbox_provider"] == "local"
+    assert values["reasoning_effort"] == "xhigh"
     assert values["settings_json"]["review_mode"] == "balanced_default"
     assert record.workspace_id == "ws-1"
     assert record.review_mode == "balanced_default"
     assert record.settings_json["review_mode"] == "balanced_default"
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_workspace_settings_refreshes_before_uow_projection() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session, autocommit=False)  # type: ignore[arg-type]
+    settings = _settings_row()
+    service.repository.get_workspace_settings = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    service.repository.create_workspace_settings_from_values = MagicMock(return_value=settings)  # type: ignore[method-assign]
+
+    record = await service.get_or_create_workspace_settings("ws-1")
+
+    assert record.workspace_id == "ws-1"
+    session.flush.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(settings)
 
 
 def test_workspace_settings_record_projects_missing_review_mode_default() -> None:
@@ -132,14 +145,33 @@ async def test_update_workspace_settings_returns_projection() -> None:
         "ws-1",
         command=WorkspaceSettingsUpdateCommand(
             default_model="mimo-v2.5-pro",
-            thinking_enabled=False,
+            reasoning_effort="low",
         ),
     )
 
     assert record is not None
     assert record.default_model == "mimo-v2.5-pro"
-    assert record.thinking_enabled is False
+    assert record.reasoning_effort == "low"
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_workspace_settings_refreshes_server_values_before_uow_projection() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session, autocommit=False)  # type: ignore[arg-type]
+    settings = _settings_row()
+    service.repository.get_workspace_settings = AsyncMock(return_value=settings)  # type: ignore[method-assign]
+
+    record = await service.update_workspace_settings(
+        "ws-1",
+        command=WorkspaceSettingsUpdateCommand(reasoning_effort="low"),
+    )
+
+    assert record is not None
+    assert record.reasoning_effort == "low"
+    session.flush.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(settings)
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

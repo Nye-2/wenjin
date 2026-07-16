@@ -30,6 +30,7 @@ class PrismFileVersionCreatePayload(BaseModel):
 
 class PrismWorkspaceFileUpsertPayload(BaseModel):
     path: str
+    create_only: bool = False
     file_role: str = "generated"
     mime_type: str | None = None
     sort_order: int = 0

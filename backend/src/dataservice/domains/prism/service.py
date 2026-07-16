@@ -262,7 +262,15 @@ class PrismDataDomainService:
         if document is None:
             raise RuntimeError("Prism workspace has no primary document")
 
+        if command.create_only:
+            await self.repository.lock_document(document.id)
         file_record = await self.repository.get_file_by_path(document.id, path)
+        if file_record is not None and command.create_only:
+            return PrismFileWriteProjection(
+                file=file_to_projection(file_record),
+                changed=False,
+                skipped_reason="already_exists",
+            )
         if file_record is None:
             file_record = self.repository.create_file(
                 {

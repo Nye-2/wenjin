@@ -231,7 +231,6 @@ async def test_list_workspace_thread_summaries_projects_thread_rows() -> None:
                 workspace_id="ws-1",
                 title="Research thread",
                 model="gpt-x",
-                skill="deep_research",
                 message_count=2,
                 last_message_preview="latest",
                 last_message_role="assistant",
@@ -247,7 +246,6 @@ async def test_list_workspace_thread_summaries_projects_thread_rows() -> None:
     )
 
     assert summaries[0].id == "thread-1"
-    assert summaries[0].skill == "deep_research"
     assert summaries[0].last_message_preview == "latest"
     service.repository.list_workspace_threads.assert_awaited_once_with(
         workspace_id="ws-1",

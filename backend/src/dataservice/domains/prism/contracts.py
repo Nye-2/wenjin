@@ -33,6 +33,7 @@ class PrismFileCreateCommand(BaseModel):
 class PrismWorkspaceFileUpsertCommand(PrismFileCreateCommand):
     """Create or revive one workspace Prism file by path."""
 
+    create_only: bool = False
     content_inline: str | None = None
     content_asset_id: str | None = Field(default=None, max_length=36)
     content_hash: str | None = Field(default=None, max_length=128)

@@ -21,7 +21,12 @@ from src.models.capability_profile import GenerationAPI
 def _reset_models():
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": "", "LLM_IMAGE_MODELS": "", "LLM_DEFAULT_MODEL": ""},
+        {
+            "LLM_MODELS": "",
+            "LLM_IMAGE_MODELS": "",
+            "LLM_DEFAULT_MODEL": "",
+            "OPENAI_API_KEY": "",
+        },
         clear=False,
     ):
         reload_models()
@@ -36,7 +41,7 @@ def _gpt_seed() -> str:
                 "id": "gpt-5.6-sol",
                 "name": "GPT-5.6 Sol",
                 "model": "gpt-5.6-sol",
-                "api_key": "sk-test",
+                "api_key_env": "OPENAI_API_KEY",
                 "base_url": "https://api.nainai.love/v1",
                 "generation_api": "chat_completions",
                 "max_tokens": 128000,
@@ -48,7 +53,11 @@ def _gpt_seed() -> str:
 def test_env_seed_parses_generation_api_without_capability_flags() -> None:
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.6-sol"},
+        {
+            "LLM_MODELS": _gpt_seed(),
+            "LLM_DEFAULT_MODEL": "gpt-5.6-sol",
+            "OPENAI_API_KEY": "sk-test",
+        },
         clear=False,
     ):
         reload_models()
@@ -66,7 +75,11 @@ def test_removed_capability_switches_are_rejected_not_hydrated() -> None:
 
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": json.dumps(stale), "LLM_DEFAULT_MODEL": ""},
+        {
+            "LLM_MODELS": json.dumps(stale),
+            "LLM_DEFAULT_MODEL": "",
+            "OPENAI_API_KEY": "sk-test",
+        },
         clear=False,
     ):
         reload_models()
@@ -79,14 +92,18 @@ def test_image_seed_remains_available_without_language_generation_api() -> None:
             {
                 "id": "image-gen",
                 "model": "image-gen-v1",
-                "api_key": "sk-image",
+                "api_key_env": "OPENAI_API_KEY",
                 "base_url": "https://images.example/v1",
             }
         ]
     )
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": "", "LLM_IMAGE_MODELS": image_seed},
+        {
+            "LLM_MODELS": "",
+            "LLM_IMAGE_MODELS": image_seed,
+            "OPENAI_API_KEY": "sk-image",
+        },
         clear=False,
     ):
         reload_models()
@@ -100,7 +117,11 @@ def test_image_seed_remains_available_without_language_generation_api() -> None:
 def test_full_config_exposes_typed_assessment_not_mirrored_booleans() -> None:
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.6-sol"},
+        {
+            "LLM_MODELS": _gpt_seed(),
+            "LLM_DEFAULT_MODEL": "gpt-5.6-sol",
+            "OPENAI_API_KEY": "sk-test",
+        },
         clear=False,
     ):
         reload_models()
@@ -115,7 +136,11 @@ def test_full_config_exposes_typed_assessment_not_mirrored_booleans() -> None:
 def test_unknown_model_is_not_rerouted() -> None:
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "gpt-5.6-sol"},
+        {
+            "LLM_MODELS": _gpt_seed(),
+            "LLM_DEFAULT_MODEL": "gpt-5.6-sol",
+            "OPENAI_API_KEY": "sk-test",
+        },
         clear=False,
     ):
         reload_models()
@@ -126,10 +151,48 @@ def test_unknown_model_is_not_rerouted() -> None:
 def test_invalid_explicit_default_fails_closed() -> None:
     with patch.dict(
         os.environ,
-        {"LLM_MODELS": _gpt_seed(), "LLM_DEFAULT_MODEL": "missing-model"},
+        {
+            "LLM_MODELS": _gpt_seed(),
+            "LLM_DEFAULT_MODEL": "missing-model",
+            "OPENAI_API_KEY": "sk-test",
+        },
         clear=False,
     ):
         llms, images = reload_models()
 
     assert llms == {}
     assert images == {}
+
+
+def test_env_seed_rejects_embedded_api_key() -> None:
+    stale = json.loads(_gpt_seed())
+    stale[0].pop("api_key_env")
+    stale[0]["api_key"] = "sk-embedded"
+
+    with patch.dict(
+        os.environ,
+        {
+            "LLM_MODELS": json.dumps(stale),
+            "LLM_DEFAULT_MODEL": "",
+            "OPENAI_API_KEY": "sk-test",
+        },
+        clear=False,
+    ):
+        reload_models()
+
+    assert get_llm_models() == []
+
+
+def test_env_seed_fails_closed_when_referenced_secret_is_unset() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "LLM_MODELS": _gpt_seed(),
+            "LLM_DEFAULT_MODEL": "",
+            "OPENAI_API_KEY": "",
+        },
+        clear=False,
+    ):
+        reload_models()
+
+    assert get_llm_models() == []

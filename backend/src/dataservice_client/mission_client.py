@@ -12,6 +12,7 @@ from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionAppendResultPayload,
     MissionApplyCommandsPayload,
+    MissionArtifactPagePayload,
     MissionCancelPayload,
     MissionCheckpointPayload,
     MissionCommitCreatePayload,
@@ -22,6 +23,8 @@ from src.dataservice_client.contracts.mission import (
     MissionCreatePayload,
     MissionCreateResultPayload,
     MissionDispatchReleasePayload,
+    MissionEvidencePagePayload,
+    MissionHistoryPagePayload,
     MissionItemPayload,
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
@@ -40,12 +43,14 @@ from src.dataservice_client.contracts.mission import (
     MissionReviewItemsCreatePayload,
     MissionReviewItemsResultPayload,
     MissionRunnableBatchClaimPayload,
-    MissionRunPagePayload,
     MissionRunPayload,
     MissionStatsPayload,
     MissionStatus,
     MissionUserCommandPayload,
+    MissionUserSummaryPayload,
     MissionViewPayload,
+    MissionViewRunPayload,
+    MissionWorkspaceSummaryPayload,
 )
 
 RequestCallable = Callable[..., Awaitable[dict[str, Any]]]
@@ -77,6 +82,42 @@ class MissionDataServiceClient:
     async def get_view(self, mission_id: str) -> MissionViewPayload | None:
         response = await self._request("GET", f"/internal/v1/missions/{mission_id}/view")
         return MissionViewPayload.model_validate(response["data"]) if response.get("data") else None
+
+    async def list_evidence_projection(
+        self,
+        mission_id: str,
+        *,
+        after_seq: int = 0,
+        limit: int = 50,
+    ) -> MissionEvidencePagePayload | None:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/missions/{mission_id}/evidence",
+            params={"after_seq": after_seq, "limit": limit},
+        )
+        return (
+            MissionEvidencePagePayload.model_validate(response["data"])
+            if response.get("data")
+            else None
+        )
+
+    async def list_artifact_projection(
+        self,
+        mission_id: str,
+        *,
+        after_seq: int = 0,
+        limit: int = 50,
+    ) -> MissionArtifactPagePayload | None:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/missions/{mission_id}/artifacts",
+            params={"after_seq": after_seq, "limit": limit},
+        )
+        return (
+            MissionArtifactPagePayload.model_validate(response["data"])
+            if response.get("data")
+            else None
+        )
 
     async def get_by_idempotency_key(
         self,
@@ -113,6 +154,24 @@ class MissionDataServiceClient:
             else None
         )
 
+    async def get_latest_for_thread(
+        self,
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+    ) -> MissionRunPayload | None:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/workspaces/{workspace_id}/threads/{thread_id}/latest-mission",
+            params={"user_id": user_id},
+        )
+        return (
+            MissionRunPayload.model_validate(response["data"])
+            if response.get("data")
+            else None
+        )
+
     async def cleanup_expired_previews(self, command: MissionPreviewCleanupPayload) -> MissionPreviewCleanupResultPayload:
         return await self._post(
             "/internal/v1/missions/review-previews/cleanup",
@@ -124,11 +183,13 @@ class MissionDataServiceClient:
         self,
         *,
         workspace_id: str,
+        user_id: str | None = None,
         status: list[MissionStatus] | None = None,
         limit: int = 50,
-    ) -> list[MissionRunPayload]:
+    ) -> list[MissionViewRunPayload]:
         page = await self.list_workspace_page(
             workspace_id=workspace_id,
+            user_id=user_id,
             status=status,
             limit=limit,
         )
@@ -142,7 +203,7 @@ class MissionDataServiceClient:
         status: list[MissionStatus] | None = None,
         limit: int = 50,
         cursor: str | None = None,
-    ) -> MissionRunPagePayload:
+    ) -> MissionHistoryPagePayload:
         response = await self._request(
             "GET",
             f"/internal/v1/workspaces/{workspace_id}/missions",
@@ -153,7 +214,33 @@ class MissionDataServiceClient:
                 "cursor": cursor,
             },
         )
-        return MissionRunPagePayload.model_validate(response["data"])
+        return MissionHistoryPagePayload.model_validate(response["data"])
+
+    async def get_workspace_summary(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str | None = None,
+    ) -> MissionWorkspaceSummaryPayload:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/workspaces/{workspace_id}/missions/summary",
+            params={"user_id": user_id},
+        )
+        return MissionWorkspaceSummaryPayload.model_validate(response["data"])
+
+    async def get_user_summary(
+        self,
+        *,
+        user_id: str,
+        recent_limit: int = 10,
+    ) -> MissionUserSummaryPayload:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/users/{user_id}/missions/summary",
+            params={"recent_limit": recent_limit},
+        )
+        return MissionUserSummaryPayload.model_validate(response["data"])
 
     async def list_workspace_changes(
         self,

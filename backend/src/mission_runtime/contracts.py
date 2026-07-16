@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.contracts.reasoning import ReasoningEffort
 from src.dataservice_client.contracts.mission import (
     MissionItemPayload,
     MissionReviewItemDraftPayload,
@@ -18,6 +19,8 @@ from src.dataservice_client.contracts.mission import (
 MISSION_SLICE_WALL_TIME_SECONDS = 180.0
 MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS = 20.0
 MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS = 90.0
+MISSION_MODEL_REQUEST_TIMEOUT_SECONDS = 165.0
+MISSION_MODEL_MAX_OUTPUT_TOKENS = 8_192
 MISSION_TASK_SOFT_TIME_LIMIT_SECONDS = 240
 MISSION_TASK_HARD_TIME_LIMIT_SECONDS = 270
 MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS = 3600
@@ -79,6 +82,9 @@ class MissionSliceLimits(_StrictModel):
     lease_ttl_seconds: int = Field(default=240, ge=5, le=3600)
     heartbeat_interval_seconds: float = Field(default=30.0, gt=0)
     max_consecutive_failures: int = Field(default=3, ge=1, le=20)
+    max_transient_failures: int = Field(default=6, ge=1, le=20)
+    max_operation_failures_per_stage: int = Field(default=8, ge=1, le=50)
+    max_protocol_retries_per_step: int = Field(default=1, ge=0, le=3)
     next_step_reserve_seconds: float = Field(
         default=MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS,
         gt=0,
@@ -96,14 +102,14 @@ class MissionStartRequest(_StrictModel):
     thread_id: str | None = Field(default=None, max_length=36)
     user_id: str = Field(min_length=1, max_length=36)
     workspace_type: str = Field(min_length=1, max_length=50)
-    title: str = Field(min_length=1, max_length=300)
+    title: str = Field(min_length=1, max_length=60)
     objective: str = Field(min_length=1, max_length=20_000)
     mission_idempotency_key: str = Field(min_length=1, max_length=160)
     mission_policy_id: str | None = Field(default=None, max_length=120)
     parent_mission_id: str | None = Field(default=None, max_length=36)
     review_mode: MissionReviewMode = MissionReviewMode.BALANCED_DEFAULT
     model_id: str = Field(min_length=1, max_length=120)
-    reasoning_effort: Literal["low", "medium", "high", "xhigh"]
+    reasoning_effort: ReasoningEffort
     snapshot_json: dict[str, Any] = Field(default_factory=dict)
     runtime_context_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -173,13 +179,22 @@ class MissionAgentDecision(_StrictModel):
         return self
 
 
+class MissionAgentProtocolError(RuntimeError):
+    """A model response violated the structured Mission agent contract."""
+
+
 class MissionLoopContext(_StrictModel):
     mission: MissionRunPayload
     pending_commands: list[MissionItemPayload] = Field(default_factory=list)
     recent_items: list[MissionItemPayload] = Field(default_factory=list)
+    reference_items: list[MissionItemPayload] = Field(
+        default_factory=list,
+        max_length=300,
+    )
     model_turns_used: int = Field(ge=0)
     tool_steps_used: int = Field(ge=0)
     deadline_monotonic: float
+    protocol_feedback: str | None = Field(default=None, max_length=1000)
 
 
 class ToolExecutionRequest(_StrictModel):
@@ -215,6 +230,7 @@ class StageQualityRequest(_StrictModel):
     candidate_refs: list[str] = Field(default_factory=list, max_length=100)
     assessment_json: dict[str, Any] = Field(default_factory=dict)
     recent_items: list[MissionItemPayload] = Field(default_factory=list, max_length=100)
+    reference_items: list[MissionItemPayload] = Field(default_factory=list, max_length=1000)
     deadline_monotonic: float
 
 
@@ -223,6 +239,8 @@ class ReviewCandidateRequest(_StrictModel):
     operation_id: str
     stage_id: str | None = None
     candidate_json: dict[str, Any] = Field(default_factory=dict)
+    accepted_candidate_refs: list[str] = Field(min_length=1, max_length=100)
+    reference_items: list[MissionItemPayload] = Field(default_factory=list, max_length=1000)
     deadline_monotonic: float
 
 
@@ -232,8 +250,6 @@ class MissionPortOutcome(_StrictModel):
     payload_json: dict[str, Any] = Field(default_factory=dict)
     payload_ref: str | None = Field(default=None, max_length=2048)
     risk_level: Literal["low", "medium", "high"] | None = None
-    evidence_count_delta: int = Field(default=0, ge=0, le=10_000)
-    artifact_count_delta: int = Field(default=0, ge=0, le=10_000)
     snapshot_patch: dict[str, Any] = Field(default_factory=dict)
     pause_request: MissionPauseRequest | None = None
 

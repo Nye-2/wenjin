@@ -59,37 +59,10 @@ export async function cancelThreadRun(
   );
 }
 
-export async function getRun(runId: string): Promise<RunResponse> {
-  const response = await apiClient.get(`/runs/${encodeURIComponent(runId)}`);
-  return response.data;
-}
-
-export async function cancelRun(
-  runId: string,
-  options: {
-    action?: RunCancelAction;
-    wait?: boolean;
-  } = {}
-): Promise<void> {
-  const query = new URLSearchParams();
-  if (options.action) {
-    query.set("action", options.action);
-  }
-  if (typeof options.wait === "boolean") {
-    query.set("wait", options.wait ? "true" : "false");
-  }
-  const suffix = query.toString();
-  await apiClient.post(
-    `/runs/${encodeURIComponent(runId)}/cancel${suffix ? `?${suffix}` : ""}`
+export async function deleteThreadRun(threadId: string, runId: string): Promise<void> {
+  const response = await fetch(
+    `/api/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(runId)}`,
+    { method: "DELETE" },
   );
-}
-
-export async function waitRun(data: RunRequest): Promise<RunWaitResponse> {
-  const response = await apiClient.post("/runs/wait", data);
-  return response.data;
-}
-
-export async function deleteRunLifecycle(runId: string): Promise<void> {
-  const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`DELETE run failed: ${res.status}`);
+  if (!response.ok) throw new Error(`DELETE run failed: ${response.status}`);
 }

@@ -135,7 +135,10 @@ def artifact_inputs(
     operation_input: SandboxOperationInput,
 ) -> tuple[str | None, tuple[str, ...]]:
     if isinstance(operation_input, RunPythonInput):
-        return operation_input.script_path, operation_input.dataset_paths
+        return (
+            operation_input.script_path,
+            operation_input.dataset_paths + operation_input.artifact_input_paths,
+        )
     if isinstance(operation_input, RunNotebookInput):
         return operation_input.notebook_path, operation_input.dataset_paths
     return None, ()

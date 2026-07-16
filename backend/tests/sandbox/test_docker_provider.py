@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -84,13 +85,41 @@ class _FakeGateway:
         )
 
 
-class _DispatchFailureClient:
-    class _Containers:
-        @staticmethod
-        def run(**_kwargs):
-            raise DockerException("connection lost during dispatch")
+class _StartFailureContainer:
+    def __init__(self, *, state_known: bool) -> None:
+        self.state_known = state_known
+        self.removed = False
+        self.attrs = {
+            "State": {
+                "Running": False,
+                "StartedAt": "0001-01-01T00:00:00Z",
+            }
+        }
 
-    containers = _Containers()
+    def start(self) -> None:
+        raise DockerException("connection lost during dispatch")
+
+    def reload(self) -> None:
+        if not self.state_known:
+            raise DockerException("daemon state unavailable")
+
+    def remove(self, *, force: bool) -> None:
+        assert force is True
+        self.removed = True
+
+
+class _StartFailureClient:
+    def __init__(self, *, state_known: bool) -> None:
+        self.container = _StartFailureContainer(state_known=state_known)
+
+        class _Containers:
+            def __init__(inner_self, outer: _StartFailureClient) -> None:
+                inner_self.outer = outer
+
+            def create(inner_self, **_kwargs):
+                return inner_self.outer.container
+
+        self.containers = _Containers(self)
 
 
 def _provenance() -> SandboxMissionProvenance:
@@ -178,7 +207,8 @@ def _config(**changes) -> DockerSandboxConfig:
 
 @pytest.mark.asyncio
 async def test_docker_dispatch_error_is_treated_as_an_uncertain_effect() -> None:
-    gateway = DockerSdkGateway(client=_DispatchFailureClient())
+    client = _StartFailureClient(state_known=False)
+    gateway = DockerSdkGateway(client=client)
 
     with pytest.raises(SandboxProviderError) as captured:
         await gateway.run_container(
@@ -190,6 +220,25 @@ async def test_docker_dispatch_error_is_treated_as_an_uncertain_effect() -> None
         )
 
     assert captured.value.effect_uncertain
+    assert client.container.removed
+
+
+@pytest.mark.asyncio
+async def test_confirmed_never_started_container_is_cleaned_without_reconciliation() -> None:
+    client = _StartFailureClient(state_known=True)
+    gateway = DockerSdkGateway(client=client)
+
+    with pytest.raises(SandboxProviderError) as captured:
+        await gateway.run_container(
+            image_reference=f"{IMAGE}@{IMAGE_DIGEST}",
+            command=("python3", "-c", "print('ok')"),
+            create_options={},
+            timeout_seconds=10,
+            capture_bytes=1024,
+        )
+
+    assert not captured.value.effect_uncertain
+    assert client.container.removed
 
 
 @pytest.mark.asyncio
@@ -230,6 +279,56 @@ async def test_operation_container_enforces_hardening_and_resource_limits(tmp_pa
     assert all("control" not in source for source in options["volumes"])
     assert "devices" not in options
     assert "ports" not in options
+
+
+@pytest.mark.asyncio
+async def test_operation_container_mounts_declared_artifact_inputs_read_only(
+    tmp_path,
+) -> None:
+    artifact_path = "/workspace/outputs/q3_plot_data.csv"
+    operation_input = RunPythonInput(
+        script="print('ok')\n",
+        artifact_input_paths=(artifact_path,),
+    )
+    request = SandboxOperationRequest.build(
+        provenance=_provenance(),
+        operation_input=operation_input,
+        image_digest=IMAGE_DIGEST,
+        input_hashes={
+            "script": content_hash_bytes(operation_input.script.encode()),
+            f"artifact:{artifact_path}": content_hash_bytes(b"policy,cost\nB0,1\n"),
+        },
+    )
+    source = tmp_path / "workspaces" / "workspace-1" / "public" / "outputs" / "q3_plot_data.csv"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"policy,cost\nB0,1\n")
+    job = _prepared_job(tmp_path, request)
+    job = replace(
+        job,
+        mounts=job.mounts
+        + (
+            SandboxMount(
+                source=source,
+                target=artifact_path,
+                read_only=True,
+            ),
+        ),
+    )
+    gateway = _FakeGateway()
+    provider = DockerSandboxProvider(
+        _config(),
+        sandbox_root=tmp_path,
+        preflight_mode="release",
+        gateway=gateway,
+    )
+
+    await provider.execute(job)
+
+    [call] = gateway.run_calls
+    assert call["create_options"]["volumes"][str(source.resolve())] == {
+        "bind": artifact_path,
+        "mode": "ro",
+    }
 
 
 @pytest.mark.asyncio

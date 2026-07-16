@@ -39,12 +39,12 @@ minimum_context:
   existing_draft:
     requirement: optional
 stage_contract_refs:
-  - {contract_id: thesis_research.scope, schema_version: stage_acceptance_contract.v1, sha256: 4f0654db15a2b55dbc8e9cd793a9a341d66e1a2f9b5070adad875c7dcc87ab6c}
-  - {contract_id: thesis_research.literature_framework, schema_version: stage_acceptance_contract.v1, sha256: 66c262305328ff06bfe5727c10e8629958a53276cd78df4d4876179161c89c32}
-  - {contract_id: thesis_research.method_design, schema_version: stage_acceptance_contract.v1, sha256: 5fa419b86aa195f34a7b296ad1abcca205a3d75216f63ac23aac6b0201775fbb}
-  - {contract_id: thesis_research.chapter_writing, schema_version: stage_acceptance_contract.v1, sha256: 26ecddb8d9a81fb040e5a0b766da9385f9bd9d8459dba4296981b88303adb73d}
+  - {contract_id: thesis_research.scope, schema_version: stage_acceptance_contract.v2, sha256: 64b62eb9eaef4a55e6042f164acccb9043bf66c2316e347c577b700ed57bd8fe}
+  - {contract_id: thesis_research.literature_framework, schema_version: stage_acceptance_contract.v2, sha256: 58c995c63d9bd7dd45f2f5f6cee1a7075733696167b9de279b3e6e392b5bfcea}
+  - {contract_id: thesis_research.method_design, schema_version: stage_acceptance_contract.v2, sha256: 798ea904614122ef51e3fa3c96fb3cbebcdda6aeb5622a3ab49f65b4157d36a5}
+  - {contract_id: thesis_research.chapter_writing, schema_version: stage_acceptance_contract.v2, sha256: ebd4f279b28346dd0959e92ed8187ce4924e23357843abebce7c0da58f78ab8a}
 tool_policy:
-  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, academic_visual_render, draft_stage]
+  allowed_tool_groups: [workspace_read, artifact_candidate_read, model_native_web_search, source_import, sandbox_compute, sandbox_read, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell]
 allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, experiment-analyst, academic-visual-engineer, manuscript-writer, citation-auditor, quality-critic]
 review_policy:
@@ -61,10 +61,13 @@ anti_examples:
     failure_reason: 内容无法验证，也无法证明对论文主问题的贡献。
 completion_contract:
   default_target: research_plan
-  target_stage_sets:
-    research_plan: [scope, literature_framework, method_design]
-    chapter_draft: [scope, literature_framework, method_design, chapter_writing]
-  terminal_outputs: [research_brief, chapter_evidence_map, methodology_plan, thesis_draft]
+  targets:
+    research_plan:
+      stage_ids: [scope, literature_framework, method_design]
+      terminal_output_kinds: [methodology_plan]
+    chapter_draft:
+      stage_ids: [scope, literature_framework, method_design, chapter_writing]
+      terminal_output_kinds: [thesis_draft]
   allow_safe_partial_outputs: true
 delivery_profile_refs:
   - {profile_id: thesis_school_template, version: 1}

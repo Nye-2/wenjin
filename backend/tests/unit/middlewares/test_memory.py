@@ -153,43 +153,6 @@ class TestMemoryMiddleware:
 class TestFilterMessagesForMemory:
     """Focused tests for memory message filtering."""
 
-    @staticmethod
-    def _upload_block() -> str:
-        return (
-            "<uploaded_files>\n"
-            "- file.pdf (1024 bytes): /mnt/user-data/uploads/thread/file.pdf\n"
-            "</uploaded_files>"
-        )
-
-    def test_upload_only_turn_and_paired_ai_are_dropped(self):
-        from src.agents.middlewares.memory import _filter_messages_for_memory
-
-        result = _filter_messages_for_memory(
-            [
-                HumanMessage(content=self._upload_block()),
-                AIMessage(content="I have loaded the uploaded file."),
-            ]
-        )
-
-        assert result == []
-
-    def test_upload_block_is_removed_but_real_question_is_kept(self):
-        from src.agents.middlewares.memory import _filter_messages_for_memory
-
-        result = _filter_messages_for_memory(
-            [
-                HumanMessage(
-                    content=f"{self._upload_block()}\n\n请总结这个文件的关键结论。"
-                ),
-                AIMessage(content="这个文件主要讨论了实验设计。"),
-            ]
-        )
-
-        assert len(result) == 2
-        assert result[0].content == "请总结这个文件的关键结论。"
-        assert "/mnt/user-data/uploads/" not in result[0].content
-        assert result[1].content == "这个文件主要讨论了实验设计。"
-
     def test_tool_messages_and_tool_call_ai_are_excluded(self):
         from src.agents.middlewares.memory import _filter_messages_for_memory
 

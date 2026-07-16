@@ -1,7 +1,7 @@
 # 12 ToolOrchestrator Spec
 
 Status: Implemented; provider search capability currently conditional
-Updated: 2026-07-11
+Updated: 2026-07-15
 
 Implementation outcome: the frozen canonical ToolCatalog, all Mission tool groups, operation ledger, fencing, policy narrowing, receipts, error taxonomy, model profiles, and independent Responses SSE native-search adapter are implemented. Search-required missions remain correctly unavailable until a live probe returns complete search/source/citation receipts.
 Depends on: `02_mission_runtime.md`, `05_capability_skill_lite.md`, `09_permission_pause.md`, `10_sandbox_vnext.md`
@@ -12,7 +12,9 @@ Give WorkspaceAgent and every subagent one canonical tool boundary. ToolOrchestr
 
 It does not own MissionRun lifecycle, subagent lifecycle, stage acceptance, user-facing narration, MissionReviewItem decisions, MissionCommit, or room-domain writes.
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|
@@ -227,7 +229,11 @@ Rules:
 - Standard tool probe requires a provider tool frame, the expected function name, and schema-valid non-empty arguments.
 - Native search probe requires a cleanly completed protocol response, a real search call receipt, and URL citation/source metadata. A plausible answer/URL in prose or a malformed/incomplete transport response is failure.
 - User-selected models are never silently rerouted. WorkspaceAgent may ask to switch to a verified model or narrow the task.
-- Current 2026-07-10 release baseline contains only `gpt-5.5`. Chat Completions cleanly terminates and returns strict standard function args, so it is the sole generation API with default `xhigh` effort and `store=false`. Root `/responses` returns valid text, strict function calls, native `web_search_call` events, source receipts, and URL citations, but closes HTTP/1.1 chunked and HTTP/2 streams abnormally after `response.completed`; both the OpenAI SDK and raw clients surface transport errors. It therefore fails protocol conformance and is not retained as a runtime fallback. Search release depends on OQ1 in `../mission-runtime-open-questions.md`.
+- The current baseline enables only `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`, with Terra as the default. Main generation uses Chat Completions with the user's `low | medium | high | xhigh` effort and `store=false`. Native web search is a separate Responses SSE tool transport exposed only after the exact model/endpoint probe proves a completed `web_search_call`, source receipts, URL citations, and the final completion boundary. There is no alternate provider or protocol fallback.
+
+Canonical selected refs are prefix-routed, never guessed. `mission-input:<sha256>` requires `workspace.read_input` and a manifest pinned to the current Mission; `prism-file:`, `artifact-candidate:`, and `sandbox-artifact:` resolve through their own typed readers. A verified `artifact-candidate:` is also valid provenance for a downstream candidate, preserving immutable inter-stage derivation. A subagent receives only refs readable by its pinned tool scope.
+
+Sandbox process exit is distinct from platform failure. A non-zero user script exits as `execution_failed`, carries bounded stderr, is recoverable by a revised model operation, and is never retried inline under the same operation identity. Provider, orchestration, or infrastructure faults use their own typed failures; `internal_error` is not a label for a failed scientific assertion.
 
 ## Model-Native Web Search
 

@@ -153,6 +153,7 @@ class MissionRuntimeService:
         input_kind: str,
         instruction: str,
         request_id: str | None = None,
+        mission_inputs: tuple[dict[str, Any], ...] = (),
     ) -> MissionRunPayload:
         current = await self.dataservice.missions.get(mission_id)
         if current is None:
@@ -171,7 +172,11 @@ class MissionRuntimeService:
             return await self.resume(
                 mission_id,
                 request_id=request_id,
-                input_json={"kind": input_kind, "instruction": instruction},
+                input_json={
+                    "kind": input_kind,
+                    "instruction": instruction,
+                    "mission_inputs": list(mission_inputs),
+                },
             )
         if input_kind == "advisory":
             raise ValueError("Advisory input must remain in chat")
@@ -181,7 +186,10 @@ class MissionRuntimeService:
                 command_id=command_id,
                 command_type=input_kind,
                 summary=instruction,
-                payload_json={"instruction": instruction},
+                payload_json={
+                    "instruction": instruction,
+                    "mission_inputs": list(mission_inputs),
+                },
             ),
         )
         await self.runtime.wakeups.publish(mission_id, command_hint=command_id)
@@ -261,10 +269,7 @@ class MissionRuntimeService:
             decisions=decisions,
             bulk=bulk,
         )
-        if any(
-            outcome.applied and outcome.status != "accepted"
-            for outcome in result.outcomes
-        ):
+        if any(outcome.applied and outcome.status != "accepted" for outcome in result.outcomes):
             await self.runtime.notify_runnable(
                 mission_id,
                 command_hint=decision_id,

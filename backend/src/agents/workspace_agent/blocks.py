@@ -21,6 +21,12 @@ class StatusLineBlock(BaseModel):
     run_id: str
     phase_index: int | None = None
     tone: Literal["info", "warn", "error"] = "info"
+    action: Literal[
+        "start_mission",
+        "steer_mission",
+        "propose_review",
+        "request_commit",
+    ] | None = None
 
 
 class Pill(BaseModel):

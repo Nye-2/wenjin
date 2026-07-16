@@ -40,14 +40,12 @@ class ThreadCreate(BaseModel):
     workspace_id: str | None = None
     title: str | None = None
     model: str | None = None
-    skill: str | None = None
 
 
 class WorkspaceThreadEnsureRequest(BaseModel):
     """Ensure the canonical workspace thread exists."""
 
     model: str | None = None
-    skill: str | None = None
 
 
 class ThreadResponse(BaseModel):
@@ -57,8 +55,6 @@ class ThreadResponse(BaseModel):
     workspace_id: str | None
     title: str | None
     model: str
-    skill: str | None
-    skill_name: str | None = None
     messages: list[ThreadMessage]
     created_at: datetime
     updated_at: datetime
@@ -71,8 +67,6 @@ class ThreadSummaryResponse(BaseModel):
     workspace_id: str | None
     title: str | None
     model: str
-    skill: str | None
-    skill_name: str | None = None
     message_count: int = 0
     last_message_preview: str | None = None
     last_message_role: str | None = None

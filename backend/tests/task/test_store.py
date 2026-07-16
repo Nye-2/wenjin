@@ -317,7 +317,7 @@ class TestTaskStorePostgres:
         assert state["metadata"] == {"current_phase": "compile"}
 
     @pytest.mark.asyncio
-    async def test_mark_task_completed_publishes_canonical_task_activity(
+    async def test_mark_task_completed_does_not_duplicate_mission_activity(
         self,
         task_store,
         monkeypatch: pytest.MonkeyPatch,
@@ -351,14 +351,12 @@ class TestTaskStorePostgres:
 
         first_payload = publish_workspace_event.await_args_list[0].args[2]
         second_payload = publish_workspace_event.await_args_list[1].args[2]
-        assert first_payload["activity"]["id"] == "task:test-task-event"
-        assert first_payload["activity"]["status"] == "success"
-        assert first_payload["activity"]["summary"] == "Collecting papers"
+        assert "activity" not in first_payload
         assert second_payload["refresh_targets"] == ["dashboard", "artifacts"]
 
 
     @pytest.mark.asyncio
-    async def test_mark_task_started_publishes_running_activity(
+    async def test_mark_task_started_does_not_duplicate_mission_activity(
         self,
         task_store,
         monkeypatch: pytest.MonkeyPatch,
@@ -382,10 +380,7 @@ class TestTaskStorePostgres:
 
         payload = publish_workspace_event.await_args.args[2]
         assert payload["task"]["status"] == "running"
-        assert payload["activity"]["id"] == "task:test-task-started"
-        assert payload["activity"]["status"] == "running"
-        assert payload["activity"]["mission_id"] is None
-        assert payload["activity"]["mission_policy_id"] is None
+        assert "activity" not in payload
 
     @pytest.mark.asyncio
     async def test_persist_runtime_state_writes_runtime_to_record(self, task_store):

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from pydantic import ValidationError
+
 from src.config.extensions_config import (
     ExtensionsConfig,
     get_extensions_config,
@@ -26,9 +29,6 @@ def test_extensions_config_from_file_resolves_env_variables(tmp_path, monkeypatc
                         "env": {"API_KEY": "$MCP_API_KEY"},
                     }
                 },
-                "skills": {
-                    "deep-research": {"enabled": False},
-                },
             }
         ),
         encoding="utf-8",
@@ -37,42 +37,39 @@ def test_extensions_config_from_file_resolves_env_variables(tmp_path, monkeypatc
     config = ExtensionsConfig.from_file(str(config_path))
 
     assert config.mcp_servers["remote"].env["API_KEY"] == "secret-key"
-    assert config.skills["deep-research"].enabled is False
 
 
-def test_extensions_config_skill_default_behavior():
-    config = ExtensionsConfig()
-
-    assert config.is_skill_enabled("deep-research", "public") is True
-    assert config.is_skill_enabled("internal-worker", "private") is False
+def test_extensions_config_rejects_obsolete_thread_skills():
+    with pytest.raises(ValidationError, match="skills"):
+        ExtensionsConfig.model_validate({"mcpServers": {}, "skills": {"old": {}}})
 
 
 def test_extensions_config_cache_helpers_reload_from_disk(tmp_path, monkeypatch):
     config_path = tmp_path / "extensions_config.json"
     config_path.write_text(
-        json.dumps({"mcpServers": {}, "skills": {"deep-research": {"enabled": True}}}),
+        json.dumps({"mcpServers": {}}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("GUANLAN_EXTENSIONS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("WENJIN_EXTENSIONS_CONFIG_PATH", str(config_path))
     reset_extensions_config()
 
     cached = get_extensions_config()
-    assert cached.skills["deep-research"].enabled is True
+    assert cached.mcp_servers == {}
 
     config_path.write_text(
-        json.dumps({"mcpServers": {}, "skills": {"deep-research": {"enabled": False}}}),
+        json.dumps({"mcpServers": {"local": {"type": "stdio", "command": "echo"}}}),
         encoding="utf-8",
     )
 
     reloaded = reload_extensions_config()
-    assert reloaded.skills["deep-research"].enabled is False
+    assert reloaded.mcp_servers["local"].command == "echo"
 
 
 def test_extensions_config_ignores_legacy_env_vars(tmp_path, monkeypatch):
     legacy_path = tmp_path / "legacy_extensions.json"
     legacy_path.write_text(json.dumps({"mcpServers": {"legacy": {"enabled": True, "type": "stdio", "command": "echo"}}}), encoding="utf-8")
 
-    monkeypatch.delenv("GUANLAN_EXTENSIONS_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("WENJIN_EXTENSIONS_CONFIG_PATH", raising=False)
     monkeypatch.setenv("ACADEMIAGPT_EXTENSIONS_CONFIG_PATH", str(legacy_path))
     monkeypatch.setenv("DEER_FLOW_EXTENSIONS_CONFIG_PATH", str(legacy_path))
 

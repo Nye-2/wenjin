@@ -6,12 +6,15 @@ import type {
   MissionEvidenceView,
   MissionItem,
   MissionPage,
+  MissionProjectionPage,
   MissionReviewDecision,
   MissionReviewItemView,
   MissionReviewPreviewFile,
   MissionReviewMode,
   MissionStageView,
+  MissionSubagentView,
   MissionSummary,
+  MissionWorkspaceSummary,
   MissionView,
   MissionVisualReviewMetadata,
 } from "./mission-types";
@@ -50,7 +53,6 @@ interface MissionItemWire {
   stage_id?: string | null;
   producer?: string | null;
   summary?: string | null;
-  payload_json?: Json;
   payload_ref?: string | null;
   created_at: string;
 }
@@ -78,6 +80,13 @@ interface MissionCommitWire {
 
 interface MissionViewWire {
   mission: MissionRunWire;
+  activity: {
+    state: MissionView["activity"]["state"];
+    title: string;
+    summary?: string | null;
+    attempt?: number | null;
+    retry_at?: string | null;
+  };
   attention_request: {
     request_id: string;
     reason: string;
@@ -104,12 +113,13 @@ interface MissionViewWire {
   required_stage_ids: string[];
   stage_summaries: Array<{ stage_id: string; title: string; status: MissionStageView["status"]; summary?: string | null }>;
   team_summary?: string | null;
-  subagents: Array<{ subagent_id: string; display_name: string; role_label: string; status: string; summary?: string | null }>;
+  subagents: Array<{ subagent_id: string; display_name: string; role_label: string; status: MissionSubagentView["status"]; summary?: string | null }>;
   evidence_items: Array<{ item_id: string; seq: number; title: string; source_type: MissionEvidenceView["sourceType"]; source_label?: string | null; summary?: string | null; citation?: string | null; verified: boolean }>;
   evidence_page: { total: number; returned: number; next_cursor?: number | null };
   artifact_items: Array<{ item_id: string; seq: number; title: string; kind: string; summary?: string | null; preview_available: boolean; committed: boolean }>;
   artifact_page: { total: number; returned: number; next_cursor?: number | null };
   review_policy: { mode: MissionReviewMode; protected_outputs_require_confirmation: boolean; draft_outputs_may_be_automatic: boolean };
+  review_selection_revision: string;
   quality_highlights: string[];
   refresh_token: string;
 }
@@ -130,8 +140,7 @@ function durationSeconds(run: MissionRunWire): number | null {
 }
 
 function missionItem(wire: MissionItemWire): MissionItem {
-  const item = { id: wire.id, missionId: wire.mission_id, seq: wire.seq, itemType: wire.item_type, phase: wire.phase, stageId: wire.stage_id, producer: wire.producer, summary: wire.summary, createdAt: wire.created_at, detailAvailable: Boolean(wire.payload_ref), payload: wire.payload_json, payloadRef: wire.payload_ref };
-  return item;
+  return { id: wire.id, missionId: wire.mission_id, seq: wire.seq, itemType: wire.item_type, phase: wire.phase, stageId: wire.stage_id, producer: wire.producer, summary: wire.summary, createdAt: wire.created_at, detailAvailable: Boolean(wire.payload_ref) };
 }
 
 function nonemptyString(value: unknown): string | null {
@@ -224,6 +233,13 @@ function projectView(wire: MissionViewWire): MissionView {
     objective: run.objective,
     executionStatus: run.status,
     statusLabel: statusLabel(run.status),
+    activity: {
+      state: wire.activity.state,
+      title: wire.activity.title,
+      summary: wire.activity.summary,
+      attempt: wire.activity.attempt,
+      retryAt: wire.activity.retry_at,
+    },
     attentionRequest: wire.attention_request
       ? {
           requestId: wire.attention_request.request_id,
@@ -255,22 +271,24 @@ function projectView(wire: MissionViewWire): MissionView {
     stages,
     requiredStageIds: wire.required_stage_ids,
     teamSummary: wire.team_summary,
-    subagents: wire.subagents.map((item) => ({ id: item.subagent_id, name: item.display_name, role: item.role_label, status: item.status === "completed" ? "done" : item.status === "needs_input" ? "needs_input" : "working", summary: item.summary })),
+    subagents: wire.subagents.map((item) => ({ id: item.subagent_id, name: item.display_name, role: item.role_label, status: item.status, summary: item.summary })),
     evidenceItems,
     artifactItems,
     evidenceNextCursor: wire.evidence_page.next_cursor,
     artifactNextCursor: wire.artifact_page.next_cursor,
     evidenceCount: run.evidence_count,
-    artifactCount: run.artifact_count,
+    artifactCount: wire.artifact_page.total,
     reviewItems,
     reviewSummary: { pending: wire.review_summary.pending, needsMoreEvidence: wire.review_summary.needs_more_evidence, accepted: wire.review_summary.accepted, committed: wire.review_summary.committed },
     reviewMode: run.review_mode,
     reviewPolicy: { protectedOutputsRequireConfirmation: wire.review_policy.protected_outputs_require_confirmation, draftOutputsMayBeAutomatic: wire.review_policy.draft_outputs_may_be_automatic },
-    reviewSelectionRevision: run.state_version,
+    reviewSelectionRevision: wire.review_selection_revision,
     commitSummary: wire.commit_summary,
     qualityHighlights: wire.quality_highlights,
     lastItemSeq: run.last_item_seq,
     stateVersion: run.state_version,
+    isStale: false,
+    loadError: null,
   };
 }
 
@@ -283,7 +301,48 @@ export async function listWorkspaceMissions(workspaceId: string, query?: string)
   );
   const runs = page.items;
   const needle = query?.trim().toLowerCase();
-  return runs.filter((run) => !needle || run.title.toLowerCase().includes(needle)).map((run) => ({ missionId: run.mission_id, title: run.title, executionStatus: run.status, statusLabel: statusLabel(run.status), updatedAt: run.updated_at, durationSeconds: durationSeconds(run), activeStage: run.active_stage_id, pendingReviewCount: run.pending_review_count, evidenceCount: run.evidence_count, artifactCount: run.artifact_count }));
+  return runs
+    .filter((run) => !needle || run.title.toLowerCase().includes(needle))
+    .map(missionSummary);
+}
+
+function missionSummary(run: MissionRunWire): MissionSummary {
+  return {
+    missionId: run.mission_id,
+    title: run.title,
+    executionStatus: run.status,
+    statusLabel: statusLabel(run.status),
+    updatedAt: run.updated_at,
+    durationSeconds: durationSeconds(run),
+    activeStage: run.active_stage_id,
+    pendingReviewCount: run.pending_review_count,
+    evidenceCount: run.evidence_count,
+    artifactCount: run.artifact_count,
+  };
+}
+
+export async function getWorkspaceMissionSummary(workspaceId: string): Promise<MissionWorkspaceSummary> {
+  const response = await authorizedFetch(
+    `${API}/workspaces/${encodeURIComponent(workspaceId)}/missions/summary`,
+  );
+  const payload = await readJson<{
+    total: number;
+    status_counts: Record<string, number>;
+    pending_review_count: number;
+    evidence_count: number;
+    artifact_count: number;
+    latest: MissionRunWire | null;
+    active: MissionRunWire | null;
+  }>(response, "研究任务概览加载失败");
+  return {
+    total: payload.total,
+    statusCounts: payload.status_counts,
+    pendingReviewCount: payload.pending_review_count,
+    evidenceCount: payload.evidence_count,
+    artifactCount: payload.artifact_count,
+    latest: payload.latest ? missionSummary(payload.latest) : null,
+    active: payload.active ? missionSummary(payload.active) : null,
+  };
 }
 
 export async function getMissionView(missionId: string): Promise<MissionView> {
@@ -318,90 +377,43 @@ export async function listMissionItems(options: { missionId: string; cursor?: st
   return { items: payload.items.map(missionItem), nextCursor: payload.next_cursor == null ? null : String(payload.next_cursor) };
 }
 
-function textValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function evidenceFromItem(item: MissionItem): MissionEvidenceView {
-  const payload = (item as MissionItem & { payload?: Json }).payload ?? {};
-  const sourceType = payload.source_type;
-  return {
-    id: item.id,
-    title: textValue(payload.title) ?? item.summary ?? "研究证据",
-    sourceType:
-      sourceType === "web_page" || sourceType === "dataset" || sourceType === "upload"
-        ? sourceType
-        : "paper",
-    sourceLabel: textValue(payload.source_label) ?? textValue(payload.source),
-    summary: textValue(payload.summary) ?? item.summary,
-    citation: textValue(payload.citation),
-    verified: payload.verified === true,
-  };
-}
-
-function artifactFromItem(
-  item: MissionItem,
-  committedReviewItemIds: ReadonlySet<string>,
-): MissionArtifactView {
-  const projectedItem = item as MissionItem & { payload?: Json; payloadRef?: string | null };
-  const payload = projectedItem.payload ?? {};
-  const reviewItemId = textValue(payload.review_item_id);
-  return {
-    id: item.id,
-    title: textValue(payload.title) ?? item.summary ?? "研究成果",
-    kind: textValue(payload.kind) ?? item.itemType,
-    summary: textValue(payload.summary) ?? item.summary,
-    previewAvailable: Boolean(projectedItem.payloadRef || Object.keys(payload).length),
-    committed: Boolean(reviewItemId && committedReviewItemIds.has(reviewItemId)),
-  };
-}
-
-async function listMissionItemsByType(options: {
-  missionId: string;
-  cursor: number;
-  itemTypes: ReadonlySet<string>;
-}): Promise<MissionPage<MissionItem>> {
-  const limit = 100;
-  let cursor: string | null = String(options.cursor);
-  const matching: MissionItem[] = [];
-
-  for (let pageIndex = 0; pageIndex < 5 && cursor !== null && matching.length < 50; pageIndex += 1) {
-    const page = await listMissionItems({ missionId: options.missionId, cursor, limit });
-    matching.push(...page.items.filter((item) => options.itemTypes.has(item.itemType)));
-    cursor = page.items.length < limit ? null : page.nextCursor;
-  }
-
-  return { items: matching, nextCursor: cursor };
-}
-
 export async function listMissionEvidence(options: {
   missionId: string;
   cursor: number;
-}): Promise<MissionPage<MissionEvidenceView>> {
-  const page = await listMissionItemsByType({
-    ...options,
-    itemTypes: new Set(["evidence"]),
-  });
-  return { items: page.items.map(evidenceFromItem), nextCursor: page.nextCursor };
+  limit?: number;
+}): Promise<MissionProjectionPage<MissionEvidenceView>> {
+  const params = new URLSearchParams({ cursor: String(options.cursor), limit: String(options.limit ?? 50) });
+  const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(options.missionId)}/evidence?${params}`);
+  const payload = await readJson<{
+    items: MissionViewWire["evidence_items"];
+    page: MissionViewWire["evidence_page"];
+  }>(response, "证据加载失败");
+  return {
+    items: payload.items.map((item) => ({ id: item.item_id, title: item.title, sourceType: item.source_type, sourceLabel: item.source_label, summary: item.summary, citation: item.citation, verified: item.verified })),
+    nextCursor: payload.page.next_cursor ?? null,
+    total: payload.page.total,
+  };
 }
 
 export async function listMissionArtifacts(options: {
   missionId: string;
   cursor: number;
-  committedReviewItemIds: ReadonlySet<string>;
-}): Promise<MissionPage<MissionArtifactView>> {
-  const page = await listMissionItemsByType({
-    missionId: options.missionId,
-    cursor: options.cursor,
-    itemTypes: new Set(["artifact", "output"]),
-  });
+  limit?: number;
+}): Promise<MissionProjectionPage<MissionArtifactView>> {
+  const params = new URLSearchParams({ cursor: String(options.cursor), limit: String(options.limit ?? 50) });
+  const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(options.missionId)}/artifacts?${params}`);
+  const payload = await readJson<{
+    items: MissionViewWire["artifact_items"];
+    page: MissionViewWire["artifact_page"];
+  }>(response, "成果加载失败");
   return {
-    items: page.items.map((item) => artifactFromItem(item, options.committedReviewItemIds)),
-    nextCursor: page.nextCursor,
+    items: payload.items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed })),
+    nextCursor: payload.page.next_cursor ?? null,
+    total: payload.page.total,
   };
 }
 
-export async function decideMissionReviews(options: { missionId: string; reviewSelectionRevision: number; decisions: MissionReviewDecision[] }): Promise<MissionView> {
+export async function decideMissionReviews(options: { missionId: string; decisions: MissionReviewDecision[] }): Promise<MissionView> {
   const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(options.missionId)}/review-decisions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -431,7 +443,7 @@ export async function updateMissionReviewMode(missionId: string, reviewMode: Mis
   return getMissionView(missionId);
 }
 
-export function subscribeMissionEvents(options: { workspaceId: string; cursor?: string; onEvent(event: MissionEventHint): void; onReconnect(): void }): () => void {
+export function subscribeMissionEvents(options: { workspaceId: string; cursor?: string; onEvent(event: MissionEventHint): void; onReconnect(): void; onError?(message: string): void }): () => void {
   const controller = new AbortController();
   let cursor = options.cursor;
   const wait = (milliseconds: number) => new Promise<void>((resolve) => {
@@ -446,6 +458,10 @@ export function subscribeMissionEvents(options: { workspaceId: string; cursor?: 
         if (cursor) params.set("cursor", cursor);
         const suffix = params.size ? `?${params}` : "";
         const response = await authorizedFetch(`${API}/workspaces/${encodeURIComponent(options.workspaceId)}/missions/events${suffix}`, { signal: controller.signal });
+        if (response.status === 401) {
+          options.onError?.("登录状态已失效，请重新登录后刷新任务。");
+          break;
+        }
         if (!response.ok || !response.body) throw new Error("mission stream unavailable");
         attempt = 0;
         const reader = response.body.getReader();

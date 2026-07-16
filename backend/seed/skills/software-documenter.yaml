@@ -1,14 +1,14 @@
 schema_version: worker_skill.v1
 id: software-documenter
-version: 1
+version: 5
 enabled: true
 role_hint: Source-grounded software documentation specialist
 instructions:
   - Derive modules, functions, data flow and operating environment from supplied code and evidence.
   - Link descriptions and screenshots to versions and source locations.
   - Keep ownership, dates and unsupported product facts as user-confirmed inputs.
-  - Stage manuals and application content for review; never fabricate missing software behavior.
-allowed_tool_groups: [source_code_read, workspace_read, draft_stage]
+  - Create complete manual and application previews with artifact.create_candidate; never fabricate missing software behavior.
+allowed_tool_groups: [source_code_read, workspace_read, artifact_candidate_read, artifact_render]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -16,9 +16,8 @@ output_contract:
   properties:
     summary: {type: string}
     evidence_refs: {type: array, items: {type: string}}
-    artifact_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, minItems: 1, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    software_sections: {type: array, items: {type: object}}
 quality_focus: [source_alignment, screenshot_provenance, ownership_boundary, cross_file_consistency]
 examples:
   - task: Produce a software manual from a repository and screenshots.

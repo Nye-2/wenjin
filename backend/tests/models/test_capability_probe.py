@@ -19,10 +19,13 @@ class _ProbeTransport:
         *,
         arguments: str = '{"nonce":"WENJIN-PROBE","count":11}',
         clean_done: bool = True,
+        search_error: ValueError | None = None,
     ) -> None:
         self.arguments = arguments
         self.clean_done = clean_done
+        self.search_error = search_error
         self.payloads: list[dict[str, Any]] = []
+        self.urls: list[str] = []
 
     async def post_json(self, **kwargs: Any) -> dict[str, Any]:
         self.payloads.append(kwargs["payload"])
@@ -52,6 +55,51 @@ class _ProbeTransport:
             transport_complete=True,
         )
 
+    async def post_native_search_sse(self, **kwargs: Any) -> dict[str, Any]:
+        self.urls.append(kwargs["url"])
+        self.payloads.append(kwargs["payload"])
+        if self.search_error is not None:
+            raise self.search_error
+        return {
+            "id": "resp_probe",
+            "status": "completed",
+            "output": [
+                {
+                    "id": "ws_probe",
+                    "type": "web_search_call",
+                    "status": "completed",
+                    "action": {
+                        "type": "search",
+                        "query": "official OpenAI website",
+                        "sources": [
+                            {
+                                "url": "https://openai.com/",
+                                "title": "OpenAI",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "OpenAI",
+                            "annotations": [
+                                {
+                                    "type": "url_citation",
+                                    "url": "https://openai.com/",
+                                    "title": "OpenAI",
+                                    "start_index": 0,
+                                    "end_index": 6,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+
 
 def _target() -> ModelProbeTarget:
     return ModelProbeTarget(
@@ -75,7 +123,7 @@ async def test_probe_requires_strict_frame_and_sends_store_false() -> None:
 
     assert assessment.profile.has_strict_tools() is True
     assert assessment.profile.streaming is True
-    assert assessment.profile.native_web_search is False
+    assert assessment.profile.native_web_search is True
     assert [effort.value for effort in assessment.profile.reasoning_efforts] == [
         "low",
         "medium",
@@ -85,12 +133,20 @@ async def test_probe_requires_strict_frame_and_sends_store_false() -> None:
     assert all(payload["store"] is False for payload in transport.payloads)
     assert transport.payloads[0]["tool_choice"]["function"]["name"] == "wenjin_capability_nonce"
     assert transport.payloads[0]["tools"][0]["function"]["strict"] is True
-    assert {payload["reasoning_effort"] for payload in transport.payloads} == {
+    assert {
+        payload["reasoning_effort"]
+        for payload in transport.payloads
+        if "reasoning_effort" in payload
+    } == {
         "low",
         "medium",
         "high",
         "xhigh",
     }
+    search_payload = transport.payloads[-1]
+    assert search_payload["tools"] == [{"type": "web_search"}]
+    assert search_payload["include"] == ["web_search_call.action.sources"]
+    assert transport.urls == ["https://api.example/responses"]
 
 
 @pytest.mark.asyncio
@@ -114,6 +170,19 @@ async def test_probe_rejects_stream_without_clean_done() -> None:
 
     assert assessment.profile.streaming is False
     assert assessment.profile.protocol_conformance is False
+
+
+@pytest.mark.asyncio
+async def test_search_probe_failure_does_not_elevate_native_search() -> None:
+    assessment = await probe_model_capabilities(
+        _target(),
+        transport=_ProbeTransport(search_error=ValueError("unsupported")),
+    )
+
+    assert assessment.profile.protocol_conformance is True
+    assert assessment.profile.native_web_search is False
+    assert assessment.evidence.check_passed("native_web_search_call") is False
+    assert assessment.evidence.transport_conforms(GenerationAPI.RESPONSES) is False
 
 
 @pytest.mark.asyncio

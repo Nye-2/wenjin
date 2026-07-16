@@ -15,13 +15,13 @@ from src.runtime.chat_turns import ChatTurnRunManager, ChatTurnRunRecord, ChatTu
 from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL, StreamBridge
 
 
-def build_chat_turn_stream_headers(run_id: str) -> dict[str, str]:
+def build_chat_turn_stream_headers(thread_id: str, run_id: str) -> dict[str, str]:
     """Build SSE headers for run stream responses."""
     return {
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
-        "Content-Location": f"/api/runs/{run_id}/stream",
+        "Content-Location": f"/api/threads/{thread_id}/runs/{run_id}/stream",
     }
 
 
@@ -141,7 +141,7 @@ def stream_chat_turn_response(
             run_manager=run_manager,
         ),
         media_type="text/event-stream",
-        headers=build_chat_turn_stream_headers(record.run_id),
+        headers=build_chat_turn_stream_headers(record.thread_id, record.run_id),
     )
 
 

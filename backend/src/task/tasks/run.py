@@ -10,6 +10,7 @@ from celery import shared_task
 from src.application.handlers.thread_turn_handler import ThreadTurnHandler
 from src.application.results import ThreadTurnAttachment, ThreadTurnRequest
 from src.config import redis_settings, settings
+from src.contracts.reasoning import normalize_reasoning_effort
 from src.runtime.chat_turns import ChatTurnRunManager, run_chat_turn
 from src.runtime.stream_bridge import RedisStreamBridge
 
@@ -41,20 +42,9 @@ def _build_turn_request(payload: dict[str, Any]) -> ThreadTurnRequest:
             if payload.get("model") is not None
             else None
         ),
-        skill=(
-            str(payload.get("skill")).strip()
-            if payload.get("skill") is not None
-            else None
-        ),
-        thinking_enabled=bool(payload.get("thinking_enabled", False)),
-        reasoning_effort=(
-            str(payload.get("reasoning_effort")).strip()
-            if payload.get("reasoning_effort") is not None
-            else None
-        ),
+        reasoning_effort=normalize_reasoning_effort(payload.get("reasoning_effort")),
         attachments=attachments,
         metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
-        skill_explicit=bool(payload.get("skill_explicit", False)),
     )
 
 

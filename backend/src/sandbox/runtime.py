@@ -279,22 +279,65 @@ class SandboxRuntime:
         self,
         *,
         workspace_id: str,
-        path: str,
+        object_ref: str,
         expected_content_hash: str,
         max_bytes: int,
+        offset: int | None = None,
     ) -> bytes:
-        """Read one completed public artifact through the sandbox integrity boundary."""
-
-        if not is_artifact_path(path):
-            raise SandboxPathError("sandbox preview source must be a reviewable artifact path")
+        """Read one immutable artifact object through the sandbox integrity boundary."""
 
         def read() -> bytes:
+            content = self._workspace(workspace_id).read_artifact_object(
+                object_ref,
+                expected_content_hash=expected_content_hash,
+            )
+            if offset is None and len(content) > max_bytes:
+                raise SandboxPathError("sandbox preview source exceeds its byte boundary")
+            if offset is None:
+                return content
+            if offset >= len(content):
+                raise SandboxPathError("sandbox artifact offset is outside the content boundary")
+            return content[offset : offset + max_bytes]
+
+        return await asyncio.to_thread(read)
+
+    async def read_public_file_bytes(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        max_bytes: int,
+    ) -> tuple[bytes, str]:
+        """Read one bounded public workspace file and return its write precondition hash."""
+
+        def read() -> tuple[bytes, str]:
             content = self._workspace(workspace_id).read_bytes(path)
             if not content or len(content) > max_bytes:
-                raise SandboxPathError("sandbox preview source exceeds its byte boundary")
-            if content_hash_bytes(content) != expected_content_hash:
-                raise SandboxPathError("sandbox preview source changed after its operation receipt")
-            return content
+                raise SandboxPathError("sandbox public file exceeds its byte boundary")
+            return content, content_hash_bytes(content)
+
+        return await asyncio.to_thread(read)
+
+    async def read_public_file_precondition_hash(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        max_bytes: int,
+    ) -> str | None:
+        """Read an existing public file and return its replacement precondition."""
+
+        def read() -> str | None:
+            workspace = self._workspace(workspace_id)
+            target = workspace.resolve_public_path(path)
+            if not target.exists():
+                return None
+            if target.is_symlink() or not target.is_file():
+                raise SandboxPathError("sandbox public file is not a regular file")
+            content = workspace.read_bytes(path)
+            if len(content) > max_bytes:
+                raise SandboxPathError("sandbox public file exceeds its byte boundary")
+            return content_hash_bytes(content)
 
         return await asyncio.to_thread(read)
 
@@ -347,13 +390,27 @@ class SandboxRuntime:
             }
             else None
         )
-        mounts = self._mounts(
-            workspace,
-            request=request,
-            environment_path=environment_path,
-            environment_staging=environment_staging,
-            output_staging=output_staging,
-        )
+        try:
+            mounts = self._mounts(
+                workspace,
+                request=request,
+                environment_path=environment_path,
+                environment_staging=environment_staging,
+                output_staging=output_staging,
+            )
+        except (SandboxPathError, SandboxMaterializationError) as exc:
+            workspace.discard_output_staging(output_staging)
+            workspace.discard_environment_staging(environment_staging)
+            return self._terminal_failure(
+                request,
+                job_id=job_id,
+                status=SandboxOperationStatus.FAILED,
+                retry=SandboxRetryDisposition.DO_NOT_RETRY,
+                stderr=str(exc),
+                guidance=("Correct the declared Sandbox inputs before retrying.",),
+                started_at=now,
+                command_audit=audit,
+            )
         prepared = PreparedSandboxJob(
             request=request,
             sandbox_job_id=job_id,
@@ -525,10 +582,19 @@ class SandboxRuntime:
                 )
         merged_paths: tuple[str, ...] = ()
         if output_staging is not None:
+            operation_input = request.operation_input
             try:
+                if (
+                    isinstance(operation_input, RunPythonInput)
+                    and operation_input.artifact_input_paths
+                ):
+                    workspace.remove_artifact_input_mountpoints(
+                        staging=output_staging,
+                        paths=operation_input.artifact_input_paths,
+                    )
                 merged_paths = workspace.merge_staged_outputs(
                     staging=output_staging,
-                    output_base_hashes=output_base_hashes(request.operation_input),
+                    output_base_hashes=output_base_hashes(operation_input),
                     max_workspace_bytes=request.limits.workspace_bytes,
                 )
             except SandboxPathError as exc:
@@ -641,8 +707,6 @@ class SandboxRuntime:
             )
             if produced_artifact is None:
                 raise SandboxPathError("artifact is absent from the producer receipt")
-            if workspace.content_hash(operation_input.path) != produced_artifact.content_hash:
-                raise SandboxPathError("artifact changed after the producer receipt")
             artifacts = (produced_artifact,)
         elif isinstance(operation_input, ReadOutputRefInput):
             content = workspace.read_output_ref(operation_input.output_ref, now=now)
@@ -762,6 +826,26 @@ class SandboxRuntime:
                     read_only=not staged_output,
                 )
             )
+        operation_input = request.operation_input
+        if isinstance(operation_input, RunPythonInput):
+            if output_staging is not None and operation_input.artifact_input_paths:
+                workspace.prepare_artifact_input_mountpoints(
+                    staging=output_staging,
+                    paths=operation_input.artifact_input_paths,
+                )
+            for path in operation_input.artifact_input_paths:
+                if not is_artifact_path(path):
+                    raise SandboxPathError(
+                        "artifact inputs must live under /workspace/outputs or /workspace/reports"
+                    )
+                source = workspace.resolve_public_path(path)
+                mounts.append(
+                    SandboxMount(
+                        source=source,
+                        target=path,
+                        read_only=True,
+                    )
+                )
         if environment_path is not None:
             mounts.append(
                 SandboxMount(
@@ -784,6 +868,12 @@ class SandboxRuntime:
                 if not is_dataset_path(path):
                     raise SandboxPathError("dataset inputs must live under /workspace/datasets")
                 hashes[f"dataset:{path}"] = workspace.content_hash(path)
+            for path in operation_input.artifact_input_paths:
+                if not is_artifact_path(path):
+                    raise SandboxPathError(
+                        "artifact inputs must live under /workspace/outputs or /workspace/reports"
+                    )
+                hashes[f"artifact:{path}"] = workspace.content_hash(path)
         elif isinstance(operation_input, RunNotebookInput):
             hashes["notebook"] = workspace.content_hash(operation_input.notebook_path)
             for path in operation_input.dataset_paths:

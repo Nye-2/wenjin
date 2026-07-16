@@ -21,7 +21,6 @@ from .models import (
     CreditTransaction,
     CreditTransactionType,
     # Generation
-    GenerationRecord,
     LatexCompileHistory,
     LatexProject,
     LatexTemplate,
@@ -90,7 +89,6 @@ __all__ = [
     "LatexTemplate",
     "LatexCompileHistory",
     # Models - Generation
-    "GenerationRecord",
     # Models - Task
     "TaskRecord",
 ]

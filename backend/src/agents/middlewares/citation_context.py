@@ -127,7 +127,7 @@ class CitationContextMiddleware(Middleware):
                     ),
                     task_id=state.get("task_id") or configurable.get("task_id") or None,
                     artifact_id=state.get("artifact_id") or configurable.get("artifact_id") or None,
-                    target_section=state.get("current_skill") or configurable.get("skill_id") or None,
+                    target_section=None,
                     generated_text=content[:4000],
                 )
             )

@@ -87,6 +87,89 @@ def test_parser_rejects_stream_without_completed_event() -> None:
         _parse_fixture("responses_search_incomplete.sse")
 
 
+def test_parser_reconstructs_receipts_from_completed_output_items() -> None:
+    parser = ResponsesSearchSSEParser()
+    events = [
+        {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "ws_incremental",
+                "type": "web_search_call",
+                "status": "completed",
+                "action": {
+                    "type": "search",
+                    "query": "OpenAI",
+                    "sources": [
+                        {"url": "https://openai.com/", "title": "OpenAI"}
+                    ],
+                },
+            },
+        },
+        {
+            "type": "response.output_item.done",
+            "output_index": 1,
+            "item": {
+                "id": "msg_incremental",
+                "type": "message",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "OpenAI",
+                        "annotations": [
+                            {
+                                "type": "url_citation",
+                                "url": "https://openai.com/",
+                                "title": "OpenAI",
+                                "start_index": 0,
+                                "end_index": 6,
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+        {
+            "type": "response.completed",
+            "response": {
+                "id": "resp_incremental",
+                "status": "completed",
+                "output": [
+                    {
+                        "id": "msg_incremental",
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "OpenAI",
+                                "annotations": [],
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    ]
+
+    completed = None
+    for event in events:
+        completed = parser.feed_line(f"event: {event['type']}") or completed
+        completed = parser.feed_line(f"data: {json.dumps(event)}") or completed
+        if completed is not None:
+            break
+        completed = parser.feed_line("") or completed
+
+    assert completed is not None
+    assert [item["type"] for item in completed["output"]] == [
+        "web_search_call",
+        "message",
+    ]
+    assert completed["output"][1]["content"][0]["annotations"][0]["type"] == (
+        "url_citation"
+    )
+
+
 class _BrokenAfterCompleted(httpx.AsyncByteStream):
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
@@ -132,11 +215,10 @@ async def test_executor_closes_at_completed_boundary_before_peer_error() -> None
     assert stream.read_after_boundary is False
 
 
-def test_release_probe_keeps_native_search_disabled_until_separately_verified() -> None:
+def test_release_probe_enables_receipt_backed_native_search() -> None:
     model = _runtime_model()
     capability = native_search_capability(model)
 
-    assert capability.available is False
-    assert capability.completed_event_boundary is False
-    assert "responses_search_not_probed" in capability.reason_codes
-    assert "completed_event_boundary_not_verified" in capability.reason_codes
+    assert capability.available is True
+    assert capability.completed_event_boundary is True
+    assert capability.reason_codes == ()

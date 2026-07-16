@@ -10,7 +10,9 @@ Depends on: `03_dataservice_mission_schema.md`, `06_subagent_runtime.md`, `07_re
 
 MissionRuntime replaces `ExecutionEngineV2 + LeadAgentRuntime` as the product execution runtime. It owns durable mission lifecycle, agent loop boundaries, pause/resume, state snapshot, item ledger, projection events, and cutover to subagents/tools/review/commit.
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|

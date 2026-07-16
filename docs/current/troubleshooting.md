@@ -170,7 +170,7 @@ Do not clear lease columns manually except during controlled incident recovery w
 
 Inspect the Mission billing snapshot and `credit_reservations.mission_id`. Reservation must be idempotent. Settlement records zero or policy-defined actual charge for failed/cancelled work and estimated/actual charge for completed work. Missing durable reservation is a runtime error, not a reason to synthesize one in the UI.
 
-## 17. Migration fails around 086-096
+## 17. Migration fails around 086-101
 
 These are irreversible development migrations. Confirm the chain is linear and `alembic heads` reports one head. For pre-cutover development data, drop/reseed instead of reconstructing removed tables. Validate each new migration's offline SQL from its immediate predecessor; very old migration scripts may not support a full offline chain from zero.
 

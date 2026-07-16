@@ -1,4 +1,4 @@
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: proposal_development.scope
 version: 1
 mission_policy_id: proposal_development
@@ -14,7 +14,6 @@ minimum_criteria:
     description: Team, budget, schedule and available foundations are recorded.
 required_artifacts: [{kind: proposal_brief}]
 failure_modes: [missing_call, objective_too_broad]
-reviewer_roles: [proposal_scope_reviewer]
 allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 3
 no_progress_limit: 2
@@ -22,7 +21,7 @@ recommended_model_effort: high
 advance_condition: Call, objective and resource boundaries pass review.
 stop_condition: Required call or applicant information is unavailable.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: proposal_development.evidence_case
 version: 1
 mission_policy_id: proposal_development
@@ -39,8 +38,7 @@ minimum_criteria:
 required_evidence_surfaces: [literature, citation_strength, claim_evidence_alignment, source_provenance]
 required_artifacts: [{kind: evidence_case}]
 failure_modes: [unsupported_need, overstated_foundation]
-reviewer_roles: [proposal_evidence_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: high
@@ -48,7 +46,7 @@ prerequisite_stage_ids: [scope]
 advance_condition: Need, prior work and applicant foundation are verifiably supported.
 stop_condition: The proposal case remains unsupported after bounded retrieval.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: proposal_development.technical_route
 version: 1
 mission_policy_id: proposal_development
@@ -67,8 +65,7 @@ minimum_criteria:
 required_evidence_surfaces: [claim_evidence_alignment, milestone_realism]
 required_artifacts: [{kind: technical_route}]
 failure_modes: [method_list_without_logic, unrealistic_milestone]
-reviewer_roles: [technical_route_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: xhigh
@@ -76,7 +73,7 @@ prerequisite_stage_ids: [evidence_case]
 advance_condition: Objective, method, innovation and milestone mappings pass.
 stop_condition: The proposed route remains infeasible within resource constraints.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: proposal_development.feasibility_risk
 version: 1
 mission_policy_id: proposal_development
@@ -93,8 +90,7 @@ minimum_criteria:
 required_evidence_surfaces: [feasibility_evidence, risk_evidence]
 required_artifacts: [{kind: feasibility_risk_register}]
 failure_modes: [resource_gap, unmitigated_risk]
-reviewer_roles: [feasibility_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 3
 no_progress_limit: 2
 recommended_model_effort: high
@@ -102,7 +98,7 @@ prerequisite_stage_ids: [technical_route]
 advance_condition: Feasibility evidence and all material risk controls pass.
 stop_condition: A critical unmitigated feasibility constraint remains.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: proposal_development.proposal_writing
 version: 1
 mission_policy_id: proposal_development
@@ -115,17 +111,13 @@ minimum_criteria:
   - criterion_id: claim_evidence_binding
     description: Need, innovation and foundation claims retain evidence links.
     required_evidence_surfaces: [citation_strength, claim_evidence_alignment]
-  - criterion_id: reviewable_package
-    description: Changes and attachments are previewable before save.
-    required_evidence_surfaces: [review_packet_completeness]
-required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, review_packet_completeness]
+required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment]
 required_artifacts: [{kind: proposal_draft}]
-failure_modes: [criterion_omission, unsupported_claim, unreviewable_package]
-reviewer_roles: [proposal_panel_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+failure_modes: [criterion_omission, unsupported_claim]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 5
 no_progress_limit: 2
 recommended_model_effort: xhigh
 prerequisite_stage_ids: [feasibility_risk]
-advance_condition: Compliance, evidence and reviewability criteria all pass.
+advance_condition: Compliance and evidence criteria all pass.
 stop_condition: Required call criteria or evidence cannot be satisfied.

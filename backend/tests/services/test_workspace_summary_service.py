@@ -29,8 +29,34 @@ def _mission(
 
 
 def _service(missions: list[SimpleNamespace], *, activity: dict | None = None) -> WorkspaceSummaryService:
+    status_counts: dict[str, int] = {}
+    for mission in missions:
+        status_counts[mission.status.value] = status_counts.get(mission.status.value, 0) + 1
+    active = next(
+        (
+            mission
+            for mission in missions
+            if mission.status
+            in {
+                MissionStatus.CREATED,
+                MissionStatus.PLANNING,
+                MissionStatus.RUNNING,
+                MissionStatus.WAITING,
+            }
+        ),
+        None,
+    )
     dataservice = SimpleNamespace(
-        missions=SimpleNamespace(list_workspace=AsyncMock(return_value=missions)),
+        missions=SimpleNamespace(
+            get_workspace_summary=AsyncMock(
+                return_value=SimpleNamespace(
+                    total=len(missions),
+                    status_counts=status_counts,
+                    active=active,
+                    latest=missions[0] if missions else None,
+                )
+            )
+        ),
     )
     activity_service = SimpleNamespace(
         get_activity=AsyncMock(return_value=activity or {"items": []}),
@@ -74,13 +100,13 @@ async def test_active_mission_is_the_current_phase_and_next_step() -> None:
     }
     assert result["current_phase"] == {
         "mission_id": "mission-2",
-        "mission_policy_id": "sci_research",
+        "mission_policy_id": None,
         "title": "Literature positioning",
         "status": "running",
         "description": "Map research gaps",
     }
     assert result["next_step"]["mission_id"] == "mission-2"
-    assert result["next_step"]["mission_policy_id"] == "sci_research"
+    assert result["next_step"]["mission_policy_id"] is None
     assert result["recommended_actions"] == [result["next_step"]]
 
 

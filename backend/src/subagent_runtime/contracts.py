@@ -8,7 +8,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.reasoning import ReasoningEffort
+
 SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES = 24_000
+SUBAGENT_MIN_RUNTIME_TOOL_STEPS = 8
 
 
 def subagent_context_size_bytes(payload: dict[str, Any]) -> int:
@@ -45,16 +48,27 @@ class SubagentStopReason(StrEnum):
     TOOL_UNAVAILABLE = "tool_unavailable"
     PERMISSION_DENIED = "permission_denied"
     MALFORMED_TOOL_ARGUMENTS = "malformed_tool_arguments"
+    MALFORMED_MODEL_OUTPUT = "malformed_model_output"
     MODEL_ERROR = "model_error"
     CANCELLED = "cancelled"
     PARTIAL_RESULT_AVAILABLE = "partial_result_available"
 
 
+class SubagentModelOutputError(ValueError):
+    """The provider returned an invalid structured subagent action."""
+
+
 class SubagentBudget(_FrozenModel):
     max_turns: int = Field(default=6, ge=1, le=24)
-    max_tool_steps: int = Field(default=8, ge=0, le=32)
+    max_tool_steps: int = Field(default=SUBAGENT_MIN_RUNTIME_TOOL_STEPS, ge=0, le=32)
     max_context_bytes: int = Field(default=96_000, ge=4_096, le=512_000)
     max_result_bytes: int = Field(default=64_000, ge=1_024, le=512_000)
+
+
+class SubagentContextRead(_FrozenModel):
+    ref: str = Field(min_length=1, max_length=2_048)
+    tool_name: str = Field(min_length=1, max_length=160)
+    arguments: dict[str, Any]
 
 
 class SubagentJobSpec(_FrozenModel):
@@ -63,6 +77,7 @@ class SubagentJobSpec(_FrozenModel):
     mission_id: str = Field(min_length=1, max_length=160)
     workspace_id: str = Field(min_length=1, max_length=160)
     model_id: str = Field(min_length=1, max_length=160)
+    reasoning_effort: ReasoningEffort
     lease_owner: str = Field(min_length=1, max_length=160)
     lease_epoch: int = Field(ge=1)
     stage_id: str | None = Field(default=None, max_length=120)
@@ -74,6 +89,7 @@ class SubagentJobSpec(_FrozenModel):
     context_checkpoint_ref: str | None = Field(default=None, max_length=2_048)
     context_checkpoint: dict[str, Any] = Field(default_factory=dict)
     selected_refs: tuple[str, ...] = Field(default=(), max_length=100)
+    context_reads: tuple[SubagentContextRead, ...] = Field(default=(), max_length=100)
     prior_output_briefs: tuple[str, ...] = Field(default=(), max_length=12)
     allowed_tools: tuple[str, ...] = Field(default=(), max_length=64)
     tool_input_schemas: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -100,8 +116,19 @@ class SubagentJobSpec(_FrozenModel):
             raise ValueError("subagent context exceeds max_context_bytes")
         if len(self.allowed_tools) != len(set(self.allowed_tools)):
             raise ValueError("allowed_tools must be unique")
+        if len(self.selected_refs) != len(set(self.selected_refs)):
+            raise ValueError("selected_refs must be unique")
         if set(self.tool_input_schemas) != set(self.allowed_tools):
             raise ValueError("tool_input_schemas must exactly match allowed_tools")
+        context_read_refs = [item.ref for item in self.context_reads]
+        if len(context_read_refs) != len(set(context_read_refs)):
+            raise ValueError("context_reads must have unique refs")
+        if not set(context_read_refs).issubset(self.selected_refs):
+            raise ValueError("context_reads must resolve selected_refs")
+        if not {item.tool_name for item in self.context_reads}.issubset(self.allowed_tools):
+            raise ValueError("context_reads must use allowed_tools")
+        if len(self.context_reads) > self.budget.max_tool_steps:
+            raise ValueError("context_reads exceed max_tool_steps")
         return self
 
 

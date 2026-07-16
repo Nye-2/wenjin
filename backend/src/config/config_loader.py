@@ -43,12 +43,6 @@ class MemoryConfig(BaseModel):
     confidence_weight: float = 0.4
 
 
-class SkillsConfig(BaseModel):
-    """Skills configuration."""
-    path: str = "./skills/public"
-    container_path: str = "/mnt/skills"
-
-
 class TitleConfig(BaseModel):
     """Auto-title generation configuration."""
     enabled: bool = True
@@ -154,7 +148,6 @@ class AppConfig(BaseModel):
             return [{"name": k, **(val if isinstance(val, dict) else {})} for k, val in v.items()]
         return v  # type: ignore[return-value]
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
-    skills: SkillsConfig = Field(default_factory=SkillsConfig)
     middlewares: MiddlewaresConfig = Field(default_factory=MiddlewaresConfig)
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)

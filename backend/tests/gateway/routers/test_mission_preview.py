@@ -67,6 +67,7 @@ def _item(ref: str, content_hash: str) -> MissionReviewItemPayload:
     return MissionReviewItemPayload(
         review_item_id="review-1",
         mission_id="mission-1",
+        output_key="figure",
         target_kind="workspace_asset",
         title="Figure",
         risk_level="medium",

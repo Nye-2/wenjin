@@ -59,6 +59,7 @@ class _Sandbox:
     def __init__(self, target: str) -> None:
         self.target = target
         self.request = None
+        self.precondition_hashes: dict[str, str] = {}
 
     def build_request(self, **kwargs):
         self.request = SimpleNamespace(**kwargs, operation_key="sbxop_" + "1" * 64)
@@ -68,6 +69,7 @@ class _Sandbox:
         now = datetime.now(UTC)
         artifact = SimpleNamespace(
             path=self.target,
+            object_ref="sbxobj_" + "b" * 64,
             content_hash="sha256:" + "b" * 64,
             sandbox_environment_id="sandbox-env-1",
             size_bytes=2048,
@@ -88,17 +90,28 @@ class _Sandbox:
         self,
         *,
         workspace_id: str,
-        path: str,
+        object_ref: str,
         expected_content_hash: str,
         max_bytes: int,
     ) -> bytes:
         assert workspace_id == "workspace-1"
-        assert path == self.target
+        assert object_ref == "sbxobj_" + "b" * 64
         assert expected_content_hash == "sha256:" + "b" * 64
         assert max_bytes > 0
-        if path.endswith(".png"):
+        if self.target.endswith(".png"):
             return _png(64, 64, include_text=False, varied=True)
         return b"sandbox-visual"
+
+    async def read_public_file_precondition_hash(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        max_bytes: int,
+    ) -> str | None:
+        assert workspace_id == "workspace-1"
+        assert max_bytes > 0
+        return self.precondition_hashes.get(path)
 
 
 class _UnusedProvider:
@@ -162,6 +175,127 @@ async def test_code_visual_reuses_sandbox_runtime_and_emits_candidate_first_mani
     assert receipt.manifest.schema_ == "wenjin.figure_generation.artifact.v2"
     assert candidate.reproducibility_ref == "sandbox-operation:sbxop_" + "1" * 64
     assert candidate.source_code_hash
+
+
+@pytest.mark.asyncio
+async def test_code_visual_hash_binds_verified_derived_artifact_inputs() -> None:
+    target = "/workspace/outputs/figures/q3_policy_summary.png"
+    derived_data = "/workspace/outputs/q3_plot_data.csv"
+    sandbox = _Sandbox(target)
+    runtime = AcademicVisualRuntime(
+        sandbox=sandbox,
+        image_provider=_UnusedProvider(),
+        preview_store=_PreviewStore(),
+    )
+    spec = FigureSpec(
+        figure_id="q3-policy-summary",
+        title="Policy comparison",
+        figure_type="statistical_chart",
+        strategy="matplotlib",
+        evidence_level="evidence",
+        purpose="Plot verified policy results.",
+        output_targets=[target],
+        dataset_paths=[derived_data],
+    )
+    request = AcademicVisualRenderInput(
+        brief=_brief(spec),
+        render=CodeVisualPayload(
+            source_code="print('render')",
+            script_path="/workspace/scripts/q3_policy_summary.py",
+            dataset_paths=(derived_data,),
+        ),
+    )
+
+    receipt = await runtime.render_candidate(request, context=_context())
+
+    assert sandbox.request.operation_input.dataset_paths == ()
+    assert sandbox.request.operation_input.artifact_input_paths == (derived_data,)
+    assert receipt.candidate.dataset_refs == (derived_data,)
+
+
+@pytest.mark.asyncio
+async def test_code_visual_reads_script_and_target_preconditions_before_replacement() -> None:
+    target = "/workspace/outputs/result.png"
+    script_path = "/workspace/scripts/academic_visual.py"
+    script_hash = "sha256:" + "1" * 64
+    target_hash = "sha256:" + "2" * 64
+    sandbox = _Sandbox(target)
+    sandbox.precondition_hashes = {
+        script_path: script_hash,
+        target: target_hash,
+    }
+    runtime = AcademicVisualRuntime(
+        sandbox=sandbox,
+        image_provider=_UnusedProvider(),
+        preview_store=_PreviewStore(),
+    )
+    spec = FigureSpec(
+        figure_id="result-figure",
+        title="Result",
+        figure_type="data_plot",
+        strategy="matplotlib",
+        evidence_level="evidence",
+        purpose="Plot source data.",
+        output_targets=[target],
+    )
+
+    await runtime.render_candidate(
+        AcademicVisualRenderInput(
+            brief=_brief(spec),
+            render=CodeVisualPayload(
+                source_code="print('render')",
+                script_path=script_path,
+            ),
+        ),
+        context=_context(),
+    )
+
+    operation_input = sandbox.request.operation_input
+    assert operation_input.base_content_hash == script_hash
+    assert operation_input.output_base_hashes == {target: target_hash}
+
+
+@pytest.mark.asyncio
+async def test_code_visual_exposes_bounded_script_failure_for_model_repair() -> None:
+    target = "/workspace/outputs/result.png"
+
+    class _FailingSandbox(_Sandbox):
+        async def execute(self, request):
+            return SimpleNamespace(
+                status=SandboxOperationStatus.FAILED,
+                retry_disposition=SandboxRetryDisposition.DO_NOT_RETRY,
+                stderr_preview="AssertionError: Unexpected columns",
+                artifacts=(),
+                operation_key=request.operation_key,
+            )
+
+    runtime = AcademicVisualRuntime(
+        sandbox=_FailingSandbox(target),
+        image_provider=_UnusedProvider(),
+        preview_store=_PreviewStore(),
+    )
+    spec = FigureSpec(
+        figure_id="result-figure",
+        title="Result",
+        figure_type="data_plot",
+        strategy="matplotlib",
+        evidence_level="evidence",
+        purpose="Plot source data.",
+        output_targets=[target],
+    )
+    request = AcademicVisualRenderInput(
+        brief=_brief(spec),
+        render=CodeVisualPayload(
+            source_code="raise AssertionError('Unexpected columns')",
+            script_path="/workspace/scripts/academic_visual.py",
+        ),
+    )
+
+    with pytest.raises(AcademicVisualRuntimeError, match="Unexpected columns") as error:
+        await runtime.render_candidate(request, context=_context())
+
+    assert error.value.code == "sandbox_execution_failed"
+    assert error.value.recoverable is True
 
 
 @pytest.mark.asyncio

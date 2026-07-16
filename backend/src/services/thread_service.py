@@ -77,15 +77,14 @@ class ThreadService:
             await client.lock_conversation_thread(thread_id)
 
     @staticmethod
-    def _hydrate_thread_skill_metadata(
+    def _hydrate_thread_workspace_metadata(
         thread: ConversationThreadPayload,
         *,
         workspace_type: str | None,
     ) -> ConversationThreadPayload:
-        """Attach resolved workspace skill metadata to a thread object."""
+        """Attach resolved workspace metadata to a thread object."""
         cast_thread: Any = thread
         cast_thread.workspace_type = workspace_type
-        cast_thread.skill_name = None
         return thread
 
     async def _attach_workspace_skill_metadata(
@@ -94,7 +93,7 @@ class ThreadService:
         *,
         workspace_types: dict[str, str] | None = None,
     ) -> ConversationThreadPayload | None:
-        """Attach resolved workspace skill metadata to a thread object."""
+        """Attach resolved workspace metadata to a thread object."""
         if thread is None:
             return None
         workspace_id = str(thread.workspace_id).strip() if thread.workspace_id else None
@@ -108,7 +107,7 @@ class ThreadService:
                     dataservice=self._dataservice,
                 )
             ).get(workspace_id)
-        return self._hydrate_thread_skill_metadata(
+        return self._hydrate_thread_workspace_metadata(
             thread,
             workspace_type=workspace_type,
         )
@@ -143,7 +142,6 @@ class ThreadService:
         workspace_id: str | None = None,
         title: str | None = None,
         model: str | None = None,
-        skill: str | None = None,
     ) -> ConversationThreadPayload:
         """Create and persist a new thread."""
         now = datetime.now(UTC)
@@ -152,7 +150,6 @@ class ThreadService:
                 workspace_id=workspace_id,
                 title=title,
                 model=self._resolve_model(model),
-                skill=(skill or "").strip() or None,
                 created_at=now,
                 updated_at=now,
             )
@@ -247,12 +244,9 @@ class ThreadService:
         thread_id: str | None = None,
         workspace_id: str | None = None,
         model: str | None = None,
-        skill: str | None = None,
-        skill_explicit: bool = False,
     ) -> ConversationThreadPayload:
         """Reuse an owned thread or create a new one."""
         resolved_model = self._resolve_model(model) if model and model.strip() else None
-        resolved_skill = (skill or "").strip() or None if skill_explicit else None
 
         if thread_id:
             thread = await self.get_by_id(thread_id)
@@ -266,15 +260,11 @@ class ThreadService:
                 if resolved_model and thread.model != resolved_model:
                     thread.model = resolved_model
                     needs_update = True
-                if skill_explicit and thread.skill != resolved_skill:
-                    thread.skill = resolved_skill
-                    needs_update = True
                 if needs_update:
                     return await self._persist_thread_fields(
                         thread,
                         workspace_id=thread.workspace_id,
                         model=thread.model,
-                        skill=thread.skill,
                         updated_at=datetime.now(UTC),
                     )
                 return thread
@@ -290,14 +280,10 @@ class ThreadService:
                 if resolved_model and thread.model != resolved_model:
                     thread.model = resolved_model
                     needs_update = True
-                if skill_explicit and thread.skill != resolved_skill:
-                    thread.skill = resolved_skill
-                    needs_update = True
                 if needs_update:
                     return await self._persist_thread_fields(
                         thread,
                         model=thread.model,
-                        skill=thread.skill,
                         updated_at=datetime.now(UTC),
                     )
                 return thread
@@ -306,7 +292,6 @@ class ThreadService:
             user_id=user_id,
             workspace_id=workspace_id,
             model=resolved_model,
-            skill=resolved_skill,
         )
 
     async def add_message(
@@ -497,9 +482,6 @@ class ThreadService:
                     next_preprocess.pop("error", None)
 
                 attachment_metadata["preprocess"] = next_preprocess
-                markdown_paths = next_preprocess.get("markdown_paths")
-                if isinstance(markdown_paths, list) and markdown_paths:
-                    attachment_metadata["preprocessed_markdown_paths"] = markdown_paths
                 changed = True
 
         if not changed:
@@ -673,7 +655,7 @@ class ThreadService:
             dataservice=self._dataservice,
         )
         return [
-            self._hydrate_thread_skill_metadata(
+            self._hydrate_thread_workspace_metadata(
                 thread,
                 workspace_type=(workspace_types.get(str(thread.workspace_id)) if thread.workspace_id is not None else None),
             )

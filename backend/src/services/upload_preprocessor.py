@@ -23,20 +23,10 @@ from src.config import (
     get_image_vlm_settings,
     get_layout_parsing_settings,
 )
-from src.services.workspace_uploads import is_pdf_upload
+from src.services.workspace_uploads import is_image_upload, is_pdf_upload
 
 logger = logging.getLogger(__name__)
 
-_IMAGE_SUFFIXES = {
-    ".bmp",
-    ".gif",
-    ".jpeg",
-    ".jpg",
-    ".png",
-    ".tif",
-    ".tiff",
-    ".webp",
-}
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _MAX_REMOTE_BINARY_BYTES = 25 * 1024 * 1024
 _REMOTE_DOWNLOAD_CHUNK_SIZE = 64 * 1024
@@ -67,13 +57,6 @@ def _guess_output_suffix(url: str, *, fallback: str = ".jpg") -> str:
     if suffix:
         return suffix
     return fallback
-
-
-def _is_image_upload(filename: str | None, content_type: str | None) -> bool:
-    normalized_content_type = str(content_type or "").split(";", 1)[0].strip().lower()
-    if normalized_content_type.startswith("image/"):
-        return True
-    return Path(str(filename or "")).suffix.lower() in _IMAGE_SUFFIXES
 
 
 def _is_forbidden_remote_host(hostname: str | None) -> bool:
@@ -666,7 +649,7 @@ class UploadPreprocessor:
     ) -> Literal["pdf", "image", "unsupported"]:
         if is_pdf_upload(filename, content_type):
             return "pdf"
-        if _is_image_upload(filename, content_type):
+        if is_image_upload(filename, content_type):
             return "image"
         return "unsupported"
 

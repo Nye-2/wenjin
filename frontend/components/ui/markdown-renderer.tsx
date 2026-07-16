@@ -1,7 +1,9 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import type { Components } from "react-markdown";
 
 const markdownComponents: Components = {
@@ -93,13 +95,40 @@ const markdownComponents: Components = {
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  components?: Components;
 }
 
-export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+const protectedCodePattern = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g;
+
+export function normalizeLatexDelimiters(content: string): string {
+  return content
+    .split(protectedCodePattern)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      return segment
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_match, expression: string) =>
+          `\n\n$$\n${expression.trim()}\n$$\n\n`,
+        )
+        .replace(/\\\(([\s\S]*?)\\\)/g, (_match, expression: string) =>
+          `$${expression.trim()}$`,
+        );
+    })
+    .join("");
+}
+
+export function MarkdownRenderer({
+  content,
+  className,
+  components,
+}: MarkdownRendererProps) {
   return (
-    <div className={className}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {content}
+    <div className={`wjn-markdown ${className ?? ""}`.trim()}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{ ...markdownComponents, ...components }}
+      >
+        {normalizeLatexDelimiters(content)}
       </ReactMarkdown>
     </div>
   );

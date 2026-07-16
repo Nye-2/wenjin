@@ -10,7 +10,9 @@ Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `11_mission_
 
 Replace Execution/RunView projection with MissionView projection. The right panel becomes a Mission Console: closed by default, peek during running missions, expanded for review, evidence, preview, and trace.
 
-## Current Code Anchors
+## Cutover Baseline
+
+The table records pre-cutover ownership and the completed target action; it is not a map of current runtime paths.
 
 | Current file | Current responsibility | Target action |
 |---|---|---|
@@ -28,7 +30,6 @@ Replace Execution/RunView projection with MissionView projection. The right pane
 Frontend may store:
 
 ```text
-activeMissionId
 focusedMissionId
 highlightedMissionId
 focusedPreviewItemId
@@ -79,6 +80,8 @@ secondaryActions[]
 
 MissionView is a read model from DataService/gateway. The frontend may merge live SSE deltas only as optimistic display, but the next snapshot refresh wins.
 
+`artifactItems` contains only the current user-facing result for each stable output or materialization destination. Internal candidate freezes and failed revisions remain in the immutable trace; they never appear as parallel "original" or "revised" results. A candidate enters Artifacts only after stage acceptance creates its `MissionReviewItem`.
+
 `executionStatus` is only `created | planning | running | waiting | completed | failed | cancelled`. Pending review and commit progress come from `reviewSummary` and `commitSummary`; the frontend must not synthesize `awaiting_user_review`, `committing`, or `blocked` mission statuses.
 
 Each review item may carry a derived `suggestedSelected` value plus `reviewSelectionRevision`. This is a server projection from review mode/risk, not persisted review truth. Frontend initializes local checkbox selection once per revision; it never posts that suggestion back as status or treats it as acceptance.
@@ -103,6 +106,8 @@ Open demand comes from MissionView:
 - waiting approval/user/review
 - completed mission with pending review
 - user clicked status/receipt/result
+
+Starting a new Mission from chat replaces the panel focus even when an older Mission is already expanded. Explicit history navigation may focus an older Mission again.
 
 The right panel does not launch capability tasks.
 

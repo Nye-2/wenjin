@@ -48,12 +48,9 @@ def _serialize_turn_request(request: ThreadTurnRequest) -> dict[str, Any]:
         "workspace_id": request.workspace_id,
         "thread_id": request.thread_id,
         "model": request.model,
-        "skill": request.skill,
-        "thinking_enabled": request.thinking_enabled,
         "reasoning_effort": request.reasoning_effort,
         "attachments": attachments,
         "metadata": request.metadata,
-        "skill_explicit": request.skill_explicit,
     }
 
 

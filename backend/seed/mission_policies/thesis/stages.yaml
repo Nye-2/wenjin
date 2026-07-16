@@ -1,4 +1,4 @@
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: thesis_research.scope
 version: 1
 mission_policy_id: thesis_research
@@ -14,7 +14,6 @@ minimum_criteria:
     description: Existing sources, data, drafts and missing inputs are distinguished.
 required_artifacts: [{kind: research_brief}]
 failure_modes: [missing_requirement, topic_too_broad]
-reviewer_roles: [thesis_scope_reviewer]
 allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 3
 no_progress_limit: 2
@@ -22,7 +21,7 @@ recommended_model_effort: high
 advance_condition: Scope, institutional constraints and materials are explicit.
 stop_condition: Required school rules or core materials remain unavailable.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: thesis_research.literature_framework
 version: 1
 mission_policy_id: thesis_research
@@ -39,8 +38,7 @@ minimum_criteria:
 required_evidence_surfaces: [literature, citation_strength, claim_evidence_alignment]
 required_artifacts: [{kind: chapter_evidence_map}]
 failure_modes: [thin_literature, outline_without_evidence]
-reviewer_roles: [literature_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: high
@@ -48,7 +46,7 @@ prerequisite_stage_ids: [scope]
 advance_condition: Literature and chapter evidence responsibilities pass review.
 stop_condition: The proposed thesis cannot be supported by available sources.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: thesis_research.method_design
 version: 1
 mission_policy_id: thesis_research
@@ -64,8 +62,7 @@ minimum_criteria:
     description: Bias, validity, ethics and limitations are addressed.
 required_artifacts: [{kind: methodology_plan}]
 failure_modes: [method_mismatch, inaccessible_data, ethics_gap]
-reviewer_roles: [methodology_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: xhigh
@@ -73,7 +70,7 @@ prerequisite_stage_ids: [literature_framework]
 advance_condition: Method, data, validity and ethics criteria pass.
 stop_condition: No feasible method remains within degree and resource constraints.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: thesis_research.chapter_writing
 version: 1
 mission_policy_id: thesis_research
@@ -87,17 +84,16 @@ minimum_criteria:
   - criterion_id: citation_alignment
     description: Citation-bearing claims map to verified sources.
     required_evidence_surfaces: [citation_strength, claim_evidence_alignment]
-  - criterion_id: reviewable_revision
-    description: Structural and semantic changes are previewable and safe.
-    required_evidence_surfaces: [writing_semantic_preservation, review_packet_completeness]
-required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, argument_chain, writing_semantic_preservation, review_packet_completeness]
+  - criterion_id: semantic_preservation
+    description: Structural revisions preserve the intended argument and protected content.
+    required_evidence_surfaces: [writing_semantic_preservation]
+required_evidence_surfaces: [writing, citation_strength, claim_evidence_alignment, argument_chain, writing_semantic_preservation]
 required_artifacts: [{kind: thesis_draft}]
 failure_modes: [chapter_isolation, unsupported_claim, format_violation]
-reviewer_roles: [thesis_manuscript_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 5
 no_progress_limit: 2
 recommended_model_effort: xhigh
 prerequisite_stage_ids: [method_design]
-advance_condition: Chapter argument, evidence, semantics and reviewability all pass.
+advance_condition: Chapter argument, evidence and semantic preservation all pass.
 stop_condition: Critical evidence or institutional constraints cannot be satisfied.

@@ -22,6 +22,7 @@ class ResponsesSearchSSEParser:
         self._event_name: str | None = None
         self._data_lines: list[str] = []
         self._completed = False
+        self._completed_output_items: dict[int, dict[str, Any]] = {}
 
     def feed_line(self, line: str) -> dict[str, Any] | None:
         if self._completed:
@@ -84,6 +85,7 @@ class ResponsesSearchSSEParser:
                 f"search SSE provider emitted terminal event: {resolved_event}"
             )
         if resolved_event != "response.completed":
+            self._record_incremental_receipt(resolved_event, payload)
             return None
         response = payload.get("response")
         if not isinstance(response, dict):
@@ -92,14 +94,50 @@ class ResponsesSearchSSEParser:
             raise ResponsesSearchSSEProtocolError(
                 "response.completed event has no completed response payload"
             )
+        completed_response = self._merge_completed_output(response)
         try:
-            parse_native_search_receipt(response)
+            parse_native_search_receipt(completed_response)
         except NativeSearchReceiptError as exc:
             raise ResponsesSearchSSEProtocolError(
                 "response.completed did not contain complete search receipts"
             ) from exc
         self._completed = True
-        return response
+        return completed_response
+
+    def _record_incremental_receipt(
+        self,
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if event_name != "response.output_item.done":
+            return
+        output_index = payload.get("output_index")
+        item = payload.get("item")
+        if not isinstance(output_index, int) or output_index < 0:
+            return
+        if not isinstance(item, dict) or item.get("status") != "completed":
+            return
+        self._completed_output_items[output_index] = dict(item)
+
+    def _merge_completed_output(
+        self,
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self._completed_output_items:
+            return response
+        final_output = response.get("output")
+        output_by_index = {
+            index: item
+            for index, item in enumerate(final_output)
+            if isinstance(item, dict)
+        } if isinstance(final_output, list) else {}
+        output_by_index.update(self._completed_output_items)
+        merged = dict(response)
+        merged["output"] = [
+            output_by_index[index]
+            for index in sorted(output_by_index)
+        ]
+        return merged
 
 
 __all__ = [

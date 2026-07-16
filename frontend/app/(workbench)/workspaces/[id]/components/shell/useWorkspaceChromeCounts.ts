@@ -1,22 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listWorkspaceMissions } from "@/lib/api/missions";
+import { getWorkspaceMissionSummary } from "@/lib/api/missions";
 
 export function useWorkspaceChromeCounts(workspaceId: string, pendingReviewFallback = 0) {
   const [counts, setCounts] = useState({ pendingReviewCount: pendingReviewFallback, missionStatus: null as "running" | "waiting" | null, completedRunCount: 0 });
   useEffect(() => {
     let cancelled = false;
-    listWorkspaceMissions(workspaceId).then((items) => {
+    getWorkspaceMissionSummary(workspaceId).then((summary) => {
       if (cancelled) return;
+      const statuses = summary.statusCounts;
       setCounts({
-        pendingReviewCount: Math.max(pendingReviewFallback, items.reduce((sum, item) => sum + item.pendingReviewCount, 0)),
-        missionStatus: items.some((item) => item.executionStatus === "waiting")
+        pendingReviewCount: Math.max(pendingReviewFallback, summary.pendingReviewCount),
+        missionStatus: (statuses.waiting ?? 0) > 0
           ? "waiting"
-          : items.some((item) => ["created", "planning", "running"].includes(item.executionStatus))
+          : ["created", "planning", "running"].some((status) => (statuses[status] ?? 0) > 0)
             ? "running"
             : null,
-        completedRunCount: items.filter((item) => item.executionStatus === "completed").length,
+        completedRunCount: statuses.completed ?? 0,
       });
     }).catch(() => undefined);
     return () => { cancelled = true; };

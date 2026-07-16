@@ -5,9 +5,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from src.agents.harness.stage_acceptance import evaluate_stage_acceptance
 from src.contracts.stage_acceptance import StageAcceptanceContract
 from src.dataservice_client.contracts.catalog import MissionPolicyPayload, WorkerSkillPayload
 from src.dataservice_client.contracts.mission import MissionItemPayload
+from src.mission_runtime.adapters import StageAcceptanceAdapter
 from src.mission_runtime.contracts import StageQualityRequest
 from src.mission_runtime.production import (
     CeleryMissionWakeupPublisher,
@@ -29,6 +31,10 @@ from src.services.model_catalog_cache import (
     reset_model_catalog_cache,
 )
 from src.services.skill_loader import SkillLoader
+from src.tools.mission.artifact_candidates import (
+    artifact_candidate_content_hash,
+    artifact_candidate_ref,
+)
 from src.tools.orchestrator import ToolCallerKind
 
 from .conftest import FakeMissionStore, MutableClock, ScriptedAgent, start_request
@@ -55,7 +61,7 @@ async def test_celery_wakeup_publisher_schedules_delayed_slice() -> None:
 def _quality_contract() -> StageAcceptanceContract:
     return StageAcceptanceContract.model_validate(
         {
-            "schema_version": "stage_acceptance_contract.v1",
+            "schema_version": "stage_acceptance_contract.v2",
             "contract_id": "test.scope",
             "version": 1,
             "mission_policy_id": "test-policy",
@@ -64,7 +70,6 @@ def _quality_contract() -> StageAcceptanceContract:
             "stage_goal": "Produce a grounded scope.",
             "minimum_criteria": [{"criterion_id": "bounded", "description": "The scope is bounded."}],
             "required_artifacts": [{"kind": "research_brief"}],
-            "reviewer_roles": ["research_scope_reviewer"],
             "allowed_actions_if_failed": ["revise_existing", "stop_execution"],
             "advance_condition": "The scope passes.",
             "stop_condition": "The scope cannot be repaired.",
@@ -72,146 +77,202 @@ def _quality_contract() -> StageAcceptanceContract:
     )
 
 
+def _candidate_item(mission, *, seq: int = 1) -> MissionItemPayload:
+    preview_text = "# Research brief"
+    metadata = {
+        "artifact_kind": "research_brief",
+        "content_hash": artifact_candidate_content_hash(preview_text),
+        "mime_type": "text/markdown",
+        "preview_text": preview_text,
+        "source_refs": ["prism-file:source-1"],
+        "materialized": False,
+    }
+    candidate_ref = artifact_candidate_ref(metadata)
+    return MissionItemPayload(
+        id=f"candidate-{seq}",
+        mission_id=mission.mission_id,
+        seq=seq,
+        item_type="artifact",
+        operation_id="candidate-op",
+        phase="completed",
+        stage_id="scope",
+        producer="tool_orchestrator",
+        payload_json={
+            "reference_id": candidate_ref,
+            "kind": "artifact_candidate",
+            "title": "Research brief",
+            "metadata": metadata,
+            "verified": True,
+            "receipt_operation_key": "candidate-op-key",
+        },
+        created_at=mission.created_at,
+    )
+
+
 @pytest.mark.asyncio
-async def test_stage_assessment_rejects_model_self_certification(runtime_factory) -> None:
+async def test_stage_assessment_reconstructs_internal_candidate_from_receipt(runtime_factory) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
     mission = await deps["store"].get(receipt.mission_id)
     assert mission is not None
-    mission = mission.model_copy(
-        update={
-            "snapshot_json": {
-                "review_candidate_manifests": {
-                    "review-1": {
-                        "artifact_kind": "research_brief",
-                        "preview_hash": "a" * 64,
-                        "status": "pending",
-                    }
-                }
-            }
-        }
-    )
+    candidate = _candidate_item(mission)
+    candidate_ref = str(candidate.payload_json["reference_id"])
     assessment = await PinnedStageAssessmentBuilder().build(
         StageQualityRequest(
             mission=mission,
             operation_id="quality-1",
             stage_id="scope",
-            candidate_refs=["review-1"],
+            candidate_refs=[candidate_ref],
             assessment_json={
                 "criterion_assessments": [
                     {
                         "criterion_id": "bounded",
                         "status": "pass",
-                        "supporting_refs": ["review-1"],
+                        "supporting_refs": [candidate_ref],
+                        "rationale": "The candidate states a bounded scope and explicit exclusions.",
                     }
-                ],
-                "artifacts": [
-                    {
-                        "artifact_id": "review-1",
-                        "kind": "research_brief",
-                        "content_hash": "a" * 64,
-                    }
-                ],
-                "critiques": [
-                    {
-                        "reviewer_role": "research_scope_reviewer",
-                        "verdict": "pass",
-                        "criterion_ids": ["bounded"],
-                    }
-                ],
+                ]
             },
+            reference_items=[candidate],
             deadline_monotonic=100,
         ),
         _quality_contract(),
     )
 
-    assert [item.artifact_id for item in assessment.artifacts] == ["review-1"]
-    assert assessment.critiques == ()
+    assert [item.artifact_id for item in assessment.artifacts] == [candidate_ref]
+    assert assessment.artifacts[0].kind == "research_brief"
+    assert assessment.artifacts[0].manifest_ref == candidate_ref
+    assert [(item.evidence_id, item.surface) for item in assessment.evidence] == [
+        (candidate_ref, "writing")
+    ]
+    assert assessment.evidence[0].metadata["authority"] == (
+        "content_addressed_candidate"
+    )
 
 
 @pytest.mark.asyncio
-async def test_stage_assessment_accepts_persisted_upstream_candidate_refs(runtime_factory) -> None:
+async def test_stage_assessment_auto_attaches_candidate_content_evidence(
+    runtime_factory,
+) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
     mission = await deps["store"].get(receipt.mission_id)
     assert mission is not None
-    mission = mission.model_copy(
+
+    source_ref = "prism-file:source-1"
+    preview_text = (
+        f"# Research brief\n\nC1 is grounded in {source_ref}.\n\n"
+        "## AI 使用披露与责任\n\nD1: The author verified the result."
+    )
+    metadata = {
+        "artifact_kind": "research_brief",
+        "content_hash": artifact_candidate_content_hash(preview_text),
+        "mime_type": "text/markdown",
+        "preview_text": preview_text,
+        "source_refs": [source_ref],
+        "materialized": False,
+    }
+    candidate_ref = artifact_candidate_ref(metadata)
+    candidate = _candidate_item(mission).model_copy(
         update={
-            "snapshot_json": {
-                "review_candidate_manifests": {
-                    "review-1": {
-                        "artifact_kind": "research_brief",
-                        "preview_hash": "a" * 64,
-                        "status": "pending",
-                    },
-                    "upstream-review": {
-                        "artifact_kind": "problem_brief",
-                        "preview_hash": "b" * 64,
-                        "status": "pending",
-                    },
-                }
-            }
+            "payload_ref": candidate_ref,
+            "payload_json": {
+                "reference_id": candidate_ref,
+                "kind": "artifact_candidate",
+                "title": "Research brief",
+                "metadata": metadata,
+                "verified": True,
+                "receipt_operation_key": "candidate-op-key",
+            },
         }
     )
-
+    contract = _quality_contract().model_copy(
+        update={
+            "required_evidence_surfaces": (
+                "writing",
+                "claim_evidence_alignment",
+                "ai_use_disclosure",
+            )
+        }
+    )
     assessment = await PinnedStageAssessmentBuilder().build(
         StageQualityRequest(
             mission=mission,
-            operation_id="quality-1",
+            operation_id="quality-content-evidence",
             stage_id="scope",
-            candidate_refs=["review-1"],
+            candidate_refs=[candidate_ref],
             assessment_json={
                 "criterion_assessments": [
                     {
                         "criterion_id": "bounded",
                         "status": "pass",
-                        "supporting_refs": ["review-1", "upstream-review"],
+                        "supporting_refs": [candidate_ref],
+                        "rationale": "The candidate states the scope, source binding, and disclosure explicitly.",
                     }
                 ],
-                "artifacts": [
-                    {
-                        "artifact_id": "review-1",
-                        "kind": "research_brief",
-                        "content_hash": "a" * 64,
-                    }
-                ],
+                "evidence": [],
             },
+            reference_items=[candidate],
             deadline_monotonic=100,
         ),
-        _quality_contract(),
+        contract,
     )
 
-    assert assessment.criterion_assessments[0].supporting_refs == (
-        "review-1",
-        "upstream-review",
-    )
+    assert {item.surface for item in assessment.evidence} == {
+        "writing",
+        "claim_evidence_alignment",
+        "ai_use_disclosure",
+    }
+    assert evaluate_stage_acceptance(contract, assessment).result == "pass"
 
 
 @pytest.mark.asyncio
-async def test_stage_assessment_accepts_persisted_independent_review(runtime_factory) -> None:
+async def test_stage_assessment_rejects_unverified_supporting_refs(runtime_factory) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
     mission = await deps["store"].get(receipt.mission_id)
     assert mission is not None
-    mission = mission.model_copy(
-        update={
-            "snapshot_json": {
-                "review_candidate_manifests": {
-                    "review-1": {
-                        "artifact_kind": "research_brief",
-                        "preview_hash": "a" * 64,
-                        "status": "pending",
-                    }
-                }
-            }
-        }
-    )
-    reviewer_item = MissionItemPayload(
-        id="item-reviewer",
+    candidate = _candidate_item(mission)
+    candidate_ref = str(candidate.payload_json["reference_id"])
+
+    with pytest.raises(MissionProductionConfigurationError, match="refs without"):
+        await PinnedStageAssessmentBuilder().build(
+            StageQualityRequest(
+                mission=mission,
+                operation_id="quality-1",
+                stage_id="scope",
+                candidate_refs=[candidate_ref],
+                assessment_json={
+                    "criterion_assessments": [
+                        {
+                            "criterion_id": "bounded",
+                            "status": "pass",
+                            "supporting_refs": [candidate_ref, "artifact-candidate:" + "c" * 64],
+                            "rationale": "The claimed support includes an unverified candidate reference.",
+                        }
+                    ]
+                },
+                reference_items=[candidate],
+                deadline_monotonic=100,
+            ),
+            _quality_contract(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_subagent_critique_has_no_stage_acceptance_authority(runtime_factory) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
+    mission = await deps["store"].get(receipt.mission_id)
+    assert mission is not None
+    candidate = _candidate_item(mission, seq=2)
+    candidate_ref = str(candidate.payload_json["reference_id"])
+    audit_item = MissionItemPayload(
+        id="item-audit",
         mission_id=mission.mission_id,
         seq=1,
         item_type="subagent_completed",
-        operation_id="reviewer-op",
+        operation_id="audit-op",
         phase="completed",
         stage_id="scope",
         producer="subagent_runtime",
@@ -219,14 +280,11 @@ async def test_stage_assessment_accepts_persisted_independent_review(runtime_fac
             "jobs": [
                 {
                     "status": "completed",
-                    "role_label": "research_scope_reviewer",
-                    "evidence_refs": ["mission-review:review-1"],
+                    "role_label": "按需批判",
+                    "evidence_refs": [candidate_ref],
                     "result_json": {
-                        "reviewer_role": "research_scope_reviewer",
-                        "verdict": "pass",
-                        "criterion_ids": ["bounded"],
-                        "reviewed_candidate_refs": ["mission-review:review-1"],
-                        "note": "The bounded scope is explicit.",
+                        "findings": ["A possible limitation"],
+                        "repair_actions": ["Clarify the boundary"],
                     },
                 }
             ]
@@ -238,30 +296,26 @@ async def test_stage_assessment_accepts_persisted_independent_review(runtime_fac
             mission=mission,
             operation_id="quality-1",
             stage_id="scope",
-            candidate_refs=["review-1"],
+            candidate_refs=[candidate_ref],
             assessment_json={
                 "criterion_assessments": [
-                    {
-                        "criterion_id": "bounded",
-                        "status": "pass",
-                        "supporting_refs": ["review-1"],
-                    }
-                ],
-                "artifacts": [
-                    {
-                        "artifact_id": "review-1",
-                        "kind": "research_brief",
-                        "content_hash": "a" * 64,
-                    }
-                ],
+                        {
+                            "criterion_id": "bounded",
+                            "status": "pass",
+                            "supporting_refs": [candidate_ref],
+                            "rationale": "The candidate defines a concrete scope despite the optional critique.",
+                        }
+                ]
             },
-            recent_items=[reviewer_item],
+            recent_items=[audit_item],
+            reference_items=[candidate],
             deadline_monotonic=100,
         ),
         _quality_contract(),
     )
 
-    assert [item.reviewer_role for item in assessment.critiques] == ["research_scope_reviewer"]
+    assert [item.artifact_id for item in assessment.artifacts] == [candidate_ref]
+    assert "critiques" not in assessment.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -276,40 +330,19 @@ async def test_stage_assessment_accepts_verified_artifact_receipt_as_evidence(
         id="item-tool",
         mission_id=mission.mission_id,
         seq=1,
-        item_type="tool_result",
-        operation_id="sandbox-op",
+        item_type="artifact",
+        operation_id="sandbox-op-key",
         phase="completed",
         stage_id="scope",
         producer="tool_orchestrator",
         payload_json={
-            "research_tool_outcome": {
-                "operation_id": "sandbox-op",
-                "operation_key": "sandbox-op-key",
-                "producer": "sandbox.run_python",
-                "tool_id": "sandbox.run_python",
-                "tool_version": "1",
-                "status": "success",
-                "observed_at": mission.created_at.isoformat(),
-                "summary": "Verified computation",
-                "evidence_refs": [],
-                "source_refs": [],
-                "artifact_refs": [
-                    {
-                        "ref_id": "sandbox-artifact:verified-1",
-                        "kind": "sandbox_artifact_manifest",
-                        "uri": None,
-                        "title": "result.json",
-                        "metadata": {},
-                    }
-                ],
-                "confidence": 1.0,
-                "risk_level": "low",
-                "verification_status": "verified",
-                "recommended_next_action": None,
-                "payload_ref": None,
-                "recoverable_by_model": False,
-                "retry_after_seconds": None,
-            }
+            "reference_id": "sandbox-artifact:verified-1",
+            "kind": "sandbox_artifact_manifest",
+            "title": "result.json",
+            "uri": None,
+            "metadata": {},
+            "verified": True,
+            "receipt_operation_key": "sandbox-op-key",
         },
         created_at=mission.created_at,
     )
@@ -328,7 +361,8 @@ async def test_stage_assessment_accepts_verified_artifact_receipt_as_evidence(
                     }
                 ]
             },
-            recent_items=[tool_item],
+            recent_items=[],
+            reference_items=[tool_item],
             deadline_monotonic=100,
         ),
         _quality_contract(),
@@ -336,6 +370,58 @@ async def test_stage_assessment_accepts_verified_artifact_receipt_as_evidence(
 
     assert assessment.evidence[0].status == "verified"
     assert assessment.evidence[0].surface == "experiment_reproducibility"
+
+
+@pytest.mark.asyncio
+async def test_stage_assessment_rejects_surface_not_authorized_by_receipt(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request(mission_policy_id="test-policy"))
+    mission = await deps["store"].get(receipt.mission_id)
+    assert mission is not None
+    tool_item = MissionItemPayload(
+        id="item-tool",
+        mission_id=mission.mission_id,
+        seq=1,
+        item_type="artifact",
+        operation_id="sandbox-op-key",
+        phase="completed",
+        stage_id="scope",
+        producer="tool_orchestrator",
+        payload_json={
+            "reference_id": "sandbox-artifact:verified-1",
+            "kind": "sandbox_artifact_manifest",
+            "title": "result.json",
+            "metadata": {},
+            "verified": True,
+            "receipt_operation_key": "sandbox-op-key",
+        },
+        created_at=mission.created_at,
+    )
+
+    with pytest.raises(
+        MissionProductionConfigurationError,
+        match="surface is not authorized",
+    ):
+        await PinnedStageAssessmentBuilder().build(
+            StageQualityRequest(
+                mission=mission,
+                operation_id="quality-1",
+                stage_id="scope",
+                assessment_json={
+                    "evidence": [
+                        {
+                            "evidence_id": "sandbox-artifact:verified-1",
+                            "surface": "literature",
+                        }
+                    ]
+                },
+                reference_items=[tool_item],
+                deadline_monotonic=100,
+            ),
+            _quality_contract(),
+        )
 
 
 class PolicyDataService:
@@ -518,6 +604,44 @@ async def test_pinned_resolver_resolves_math_per_question_stage(
 
 
 @pytest.mark.asyncio
+async def test_stage_adapter_resolves_all_item_count_from_referenced_stage_family(
+    monkeypatch,
+    runtime_factory,
+) -> None:
+    monkeypatch.setattr(
+        "src.mission_runtime.production.require_mission_model_profile",
+        lambda _model_id: SimpleNamespace(capability_probe_hash="a" * 64),
+    )
+    start_context = PinnedMissionStartContext(PolicyDataService([policy_record("math_modeling_solution")]))
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([]),
+        start_context=start_context,
+    )
+    receipt = await runtime.start(
+        start_request(
+            workspace_type="math_modeling",
+            mission_policy_id="math_modeling_solution",
+            runtime_context_json=routing_context("math_modeling_solution"),
+        )
+    )
+    mission = await deps["store"].get(receipt.mission_id)
+    assert mission is not None
+    mission.snapshot_json["stage_item_counts"] = {"problem_questions": 2}
+
+    adapter = StageAcceptanceAdapter(
+        contracts=PinnedStageContractResolver(),
+        assessments=PinnedStageAssessmentBuilder(),
+    )
+    allowed, missing = await adapter.can_start(mission, "paper_integration")
+
+    assert allowed is False
+    assert missing == (
+        "question_1_solution_validation",
+        "question_2_solution_validation",
+    )
+
+
+@pytest.mark.asyncio
 async def test_start_context_rejects_routing_policy_hash_drift(monkeypatch) -> None:
     monkeypatch.setattr(
         "src.mission_runtime.production.require_mission_model_profile",
@@ -686,7 +810,7 @@ async def test_math_policy_starts_through_complete_production_builder() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sci_policy_rejects_current_failed_search_probe() -> None:
+async def test_sci_policy_starts_with_verified_release_search_probe() -> None:
     from src.mission_runtime.composition import build_production_mission_runtime
 
     reset_model_catalog_cache()
@@ -699,11 +823,8 @@ async def test_sci_policy_rejects_current_failed_search_probe() -> None:
     )
     runtime = await build_production_mission_runtime(dataservice)  # type: ignore[arg-type]
 
-    with pytest.raises(
-        MissionProductionConfigurationError,
-        match="independent search transport is unavailable",
-    ):
-        await runtime.start(
+    with patch("src.task.celery_app.celery_app.send_task") as send_task:
+        receipt = await runtime.start(
             start_request(
                 mission_policy_id="sci_research",
                 runtime_context_json={
@@ -712,7 +833,13 @@ async def test_sci_policy_rejects_current_failed_search_probe() -> None:
                 },
             )
         )
-    assert not store.runs
+    created = await store.get(receipt.mission_id)
+    assert receipt.created is True
+    assert created is not None
+    assert "research.search_web" in created.runtime_context_json["tool_policy"][
+        "allowed_tool_ids"
+    ]
+    send_task.assert_called_once()
     reset_model_catalog_cache()
 
 
@@ -804,29 +931,53 @@ async def test_pinned_resolvers_never_silently_allow_missing_contracts() -> None
 
 @pytest.mark.asyncio
 async def test_review_builder_requires_atomic_preview() -> None:
-    request = SimpleNamespace(candidate_json={"items": []})
+    request = SimpleNamespace(candidate_json={"items": []}, reference_items=[])
     with pytest.raises(MissionProductionConfigurationError, match="atomic preview"):
         await StrictReviewCandidateBuilder().build_candidates(request)
 
 
+def _review_candidate_reference():
+    body = "# 问题理解\n\n完整正文。"
+    metadata = {
+        "artifact_kind": "modeling_problem_brief",
+        "content_hash": artifact_candidate_content_hash(body),
+        "mime_type": "text/markdown",
+        "preview_text": body,
+        "source_refs": ["prism-file:problem-1"],
+        "materialized": False,
+    }
+    ref = artifact_candidate_ref(metadata)
+    return ref, SimpleNamespace(
+        item_type="artifact",
+        seq=7,
+        payload_json={
+            "reference_id": ref,
+            "kind": "artifact_candidate",
+            "verified": True,
+            "metadata": metadata,
+        },
+    )
+
+
 @pytest.mark.asyncio
-async def test_review_builder_compiles_document_materialization_from_preview() -> None:
+async def test_review_builder_compiles_document_from_accepted_candidate() -> None:
+    candidate_ref, candidate_item = _review_candidate_reference()
     request = SimpleNamespace(
         candidate_json={
             "items": [
                 {
                     "review_item_id": "review-document-1",
+                    "candidate_ref": candidate_ref,
+                    "output_key": "problem_understanding",
                     "target_kind": "document",
                     "target_room": None,
-                    "title": "问题理解",
+                    "title": "问题理解（修订版）",
                     "risk_level": "medium",
-                    "preview_json": {
-                        "artifact_kind": "modeling_problem_brief",
-                        "body": "# 问题理解\n\n完整正文。",
-                    },
                 }
             ]
-        }
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[candidate_item],
     )
 
     batch = await StrictReviewCandidateBuilder().build_candidates(request)
@@ -835,33 +986,124 @@ async def test_review_builder_compiles_document_materialization_from_preview() -
 
     assert item.target_kind == "document"
     assert item.target_room == "documents"
+    assert item.title == "问题理解"
     assert descriptor["operation"] == "documents.upsert_prism_file"
     assert descriptor["payload"]["path"] == "问题理解.md"
     assert descriptor["payload"]["content_inline"] == "# 问题理解\n\n完整正文。"
     assert len(descriptor["payload"]["content_hash"]) == 64
+    assert item.source_item_seq == 7
+    assert item.preview_json["candidate_ref"] == candidate_ref
+    assert item.preview_json["source_refs"] == ["prism-file:problem-1"]
+
+
+@pytest.mark.asyncio
+async def test_review_builder_rejects_target_ref_used_as_base_revision() -> None:
+    candidate_ref, candidate_item = _review_candidate_reference()
+    request = SimpleNamespace(
+        candidate_json={
+            "items": [
+                {
+                    "review_item_id": "review-document-1",
+                    "candidate_ref": candidate_ref,
+                    "output_key": "problem_understanding",
+                    "target_kind": "document",
+                    "target_room": "documents",
+                    "target_ref": "prism-file:file-1",
+                    "base_revision_ref": "prism-file:file-1",
+                    "base_hash": "old-hash",
+                    "title": "问题理解",
+                    "risk_level": "medium",
+                }
+            ]
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[candidate_item],
+    )
+
+    with pytest.raises(
+        MissionProductionConfigurationError,
+        match="base revision must come from tool metadata",
+    ):
+        await StrictReviewCandidateBuilder().build_candidates(request)
 
 
 @pytest.mark.asyncio
 async def test_review_builder_rejects_semantic_type_as_unmaterializable_target() -> None:
+    candidate_ref, candidate_item = _review_candidate_reference()
     request = SimpleNamespace(
         candidate_json={
             "items": [
                 {
                     "review_item_id": "review-semantic-1",
+                    "candidate_ref": candidate_ref,
+                    "output_key": "problem_understanding",
                     "target_kind": "modeling_problem_brief",
                     "title": "问题理解",
                     "risk_level": "medium",
-                    "preview_json": {
-                        "artifact_kind": "modeling_problem_brief",
-                        "body": "# 问题理解",
-                    },
                 }
             ]
-        }
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[candidate_item],
     )
 
     with pytest.raises(
         MissionProductionConfigurationError,
-        match="canonical materialization descriptor",
+        match="can only materialize as documents",
+    ):
+        await StrictReviewCandidateBuilder().build_candidates(request)
+
+
+@pytest.mark.asyncio
+async def test_review_builder_rejects_unverified_candidate_ref() -> None:
+    candidate_ref, _candidate_item = _review_candidate_reference()
+    request = SimpleNamespace(
+        candidate_json={
+            "items": [
+                {
+                    "review_item_id": "review-document-sources",
+                    "candidate_ref": candidate_ref,
+                    "output_key": "question.solution",
+                    "target_kind": "document",
+                    "target_room": "documents",
+                    "title": "问题求解",
+                    "risk_level": "high",
+                }
+            ]
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[],
+    )
+
+    with pytest.raises(
+        MissionProductionConfigurationError,
+        match="verified internal candidate",
+    ):
+        await StrictReviewCandidateBuilder().build_candidates(request)
+
+
+@pytest.mark.asyncio
+async def test_review_builder_rejects_candidate_not_accepted_for_stage() -> None:
+    candidate_ref, candidate_item = _review_candidate_reference()
+    request = SimpleNamespace(
+        candidate_json={
+            "items": [
+                {
+                    "review_item_id": "review-unaccepted",
+                    "candidate_ref": candidate_ref,
+                    "output_key": "problem_understanding",
+                    "target_kind": "document",
+                    "title": "问题理解",
+                    "risk_level": "medium",
+                }
+            ]
+        },
+        accepted_candidate_refs=["artifact-candidate:" + "f" * 64],
+        reference_items=[candidate_item],
+    )
+
+    with pytest.raises(
+        MissionProductionConfigurationError,
+        match="accepted for this stage",
     ):
         await StrictReviewCandidateBuilder().build_candidates(request)

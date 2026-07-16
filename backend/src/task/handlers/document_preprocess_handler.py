@@ -112,9 +112,6 @@ async def execute_document_preprocess(payload: dict[str, Any], progress: Any) ->
         workspace_upload_root=workspace_upload_root,
     )
 
-    if result.markdown_paths:
-        preprocess_metadata["preprocessed_markdown_paths"] = list(result.markdown_paths)
-
     await progress.update(
         95,
         "Finalizing document preprocess",

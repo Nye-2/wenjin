@@ -26,14 +26,6 @@ class TestConfigLoader:
         assert isinstance(config, AppConfig)
         assert config.memory.enabled is True
 
-    def test_env_var_resolution(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("TEST_SKILLS_PATH", "/tmp/resolved-skills")
-        cfg_path = self._write_config(tmp_path, {
-            "skills": {"path": "$TEST_SKILLS_PATH"},
-        })
-        config = load_config(str(cfg_path))
-        assert config.skills.path == "/tmp/resolved-skills"
-
     def test_wenjin_config_path_selects_config(self, tmp_path, monkeypatch):
         cfg_path = self._write_config(tmp_path, {"memory": {"enabled": True}})
         monkeypatch.setenv("WENJIN_CONFIG_PATH", str(cfg_path))

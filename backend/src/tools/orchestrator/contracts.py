@@ -48,6 +48,7 @@ class ToolErrorType(StrEnum):
     RECEIPT_UNKNOWN = "receipt_unknown"
     CAPABILITY_UNVERIFIED = "capability_unverified"
     MALFORMED_TOOL_ARGUMENTS = "malformed_tool_arguments"
+    EXECUTION_FAILED = "execution_failed"
     INTERNAL_ERROR = "internal_error"
 
 
@@ -204,6 +205,13 @@ class ToolHandlerResult(BaseModel):
             raise ValueError("error outcomes require error_type")
         if self.status is not ToolOutcomeStatus.ERROR and self.error_type is not None:
             raise ValueError("only error outcomes may carry error_type")
+        if (
+            len(self.evidence_refs)
+            + len(self.source_refs)
+            + len(self.artifact_refs)
+            > 96
+        ):
+            raise ValueError("one tool outcome may project at most 96 references")
         return self
 
 
@@ -247,6 +255,13 @@ class ResearchToolOutcome(BaseModel):
             raise ValueError("error outcomes require error_type")
         if self.status is not ToolOutcomeStatus.ERROR and self.error_type is not None:
             raise ValueError("only error outcomes may carry error_type")
+        if (
+            len(self.evidence_refs)
+            + len(self.source_refs)
+            + len(self.artifact_refs)
+            > 96
+        ):
+            raise ValueError("one tool outcome may project at most 96 references")
         return self
 
 

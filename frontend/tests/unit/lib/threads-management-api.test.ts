@@ -24,12 +24,10 @@ describe("chat api wrappers", () => {
 
     await ensureWorkspaceThread("ws 1", {
       model: "qwen-plus",
-      skill: "deep-research",
     });
 
     expect(mockPost).toHaveBeenCalledWith("/workspaces/ws%201/thread", {
       model: "qwen-plus",
-      skill: "deep-research",
     });
   });
 

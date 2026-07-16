@@ -63,7 +63,7 @@ export function WorkspaceChrome({
         </div>
         {missionStatus === "running" ? <StatusChip label="运行中" tone="running" /> : null}
         {missionStatus === "waiting" ? <StatusChip label="等待回应" tone="review" /> : null}
-        {pendingReviewCount > 0 ? <StatusChip label="待复核" tone="review" /> : null}
+        {pendingReviewCount > 0 ? <StatusChip label="待确认" tone="review" /> : null}
       </div>
 
       <div className="ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2">
@@ -101,12 +101,12 @@ export function WorkspaceChrome({
           type="button"
           aria-label={
             pendingReviewCount > 0
-              ? `资料库，${pendingReviewCount} 项待复核`
+              ? `资料库，${pendingReviewCount} 项待确认`
               : "资料库"
           }
           title={
             pendingReviewCount > 0
-              ? `资料库，${pendingReviewCount} 项待复核`
+              ? `资料库，${pendingReviewCount} 项待确认`
               : "资料库"
           }
           onClick={onOpenHub}
@@ -138,7 +138,7 @@ function SurfaceTab({
     <Link
       role="tab"
       aria-selected={active}
-      aria-label={count > 0 ? `${label}，${count} 项待复核` : label}
+      aria-label={count > 0 ? `${label}，${count} 项待确认` : label}
       href={href}
       className={[
         "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--wjn-radius)] px-3 text-[12.5px] font-semibold transition-colors",

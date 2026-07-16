@@ -9,10 +9,6 @@ from uuid import uuid4
 from src.config.app_config import celery_settings
 from src.config.task_config import task_settings
 from src.runtime.serialization import serialize_lc_object
-from src.services.workspace_activity_contracts import (
-    build_task_activity_item,
-    serialize_activity_item,
-)
 from src.task import celery_app
 from src.task.executor import get_executor
 from src.task.registry import TaskStatus, get_task_config, is_valid_task_type
@@ -181,27 +177,7 @@ class TaskService:
                     "thread_id": payload.get("thread_id") if isinstance(payload, dict) else None,
                     "metadata": None,
                 }
-            }
-            | (
-                {
-                    "activity": serialize_activity_item(
-                        build_task_activity_item(
-                            task_id=task_id,
-                            workspace_id=workspace_id,
-                            task_type=task_type,
-                            payload=payload if isinstance(payload, dict) else None,
-                            status=TaskStatus.PENDING.value,
-                            progress=0,
-                            message=None,
-                            error=None,
-                            occurred_at=record.created_at,
-                            created_at=record.created_at,
-                        )
-                    )
-                }
-                if workspace_id
-                else {}
-            ),
+            },
         )
         await publish_workspace_event(
             workspace_id,
@@ -346,29 +322,7 @@ class TaskService:
                     "thread_id": payload.get("thread_id"),
                     "metadata": runtime_metadata,
                 }
-            }
-            | (
-                {
-                    "activity": serialize_activity_item(
-                        build_task_activity_item(
-                            task_id=task_id,
-                            workspace_id=workspace_id,
-                            task_type=record.task_type,
-                            payload=payload,
-                            status=TaskStatus.CANCELLED.value,
-                            progress=final_progress,
-                            message="Cancelled by user",
-                            error=None,
-                            occurred_at=cancelled_at,
-                            created_at=record.created_at,
-                            started_at=record.started_at,
-                            completed_at=cancelled_at,
-                        )
-                    )
-                }
-                if workspace_id
-                else {}
-            ),
+            },
         )
         await publish_workspace_event(
             workspace_id,

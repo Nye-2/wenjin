@@ -151,7 +151,7 @@
         "badge": "Workbench",
         "product": "Wenjin Workspace",
         "tagline": "Visible runs: from intent to evidence chain",
-        "description": "Chat captures intent while the Lead Agent advances work on the right. Nodes, tools, evidence, and candidate outputs stay visible for inspection, editing, and review.",
+        "description": "Chat understands intent and starts or steers research Missions. The Mission Console opens on demand for progress, research members, evidence, and reviewable outputs.",
         "keywords": "Run Trace · Evidence Table · Candidate Output Review"
       },
       "rewriting": {

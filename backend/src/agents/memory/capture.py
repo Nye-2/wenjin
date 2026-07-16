@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import re
-from copy import copy
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agents.memory.queue import MemoryQueue, get_default_memory_queue
-
-UPLOADED_FILES_BLOCK_RE = re.compile(
-    r"<uploaded_files>[\s\S]*?</uploaded_files>\n*",
-    re.IGNORECASE,
-)
 
 
 def _extract_message_content(content: Any) -> str:
@@ -33,14 +26,6 @@ def _extract_message_content(content: Any) -> str:
     return str(content)
 
 
-def _strip_uploaded_files_markup(content: Any) -> str:
-    """Remove injected upload metadata blocks from a message."""
-    text = _extract_message_content(content)
-    if "<uploaded_files>" not in text.lower():
-        return text
-    return UPLOADED_FILES_BLOCK_RE.sub("", text).strip()
-
-
 def filter_messages_for_memory(messages: list[Any]) -> list[Any]:
     """Keep only meaningful user/final assistant turns for memory capture."""
     filtered: list[Any] = []
@@ -48,16 +33,11 @@ def filter_messages_for_memory(messages: list[Any]) -> list[Any]:
 
     for message in messages:
         if isinstance(message, HumanMessage):
-            cleaned = _strip_uploaded_files_markup(message.content).strip()
+            cleaned = _extract_message_content(message.content).strip()
             if not cleaned:
                 skip_next_ai = True
                 continue
-            if cleaned != _extract_message_content(message.content).strip():
-                clean_message = copy(message)
-                clean_message.content = cleaned
-                filtered.append(clean_message)
-            else:
-                filtered.append(message)
+            filtered.append(message)
             skip_next_ai = False
             continue
 
@@ -82,7 +62,7 @@ def messages_to_conversation_text(messages: list[Any], *, limit: int = 12) -> st
 
         if isinstance(message, HumanMessage):
             role = "user"
-            content = _strip_uploaded_files_markup(message.content)
+            content = _extract_message_content(message.content)
         elif isinstance(message, AIMessage):
             role = "assistant"
             if getattr(message, "tool_calls", None):
@@ -92,11 +72,7 @@ def messages_to_conversation_text(messages: list[Any], *, limit: int = 12) -> st
             role = str(message.get("role") or "").strip() or None
             raw_content = message.get("content")
             if raw_content is not None:
-                content = (
-                    _strip_uploaded_files_markup(raw_content)
-                    if role == "user"
-                    else _extract_message_content(raw_content)
-                )
+                content = _extract_message_content(raw_content)
 
         normalized_content = " ".join((content or "").split())
         if not role or not normalized_content:

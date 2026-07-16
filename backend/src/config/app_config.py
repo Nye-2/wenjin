@@ -363,7 +363,11 @@ class AppConfig(BaseSettings):
 
     # Paths
     config_path: str | None = None
-    skills_path: str = "./skills/public"
+    thread_data_root: Path = Field(
+        default=Path(".wenjin/threads"),
+        alias="THREAD_DATA_ROOT",
+        description="Shared filesystem root for canonical per-thread user data",
+    )
     mission_preview_root: Path = Field(
         default=Path(".wenjin/mission_previews"),
         alias="MISSION_PREVIEW_ROOT",

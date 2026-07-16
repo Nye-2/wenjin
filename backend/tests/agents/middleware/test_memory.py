@@ -49,17 +49,11 @@ class TestMessageSerialization:
         assert "user: 请帮我写论文" in text
         assert "assistant: 可以，先确定题目" in text
 
-    def test_filter_messages_for_memory_skips_upload_only_turn(self):
+    def test_filter_messages_for_memory_skips_empty_user_turn(self):
         filtered = _filter_messages_for_memory(
             [
-                HumanMessage(
-                    content=(
-                        "<uploaded_files>\n"
-                        "- appendix.pdf (32 bytes): /mnt/user-data/uploads/thread/appendix.pdf\n"
-                        "</uploaded_files>"
-                    )
-                ),
-                AIMessage(content="已读取上传内容。"),
+                HumanMessage(content="   "),
+                AIMessage(content="这条回答不应被捕获。"),
                 HumanMessage(content="接着帮我写引言。"),
                 AIMessage(content="可以，先明确研究问题。"),
             ]

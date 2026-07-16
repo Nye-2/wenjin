@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import JSON, REAL, BigInteger, Boolean, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, REAL, BigInteger, ForeignKey, Integer, String, Text, func
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -81,11 +81,8 @@ class _WorkspaceSettings(_Base):
         primary_key=True,
     )
     default_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    thinking_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True,
-    )
-    sandbox_provider: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="local",
+    reasoning_effort: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="xhigh",
     )
     auto_compact_threshold: Mapped[float] = mapped_column(
         REAL, nullable=False, default=0.8,

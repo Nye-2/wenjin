@@ -11,23 +11,10 @@ function sanitizeFilenameSegment(value: string | null | undefined): string {
   return sanitized.replace(/^[-_.]+|[-_.]+$/g, "") || "conversation";
 }
 
-function resolveConversationSkillLabel(thread: ExportableThread): string | null {
-  const skillName = thread.skill_name?.trim();
-  if (skillName) {
-    return skillName;
-  }
-  const skillId = thread.skill?.trim();
-  return skillId || null;
-}
-
 function resolveConversationTitle(thread: ExportableThread): string {
   const explicitTitle = thread.title?.trim();
   if (explicitTitle) {
     return explicitTitle;
-  }
-  const skillLabel = resolveConversationSkillLabel(thread);
-  if (skillLabel) {
-    return skillLabel;
   }
   return `Conversation ${thread.id.slice(0, 8)}`;
 }
@@ -87,14 +74,12 @@ export function formatConversationAsMarkdown(
   messages: Message[],
 ): string {
   const title = resolveConversationTitle(thread);
-  const skillLabel = resolveConversationSkillLabel(thread);
   const lines: string[] = [
     `# ${title}`,
     "",
     `- Thread ID: ${thread.id}`,
     `- Workspace ID: ${thread.workspace_id || "N/A"}`,
     `- Model: ${thread.model || "default"}`,
-    `- Skill: ${skillLabel || thread.skill || "N/A"}`,
     `- Exported At: ${formatTimestamp(new Date().toISOString())}`,
     "",
     "---",
@@ -145,8 +130,6 @@ export function exportConversationAsJson(
       title: thread.title || null,
       workspace_id: thread.workspace_id || null,
       model: thread.model || "default",
-      skill: thread.skill || null,
-      skill_name: thread.skill_name || null,
       updated_at: thread.updated_at || null,
     },
     exported_at: new Date().toISOString(),

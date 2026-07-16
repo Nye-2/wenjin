@@ -17,7 +17,12 @@ _SENSITIVE_KEYS = {
 }
 
 
-def redact_tool_value(value: Any, *, max_text_chars: int = 2000) -> Any:
+def redact_tool_value(
+    value: Any,
+    *,
+    max_text_chars: int | None = None,
+    max_items: int | None = None,
+) -> Any:
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
@@ -28,12 +33,22 @@ def redact_tool_value(value: Any, *, max_text_chars: int = 2000) -> Any:
                 redacted[str(key)] = redact_tool_value(
                     item,
                     max_text_chars=max_text_chars,
+                    max_items=max_items,
                 )
         return redacted
     if isinstance(value, list | tuple):
-        return [redact_tool_value(item, max_text_chars=max_text_chars) for item in value[:100]]
+        items = value if max_items is None else value[:max_items]
+        return [
+            redact_tool_value(
+                item,
+                max_text_chars=max_text_chars,
+                max_items=max_items,
+            )
+            for item in items
+        ]
     if isinstance(value, str):
-        return redact_secret_text(value)[:max_text_chars]
+        redacted = redact_secret_text(value)
+        return redacted if max_text_chars is None else redacted[:max_text_chars]
     return value
 
 

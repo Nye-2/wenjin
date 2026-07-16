@@ -1,18 +1,18 @@
 # 13 Migration / Release Gate Spec
 
 Status: Partially implemented - code cutover complete, deployment acceptance pending
-Updated: 2026-07-11
+Updated: 2026-07-15
 
-Implementation outcome: production paths were deleted/migrated, migrations 086-096 form one head, the strict scanner reports zero findings, and the final shared-tree suite is green. Remaining production-environment acceptance is the live native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Mocked Mission browser coverage and review consistency regression are green.
+Implementation outcome: production paths were deleted/migrated, migrations 086-101 form one head, the strict scanner reports zero findings, and the shared-tree backend/frontend suites are green. Remaining production-environment acceptance is the live native-search probe, production Sandbox attestations, and real-provider/real-Docker multi-turn browser coverage.
 Depends on: all mission-runtime specs
 
 ## Goal
 
 Cut over to MissionRuntime cleanly. Because the project is still in development, runtime compatibility layers are not allowed. Old execution data can be dropped/reseeded. Demo preservation, if required, must use one offline importer.
 
-## Current Code Anchors
+## Cutover Baseline
 
-High-risk old runtime paths:
+The following pre-cutover paths were deleted or reshaped. This list is migration history; `docs/current/architecture.md`, `AGENTS.md`, and the executable anti-compat scanner are the current authorities.
 
 ```text
 backend/src/execution/engine.py

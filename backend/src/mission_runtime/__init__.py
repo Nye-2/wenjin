@@ -11,6 +11,7 @@ from src.mission_runtime.runtime import (
     MissionResumeRequestMismatchError,
     MissionRuntime,
     MissionStartRejectedError,
+    MissionStartRejectionCode,
 )
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "MissionRuntime",
     "MissionStartReceipt",
     "MissionStartRejectedError",
+    "MissionStartRejectionCode",
     "MissionStartRequest",
 ]

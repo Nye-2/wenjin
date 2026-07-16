@@ -12,7 +12,6 @@ from ..base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from .artifact import Artifact
-    from .generation import GenerationRecord
     from .thread import Thread
     from .user import User
     from .workspace_settings import WorkspaceSettings
@@ -90,11 +89,6 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
     )
     artifacts: Mapped[list["Artifact"]] = relationship(
         "Artifact",
-        back_populates="workspace",
-        cascade="all, delete-orphan",
-    )
-    generation_records: Mapped[list["GenerationRecord"]] = relationship(
-        "GenerationRecord",
         back_populates="workspace",
         cascade="all, delete-orphan",
     )

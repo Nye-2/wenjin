@@ -34,6 +34,13 @@ const summary = {
 };
 const view = {
   mission: summary,
+  activity: {
+    state: "collaborating",
+    title: "研究成员正在协作",
+    summary: "1 位研究成员正在处理当前任务。",
+    attempt: null,
+    retry_at: null,
+  },
   attention_request: null,
   review_summary: { pending: 2, accepted: 0, needs_more_evidence: 0, committed: 0 },
   commit_summary: { pending: 0, applying: 0, committed: 0, failed: 0 },
@@ -55,6 +62,7 @@ const view = {
   artifact_items: [],
   artifact_page: { total: 0, returned: 0, next_cursor: null },
   review_policy: { mode: "balanced_default", protected_outputs_require_confirmation: true, draft_outputs_may_be_automatic: true },
+  review_selection_revision: "4e623f1e58e841dd80c8f16a39497f95",
   quality_highlights: ["研究范围已通过验收"],
   refresh_token: "mission-main-chain:3:5",
 };
@@ -74,7 +82,7 @@ test("MissionView opens on demand, reviews changes, and lazy-loads semantic trac
     missionViews: { [MISSION_ID]: view },
     missionItems: { [MISSION_ID]: [{ id: "item-1", mission_id: MISSION_ID, seq: 5, item_type: "evidence", phase: "completed", summary: "完成关键文献交叉核验", created_at: "2026-07-11T08:00:00Z" }] },
     missionEventBodies: [
-      `data: ${JSON.stringify({ type: "mission.item.appended", missionId: MISSION_ID, stateVersion: 4, lastItemSeq: 9 })}\n\n`,
+      `data: ${JSON.stringify({ type: "mission.updated", missionId: MISSION_ID, stateVersion: 4, lastItemSeq: 9 })}\n\n`,
     ],
   });
   await page.goto("/workspaces/ws-mission");

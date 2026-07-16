@@ -14,6 +14,16 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WORKSPACE_UPLOAD_ROOT = Path(".wenjin/workspace_uploads")
 _PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
+_IMAGE_SUFFIXES = {
+    ".bmp",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 _TEXT_PREVIEW_CONTENT_TYPES = {
     "application/json",
     "application/ld+json",
@@ -69,6 +79,14 @@ def is_pdf_upload(filename: str | None, content_type: str | None) -> bool:
     if normalized_content_type in _PDF_CONTENT_TYPES:
         return True
     return Path(str(filename or "")).suffix.lower() == ".pdf"
+
+
+def is_image_upload(filename: str | None, content_type: str | None) -> bool:
+    """Return whether the uploaded file should be treated as an image."""
+    normalized_content_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    if normalized_content_type.startswith("image/"):
+        return True
+    return Path(str(filename or "")).suffix.lower() in _IMAGE_SUFFIXES
 
 
 def workspace_upload_dir(

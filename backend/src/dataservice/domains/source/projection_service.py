@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from src.contracts.source_projection import serialize_source_projection
 from src.dataservice.domains.source.asset_service import SourceAssetService
 from src.dataservice.domains.source.context import SourceDomainContext
-from src.dataservice.domains.source.helpers import serialize_reference_projection
 from src.dataservice.domains.source.import_service import SourceImportService
 from src.dataservice.domains.source.index_service import SourceIndexService
 from src.dataservice.domains.source.projection import source_to_projection
@@ -51,7 +51,7 @@ class SourceProjectionService:
         source = await self.get_source_for_workspace(workspace_id=workspace_id, source_id=source_id)
         if source is None:
             return None
-        serialized = serialize_reference_projection(source)
+        serialized = serialize_source_projection(source)
         external_ids = await self.import_service.list_source_external_ids(
             workspace_id=workspace_id,
             source_id=source_id,
@@ -152,7 +152,7 @@ class SourceProjectionService:
         return {
             "items": [
                 {
-                    **serialize_reference_projection(item),
+                    **serialize_source_projection(item),
                     "assets": await self.asset_service.list_source_assets(
                         workspace_id=workspace_id,
                         source_id=item.id,

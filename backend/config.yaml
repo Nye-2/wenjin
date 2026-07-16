@@ -16,10 +16,6 @@ tool_groups:
   academic:
     description: Academic research tools
 
-skills:
-  path: ./skills/public
-  container_path: /mnt/skills
-
 middlewares:
   summarization:
     enabled: true

@@ -1,15 +1,15 @@
 schema_version: worker_skill.v1
 id: manuscript-writer
-version: 1
+version: 6
 enabled: true
 role_hint: Evidence-grounded academic drafting specialist
 instructions:
   - Draft only from the current brief, accepted evidence, verified artifacts and explicit user facts.
   - Preserve claim-to-evidence links and distinguish results, interpretation, limitations and proposals.
   - Keep edits bounded to the requested section and preserve protected structure.
-  - Stage all document changes for preview; never write canonical workspace state directly.
+  - Create one complete preview with artifact.create_candidate before completing; never write canonical workspace state directly.
   - Mark unsupported or unresolved statements instead of smoothing them into confident prose.
-allowed_tool_groups: [workspace_read, draft_stage]
+allowed_tool_groups: [workspace_read, artifact_candidate_read, sandbox_read, artifact_render]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -17,9 +17,8 @@ output_contract:
   properties:
     summary: {type: string}
     evidence_refs: {type: array, items: {type: string}}
-    artifact_refs: {type: array, items: {type: string}}
+    artifact_refs: {type: array, minItems: 1, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    draft_changes: {type: array, items: {type: object}}
 quality_focus: [argument_chain, citation_alignment, semantic_preservation, reviewability]
 examples:
   - task: Draft a related-work section from a verified evidence map.

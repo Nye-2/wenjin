@@ -139,7 +139,7 @@ The entry point is always WorkspaceAgent, but execution depth is adaptive:
 | One bounded visual, complete brief, one renderer call | call `academic_visual.render_candidate` directly inside the Mission loop |
 | Data exploration or plotting code must be authored and debugged | spawn `academic-visual-engineer` with isolated dataset/context refs |
 | Multi-panel figure, several coordinated outputs, or venue-specific visual system | spawn `academic-visual-engineer` |
-| Scientific fidelity or reproducibility needs independent criticism | spawn a separate permitted reviewer skill after rendering |
+| User explicitly requests an audit, or one concrete fidelity doubt remains | spawn a permitted diagnostic skill against the immutable candidate |
 | User is only discussing whether a figure is useful | remain in transient Chat; do not create a Mission or artifact |
 
 Even the smallest material visual uses a Mission because preview, provenance, review and commit are durable concerns. `ChatTurnRun` never owns a generated file or a visual operation receipt.
@@ -615,7 +615,7 @@ Required before review item creation:
 
 ### 3. Academic visual fidelity
 
-A bounded reviewer checks the rendered candidate against the brief and verified source context:
+The WorkspaceAgent and strategy-aware acceptance contract check the rendered candidate against the brief and verified source context:
 
 - required concepts are present;
 - prohibited concepts and invented results are absent;
@@ -628,7 +628,7 @@ A bounded reviewer checks the rendered candidate against the brief and verified 
 - color does not carry meaning without a redundant cue;
 - caption and alt text match the visible content.
 
-This reviewer can reject a candidate. It cannot convert generated pixels into evidence, and it cannot approve a data/result figure whose reproducibility receipt is absent.
+Deterministic receipt, manifest, source, and reproducibility checks own the hard boundary. An optional diagnostic worker may identify a concrete defect and trigger another generation attempt, but it cannot pass or reject the stage, convert pixels into evidence, or replace user approval for a protected write.
 
 ### 4. Prism placement
 
@@ -735,7 +735,7 @@ Development cutover rules apply: remove `figure-table-engineer` in the same seed
 2. Implement shared MIME/decode/dimension/page/metadata validation.
 3. Implement `MissionPreviewStore` and authenticated raster/SVG/PDF preview streaming.
 4. Add operation identity, lease fencing, receipts, budget and typed failure mapping for every strategy.
-5. Add strategy-aware academic quality gates; independent reviewer input may strengthen review but cannot replace explicit user approval for protected writes.
+5. Add strategy-aware academic quality gates; optional diagnostic findings may guide regeneration but have no acceptance authority and cannot replace explicit user approval for protected writes.
 
 ### Phase 4: review, asset and Prism
 

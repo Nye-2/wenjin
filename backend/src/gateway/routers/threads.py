@@ -110,8 +110,6 @@ async def _get_owned_thread_or_404(
 def _thread_metadata(thread: Any) -> dict[str, Any]:
     return {
         "workspace_id": thread.workspace_id,
-        "skill": thread.skill,
-        "skill_name": None,
         "model": thread.model,
     }
 
@@ -159,8 +157,6 @@ def _state_values(thread: Any, messages: list[dict[str, Any]]) -> dict[str, Any]
             "workspace_id": thread.workspace_id,
             "title": thread.title,
             "model": thread.model,
-            "skill": thread.skill,
-            "skill_name": None,
             "messages": messages,
         }
     )
@@ -183,7 +179,6 @@ async def create_thread(
             workspace_id=request.workspace_id,
             title=request.title,
             model=request.model,
-            skill=request.skill,
         )
     except InvalidRequestedModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -215,8 +210,6 @@ async def ensure_workspace_thread(
             user_id=actor_id,
             workspace_id=workspace_id,
             model=requested_model,
-            skill=request.skill,
-            skill_explicit="skill" in request.model_fields_set,
         )
     except InvalidRequestedModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

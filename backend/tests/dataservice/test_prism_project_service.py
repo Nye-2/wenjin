@@ -116,6 +116,9 @@ class FakePrismRepository:
                 return record
         return None
 
+    async def lock_document(self, document_id: str) -> None:
+        assert document_id in self.documents
+
     async def get_file_by_path(self, document_id: str, path: str) -> SimpleNamespace | None:
         for record in self.files.values():
             if record.document_id == document_id and record.path == path and record.deleted_at is None:
@@ -319,6 +322,41 @@ async def test_upsert_workspace_file_appends_initial_content_and_reads_current_v
     assert content.current_version.content_inline == "# Application"
     assert repository.files[write.file.id].current_version_id == write.version.id
     assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_create_only_workspace_file_rejects_existing_path_without_mutation() -> None:
+    service, repository, _session = _service()
+    initial = await service.upsert_workspace_file(
+        workspace_id="ws-1",
+        command=PrismWorkspaceFileUpsertCommand(
+            path="paper/main.tex",
+            file_role="manuscript",
+            content_inline="original",
+            content_hash="hash-original",
+        ),
+    )
+
+    conflict = await service.upsert_workspace_file(
+        workspace_id="ws-1",
+        command=PrismWorkspaceFileUpsertCommand(
+            path="paper/main.tex",
+            create_only=True,
+            file_role="generated",
+            metadata_json={"replacement": True},
+            content_inline="replacement",
+            content_hash="hash-replacement",
+        ),
+    )
+
+    assert conflict.changed is False
+    assert conflict.skipped_reason == "already_exists"
+    assert conflict.file.id == initial.file.id
+    stored = repository.files[initial.file.id]
+    assert stored.file_role == "manuscript"
+    assert stored.metadata_json == {}
+    assert stored.content_hash == "hash-original"
+    assert len(repository.versions) == 1
 
 
 @pytest.mark.asyncio

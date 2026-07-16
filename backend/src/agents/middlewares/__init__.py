@@ -20,7 +20,6 @@ from .thread_data import ThreadDataMiddleware
 from .title import TitleMiddleware
 from .todo_list import TodoListMiddleware
 from .tool_error_handling import ToolErrorHandlingMiddleware
-from .uploads import UploadsMiddleware
 from .view_image import ViewImageMiddleware
 from .workspace_context import WorkspaceContextMiddleware
 
@@ -41,7 +40,6 @@ __all__ = [
     "TitleMiddleware",
     "TodoListMiddleware",
     "ToolErrorHandlingMiddleware",
-    "UploadsMiddleware",
     "ViewImageMiddleware",
     "WorkspaceContextMiddleware",
     "GuardrailMiddleware",

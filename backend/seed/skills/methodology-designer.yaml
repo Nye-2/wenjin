@@ -1,6 +1,6 @@
 schema_version: worker_skill.v1
 id: methodology-designer
-version: 1
+version: 3
 enabled: true
 role_hint: Method and modeling design specialist
 instructions:
@@ -9,7 +9,7 @@ instructions:
   - Identify implementation detail, failure conditions and threats to validity.
   - Prefer the simplest design that can distinguish the proposed contribution.
   - Return a method artifact and unresolved design risks; do not claim the stage passed.
-allowed_tool_groups: [workspace_read]
+allowed_tool_groups: [workspace_read, artifact_candidate_read]
 input_contract: {type: object}
 output_contract:
   type: object
@@ -19,7 +19,15 @@ output_contract:
     evidence_refs: {type: array, items: {type: string}}
     artifact_refs: {type: array, items: {type: string}}
     warnings: {type: array, items: {type: string}}
-    method_spec: {type: object}
+    method_spec:
+      type: object
+      properties:
+        variables: {type: array, items: {type: string}}
+        assumptions: {type: array, items: {type: string}}
+        objectives: {type: array, items: {type: string}}
+        constraints: {type: array, items: {type: string}}
+        validation_steps: {type: array, items: {type: string}}
+        unresolved_risks: {type: array, items: {type: string}}
 quality_focus: [question_method_fit, explicit_assumptions, implementability, falsifiability]
 examples:
   - task: Design a method for communication-efficient federated LoRA under non-IID data.

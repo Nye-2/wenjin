@@ -39,15 +39,15 @@ minimum_context:
   applicant_materials:
     requirement: optional
 stage_contract_refs:
-  - {contract_id: proposal_development.scope, schema_version: stage_acceptance_contract.v1, sha256: 4e5966f6992f4fce20c184bd98991b4d8de2b09df60bb2f5c7634ece027af162}
-  - {contract_id: proposal_development.evidence_case, schema_version: stage_acceptance_contract.v1, sha256: 722f0894b539392545d905e70c5e8d0cb8a23c8e50ca094793edda339374d1f0}
-  - {contract_id: proposal_development.technical_route, schema_version: stage_acceptance_contract.v1, sha256: 46c84e85adea30f82516f050bbde4410fb1d054033c1ba24ab42322ef087d42b}
-  - {contract_id: proposal_development.feasibility_risk, schema_version: stage_acceptance_contract.v1, sha256: abdb794f78a7f0aec40ef2877e36ccb23322106a189274b378fcffb66180a425}
-  - {contract_id: proposal_development.proposal_writing, schema_version: stage_acceptance_contract.v1, sha256: 1658671d4f5e909dd238a8e6e9a27d26dc9c50b940612355d4c2e21ab15e0c11}
+  - {contract_id: proposal_development.scope, schema_version: stage_acceptance_contract.v2, sha256: e4ee18732a743e32843ef4cbb46173c556d48cc3b7c65daa399048f305064198}
+  - {contract_id: proposal_development.evidence_case, schema_version: stage_acceptance_contract.v2, sha256: bf5a27471947e19f37441a958a71673814b0d1bfe71ae0c6f32eece35b50da21}
+  - {contract_id: proposal_development.technical_route, schema_version: stage_acceptance_contract.v2, sha256: ca135d00a355e167dc35dfd3a453d2a1203e1cb688481799e96c5811556b779f}
+  - {contract_id: proposal_development.feasibility_risk, schema_version: stage_acceptance_contract.v2, sha256: 2cbec4d21a7bd304c6c907b701b5e1d4a2ee9b28f0a2ec069743df8d2313ad26}
+  - {contract_id: proposal_development.proposal_writing, schema_version: stage_acceptance_contract.v2, sha256: b2c81668c1f73fe46c8985b36441ec7178f22ab37a46b66a811064b6553d70fc}
 tool_policy:
-  allowed_tool_groups: [workspace_read, model_native_web_search, source_import, sandbox_compute, academic_visual_render, draft_stage]
+  allowed_tool_groups: [workspace_read, artifact_candidate_read, model_native_web_search, source_import, sandbox_compute, sandbox_read, artifact_render, academic_visual_render, draft_stage]
   denied_tools: [room_direct_write, unrestricted_shell]
-allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, academic-visual-engineer, proposal-writer, citation-auditor, compliance-reviewer, quality-critic]
+allowed_worker_skills: [task-scope-planner, research-scout, evidence-synthesizer, methodology-designer, academic-visual-engineer, proposal-writer, citation-auditor, compliance-auditor, quality-critic]
 review_policy:
   default_mode: balanced_default
   allowed_modes: [review_all, balanced_default, auto_draft]
@@ -62,11 +62,16 @@ anti_examples:
     failure_reason: 无法证明可行性，也无法回应评审维度。
 completion_contract:
   default_target: technical_plan
-  target_stage_sets:
-    evidence_case: [scope, evidence_case]
-    technical_plan: [scope, evidence_case, technical_route, feasibility_risk]
-    full_proposal: [scope, evidence_case, technical_route, feasibility_risk, proposal_writing]
-  terminal_outputs: [proposal_brief, evidence_case, technical_route, feasibility_risk_register, proposal_draft]
+  targets:
+    evidence_case:
+      stage_ids: [scope, evidence_case]
+      terminal_output_kinds: [evidence_case]
+    technical_plan:
+      stage_ids: [scope, evidence_case, technical_route, feasibility_risk]
+      terminal_output_kinds: [technical_route, feasibility_risk_register]
+    full_proposal:
+      stage_ids: [scope, evidence_case, technical_route, feasibility_risk, proposal_writing]
+      terminal_output_kinds: [proposal_draft]
   allow_safe_partial_outputs: true
 delivery_profile_refs:
   - {profile_id: proposal_call_template, version: 1}

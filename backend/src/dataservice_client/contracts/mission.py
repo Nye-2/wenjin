@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from src.contracts.reasoning import ReasoningEffort
 
 MAX_MISSION_SNAPSHOT_BYTES = 64 * 1024
 MAX_RUNTIME_CONTEXT_BYTES = 128 * 1024
@@ -83,13 +85,6 @@ class MissionReviewMode(StrEnum):
     REVIEW_ALL = "review_all"
     BALANCED_DEFAULT = "balanced_default"
     AUTO_DRAFT = "auto_draft"
-
-
-class MissionReasoningEffort(StrEnum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    XHIGH = "xhigh"
 
 
 class MissionItemPhase(StrEnum):
@@ -190,11 +185,11 @@ class MissionCreatePayload(_StrictModel):
     user_id: str = Field(min_length=1, max_length=36)
     workspace_type: str = Field(min_length=1, max_length=50)
     mission_policy_id: str | None = Field(default=None, max_length=120)
-    title: str = Field(min_length=1, max_length=300)
+    title: str = Field(min_length=1, max_length=60)
     objective: str = Field(min_length=1, max_length=20_000)
     review_mode: MissionReviewMode = MissionReviewMode.BALANCED_DEFAULT
     model_id: str = Field(min_length=1, max_length=120)
-    reasoning_effort: MissionReasoningEffort
+    reasoning_effort: ReasoningEffort
     snapshot_json: dict[str, Any] = Field(default_factory=dict)
     runtime_context_json: dict[str, Any] = Field(default_factory=dict)
     mission_idempotency_key: str | None = Field(default=None, min_length=1, max_length=160)
@@ -219,8 +214,6 @@ class MissionRunPatchPayload(_StrictModel):
     active_stage_id: str | None = Field(default=None, max_length=120)
     context_checkpoint_ref: str | None = Field(default=None, max_length=2048)
     next_wakeup_at: datetime | None = None
-    evidence_count_delta: int = Field(default=0, ge=0, le=10_000)
-    artifact_count_delta: int = Field(default=0, ge=0, le=10_000)
     active_subagent_count_delta: int = Field(default=0, ge=-10_000, le=10_000)
 
 
@@ -348,6 +341,11 @@ class MissionCancelPayload(_StrictModel):
 class MissionReviewItemDraftPayload(_StrictModel):
     review_item_id: str = Field(default_factory=lambda: str(uuid4()), max_length=36)
     source_item_seq: int | None = Field(default=None, ge=1)
+    output_key: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[a-z0-9][a-z0-9_.:-]*$",
+    )
     target_kind: str = Field(min_length=1, max_length=80)
     target_room: str | None = Field(default=None, max_length=80)
     target_ref: str | None = Field(default=None, max_length=2048)
@@ -477,13 +475,13 @@ class MissionRunPayload(_StrictModel):
     user_id: str
     workspace_type: str
     mission_policy_id: str | None = None
-    title: str
+    title: str = Field(min_length=1, max_length=60)
     objective: str
     status: MissionStatus
     review_mode: MissionReviewMode
     active_stage_id: str | None = None
     model_id: str
-    reasoning_effort: MissionReasoningEffort
+    reasoning_effort: ReasoningEffort
     snapshot_json: dict[str, Any] = Field(default_factory=dict)
     runtime_context_json: dict[str, Any] = Field(default_factory=dict)
     context_checkpoint_ref: str | None = None
@@ -509,9 +507,52 @@ class MissionRunPayload(_StrictModel):
     completed_at: datetime | None = None
 
 
-class MissionRunPagePayload(_StrictModel):
-    items: list[MissionRunPayload]
+class MissionViewRunPayload(_StrictModel):
+    """Public lifecycle fields allowed in the user-facing MissionView."""
+
+    mission_id: str
+    parent_mission_id: str | None = None
+    workspace_id: str
+    thread_id: str | None = None
+    workspace_type: str
+    title: str
+    objective: str
+    status: MissionStatus
+    review_mode: MissionReviewMode
+    active_stage_id: str | None = None
+    model_id: str
+    reasoning_effort: ReasoningEffort
+    pending_review_count: int
+    evidence_count: int
+    artifact_count: int
+    active_subagent_count: int
+    state_version: int
+    last_item_seq: int
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class MissionHistoryPagePayload(_StrictModel):
+    items: list[MissionViewRunPayload]
     next_cursor: str | None = None
+
+
+class MissionWorkspaceSummaryPayload(_StrictModel):
+    total: int = Field(ge=0)
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    pending_review_count: int = Field(ge=0)
+    evidence_count: int = Field(ge=0)
+    artifact_count: int = Field(ge=0)
+    latest: MissionViewRunPayload | None = None
+    active: MissionViewRunPayload | None = None
+
+
+class MissionUserSummaryPayload(_StrictModel):
+    total: int = Field(ge=0)
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    recent: list[MissionViewRunPayload] = Field(default_factory=list, max_length=20)
 
 
 class MissionItemPayload(_StrictModel):
@@ -539,21 +580,58 @@ class MissionOperationClaimPayload(_StrictModel):
     ttl_seconds: int = Field(default=180, ge=5, le=3600)
 
 
+class MissionSemanticReferencePayload(_StrictModel):
+    category: Literal["evidence", "artifact"]
+    reference_id: str = Field(min_length=1, max_length=300)
+    reference_kind: str = Field(min_length=1, max_length=80)
+    title: str | None = Field(default=None, max_length=500)
+    uri: str | None = Field(default=None, max_length=2048)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    source_type: Literal["paper", "web_page", "dataset", "upload"] | None = None
+    verified: bool = False
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _bounded_json(
+            value,
+            maximum=MAX_MISSION_ITEM_PAYLOAD_BYTES - 8 * 1024,
+            label="Mission semantic reference metadata",
+        )
+
+
 class MissionOperationFinishPayload(_StrictModel):
     operation_key: str = Field(min_length=1, max_length=200)
     kind: MissionOperationKind
     request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     claimant: str = Field(min_length=1, max_length=200)
     lease_epoch: int = Field(ge=1)
+    stage_id: str | None = Field(default=None, max_length=120)
+    producer: str | None = Field(default=None, max_length=160)
     status: MissionOperationStatus
     receipt_json: dict[str, Any] = Field(default_factory=dict)
     payload_ref: str | None = Field(default=None, max_length=2048)
+    references: list[MissionSemanticReferencePayload] = Field(
+        default_factory=list,
+        max_length=96,
+    )
 
     @model_validator(mode="after")
     def terminal_only(self) -> MissionOperationFinishPayload:
         if self.status is MissionOperationStatus.CLAIMED:
             raise ValueError("operation finish status must be terminal")
         return self
+
+    @field_validator("references")
+    @classmethod
+    def unique_references(
+        cls,
+        value: list[MissionSemanticReferencePayload],
+    ) -> list[MissionSemanticReferencePayload]:
+        keys = [(item.category, item.reference_id) for item in value]
+        if len(keys) != len(set(keys)):
+            raise ValueError("operation semantic references must be unique")
+        return value
 
 
 class MissionOperationReceiptPayload(_StrictModel):
@@ -588,6 +666,7 @@ class MissionReviewItemPayload(_StrictModel):
     review_item_id: str
     mission_id: str
     source_item_seq: int | None = None
+    output_key: str
     target_kind: str
     target_room: str | None = None
     target_ref: str | None = None
@@ -677,11 +756,37 @@ class MissionStageSummaryPayload(_StrictModel):
     summary: str | None = None
 
 
+class MissionActivityPayload(_StrictModel):
+    state: Literal[
+        "starting",
+        "working",
+        "collaborating",
+        "retrying",
+        "recovering",
+        "waiting",
+        "reviewing",
+        "completed",
+        "unavailable",
+        "stopped",
+    ]
+    title: str = Field(min_length=1, max_length=300)
+    summary: str | None = Field(default=None, max_length=1000)
+    attempt: int | None = Field(default=None, ge=1)
+    retry_at: datetime | None = None
+
+
 class MissionSubagentSummaryPayload(_StrictModel):
     subagent_id: str
     display_name: str
     role_label: str
-    status: str
+    status: Literal[
+        "queued",
+        "working",
+        "done",
+        "needs_input",
+        "failed",
+        "cancelled",
+    ]
     summary: str | None = None
 
 
@@ -743,8 +848,19 @@ class MissionProjectionPagePayload(_StrictModel):
     next_cursor: int | None = None
 
 
+class MissionEvidencePagePayload(_StrictModel):
+    items: list[MissionEvidenceSummaryPayload] = Field(default_factory=list)
+    page: MissionProjectionPagePayload
+
+
+class MissionArtifactPagePayload(_StrictModel):
+    items: list[MissionArtifactSummaryPayload] = Field(default_factory=list)
+    page: MissionProjectionPagePayload
+
+
 class MissionViewPayload(_StrictModel):
-    mission: MissionRunPayload
+    mission: MissionViewRunPayload
+    activity: MissionActivityPayload
     attention_request: MissionAttentionRequestPayload | None
     review_summary: MissionReviewSummaryPayload
     commit_summary: MissionCommitSummaryPayload
@@ -759,6 +875,7 @@ class MissionViewPayload(_StrictModel):
     artifact_items: list[MissionArtifactSummaryPayload] = Field(default_factory=list)
     artifact_page: MissionProjectionPagePayload
     review_policy: MissionReviewPolicyPayload
+    review_selection_revision: str = Field(min_length=16, max_length=64)
     quality_highlights: list[str] = Field(default_factory=list)
     refresh_token: str
 
@@ -776,6 +893,7 @@ class MissionAppendResultPayload(_StrictModel):
 class MissionReviewItemsResultPayload(_StrictModel):
     mission: MissionRunPayload
     items: list[MissionReviewItemPayload]
+    superseded_review_item_ids: list[str] = Field(default_factory=list)
 
 
 class MissionCommitCreateResultPayload(_StrictModel):

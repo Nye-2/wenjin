@@ -266,9 +266,6 @@ class UploadApplicationService:
             attachment_url = str(asset.get("public_url") or "").strip() or None
         if isinstance(preprocess, dict):
             metadata["preprocess"] = preprocess
-            markdown_paths = preprocess.get("markdown_paths")
-            if isinstance(markdown_paths, list) and markdown_paths:
-                metadata["preprocessed_markdown_paths"] = markdown_paths
         return {
             "saved_name": saved_name,
             "reference_id": reference_id,

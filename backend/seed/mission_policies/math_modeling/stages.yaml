@@ -1,4 +1,4 @@
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: math_modeling_solution.problem_understanding
 version: 1
 mission_policy_id: math_modeling_solution
@@ -14,7 +14,6 @@ minimum_criteria:
     description: Initial assumptions are separated from given facts.
 required_artifacts: [{kind: modeling_problem_brief}]
 failure_modes: [unreadable_problem, missing_question, hidden_assumption]
-reviewer_roles: [problem_parser_reviewer]
 allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 3
 no_progress_limit: 2
@@ -24,7 +23,7 @@ stop_condition: The problem statement or essential data remains unreadable.
 anti_examples:
   - Modeling starts before all questions and data units are identified.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: math_modeling_solution.question_model
 version: 1
 mission_policy_id: math_modeling_solution
@@ -42,8 +41,7 @@ minimum_criteria:
     description: Accuracy, robustness and interpretation checks are specified.
 required_artifacts: [{kind: question_model_spec}]
 failure_modes: [undefined_variable, unjustified_model, ignored_upstream_result, no_validation]
-reviewer_roles: [modeling_method_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 4
 no_progress_limit: 2
 recommended_model_effort: xhigh
@@ -56,7 +54,7 @@ instantiation:
 advance_condition: The current question's model and validation plan pass.
 stop_condition: No feasible model can answer the current question with available data.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: math_modeling_solution.question_solution_validation
 version: 1
 mission_policy_id: math_modeling_solution
@@ -70,6 +68,8 @@ minimum_criteria:
   - criterion_id: result_validity
     description: Results include error, sensitivity or robustness checks.
     required_evidence_surfaces: [statistical_robustness]
+  - criterion_id: objective_and_baseline
+    description: The chosen plan is compared with a feasible baseline or bound, and its objective value and optimality status are explicit.
   - criterion_id: explanation_figures
     description: Explanation and figures or tables faithfully represent computed data.
     required_evidence_surfaces: [figure_data_consistency]
@@ -78,8 +78,7 @@ required_artifacts:
   - kind: question_solution
     requires_manifest: true
 failure_modes: [non_reproducible_result, unchecked_error, misleading_figure]
-reviewer_roles: [model_validation_reviewer, reproducibility_reviewer]
-allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, retrieve_more_evidence, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 5
 no_progress_limit: 2
 recommended_model_effort: xhigh
@@ -97,7 +96,7 @@ require_exemplar_comparison: true
 anti_examples:
   - A numerical answer without script, validation or interpretation is accepted as complete.
 ---
-schema_version: stage_acceptance_contract.v1
+schema_version: stage_acceptance_contract.v2
 contract_id: math_modeling_solution.paper_integration
 version: 1
 mission_policy_id: math_modeling_solution
@@ -113,14 +112,13 @@ minimum_criteria:
   - criterion_id: figure_table_alignment
     description: Every figure and table traces to scripts and data.
     required_evidence_surfaces: [figure_data_consistency]
-  - criterion_id: disclosure_and_review
-    description: AI-use disclosure and reviewable document changes are present.
-    required_evidence_surfaces: [ai_use_disclosure, review_packet_completeness]
-required_evidence_surfaces: [writing, claim_evidence_alignment, figure_data_consistency, ai_use_disclosure, review_packet_completeness]
+  - criterion_id: ai_use_disclosure
+    description: The paper includes the required AI-use disclosure or no-AI declaration.
+    required_evidence_surfaces: [ai_use_disclosure]
+required_evidence_surfaces: [writing, claim_evidence_alignment, figure_data_consistency, ai_use_disclosure]
 required_artifacts: [{kind: math_modeling_paper}]
 failure_modes: [cross_question_mismatch, overstated_conclusion, unverifiable_figure, missing_disclosure]
-reviewer_roles: [paper_integration_reviewer, reproducibility_reviewer]
-allowed_actions_if_failed: [revise_existing, spawn_reviewer, ask_user, degrade_with_notice, stop_execution]
+allowed_actions_if_failed: [revise_existing, ask_user, degrade_with_notice, stop_execution]
 max_revision_attempts: 5
 no_progress_limit: 2
 recommended_model_effort: xhigh

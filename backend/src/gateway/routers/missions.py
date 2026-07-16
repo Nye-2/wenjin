@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -37,6 +38,88 @@ from src.review_commit_runtime.preview_store import MissionPreviewStore
 from src.services.mission_runtime_service import MissionRuntimeService, build_mission_runtime
 
 router = APIRouter(tags=["missions"])
+
+_TRACE_SUMMARY_LABELS = {
+    "Mission budget reserved": "已准备任务资源",
+    "Mission planning started": "正在组织研究计划",
+    "Mission drive loop started": "研究任务开始推进",
+    "Mission checkpoint saved at a safe boundary": "已保存当前任务进度",
+    "Mission action needs schema repair; Mission will retry": "正在校正下一步",
+    "tool operation claimed": "已开始执行研究工具",
+    "tool operation succeeded": "研究工具执行完成",
+    "tool operation failed": "研究工具本轮未完成，正在调整",
+    "sandbox operation claimed": "正在运行计算与验证",
+    "sandbox operation succeeded": "计算与验证已完成",
+    "Read a verified, unmaterialized artifact candidate.": "已读取通过验证的候选成果",
+    "The Sandbox file is unavailable or exceeds the read boundary.": "未读取到目标文件，正在检查材料路径",
+    "Stage acceptance contract passed": "当前阶段已通过质量验收",
+    "Previously completed operation reused": "已复用此前完成的研究步骤",
+    "Subagent model step failed": "研究成员本轮未完成，正在重试",
+    "Model service was temporarily unavailable; Mission will retry": "连接暂时波动，问津正在重试",
+    "Model service remained unavailable; Mission stopped with its partial work preserved": "连接多次未恢复，已保留当前成果",
+    "Model service is busy; preserving worker context and retrying": "连接暂时波动，研究成员正在重试",
+}
+
+_TRACE_FALLBACK_LABELS = {
+    "tool_call": "正在执行下一项研究步骤",
+    "tool_result": "研究工具已返回结果",
+    "operation_claim": "已开始执行研究工具",
+    "operation_terminal": "研究工具状态已更新",
+    "subagent_progress": "研究成员完成了一项工作",
+    "subagent_completed": "研究成员已完成本轮工作",
+    "error": "本轮未完成，问津正在调整",
+    "context_checkpoint": "已保存当前任务进度",
+    "status_update": "任务状态已更新",
+}
+
+_READ_MATERIAL_RE = re.compile(r"^Read \d+ (?:character|byte)\(s\) from (.+)\.$")
+_SUBAGENT_RESULT_RE = re.compile(r"^(\d+) of \d+ subagent jobs produced usable results$")
+_HAS_CJK_RE = re.compile(r"[\u3400-\u9fff]")
+
+
+def _bounded_trace_text(value: str, *, limit: int = 180) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit].rstrip()}…"
+
+
+def _public_trace_summary(*, item_type: str, summary: str | None) -> str:
+    """Project an internal ledger receipt into calm, user-facing trace text."""
+    normalized = (summary or "").strip()
+    if not normalized:
+        return {
+            "evidence": "发现可核验材料",
+            "artifact": "生成候选成果",
+            "quality_check": "完成阶段质量检查",
+            "review_candidate": "内容已进入确认",
+            "commit": "内容保存状态已更新",
+        }.get(item_type, "任务进展已更新")
+    exact = _TRACE_SUMMARY_LABELS.get(normalized)
+    if exact is not None:
+        return exact
+    material_match = _READ_MATERIAL_RE.fullmatch(normalized)
+    if material_match is not None:
+        material = material_match.group(1).strip()
+        if material == "Sandbox file":
+            return "已读取计算文件"
+        return f"已读取研究材料：{material}"
+    if normalized.startswith("Loaded review candidate: "):
+        title = normalized.removeprefix("Loaded review candidate: ").strip()
+        return f"已读取待确认成果：{title}" if title else "已读取待确认成果"
+    if normalized.endswith(" started"):
+        name = normalized.removesuffix(" started").strip()
+        return f"{name}开始工作" if name else "研究成员开始工作"
+    subagent_match = _SUBAGENT_RESULT_RE.fullmatch(normalized)
+    if subagent_match is not None:
+        usable = subagent_match.group(1)
+        if usable == "0":
+            return "本轮研究成员结果未达到可用要求，正在调整"
+        return f"{usable} 位研究成员已完成本轮工作"
+    if item_type in {"evidence", "artifact"}:
+        return _bounded_trace_text(normalized)
+    if normalized.startswith(("{", "[")) or not _HAS_CJK_RE.search(normalized):
+        return _TRACE_FALLBACK_LABELS.get(item_type, "任务进展已更新")
+    return _bounded_trace_text(normalized)
 
 
 class _StrictModel(BaseModel):
@@ -142,7 +225,6 @@ async def _owned_run(
 class MissionStreamCursor(_StrictModel):
     watermark: datetime
     after_mission_id: str = ""
-    positions: dict[str, tuple[int, int]] = Field(default_factory=dict)
 
 
 def _encode_cursor(cursor: MissionStreamCursor) -> str:
@@ -177,7 +259,6 @@ async def _mission_event_stream(
     """Project reconnectable hints from Mission DB state; hints are never SSOT."""
 
     heartbeat_elapsed = 0.0
-    recovery_elapsed = 0.0
     while not await request.is_disconnected():
         runs = await dataservice.missions.list_workspace_changes(
             workspace_id=workspace_id,
@@ -187,26 +268,19 @@ async def _mission_event_stream(
         )
         emitted = False
         for run in runs:
-            fingerprint = (run.state_version, run.last_item_seq)
-            prior = cursor.positions.get(run.mission_id)
             cursor.watermark = run.updated_at
             cursor.after_mission_id = run.mission_id
             if run.user_id != user_id:
                 continue
-            if prior == fingerprint:
-                continue
-            cursor.positions[run.mission_id] = fingerprint
             emitted = True
-            replay_required = prior is not None and run.last_item_seq > prior[1] + 1
             token = _encode_cursor(cursor)
             yield _event_frame(
                 event_id=token,
                 payload={
-                    "type": "mission.snapshot.changed" if replay_required else "mission.updated",
+                    "type": "mission.updated",
                     "missionId": run.mission_id,
                     "stateVersion": run.state_version,
                     "lastItemSeq": run.last_item_seq,
-                    "replayRequired": replay_required,
                     "cursor": token,
                 },
             )
@@ -214,35 +288,9 @@ async def _mission_event_stream(
             heartbeat_elapsed = 0.0
         else:
             heartbeat_elapsed += poll_seconds
-            recovery_elapsed += poll_seconds
             if heartbeat_elapsed >= heartbeat_seconds:
                 heartbeat_elapsed = 0.0
                 yield ": keep-alive\n\n"
-        if recovery_elapsed >= 30:
-            recovery_elapsed = 0.0
-            # Low-frequency recovery only; the hot path is the indexed
-            # updated_at/mission_id delta query above.
-            recent = await dataservice.missions.list_workspace(
-                workspace_id=workspace_id, limit=100
-            )
-            for run in reversed(recent):
-                if run.user_id != user_id:
-                    continue
-                fingerprint = (run.state_version, run.last_item_seq)
-                if cursor.positions.get(run.mission_id) != fingerprint:
-                    cursor.positions[run.mission_id] = fingerprint
-                    token = _encode_cursor(cursor)
-                    yield _event_frame(
-                        event_id=token,
-                        payload={
-                            "type": "mission.snapshot.changed",
-                            "missionId": run.mission_id,
-                            "stateVersion": run.state_version,
-                            "lastItemSeq": run.last_item_seq,
-                            "replayRequired": True,
-                            "cursor": token,
-                        },
-                    )
         await asyncio.sleep(poll_seconds)
 
 
@@ -271,6 +319,52 @@ async def get_mission_view(
     return payload
 
 
+@router.get("/missions/{mission_id}/evidence")
+async def list_mission_evidence(
+    mission_id: str,
+    cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> dict[str, Any]:
+    await _owned_run(
+        mission_id,
+        user_id=str(current_user.id),
+        dataservice=dataservice,
+    )
+    page = await dataservice.missions.list_evidence_projection(
+        mission_id,
+        after_seq=cursor,
+        limit=limit,
+    )
+    if page is None:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    return page.model_dump(mode="json")
+
+
+@router.get("/missions/{mission_id}/artifacts")
+async def list_mission_artifacts(
+    mission_id: str,
+    cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> dict[str, Any]:
+    await _owned_run(
+        mission_id,
+        user_id=str(current_user.id),
+        dataservice=dataservice,
+    )
+    page = await dataservice.missions.list_artifact_projection(
+        mission_id,
+        after_seq=cursor,
+        limit=limit,
+    )
+    if page is None:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    return page.model_dump(mode="json")
+
+
 @router.get("/workspaces/{workspace_id}/missions")
 async def list_mission_history(
     workspace_id: str,
@@ -293,6 +387,27 @@ async def list_mission_history(
         cursor=cursor,
     )
     return page.model_dump(mode="json")
+
+
+@router.get("/workspaces/{workspace_id}/missions/summary")
+async def get_workspace_mission_summary(
+    workspace_id: str,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> dict[str, Any]:
+    user_id = str(current_user.id)
+    try:
+        await DataServiceMembershipAuthorizer(dataservice).require_active_member(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail="Workspace not found") from exc
+    summary = await dataservice.missions.get_workspace_summary(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    return summary.model_dump(mode="json")
 
 
 @router.get("/workspaces/{workspace_id}/missions/events")
@@ -354,7 +469,24 @@ async def list_mission_trace_items(
         limit=limit,
     )
     return {
-        "items": [item.model_dump(mode="json") for item in items],
+        "items": [
+            {
+                "id": item.id,
+                "mission_id": item.mission_id,
+                "seq": item.seq,
+                "item_type": item.item_type,
+                "phase": item.phase.value,
+                "stage_id": item.stage_id,
+                "producer": item.producer,
+                "summary": _public_trace_summary(
+                    item_type=item.item_type,
+                    summary=item.summary,
+                ),
+                "created_at": item.created_at.isoformat(),
+                "detail_available": bool(item.payload_json or item.payload_ref),
+            }
+            for item in items
+        ],
         "next_cursor": items[-1].seq if items else None,
     }
 

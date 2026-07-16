@@ -47,8 +47,6 @@ def thread_to_response(
         workspace_id=thread.workspace_id,
         title=thread.title,
         model=thread.model,
-        skill=thread.skill,
-        skill_name=None,
         messages=thread_messages_to_response(resolved_messages),
         created_at=thread.created_at,
         updated_at=thread.updated_at,

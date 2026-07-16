@@ -5,7 +5,6 @@ import type { MissionConsoleSurface } from "@/lib/mission-view";
 export type MissionPanelMode = "closed" | "peek" | "expanded";
 
 interface MissionUiState {
-  activeMissionId: string | null;
   focusedMissionId: string | null;
   highlightedMissionId: string | null;
   focusedPreviewItemId: string | null;
@@ -28,7 +27,6 @@ interface MissionUiState {
 }
 
 export const useMissionUiStore = create<MissionUiState>((set) => ({
-  activeMissionId: null,
   focusedMissionId: null,
   highlightedMissionId: null,
   focusedPreviewItemId: null,
@@ -47,8 +45,8 @@ export const useMissionUiStore = create<MissionUiState>((set) => ({
     })),
   peekMission: (missionId) =>
     set((state) => ({
-      activeMissionId: missionId,
-      focusedMissionId: state.focusedMissionId ?? missionId,
+      focusedMissionId: missionId,
+      highlightedMissionId: missionId,
       panelMode: state.panelMode === "expanded" ? "expanded" : "peek",
     })),
   expandMission: (surface) =>
@@ -78,7 +76,6 @@ export const useMissionUiStore = create<MissionUiState>((set) => ({
     }),
   clearWorkspaceFocus: () =>
     set({
-      activeMissionId: null,
       focusedMissionId: null,
       highlightedMissionId: null,
       focusedPreviewItemId: null,

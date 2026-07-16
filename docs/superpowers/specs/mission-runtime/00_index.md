@@ -1,7 +1,7 @@
 # Mission Runtime Refactor Specs
 
 Status: Implemented; production-environment acceptance pending
-Updated: 2026-07-12
+Updated: 2026-07-15
 Parent overview: `docs/superpowers/specs/mission-runtime-overview.md`
 
 This directory breaks the Mission Runtime overview into implementation-oriented specs. The specs are written for a clean cutover: no long-lived compatibility layer, no dual-write execution path, and no second frontend state system.
@@ -10,7 +10,7 @@ The parent overview is authoritative for cross-module boundaries and locked deci
 
 ## Migration Status
 
-The dependency-ordered clean cut completed in code. The strict anti-compat gate moved from an opening baseline of 490 findings to zero. The final backend shared-tree suite passed `1737 passed, 1 skipped`; frontend handoff passed TypeScript, 206 Vitest tests, production build, and the three-scenario Mission Playwright main chain. These numbers are implementation records, not permanent release guarantees; use `docs/current/release-gate-checklist.md` for every fresh release.
+The dependency-ordered clean cut completed in code. The strict anti-compat gate moved from an opening baseline of 490 findings to zero. The latest backend shared-tree suite passed `1890 passed, 1 skipped`; frontend handoff passed TypeScript, 235 Vitest tests, production build, and the Mission Playwright main chain. These numbers are implementation records, not permanent release guarantees; rerun the commands in `AGENTS.md` for every fresh release.
 
 Final schema chain:
 
@@ -25,8 +25,13 @@ Final schema chain:
 - `094_workspace_override_cleanup`: final workspace override path removed.
 - `095_database_physical_integrity`: complete foreign-key index coverage and redundant-index removal.
 - `096_mission_aggregate_references`: enforce same-Mission item/review/commit references at the database boundary.
+- `097_workspace_sandbox_provider_cutover`: remove the obsolete configurable sandbox provider.
+- `098_mission_user_projection_index`: index the canonical user Mission aggregate and recent-task projection.
+- `099_thread_skill_cutover`: remove obsolete thread-level skill state.
+- `100_review_output_key_cutover`: enforce one current review item per semantic output key.
+- `101_workspace_reasoning_effort_cutover`: replace the obsolete binary thinking flag with the canonical four-level reasoning preference.
 
-Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. Empty-database online migration through `096` is the release baseline.
+Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. Empty-database online migration through `101` is the release baseline.
 
 ## Locked Decisions
 
@@ -52,6 +57,8 @@ Remaining production-environment acceptance includes the independent native-sear
 20. MissionRun runnable fields plus immutable command items are the only dispatch intent; domain unique keys own idempotency. The unused DataService operations outbox/idempotency/migration-report domain is deleted.
 21. Model actions must arrive as provider-structured tool frames under a probed ModelCapabilityProfile. Assistant text that resembles a tool/search call is never executable evidence.
 22. Sandbox execution uses short-lived hardened operation containers with persistent content-addressed workspace/environment state; no long-lived container session becomes runtime truth.
+23. Review mode is user-owned workspace/Mission policy injected by the server; the provider cannot select it in a Mission start action.
+24. Readable attachments are sealed once as thread-bound `MissionInput` manifests and reach Mission/subagent tools only through `workspace.read_input`; upload markup and parallel attachment readers are deleted.
 
 ## Spec Set
 
@@ -66,7 +73,7 @@ Remaining production-environment acceptance includes the independent native-sear
 | `07_review_commit_runtime.md` | MissionReviewItem/ReviewDecision/MissionCommit and review modes | `backend/src/review_commit_runtime` |
 | `08_mission_console_frontend.md` | MissionView and on-demand Mission Console | `frontend/lib/api/missions.ts`, `frontend/app/(workbench)/workspaces/[id]/components/mission-console` |
 | `09_permission_pause.md` | Mission-level pause, deferred tool approval, user question requests | `backend/src/agents/middlewares`, tool orchestration, frontend review/action surfaces |
-| `10_sandbox_vnext.md` | Docker/rootless workspace sandbox contract and artifact manifest | `backend/src/sandbox`, `backend/src/agents/harness/sandbox_execution_tools.py` |
+| `10_sandbox_vnext.md` | Docker/rootless workspace sandbox contract and artifact manifest | `backend/src/sandbox`, `backend/src/tools/mission/runtime.py` |
 | `11_mission_trace_run_history.md` | Summary/full history, trace, subagent ledger, replay surface | DataService Mission domain, workspace Runs drawer |
 | `12_tool_orchestrator.md` | Canonical tool catalog, model probes, operation lifecycle, native web search | `backend/src/tools/orchestrator`, `backend/src/tools/mission`, `backend/src/services/search/model_native.py` |
 | `13_migration_release_gate.md` | Cutover order, deleted paths, anti-compat scan, tests | whole repo |
@@ -89,3 +96,7 @@ Remaining production-environment acceptance includes the independent native-sear
 13. Native web search is exposed only after a live probe returns a real search receipt plus citation/source metadata.
 14. `auto_draft`, `regenerate`, and `save_draft_only` are policy/actions, not extra MissionReviewItem lifecycle statuses.
 15. Academic visuals route through the canonical `FigureSpec` and `AcademicVisualRuntime`; evidence-bearing figures cannot use generative image strategies.
+16. Conversation threads carry chat and model state only; methodology is pinned by MissionPolicy and WorkerSkill, never by a thread-level skill selector.
+17. StageAcceptance reconstructs exact current-stage candidates and evidence from verified receipts; optional critic workers have no acceptance authority.
+18. MissionReviewItems expose only exact stage-accepted candidates, and Sandbox artifact reads resolve immutable content-addressed objects rather than mutable public paths.
+19. Mission input manifests bind workspace, thread, source hash, extracted-content hash, and size; pending preprocessing may promote an attachment later without trusting a client path or requiring re-upload.
