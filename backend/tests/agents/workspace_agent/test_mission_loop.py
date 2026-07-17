@@ -7,6 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from src.agents.workspace_agent.mission_loop import (
+    WorkspaceMissionLoopAgent,
     _agent_item_projection,
     _agent_mission_projection,
     _hydrated_reference_reads,
@@ -36,6 +37,7 @@ from src.dataservice_client.contracts.mission import (
 from src.mission_runtime.contracts import (
     MissionAgentDecision,
     MissionAgentProtocolError,
+    MissionAgentUsageError,
     MissionDecisionKind,
     MissionLoopContext,
 )
@@ -130,6 +132,76 @@ def test_mission_loop_rejects_malformed_provider_arguments() -> None:
                 ],
             )
         )
+
+
+def _provider_response_context() -> MissionLoopContext:
+    mission = _mission_payload().model_copy(
+        update={
+            "runtime_context_json": {
+                "mission_policy_snapshot": {"id": "math_modeling_solution"},
+                "stage_contracts": {
+                    "question_1_solution_validation": {
+                        "stage_id": "question_1_solution_validation"
+                    }
+                },
+                "tool_policy": {"allowed_tool_ids": []},
+                "worker_skill_snapshots": {},
+            }
+        }
+    )
+    return MissionLoopContext(
+        mission=mission,
+        model_turns_used=0,
+        tool_steps_used=0,
+        deadline_monotonic=100.0,
+    )
+
+
+class _ProviderResponseModel:
+    def __init__(self, response: AIMessage) -> None:
+        self.response = response
+
+    def bind_tools(self, *args, **kwargs):
+        del args, kwargs
+        return self
+
+    async def ainvoke(self, messages):
+        del messages
+        return self.response
+
+
+@pytest.mark.asyncio
+async def test_workspace_agent_protocol_error_carries_response_usage() -> None:
+    response = AIMessage(
+        content="malformed",
+        id="mission-response-1",
+        usage_metadata={
+            "input_tokens": 40,
+            "output_tokens": 5,
+            "total_tokens": 45,
+        },
+    )
+    agent = WorkspaceMissionLoopAgent(
+        model_factory=lambda *args, **kwargs: _ProviderResponseModel(response)
+    )
+
+    with pytest.raises(MissionAgentProtocolError) as raised:
+        await agent.decide(_provider_response_context())
+
+    assert raised.value.usage_receipt is not None
+    assert raised.value.usage_receipt.provider_response_id == "mission-response-1"
+    assert raised.value.usage_receipt.usage.total_tokens == 45
+
+
+@pytest.mark.asyncio
+async def test_workspace_agent_response_without_usage_fails_before_parsing() -> None:
+    response = AIMessage(content="malformed", id="mission-response-unmetered")
+    agent = WorkspaceMissionLoopAgent(
+        model_factory=lambda *args, **kwargs: _ProviderResponseModel(response)
+    )
+
+    with pytest.raises(MissionAgentUsageError, match="non-zero usage"):
+        await agent.decide(_provider_response_context())
 
 
 def test_mission_loop_reports_the_invalid_encoded_field() -> None:

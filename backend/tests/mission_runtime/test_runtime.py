@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     StageCriterion,
@@ -87,6 +88,20 @@ def quality_decision(operation_id: str) -> MissionAgentDecision:
         stage_id="question_1_solution_validation",
         summary="Evaluate current stage",
         payload_json={"candidate_refs": [], "assessment": {}},
+    )
+
+
+def subagent_decision(operation_id: str) -> MissionAgentDecision:
+    return MissionAgentDecision(
+        decision_id=f"decision-{operation_id}",
+        kind="subagent",
+        operation_id=operation_id,
+        stage_id="literature",
+        summary="Delegate one bounded research facet",
+        payload_json={
+            "task_summary": "Inspect one bounded research facet",
+            "input_scope": {"query": "federated PEFT"},
+        },
     )
 
 
@@ -238,6 +253,197 @@ async def test_start_and_complete_mission(runtime_factory) -> None:
     assert telemetry.outcome == MissionSliceOutcome.COMPLETED
     assert run is not None and run.status.value == "completed"
     assert run.lease_owner is None
+
+
+@pytest.mark.asyncio
+async def test_workspace_model_call_start_is_adopted_after_lost_append_ack(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    original_append = store.append_items
+    lost_ack = False
+
+    async def append_with_lost_start_ack(mission_id, command):
+        nonlocal lost_ack
+        result = await original_append(mission_id, command)
+        if (
+            not lost_ack
+            and len(command.items) == 1
+            and command.items[0].item_type == "model_call_started"
+        ):
+            lost_ack = True
+            raise RuntimeError("model start append acknowledgement was lost")
+        return result
+
+    store.append_items = append_with_lost_start_ack  # type: ignore[method-assign]
+    agent = ScriptedAgent([complete_decision()])
+    runtime, deps = runtime_factory(
+        agent=agent,
+        clock=clock,
+        store=store,
+    )
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    items = deps["store"].items[receipt.mission_id]
+    starts = [item for item in items if item.item_type == "model_call_started"]
+    usage = [item for item in items if item.item_type == "usage_receipt"]
+    assert result.outcome is MissionSliceOutcome.COMPLETED
+    assert lost_ack is True
+    assert agent.provider_calls == 1
+    assert len(starts) == len(usage) == 1
+    assert starts[0].operation_id == usage[0].operation_id
+
+
+@pytest.mark.asyncio
+async def test_workspace_usage_receipt_is_idempotent_after_lost_append_ack(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    original_append = store.append_items
+    lost_ack = False
+
+    async def append_with_lost_usage_ack(mission_id, command):
+        nonlocal lost_ack
+        result = await original_append(mission_id, command)
+        if (
+            not lost_ack
+            and len(command.items) == 1
+            and command.items[0].item_type == "usage_receipt"
+        ):
+            lost_ack = True
+            raise RuntimeError("usage append acknowledgement was lost")
+        return result
+
+    store.append_items = append_with_lost_usage_ack  # type: ignore[method-assign]
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([complete_decision()]),
+        clock=clock,
+        store=store,
+    )
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    items = deps["store"].items[receipt.mission_id]
+    starts = [item for item in items if item.item_type == "model_call_started"]
+    usage = [item for item in items if item.item_type == "usage_receipt"]
+    assert result.outcome is MissionSliceOutcome.COMPLETED
+    assert lost_ack is True
+    assert len(starts) == len(usage) == 1
+    assert usage[0].operation_id == starts[0].operation_id
+    run = await deps["store"].get(receipt.mission_id)
+    assert run is not None
+    assert run.snapshot_json["resource_usage"]["model_calls"] == 1
+    assert run.snapshot_json["resource_usage"]["total_tokens"] == 15
+
+
+@pytest.mark.asyncio
+async def test_cumulative_model_budget_stops_before_the_next_slice_call(
+    runtime_factory,
+) -> None:
+    agent = ScriptedAgent([continue_decision("first-call")])
+    runtime, deps = runtime_factory(
+        agent=agent,
+        limits=MissionSliceLimits(max_model_turns=1),
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 1,
+                        "max_tool_operations": 2,
+                        "max_subagent_jobs": 2,
+                        "stop_after_total_tokens": 10_000,
+                    }
+                }
+            }
+        )
+    )
+
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    second = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
+
+    run = await deps["store"].get(receipt.mission_id)
+    assert first.outcome is MissionSliceOutcome.YIELDED
+    assert second.outcome is MissionSliceOutcome.TERMINAL
+    assert second.reason == "resource_budget_exhausted"
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert run.snapshot_json["resource_usage"]["model_calls"] == 1
+    assert run.snapshot_json["resource_budget_stop"]["dimensions"] == [
+        "model_calls"
+    ]
+    assert len(agent.contexts) == 1
+
+
+@pytest.mark.asyncio
+async def test_token_threshold_equality_stops_before_next_provider_call(
+    runtime_factory,
+) -> None:
+    agent = ScriptedAgent([continue_decision("threshold-reached")])
+    runtime, deps = runtime_factory(agent=agent)
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 2,
+                        "max_tool_operations": 2,
+                        "max_subagent_jobs": 1,
+                        "stop_after_total_tokens": 15,
+                    }
+                }
+            }
+        )
+    )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    run = await deps["store"].get(receipt.mission_id)
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert result.reason == "resource_budget_exhausted"
+    assert agent.provider_calls == 1
+    assert run is not None
+    assert run.snapshot_json["resource_usage"]["total_tokens"] == 15
+    assert run.snapshot_json["resource_budget_stop"]["dimensions"] == [
+        "total_tokens"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tool_budget_stops_before_the_tool_side_effect(runtime_factory) -> None:
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([tool_decision("tool-over-budget")]),
+        limits=MissionSliceLimits(max_model_turns=1),
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 2,
+                        "max_tool_operations": 0,
+                        "max_subagent_jobs": 1,
+                        "stop_after_total_tokens": 10_000,
+                    }
+                }
+            }
+        )
+    )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert run.snapshot_json["resource_budget_stop"]["dimensions"] == [
+        "tool_operations"
+    ]
+    assert deps["tools"].calls == []
 
 
 @pytest.mark.asyncio
@@ -1120,7 +1326,7 @@ async def test_expired_same_owner_lease_conflict_yields_without_retry_loop(
 
     assert telemetry.outcome == MissionSliceOutcome.YIELDED
     assert telemetry.reason == "lease_fence_lost"
-    assert heartbeat_calls == 1
+    assert heartbeat_calls == 0
 
 
 @pytest.mark.asyncio
@@ -1243,6 +1449,71 @@ async def test_command_arriving_during_model_turn_is_applied_at_next_safe_bounda
     summaries = [item.summary for item in store.items[receipt.mission_id]]
     assert "continue stale-decision" not in summaries
     assert deps["agent"].contexts[0].pending_commands == []
+    items = store.items[receipt.mission_id]
+    usage_receipts = [
+        item
+        for item in items
+        if item.item_type == "usage_receipt"
+        and item.producer == "workspace_agent"
+    ]
+    starts = [
+        item
+        for item in items
+        if item.item_type == "model_call_started"
+        and item.producer == "workspace_agent"
+    ]
+    assert len(usage_receipts) == len(starts) == 2
+    assert [item.operation_id for item in usage_receipts] == [
+        item.operation_id for item in starts
+    ]
+    applied = next(
+        item
+        for item in items
+        if item.item_type == "status_update" and item.operation_id == "steer-1"
+    )
+    assert usage_receipts[0].seq < applied.seq
+
+
+@pytest.mark.asyncio
+async def test_invalid_prism_command_is_consumed_without_poisoning_mission(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
+    receipt = await runtime.start(start_request())
+    await deps["store"].append_command(
+        receipt.mission_id,
+        MissionUserCommandPayload(
+            command_id="invalid-prism-command",
+            command_type="steer",
+            summary="Use this selection",
+            payload_json={
+                "prism_context_ref": {
+                    "workspace_id": "another-workspace",
+                    "prism_project_id": "project-1",
+                    "file_id": "file-1",
+                    "base_revision_ref": "revision-1",
+                    "selection_hash": f"sha256:{'a' * 64}",
+                    "selection_byte_range": [0, 1],
+                }
+            },
+        ),
+    )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+    command_item = next(
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.operation_id == "invalid-prism-command"
+        and item.item_type == "status_update"
+    )
+
+    assert result.outcome is MissionSliceOutcome.COMPLETED
+    assert run is not None
+    assert run.last_applied_command_seq == run.last_command_seq
+    assert "prism_context_ref" not in run.snapshot_json
+    assert command_item.phase.value == "failed"
+    assert command_item.payload_json["error_code"] == "invalid_prism_context"
 
 
 @pytest.mark.asyncio
@@ -1391,6 +1662,52 @@ async def test_checkpoint_keeps_only_stable_reference_ids(runtime_factory) -> No
 
 
 @pytest.mark.asyncio
+async def test_terminal_operation_after_first_100_items_is_reused(
+    runtime_factory,
+) -> None:
+    operation_id = "operation-terminal-after-first-page"
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent(
+            [tool_decision(operation_id), complete_decision()]
+        )
+    )
+    receipt = await runtime.start(start_request())
+    deps["store"].seed_items(
+        receipt.mission_id,
+        [
+            MissionItemDraftPayload(
+                item_type="tool_progress",
+                operation_id=operation_id,
+                phase="progress",
+                producer="tool_orchestrator",
+                summary=f"progress {index}",
+            )
+            for index in range(100)
+        ]
+        + [
+            MissionItemDraftPayload(
+                item_type="tool_result",
+                operation_id=operation_id,
+                phase="completed",
+                producer="tool_orchestrator",
+                summary="Durable terminal tool result",
+            )
+        ],
+    )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    assert result.outcome is MissionSliceOutcome.COMPLETED
+    assert deps["tools"].calls == []
+    assert any(
+        item.item_type == "status_update"
+        and item.operation_id == operation_id
+        and item.summary == "Previously completed operation reused"
+        for item in deps["store"].items[receipt.mission_id]
+    )
+
+
+@pytest.mark.asyncio
 async def test_duplicate_operation_id_does_not_repeat_tool_effect(runtime_factory) -> None:
     tools = FakeTools()
     runtime, deps = runtime_factory(
@@ -1452,6 +1769,119 @@ async def test_crash_recovery_reuses_inflight_operation_id_after_higher_epoch(
     assert tools.effects == {"search-crash"}
     terminal = await deps["store"].get(receipt.mission_id)
     assert terminal is not None and terminal.status.value == "completed"
+
+
+@pytest.mark.asyncio
+async def test_parent_adopts_subagent_terminal_on_final_probe_before_failure(
+    runtime_factory,
+) -> None:
+    class LostTerminalAckSubagents:
+        def __init__(self) -> None:
+            self.run_calls = 0
+            self.adopt_calls = 0
+
+        async def run(self, request):
+            self.run_calls += 1
+            raise RuntimeError(f"terminal ACK lost for {request.operation_id}")
+
+        async def adopt_terminal(self, request):
+            self.adopt_calls += 1
+            if self.adopt_calls == 1:
+                return None
+            return MissionPortOutcome(
+                status=MissionPortOutcomeStatus.COMPLETED,
+                summary="durable subagent terminal adopted",
+                payload_json={"result_ref": request.operation_id},
+            )
+
+    subagents = LostTerminalAckSubagents()
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent(
+            [subagent_decision("subagent-lost-ack"), complete_decision()]
+        ),
+        subagents=subagents,
+    )
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+    completed = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.item_type == "subagent_completed"
+    ]
+
+    assert result.outcome is MissionSliceOutcome.COMPLETED
+    assert run is not None and run.status is MissionStatus.COMPLETED
+    assert run.active_subagent_count == 0
+    assert "inflight_operation" not in run.snapshot_json
+    assert subagents.run_calls == 1
+    assert subagents.adopt_calls == 2
+    assert len(completed) == 1
+    assert completed[0].phase.value == "completed"
+    assert completed[0].summary == "durable subagent terminal adopted"
+
+
+@pytest.mark.asyncio
+async def test_inflight_tool_recovers_before_next_model_call_budget_check(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    tools = FakeTools()
+    tools.crash_once.add("search-before-budget-stop")
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([tool_decision("search-before-budget-stop")]),
+        clock=clock,
+        store=store,
+        tools=tools,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            max_model_turns=4,
+            max_tool_steps=4,
+        ),
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 1,
+                        "max_tool_operations": 2,
+                        "max_subagent_jobs": 1,
+                        "stop_after_total_tokens": 10_000,
+                    }
+                }
+            }
+        )
+    )
+
+    with pytest.raises(SimulatedWorkerCrash):
+        await runtime.run_slice(receipt.mission_id, worker_id="worker-crashed")
+    clock.advance(21)
+
+    recovered = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-recovery",
+    )
+
+    run = await deps["store"].get(receipt.mission_id)
+    assert recovered.outcome is MissionSliceOutcome.TERMINAL
+    assert recovered.reason == "resource_budget_exhausted"
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert tools.calls == [
+        "search-before-budget-stop",
+        "search-before-budget-stop",
+    ]
+    assert len(deps["agent"].contexts) == 1
+    assert any(
+        item.item_type == "tool_result"
+        and item.operation_id == "search-before-budget-stop"
+        and item.phase.value == "completed"
+        for item in deps["store"].items[receipt.mission_id]
+    )
 
 
 @pytest.mark.asyncio
@@ -1694,35 +2124,84 @@ async def test_terminal_review_pause_completes_execution_without_accepting_outpu
 
 
 @pytest.mark.asyncio
-async def test_transient_model_timeout_yields_with_backoff_without_failing(runtime_factory) -> None:
+async def test_model_timeout_with_unknown_usage_fails_closed(runtime_factory) -> None:
     def timeout(_context):
         raise TimeoutError("provider read timed out")
 
     runtime, deps = runtime_factory(agent=ScriptedAgent([timeout]))
     receipt = await runtime.start(start_request())
-    wakeups_after_start = len(deps["wakeups"].published)
-
     result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
     run = await deps["store"].get(receipt.mission_id)
 
-    assert result.outcome == MissionSliceOutcome.YIELDED
-    assert run is not None and run.status.value == "running"
-    assert run.next_wakeup_at == deps["clock"].now() + timedelta(seconds=5)
-    assert len(deps["wakeups"].published) == wakeups_after_start + 1
-    assert deps["wakeups"].delays[-1] == 5
-    assert result.continuation_published is True
-    assert run.snapshot_json["loop_guard"] == {
-        "consecutive_failures": 0,
-        "transient_failures": 1,
-    }
-    error = next(item for item in deps["store"].items[receipt.mission_id] if item.item_type == "error")
-    assert error.payload_json["recoverable"] is True
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert result.reason == "model_usage_reconciliation_required"
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert run.snapshot_json["failure_reason"] == (
+        "model_usage_reconciliation_required"
+    )
+    terminals = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.item_type == "model_call_terminal"
+    ]
+    assert len(terminals) == 1
+    assert terminals[0].payload_json["outcome"] == "unresolved"
+    assert not any(
+        item.item_type == "usage_receipt"
+        for item in deps["store"].items[receipt.mission_id]
+    )
+
+
+@pytest.mark.asyncio
+async def test_recovery_closes_orphaned_model_start_before_next_provider_call(
+    runtime_factory,
+) -> None:
+    agent = ScriptedAgent([complete_decision()])
+    runtime, deps = runtime_factory(agent=agent)
+    receipt = await runtime.start(start_request())
+    model_call_id = "model-call:workspace:orphaned-after-crash"
+    deps["store"].seed_items(
+        receipt.mission_id,
+        [
+            MissionItemDraftPayload(
+                item_type="model_call_started",
+                operation_id=model_call_id,
+                phase="started",
+                producer="workspace_agent",
+                summary="Workspace Agent model call started",
+                payload_json={
+                    "model_call_id": model_call_id,
+                    "model_id": "gpt-5.6-sol",
+                    "turn": 1,
+                    "attempt": 1,
+                },
+            )
+        ],
+    )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+    states = await deps["store"].list_model_call_states(receipt.mission_id)
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert result.reason == "model_usage_reconciliation_required"
+    assert agent.provider_calls == 0
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert len(states) == 1
+    assert states[0].state.value == "unresolved"
+    assert states[0].terminal is not None
+    assert states[0].terminal.payload_json["error_type"] == (
+        "ModelCallRecoveryUnresolved"
+    )
 
 
 @pytest.mark.asyncio
 async def test_successful_decision_clears_recovered_transient_error(runtime_factory) -> None:
+    class PreflightTimeout(TimeoutError):
+        usage_not_incurred = True
+
     def timeout(_context):
-        raise TimeoutError("provider read timed out")
+        raise PreflightTimeout("provider request was not sent")
 
     runtime, deps = runtime_factory(agent=ScriptedAgent([timeout, complete_decision()]))
     receipt = await runtime.start(start_request())
@@ -1834,8 +2313,11 @@ async def test_repeated_stage_operation_failures_stop_without_unbounded_replanni
 async def test_repeated_transient_model_timeouts_stop_instead_of_retrying_forever(
     runtime_factory,
 ) -> None:
+    class PreflightTimeout(TimeoutError):
+        usage_not_incurred = True
+
     def timeout(_context):
-        raise TimeoutError("provider read timed out")
+        raise PreflightTimeout("provider request was not sent")
 
     runtime, deps = runtime_factory(
         agent=ScriptedAgent([timeout, timeout]),
@@ -1859,6 +2341,7 @@ async def test_repeated_transient_model_timeouts_stop_instead_of_retrying_foreve
 async def test_transient_provider_server_error_yields_with_backoff_without_failing(runtime_factory) -> None:
     class ProviderServerError(Exception):
         status_code = 502
+        usage_not_incurred = True
 
     def unavailable(_context):
         raise ProviderServerError("upstream temporarily unavailable")
@@ -1905,6 +2388,59 @@ async def test_agent_protocol_error_is_repaired_inside_slice_without_error_item(
     assert result.outcome is MissionSliceOutcome.COMPLETED
     assert result.model_turns == 2
     assert not any(item.item_type == "error" for item in deps["store"].items[receipt.mission_id])
+    items = deps["store"].items[receipt.mission_id]
+    starts = [item for item in items if item.item_type == "model_call_started"]
+    usage = [item for item in items if item.item_type == "usage_receipt"]
+    assert len(starts) == len(usage) == 2
+    assert [item.operation_id for item in usage] == [
+        item.operation_id for item in starts
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("zero_usage", [False, True])
+async def test_successful_agent_response_without_measured_usage_fails_closed(
+    runtime_factory,
+    zero_usage: bool,
+) -> None:
+    class UnmeteredAgent:
+        async def decide(self, context):
+            decision = complete_decision("unmetered-complete")
+            if not zero_usage:
+                return decision
+            return decision.model_copy(
+                update={
+                    "usage_receipt": ModelUsageReceipt(
+                        model_id=context.mission.model_id,
+                        provider_response_id="zero-usage-response",
+                        usage=ModelUsage(),
+                    )
+                }
+            )
+
+    runtime, deps = runtime_factory(agent=UnmeteredAgent())
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    run = await deps["store"].get(receipt.mission_id)
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert result.reason == "model_usage_reconciliation_required"
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert run.snapshot_json["failure_reason"] == (
+        "model_usage_reconciliation_required"
+    )
+    assert not any(
+        item.item_type == "usage_receipt"
+        for item in deps["store"].items[receipt.mission_id]
+    )
+    terminals = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.item_type == "model_call_terminal"
+    ]
+    assert len(terminals) == 1
+    assert terminals[0].payload_json["outcome"] == "unresolved"
 
 
 @pytest.mark.asyncio

@@ -32,6 +32,7 @@ from src.dataservice_client.contracts.mission import (
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
     MissionLeaseReleasePayload,
+    MissionModelCallStatePayload,
     MissionOperationClaimPayload,
     MissionOperationClaimResultPayload,
     MissionOperationFinishPayload,
@@ -459,6 +460,19 @@ class MissionDataServiceClient:
             json=MissionItemSeqsPayload(seqs=seqs).model_dump(mode="json"),
         )
         return [MissionItemPayload.model_validate(item) for item in response["data"]]
+
+    async def list_model_call_states(
+        self,
+        mission_id: str,
+    ) -> list[MissionModelCallStatePayload]:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/missions/{mission_id}/model-calls",
+        )
+        return [
+            MissionModelCallStatePayload.model_validate(item)
+            for item in response["data"]
+        ]
 
     async def append_command(self, mission_id: str, command: MissionUserCommandPayload) -> MissionAppendResultPayload:
         return await self._post(

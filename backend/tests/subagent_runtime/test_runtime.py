@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 from typing import Any
 
 import pytest
 
-from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
+from src.contracts.model_usage import (
+    ModelCallTerminalOutcome,
+    ModelUsage,
+    ModelUsageReceipt,
+)
 from src.subagent_runtime.contracts import (
     SubagentAction,
     SubagentBudget,
@@ -18,9 +23,27 @@ from src.subagent_runtime.contracts import (
 )
 from src.subagent_runtime.runtime import SubagentRuntime
 
+_RESPONSE_SEQUENCE = itertools.count(1)
+
+
+def _usage_receipt(
+    response_id: str | None = None,
+    *,
+    model_id: str = "gpt-5.6-sol",
+) -> ModelUsageReceipt:
+    return ModelUsageReceipt(
+        model_id=model_id,
+        provider_response_id=response_id or f"test-response-{next(_RESPONSE_SEQUENCE)}",
+        usage=ModelUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+    )
+
 
 def _model_turn(**values: Any) -> SubagentModelTurn:
-    return SubagentModelTurn(action=SubagentAction.model_validate(values))
+    usage_receipt = values.pop("usage_receipt", _usage_receipt())
+    return SubagentModelTurn(
+        action=SubagentAction.model_validate(values),
+        usage_receipt=usage_receipt,
+    )
 
 
 def _job(job_id: str = "sj_one", **overrides: Any) -> SubagentJobSpec:
@@ -57,13 +80,57 @@ def _job(job_id: str = "sj_one", **overrides: Any) -> SubagentJobSpec:
 class _Ledger:
     def __init__(self) -> None:
         self.events: list[tuple[str, str]] = []
-        self.usage_events: list[tuple[str, int, SubagentModelTurn]] = []
+        self.usage_events: list[
+            tuple[str, int, int, str, ModelUsageReceipt]
+        ] = []
+        self.model_call_events: list[tuple[str, int, int, str]] = []
+        self.model_call_terminal_events: list[
+            tuple[str, int, int, str, ModelCallTerminalOutcome]
+        ] = []
 
     async def record_progress(self, job, *, phase, summary, payload_json=None) -> None:
         self.events.append((job.job_id, phase))
 
-    async def record_model_usage(self, job, *, turn, model_turn) -> None:
-        self.usage_events.append((job.job_id, turn, model_turn))
+    async def record_model_usage(
+        self,
+        job,
+        *,
+        turn,
+        attempt,
+        model_call_id,
+        usage_receipt,
+    ) -> None:
+        self.usage_events.append(
+            (job.job_id, turn, attempt, model_call_id, usage_receipt)
+        )
+
+    async def record_model_call_started(
+        self,
+        job,
+        *,
+        turn,
+        attempt,
+        model_call_id,
+    ) -> None:
+        self.model_call_events.append(
+            (job.job_id, turn, attempt, model_call_id)
+        )
+
+    async def record_model_call_terminal(
+        self,
+        job,
+        *,
+        turn,
+        attempt,
+        model_call_id,
+        outcome,
+        error_type,
+        detail,
+    ) -> None:
+        del error_type, detail
+        self.model_call_terminal_events.append(
+            (job.job_id, turn, attempt, model_call_id, outcome)
+        )
 
 
 class _NoTools:
@@ -158,10 +225,12 @@ async def test_each_successful_model_turn_records_its_measured_usage_before_acti
 
     assert result.results[0].status.value == "completed"
     assert len(ledger.usage_events) == 1
-    job_id, turn, model_turn = ledger.usage_events[0]
-    assert (job_id, turn) == ("sj_one", 1)
-    assert model_turn.usage_receipt is not None
-    assert model_turn.usage_receipt.usage.total_tokens == 150
+    job_id, turn, attempt, model_call_id, usage_receipt = ledger.usage_events[0]
+    assert (job_id, turn, attempt) == ("sj_one", 1, 1)
+    assert usage_receipt.usage.total_tokens == 150
+    assert ledger.model_call_events == [
+        ("sj_one", 1, 1, model_call_id)
+    ]
 
 
 @pytest.mark.asyncio
@@ -198,6 +267,7 @@ async def test_duplicate_job_shares_one_inflight_effect_and_terminal_result() ->
 async def test_transient_model_failure_retries_without_losing_worker_context() -> None:
     class RateLimitError(Exception):
         status_code = 429
+        usage_not_incurred = True
 
     class Model:
         calls = 0
@@ -238,6 +308,39 @@ async def test_transient_model_failure_retries_without_losing_worker_context() -
         "summary": "Audit completed from retained context."
     }
     assert ("sj_one", "progress") in ledger.events
+    assert len(ledger.model_call_terminal_events) == 1
+    assert ledger.model_call_terminal_events[0][-1] is (
+        ModelCallTerminalOutcome.FAILED
+    )
+
+
+@pytest.mark.asyncio
+async def test_unknown_model_failure_records_unresolved_terminal_without_retry() -> None:
+    class Model:
+        calls = 0
+
+        async def next_action(self, job, steps, tool_results):
+            del job, steps, tool_results
+            self.calls += 1
+            raise TimeoutError("provider response state is unknown")
+
+    model = Model()
+    ledger = _Ledger()
+    runtime = SubagentRuntime(model=model, tools=_NoTools(), ledger=ledger)
+
+    result = await runtime.run_batch(
+        (_job(),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    assert model.calls == 1
+    assert result.results[0].status.value == "failed"
+    assert result.results[0].stop_reason.value == "model_error"
+    assert ledger.usage_events == []
+    assert len(ledger.model_call_terminal_events) == 1
+    assert ledger.model_call_terminal_events[0][-1] is (
+        ModelCallTerminalOutcome.UNRESOLVED
+    )
 
 
 @pytest.mark.asyncio
@@ -297,7 +400,10 @@ async def test_malformed_structured_model_output_retries_within_turn_budget() ->
         async def next_action(self, job, steps, tool_results):
             self.calls += 1
             if self.calls == 1:
-                raise SubagentModelOutputError("invalid provider frame")
+                raise SubagentModelOutputError(
+                    "invalid provider frame",
+                    usage_receipt=_usage_receipt("malformed-response"),
+                )
             assert any("Structured worker response" in step.summary for step in steps)
             return _model_turn(
                 kind="complete",
@@ -317,6 +423,10 @@ async def test_malformed_structured_model_output_retries_within_turn_budget() ->
     assert result.results[0].status.value == "completed"
     assert result.results[0].turns_used == 2
     assert ("sj_one", "progress") in ledger.events
+    assert [event[1:3] for event in ledger.usage_events] == [(1, 1), (2, 1)]
+    assert [event[3] for event in ledger.usage_events] == [
+        event[3] for event in ledger.model_call_events
+    ]
 
 
 @pytest.mark.asyncio

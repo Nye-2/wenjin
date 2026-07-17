@@ -17,6 +17,7 @@ from src.dataservice_client.contracts.mission import (
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
     MissionLeaseReleasePayload,
+    MissionModelCallStatePayload,
     MissionOperationClaimPayload,
     MissionOperationClaimResultPayload,
     MissionOperationFinishPayload,
@@ -72,6 +73,11 @@ class MissionStorePort(Protocol):
 
     async def list_items(self, mission_id: str, *, after_seq: int = 0, limit: int = 100, item_type: str | None = None, operation_id: str | None = None) -> list[MissionItemPayload]: ...
 
+    async def list_model_call_states(
+        self,
+        mission_id: str,
+    ) -> list[MissionModelCallStatePayload]: ...
+
     async def list_unapplied_commands(self, mission_id: str, *, limit: int = 100) -> list[MissionItemPayload]: ...
 
     async def apply_commands(self, mission_id: str, command: MissionApplyCommandsPayload) -> MissionAppendResultPayload: ...
@@ -102,6 +108,11 @@ class ToolOrchestratorPort(Protocol):
 
 class SubagentRuntimePort(Protocol):
     async def run(self, request: SubagentExecutionRequest) -> MissionPortOutcome: ...
+
+    async def adopt_terminal(
+        self,
+        request: SubagentExecutionRequest,
+    ) -> MissionPortOutcome | None: ...
 
 
 class StageQualityPort(Protocol):

@@ -41,6 +41,7 @@ def _run(*, version: int = 1, review_mode: str = "balanced_default") -> MissionR
         thread_id="thread-1",
         user_id="user-1",
         workspace_type="sci",
+        mission_policy_id="sci.research",
         title="Research",
         objective="Research well",
         status="completed",

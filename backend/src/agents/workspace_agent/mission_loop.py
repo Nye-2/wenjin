@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agents.workspace_agent.prompts import render_workspace_mission_prompt
-from src.contracts.model_usage import ModelUsage
+from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     stage_id_matches_contract,
@@ -22,6 +22,8 @@ from src.mission_runtime.contracts import (
     MISSION_MODEL_REQUEST_TIMEOUT_SECONDS,
     MissionAgentDecision,
     MissionAgentProtocolError,
+    MissionAgentResponseError,
+    MissionAgentUsageError,
     MissionDecisionKind,
     MissionLoopContext,
 )
@@ -451,12 +453,27 @@ class WorkspaceMissionLoopAgent:
             messages.append(SystemMessage(content=(f"Your previous mission_step response violated the structured contract. Correct it now: {context.protocol_feedback}. Return exactly one mission_step tool call and no prose.")))
         messages.append(HumanMessage(content=_render_mission_state(context)))
         response = await bound.ainvoke(messages)
+        usage_receipt = _model_usage_receipt(response, model_id=context.mission.model_id)
         if not isinstance(response, AIMessage):
-            raise MissionAgentProtocolError("Return one structured mission_step response")
-        decision = parse_mission_decision(response)
-        _validate_decision_scope(decision, runtime)
-        _validate_decision_context(decision, context)
-        return _attach_usage(decision, response)
+            raise MissionAgentProtocolError(
+                "Return one structured mission_step response",
+                usage_receipt=usage_receipt,
+            )
+        try:
+            decision = parse_mission_decision(response)
+            _validate_decision_scope(decision, runtime)
+            _validate_decision_context(decision, context)
+        except MissionAgentProtocolError as exc:
+            raise MissionAgentProtocolError(
+                str(exc),
+                usage_receipt=usage_receipt,
+            ) from exc
+        except Exception as exc:
+            raise MissionAgentResponseError(
+                "Mission response validation failed",
+                usage_receipt=usage_receipt,
+            ) from exc
+        return decision.model_copy(update={"usage_receipt": usage_receipt})
 
 
 def _require_runtime_contract(context: MissionLoopContext) -> dict[str, Any]:
@@ -972,16 +989,18 @@ def _validate_decision_scope(
                 )
 
 
-def _attach_usage(
-    decision: MissionAgentDecision,
-    response: AIMessage,
-) -> MissionAgentDecision:
-    usage = ModelUsage.from_provider_metadata(response.usage_metadata)
-    if usage is None:
-        return decision
-    patch = dict(decision.snapshot_patch)
-    patch["last_model_usage"] = usage.model_dump(mode="json")
-    return decision.model_copy(update={"snapshot_patch": patch})
+def _model_usage_receipt(response: Any, *, model_id: str) -> ModelUsageReceipt:
+    usage = ModelUsage.from_provider_metadata(getattr(response, "usage_metadata", None))
+    if usage is None or usage.total_tokens <= 0:
+        raise MissionAgentUsageError(
+            "Mission provider response did not include non-zero usage"
+        )
+    response_id = getattr(response, "id", None)
+    return ModelUsageReceipt(
+        model_id=model_id,
+        usage=usage,
+        provider_response_id=str(response_id) if response_id else None,
+    )
 
 
 __all__ = [

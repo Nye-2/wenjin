@@ -70,15 +70,6 @@ class MissionDomainWriter:
                 revision_ref=current.file.current_version_id,
                 content_hash=current.file.content_hash,
             )
-        if item.target_kind in {"long_term_memory", "memory_fact"}:
-            current = await self._dataservice.get_workspace_memory_document(workspace_id)
-            if current is None:
-                raise LookupError("materialization_target_not_found")
-            return TargetSnapshot(
-                target_ref=current.id,
-                revision_ref=str(current.revision),
-                content_hash=current.content_hash,
-            )
         raise ValueError("existing_target_kind_has_no_precondition_reader")
 
     async def apply(

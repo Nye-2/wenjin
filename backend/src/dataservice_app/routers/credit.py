@@ -7,17 +7,17 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
+from src.contracts.billing import CreditTransactionType
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
-from src.dataservice.credit_api import CreditDataService, CreditGrantRuleType, CreditTransactionType
+from src.dataservice.credit_api import CreditDataService, CreditGrantRuleType
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
 from src.dataservice_client.contracts.credit import (
     CreditAdminAdjustPayload,
-    CreditConsumptionCreatePayload,
     CreditGrantRuleCreatePayload,
     CreditGrantRuleUpdatePayload,
-    CreditPeriodicGrantProcessPayload,
+    CreditPeriodicGrantPageRequest,
     CreditRedeemCodeCreatePayload,
     CreditRedeemPayload,
     CreditReferralCreatePayload,
@@ -68,6 +68,7 @@ def _transaction_payload(tx: Any) -> dict[str, Any] | None:
         "workspace_id": str(tx.workspace_id) if tx.workspace_id else None,
         "task_id": str(tx.task_id) if tx.task_id else None,
         "admin_id": str(tx.admin_id) if tx.admin_id else None,
+        "idempotency_key": getattr(tx, "idempotency_key", None),
         "metadata": tx.tx_metadata or {},
         "created_at": tx.created_at,
     }
@@ -222,17 +223,20 @@ async def apply_registration_bonus(
     return envelope_ok(_transaction_payload(tx))
 
 
-@router.post("/periodic-grants/process")
-async def process_periodic_grant_rules(
-    payload: CreditPeriodicGrantProcessPayload,
+@router.post("/periodic-grants/process-page")
+async def process_periodic_grant_page(
+    payload: CreditPeriodicGrantPageRequest,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
-    summary = await CreditDataService(
+    page = await CreditDataService(
         uow.required_session,
         autocommit=False,
-    ).process_periodic_grant_rules(now=payload.now)
+    ).process_periodic_grant_page(
+        cursor=payload.cursor,
+        batch_size=payload.batch_size,
+    )
     await uow.commit()
-    return envelope_ok(summary)
+    return envelope_ok(page)
 
 
 @router.get("/users/{user_id}/balance")
@@ -245,24 +249,6 @@ async def get_balance(
         autocommit=False,
     ).get_balance(user_id)
     return envelope_ok({"balance": balance})
-
-
-@router.get("/users/{user_id}/consumed-tokens")
-async def get_consumed_tokens(
-    user_id: str,
-    consume_type: str = Query(),
-    metadata_type: str | None = Query(default=None),
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    consumed = await CreditDataService(
-        uow.required_session,
-        autocommit=False,
-    ).get_consumed_tokens(
-        user_id=user_id,
-        consume_type=CreditTransactionType(consume_type),
-        metadata_type=metadata_type,
-    )
-    return envelope_ok({"consumed_tokens": consumed})
 
 
 @router.get("/users/{user_id}/summary")
@@ -336,30 +322,6 @@ async def aggregate_credit_consumption_stats(
         autocommit=False,
     ).aggregate_credit_consumption_stats(since=since, granularity=granularity)
     return envelope_ok(summary)
-
-
-@router.post("/consume")
-async def record_consumption(
-    payload: CreditConsumptionCreatePayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    tx, balance_before = await CreditDataService(
-        uow.required_session,
-        autocommit=False,
-    ).record_consumption(
-        user_id=payload.user_id,
-        transaction_type=CreditTransactionType(payload.transaction_type),
-        amount=payload.amount,
-        description=payload.description,
-        mission_policy_id=payload.mission_policy_id,
-        mission_id=payload.mission_id,
-        operation_key=payload.operation_key,
-        workspace_id=payload.workspace_id,
-        task_id=payload.task_id,
-        metadata=payload.metadata,
-    )
-    await uow.commit()
-    return envelope_ok({"transaction": _transaction_payload(tx), "balance_before": balance_before})
 
 
 @router.post("/admin-adjust")

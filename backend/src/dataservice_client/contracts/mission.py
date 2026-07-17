@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.model_usage import ModelCallState
 from src.contracts.prism_context import PrismContextRef
 from src.contracts.reasoning import ReasoningEffort
 from src.contracts.review_policy import ReviewMode
@@ -189,7 +190,7 @@ class MissionCreatePayload(_StrictModel):
     thread_id: str | None = Field(default=None, max_length=36)
     user_id: str = Field(min_length=1, max_length=36)
     workspace_type: str = Field(min_length=1, max_length=50)
-    mission_policy_id: str | None = Field(default=None, max_length=120)
+    mission_policy_id: str = Field(min_length=1, max_length=120)
     title: str = Field(min_length=1, max_length=60)
     objective: str = Field(min_length=1, max_length=20_000)
     review_mode: ReviewMode = ReviewMode.BALANCED_DEFAULT
@@ -538,7 +539,7 @@ class MissionRunPayload(_StrictModel):
     thread_id: str | None = None
     user_id: str
     workspace_type: str
-    mission_policy_id: str | None = None
+    mission_policy_id: str
     title: str = Field(min_length=1, max_length=60)
     objective: str
     status: MissionStatus
@@ -633,6 +634,42 @@ class MissionItemPayload(_StrictModel):
     payload_json: dict[str, Any] = Field(default_factory=dict)
     payload_ref: str | None = None
     created_at: datetime
+
+
+class MissionModelCallStatePayload(_StrictModel):
+    """Canonical DataService projection for one started model call."""
+
+    state: ModelCallState
+    started: MissionItemPayload
+    terminal: MissionItemPayload | None = None
+
+    @model_validator(mode="after")
+    def validate_ledger_pair(self) -> MissionModelCallStatePayload:
+        if self.started.item_type != "model_call_started":
+            raise ValueError("model call state requires a model_call_started item")
+        if self.started.operation_id is None:
+            raise ValueError("model call state requires operation_id")
+        if self.state is ModelCallState.OPEN:
+            if self.terminal is not None:
+                raise ValueError("open model call cannot have a terminal item")
+            return self
+        if self.terminal is None:
+            raise ValueError("terminal model call state requires a terminal item")
+        if self.terminal.operation_id != self.started.operation_id:
+            raise ValueError("model call terminal operation_id must match its start")
+        expected_type = (
+            "usage_receipt"
+            if self.state is ModelCallState.RECEIPT
+            else "model_call_terminal"
+        )
+        if self.terminal.item_type != expected_type:
+            raise ValueError("model call state does not match its terminal item type")
+        if self.terminal.seq <= self.started.seq:
+            raise ValueError("model call terminal must follow its start")
+        if self.state is not ModelCallState.RECEIPT:
+            if self.terminal.payload_json.get("outcome") != self.state.value:
+                raise ValueError("model call terminal outcome does not match its state")
+        return self
 
 
 class MissionOperationClaimPayload(_StrictModel):

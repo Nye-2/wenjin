@@ -30,6 +30,11 @@ mission:
     - Claims require explicit support and prior-art comparison.
     - Patent claim changes always require item-level user review.
   forbidden_outcomes: [invented_feature, invented_prior_art, unsupported_claim, legal_certainty]
+execution_budget:
+  max_model_calls: 112
+  max_tool_operations: 224
+  max_subagent_jobs: 28
+  stop_after_total_tokens: 7000000
 minimum_context:
   invention_disclosure:
     requirement: required

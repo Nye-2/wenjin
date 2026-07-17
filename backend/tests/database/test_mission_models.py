@@ -82,6 +82,7 @@ async def test_orm_rejects_mutating_an_appended_mission_item() -> None:
             workspace_id="workspace-1",
             user_id="user-1",
             workspace_type="sci",
+            mission_policy_id="sci.research",
             title="title",
             objective="objective",
             status="created",

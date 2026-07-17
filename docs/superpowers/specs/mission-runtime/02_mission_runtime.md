@@ -3,7 +3,7 @@
 Status: Implemented
 Updated: 2026-07-16
 
-Implementation outcome: bounded drive slices, leases/epochs, ordered commands, wakeups, reconciliation, billing, events, production composition, and the dedicated `long_running` worker are implemented. No runtime compatibility path remains.
+Implementation outcome: bounded drive slices, leases/epochs, ordered commands, wakeups, reconciliation, Mission billing, cumulative resource accounting, events, production composition, and the dedicated `long_running` worker are implemented. No runtime compatibility path remains.
 Depends on: `03_dataservice_mission_schema.md`, `06_subagent_runtime.md`, `07_review_commit_runtime.md`, `09_permission_pause.md`
 
 ## Goal
@@ -143,7 +143,8 @@ The old `launch_feature` path performs credit checks and reservation before exec
 
 ```text
 preflight_budget(user_id, workspace_id, mission_policy_id)
-reserve_mission_credits(mission_id, mission_idempotency_key)
+freeze_mission_model_global_pricing(mission_id)
+reserve_mission_credits(mission_id, mission_idempotency_key, pricing_snapshot)
 attach reservation_id to MissionRun.snapshot_json.billing
 settle or release on terminal status
 ```
@@ -151,8 +152,10 @@ settle or release on terminal status
 Rules:
 
 - No billable mission starts without a MissionRun-bound reservation or explicit free policy.
+- Every pinned MissionPolicy contains one cumulative execution budget. DataService derives model-call, tool-operation, subagent-job, and token usage only from immutable MissionItems under the Mission row lock; runtime snapshots cannot overwrite it.
+- Count ceilings fail before dispatch. `stop_after_total_tokens` is a post-response stop threshold: the exact provider receipt is retained even when one bounded response crosses it, and all later dispatch is rejected while terminal/audit writes remain available.
 - Sandbox and tool usage is accounted through receipt-backed Mission settlement; there are no standalone sandbox or item-level credit reservations.
-- Model charges resolve through `MissionRun.model_id -> ModelCatalogEntry.pricing_policy_id`; Mission reserve policy resolution and the public pricing catalog share the same DataService resolver.
+- Admission resolves `MissionRun.model_id -> ModelCatalogEntry.pricing_policy_id` and freezes the validated Mission/model/global policy ids, versions, and configs in the immutable admission receipt and reservation. Settlement never rereads mutable active pricing. The public catalog uses the same DataService resolver for new work.
 - ChatTurnRun never owns feature-task credits.
 - Billing failure pauses the mission with `status=waiting` and `waiting_reason=budget`; it does not create an ExecutionRecord fallback.
 
@@ -193,6 +196,9 @@ tool_result
 subagent_spawned
 subagent_progress
 subagent_completed
+model_call_started
+usage_receipt
+model_call_terminal
 quality_check
 review_candidate_created
 review_decision_audit
@@ -222,7 +228,9 @@ risk_level
 created_at
 ```
 
-MissionItems are immutable after append. One operation lifecycle is represented by multiple items sharing `operation_id`; terminal phases are stable projection facts. Token deltas, raw reasoning, line-by-line logs, and subagent wire output are not durable MissionItems.
+MissionItems are immutable after append. One operation lifecycle is represented by multiple items sharing `operation_id`; terminal phases are stable projection facts. Each `model_call_started` is paired with exactly one terminal item carrying the same model-call id, model, turn, attempt, producer, stage, and optional parent-operation/job binding. A measured provider response uses a non-zero `usage_receipt`; a call known not to have incurred usage uses `model_call_terminal=failed|cancelled`; any ambiguity uses `model_call_terminal=unresolved`. Receipt and non-receipt terminals are mutually exclusive and idempotent only under exact content replay.
+
+MissionRuntime checks the DataService model-call projection at recovery, before each drive-loop boundary, after subagent execution, and before terminalization. It converts a recovered open call to `unresolved` before another dispatch and terminates with `model_usage_reconciliation_required`. Open or unresolved calls cannot be bypassed by a new model, tool, subagent, or stage dispatch. Raw reasoning, token streams/deltas, line-by-line logs, and subagent wire output are not durable MissionItems.
 
 ## MissionRun Snapshot
 

@@ -1,7 +1,6 @@
 """Credit models for user balance and transaction history."""
 
 from datetime import datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
@@ -12,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     func,
+    text,
 )
 from sqlalchemy import (
     Enum as SQLEnum,
@@ -19,22 +19,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.contracts.billing import CreditTransactionType
+
 from ..base import Base, UUIDMixin
 
 if TYPE_CHECKING:
     from .user import User
-
-
-class CreditTransactionType(StrEnum):
-    """Supported credit transaction types."""
-
-    ADMIN_GRANT = "admin_grant"
-    ADMIN_DEDUCT = "admin_deduct"
-    WORKFLOW_CONSUME = "workflow_consume"
-    THREAD_TOKEN_CONSUME = "thread_token_consume"
-    REGISTRATION_BONUS = "registration_bonus"
-    REFERRAL_BONUS = "referral_bonus"
-    REDEEM_CODE = "redeem_code"
 
 
 class CreditTransaction(Base, UUIDMixin):
@@ -44,6 +34,15 @@ class CreditTransaction(Base, UUIDMixin):
     __table_args__ = (
         Index("idx_credit_user_created", "user_id", "created_at"),
         Index("idx_credit_type_created", "transaction_type", "created_at"),
+        Index(
+            "uq_credit_transactions_user_type_idempotency",
+            "user_id",
+            "transaction_type",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     user_id: Mapped[str] = mapped_column(
@@ -79,6 +78,7 @@ class CreditTransaction(Base, UUIDMixin):
         index=True,
     )
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
     admin_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("users.id", ondelete="SET NULL"),

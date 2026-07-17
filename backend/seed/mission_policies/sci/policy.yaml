@@ -30,6 +30,11 @@ mission:
     - Citations, claims, statistics, reproducibility and structural writes always require review.
     - Provider prose, invented references and unmanifested experiment artifacts are not evidence.
   forbidden_outcomes: [fabricated_citation, fabricated_data, unsupported_contribution, direct_workspace_write]
+execution_budget:
+  max_model_calls: 128
+  max_tool_operations: 256
+  max_subagent_jobs: 32
+  stop_after_total_tokens: 8000000
 minimum_context:
   topic_or_question:
     requirement: required

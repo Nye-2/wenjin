@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
 from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
-from src.dataservice_client.contracts.mission import MissionLeaseClaimPayload
+from src.dataservice_client.contracts.mission import (
+    MissionItemDraftPayload,
+    MissionLeaseClaimPayload,
+)
 from src.mission_runtime.adapters import (
     MissionSandboxReceiptStore,
+    MissionSubagentLedger,
     MissionSubagentRuntimeAdapter,
 )
 from src.mission_runtime.contracts import (
@@ -31,11 +36,132 @@ from src.sandbox.contracts import (
 )
 from src.subagent_runtime.contracts import (
     SubagentAction,
+    SubagentJobSpec,
     SubagentModelTurn,
     SubagentToolResult,
 )
 
 from .conftest import FakeQuality, ScriptedAgent, start_request
+
+
+@pytest.mark.asyncio
+async def test_subagent_model_ledger_replay_is_idempotent(runtime_factory) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request())
+    initial = await deps["store"].get(receipt.mission_id)
+    assert initial is not None
+    claimed = await deps["store"].claim_lease(
+        receipt.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=initial.state_version,
+            ttl_seconds=240,
+        ),
+    )
+    job = SubagentJobSpec(
+        job_id="sj-ledger-idempotent",
+        operation_id="op-ledger-idempotent",
+        mission_id=receipt.mission_id,
+        workspace_id=claimed.workspace_id,
+        model_id=claimed.model_id,
+        reasoning_effort=claimed.reasoning_effort,
+        lease_owner="worker-1",
+        lease_epoch=claimed.lease_epoch,
+        display_name="计量核验员",
+        role_label="计量核验",
+        task_summary="Verify one model receipt",
+        objective=claimed.objective,
+    )
+    model_call_id = "model-call:subagent:" + "a" * 64
+    usage_receipt = ModelUsageReceipt(
+        model_id=job.model_id,
+        provider_response_id="worker-response-idempotent",
+        usage=ModelUsage(input_tokens=20, output_tokens=5, total_tokens=25),
+    )
+    ledger = MissionSubagentLedger(deps["store"])
+
+    for _ in range(2):
+        await ledger.record_model_call_started(
+            job,
+            turn=1,
+            attempt=1,
+            model_call_id=model_call_id,
+        )
+        await ledger.record_model_usage(
+            job,
+            turn=1,
+            attempt=1,
+            model_call_id=model_call_id,
+            usage_receipt=usage_receipt,
+        )
+
+    items = deps["store"].items[receipt.mission_id]
+    assert len(
+        [item for item in items if item.item_type == "model_call_started"]
+    ) == 1
+    assert len([item for item in items if item.item_type == "usage_receipt"]) == 1
+    run = await deps["store"].get(receipt.mission_id)
+    assert run is not None
+    assert run.snapshot_json["resource_usage"]["model_calls"] == 1
+    assert run.snapshot_json["resource_usage"]["total_tokens"] == 25
+
+
+@pytest.mark.asyncio
+async def test_subagent_terminal_identity_rejects_divergent_replay(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request())
+    initial = await deps["store"].get(receipt.mission_id)
+    assert initial is not None
+    claimed = await deps["store"].claim_lease(
+        receipt.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=initial.state_version,
+            ttl_seconds=240,
+        ),
+    )
+    job = SubagentJobSpec(
+        job_id="sj-terminal-identity",
+        operation_id="op-terminal-identity",
+        mission_id=receipt.mission_id,
+        workspace_id=claimed.workspace_id,
+        model_id=claimed.model_id,
+        reasoning_effort=claimed.reasoning_effort,
+        lease_owner="worker-1",
+        lease_epoch=claimed.lease_epoch,
+        display_name="终态核验员",
+        role_label="终态核验",
+        task_summary="Verify one terminal identity",
+        objective=claimed.objective,
+    )
+    ledger = MissionSubagentLedger(deps["store"])
+
+    await ledger.record_progress(
+        job,
+        phase="terminal",
+        summary="first terminal",
+        payload_json={"result": {"version": 1}},
+    )
+    with pytest.raises(RuntimeError, match="divergent durable content"):
+        await ledger.record_progress(
+            job,
+            phase="terminal",
+            summary="second terminal",
+            payload_json={"result": {"version": 2}},
+        )
+
+    terminal_items = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.item_type == "subagent_progress"
+        and item.payload_json.get("lifecycle_phase") == "terminal"
+    ]
+    assert len(terminal_items) == 1
+    assert terminal_items[0].payload_json["progress_id"] == (
+        "subagent-terminal:sj-terminal-identity"
+    )
 
 
 class _CompletingWorkerModel:
@@ -110,6 +236,19 @@ class _FailIfCalledWorkerModel:
         raise AssertionError(f"durable result was not adopted for {job.job_id}")
 
 
+class _UnmeteredSuccessfulWorkerModel:
+    async def next_action(self, job, steps, tool_results):
+        del job, steps, tool_results
+        return SimpleNamespace(
+            action=SubagentAction(
+                kind="complete",
+                summary="Unmetered semantic result",
+                result_json={"summary": "must not be accepted"},
+            ),
+            usage_receipt=None,
+        )
+
+
 class _AuditingWorkerModel(_CompletingWorkerModel):
     async def next_action(self, job, steps, tool_results):
         self.calls += 1
@@ -132,7 +271,16 @@ class _AuditingWorkerModel(_CompletingWorkerModel):
                 kind="complete",
                 summary="Pinned audit is ready",
                 result_json=result,
-            )
+            ),
+            usage_receipt=ModelUsageReceipt(
+                model_id=job.model_id,
+                provider_response_id=f"audit-response:{job.job_id}:{self.calls}",
+                usage=ModelUsage(
+                    input_tokens=100,
+                    output_tokens=25,
+                    total_tokens=125,
+                ),
+            ),
         )
 
 
@@ -235,14 +383,113 @@ async def test_subagent_ledger_conflict_recovers_without_duplicate_job_or_effect
         "running",
         "terminal",
     ]
-    usage = [item for item in items if item.item_type == "usage_receipt"]
+    usage = [
+        item
+        for item in items
+        if item.item_type == "usage_receipt"
+        and item.producer == progress[0].producer
+    ]
     assert len(usage) == 1
-    assert usage[0].producer == progress[0].producer
     assert usage[0].payload_json["job_id"] == progress[0].payload_json["job_id"]
     assert usage[0].payload_json["usage"]["total_tokens"] == 125
+    started = next(
+        item
+        for item in items
+        if item.item_type == "model_call_started"
+        and item.producer == progress[0].producer
+    )
+    assert usage[0].operation_id == started.operation_id
+    assert usage[0].payload_json["turn"] == started.payload_json["turn"] == 1
+    assert usage[0].payload_json["attempt"] == started.payload_json["attempt"] == 1
     completed = next(item for item in items if item.item_type == "subagent_completed")
     assert completed.payload_json["jobs"][0]["display_name"] == "文献猎手 · Lin"
     assert "full_transcript" not in str(completed.payload_json)
+
+
+@pytest.mark.asyncio
+async def test_subagent_terminal_progress_ack_loss_adopts_durable_terminal(
+    runtime_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _CompletingWorkerModel()
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([_spawn_decision(), _complete_decision()])
+    )
+    runtime.subagents = MissionSubagentRuntimeAdapter(
+        store=deps["store"],
+        model=model,
+        tools=_NoSubagentTools(),  # type: ignore[arg-type]
+        monotonic_clock=deps["clock"].monotonic,
+    )
+    original_append = deps["store"].append_items
+    terminal_ack_lost = False
+
+    async def append_with_lost_terminal_ack(mission_id, command):
+        nonlocal terminal_ack_lost
+        result = await original_append(mission_id, command)
+        if (
+            not terminal_ack_lost
+            and any(
+                item.item_type == "subagent_progress"
+                and item.payload_json.get("lifecycle_phase") == "terminal"
+                for item in command.items
+            )
+        ):
+            terminal_ack_lost = True
+            raise RuntimeError("subagent terminal response ACK lost")
+        return result
+
+    monkeypatch.setattr(
+        deps["store"],
+        "append_items",
+        append_with_lost_terminal_ack,
+    )
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "tool_policy": {"allowed_tool_ids": []},
+                "worker_skill_snapshots": {
+                    "research-scout": {
+                        "content_hash": "a" * 64,
+                        "contract": {
+                            "id": "research-scout",
+                            "output_contract": {"type": "object"},
+                            "quality_focus": [
+                                "Return a bounded evidence brief"
+                            ],
+                        },
+                        "allowed_tool_ids": [],
+                    }
+                },
+            }
+        )
+    )
+
+    telemetry = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-1",
+    )
+    run = await deps["store"].get(receipt.mission_id)
+    terminal_progress = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.item_type == "subagent_progress"
+        and item.payload_json.get("lifecycle_phase") == "terminal"
+    ]
+    parent_terminal = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.item_type == "subagent_completed"
+    ]
+
+    assert terminal_ack_lost is True
+    assert telemetry.outcome is MissionSliceOutcome.COMPLETED
+    assert run is not None and run.status.value == "completed"
+    assert run.active_subagent_count == 0
+    assert model.calls == 1
+    assert len(terminal_progress) == 1
+    assert len(parent_terminal) == 1
+    assert parent_terminal[0].phase.value == "completed"
 
 
 @pytest.mark.asyncio
@@ -582,11 +829,84 @@ async def test_subagent_context_budget_expands_to_fit_frozen_checkpoint(
 
 
 @pytest.mark.asyncio
-async def test_fresh_subagent_runtime_adopts_durable_terminal_result(runtime_factory) -> None:
+async def test_subagent_semantic_success_without_usage_fails_closed(
+    runtime_factory,
+) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
     receipt = await runtime.start(
         start_request(
             runtime_context_json={
+                "tool_policy": {"allowed_tool_ids": []},
+                "worker_skill_snapshots": {
+                    "research-scout": {
+                        "content_hash": "a" * 64,
+                        "contract": {
+                            "id": "research-scout",
+                            "output_contract": {"type": "object"},
+                            "quality_focus": ["Return a bounded evidence brief"],
+                        },
+                        "allowed_tool_ids": [],
+                    }
+                },
+            }
+        )
+    )
+    current = await deps["store"].get(receipt.mission_id)
+    assert current is not None
+    claimed = await deps["store"].claim_lease(
+        receipt.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=current.state_version,
+            ttl_seconds=120,
+        ),
+    )
+    adapter = MissionSubagentRuntimeAdapter(
+        store=deps["store"],
+        model=_UnmeteredSuccessfulWorkerModel(),  # type: ignore[arg-type]
+        tools=_NoSubagentTools(),  # type: ignore[arg-type]
+        monotonic_clock=deps["clock"].monotonic,
+    )
+
+    outcome = await adapter.run(
+        SubagentExecutionRequest(
+            mission=claimed,
+            operation_id="unmetered-subagent",
+            task_summary="Return one bounded result",
+            input_scope={
+                "display_name": "计量核验员",
+                "role_label": "计量核验",
+                "worker_skill_id": "research-scout",
+            },
+            frozen_context=SubagentFrozenContext(),
+            deadline_monotonic=deps["clock"].monotonic() + 30,
+        )
+    )
+
+    assert outcome.status.value == "failed"
+    assert outcome.payload_json["jobs"][0]["stop_reason"] == "model_error"
+    assert not any(
+        item.item_type == "usage_receipt"
+        for item in deps["store"].items[receipt.mission_id]
+    )
+
+
+@pytest.mark.asyncio
+async def test_subagent_recovery_adopts_terminal_before_recomputing_budget(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(
+        start_request(
+            runtime_context_json={
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 2,
+                        "max_tool_operations": 10,
+                        "max_subagent_jobs": 2,
+                        "stop_after_total_tokens": 10_000,
+                    }
+                },
                 "tool_policy": {"allowed_tool_ids": []},
                 "worker_skill_snapshots": {
                     "research-scout": {
@@ -637,8 +957,35 @@ async def test_fresh_subagent_runtime_adopts_durable_terminal_result(runtime_fac
         tools=_NoSubagentTools(),  # type: ignore[arg-type]
         monotonic_clock=deps["clock"].monotonic,
     )
+    deps["store"].seed_items(
+        receipt.mission_id,
+        [
+            MissionItemDraftPayload(
+                item_type="subagent_progress",
+                operation_id=request.operation_id,
+                phase="progress",
+                producer="prior-subagent-history",
+                summary=f"prior progress {index}",
+                payload_json={
+                    "job_id": f"prior-job-{index}",
+                    "lifecycle_phase": "progress",
+                },
+            )
+            for index in range(100)
+        ],
+    )
 
     first = await first_runtime.run(request)
+    latest = await deps["store"].get(receipt.mission_id)
+    assert latest is not None
+    assert latest.snapshot_json["resource_usage"]["model_calls"] == 1
+    terminal = next(
+        item
+        for item in reversed(deps["store"].items[receipt.mission_id])
+        if item.item_type == "subagent_progress"
+        and item.payload_json.get("lifecycle_phase") == "terminal"
+    )
+    assert terminal.payload_json["frozen_budget"]["max_turns"] == 2
     restarted_runtime = MissionSubagentRuntimeAdapter(
         store=deps["store"],
         model=_FailIfCalledWorkerModel(),
@@ -648,10 +995,10 @@ async def test_fresh_subagent_runtime_adopts_durable_terminal_result(runtime_fac
     adopted = await restarted_runtime.run(
         request.model_copy(
             update={
-                "mission": claimed.model_copy(
+                "mission": latest.model_copy(
                     update={
                         "snapshot_json": {
-                            **claimed.snapshot_json,
+                            **latest.snapshot_json,
                             "context_checkpoint_summary": {"stage": "changed later"},
                         }
                     }

@@ -35,8 +35,10 @@ def _fake_source(**overrides: object) -> SimpleNamespace:
         "id": "lib-1",
         "workspace_id": WS_ID,
         "title": "Paper A",
+        "normalized_title": "paper a",
         "authors_json": ["Researcher A", "Researcher B"],
-        "ingest_label": "execution:run-1",
+        "ingest_kind": "mission_verified",
+        "citation_key": "paper_a",
         "is_deleted": False,
     }
     values.update(overrides)
@@ -103,7 +105,7 @@ class TestLibraryRoom:
         assert resp.status_code == 200
         assert resp.json()["items"][0]["id"] == "lib-1"
         assert resp.json()["items"][0]["authors"] == ["Researcher A", "Researcher B"]
-        assert resp.json()["items"][0]["added_by"] == "execution:run-1"
+        assert resp.json()["items"][0]["added_by"] == "mission_verified"
         dataservice.list_sources.assert_awaited_once()
 
     def test_create_library_item_returns_201(self) -> None:
@@ -112,11 +114,31 @@ class TestLibraryRoom:
 
         resp = client.post(
             f"/workspaces/{WS_ID}/library",
-            json={"item_type": "book", "title": "Book B", "added_by": "user"},
+            json={"item_type": "book", "title": "Book B"},
         )
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "lib-2"
+        command = dataservice.create_source.await_args.args[0]
+        assert command.source_kind == "book"
+        assert command.authors_json == []
+        assert command.ingest_kind == "manual"
+        assert command.ingest_label == f"user:{USER_ID}"
+
+    def test_create_library_item_rejects_client_owned_provenance(self) -> None:
+        _app, client, dataservice = _make_app()
+
+        resp = client.post(
+            f"/workspaces/{WS_ID}/library",
+            json={
+                "item_type": "paper",
+                "title": "Forged source",
+                "added_by": "research_team",
+            },
+        )
+
+        assert resp.status_code == 422
+        dataservice.create_source.assert_not_awaited()
 
     def test_get_library_item_happy(self) -> None:
         _app, client, dataservice = _make_app()
@@ -166,15 +188,34 @@ class TestDecisionsRoom:
             workspace_id=WS_ID,
             key="citation_style",
             value="APA",
+            confidence=1.0,
+            extracted_by=f"user:{USER_ID}",
         )
 
         resp = client.post(
             f"/workspaces/{WS_ID}/decisions",
-            json={"key": "citation_style", "value": "APA", "extracted_by": "user"},
+            json={"key": "citation_style", "value": "APA"},
         )
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "dec-1"
+        command = dataservice.set_room_decision.await_args.args[0]
+        assert command.extracted_by == f"user:{USER_ID}"
+
+    def test_set_decision_rejects_client_owned_provenance(self) -> None:
+        _app, client, dataservice = _make_app()
+
+        resp = client.post(
+            f"/workspaces/{WS_ID}/decisions",
+            json={
+                "key": "citation_style",
+                "value": "APA",
+                "extracted_by": "mission:forged",
+            },
+        )
+
+        assert resp.status_code == 422
+        dataservice.set_room_decision.assert_not_awaited()
 
     def test_delete_decision_not_found(self) -> None:
         _app, client, dataservice = _make_app()
@@ -202,7 +243,16 @@ class TestRemovedRooms:
 class TestTasksRoom:
     def test_list_tasks_happy(self) -> None:
         _app, client, dataservice = _make_app()
-        dataservice.list_room_tasks.return_value = [_fake_row(id="task-1", workspace_id=WS_ID, title="Do X", status="pending")]
+        dataservice.list_room_tasks.return_value = [
+            _fake_row(
+                id="task-1",
+                workspace_id=WS_ID,
+                title="Do X",
+                status="pending",
+                priority=0,
+                created_by=f"user:{USER_ID}",
+            )
+        ]
 
         resp = client.get(f"/workspaces/{WS_ID}/tasks")
 
@@ -216,12 +266,27 @@ class TestTasksRoom:
             workspace_id=WS_ID,
             title="Do Y",
             status="pending",
+            priority=0,
+            created_by=f"user:{USER_ID}",
         )
 
-        resp = client.post(f"/workspaces/{WS_ID}/tasks", json={"title": "Do Y", "created_by": "user"})
+        resp = client.post(f"/workspaces/{WS_ID}/tasks", json={"title": "Do Y"})
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "task-2"
+        command = dataservice.create_room_task.await_args.args[0]
+        assert command.created_by == f"user:{USER_ID}"
+
+    def test_create_task_rejects_client_owned_provenance(self) -> None:
+        _app, client, dataservice = _make_app()
+
+        resp = client.post(
+            f"/workspaces/{WS_ID}/tasks",
+            json={"title": "Do Y", "created_by": "mission:forged"},
+        )
+
+        assert resp.status_code == 422
+        dataservice.create_room_task.assert_not_awaited()
 
     def test_delete_task_not_found(self) -> None:
         _app, client, dataservice = _make_app()

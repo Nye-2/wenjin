@@ -5,15 +5,29 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-from .manager import ChatTurnConflictError, ChatTurnRunManager, ChatTurnRunRecord, UnsupportedChatTurnStrategyError
-from .schemas import ChatTurnDisconnectMode, ChatTurnRunStatus
+from .manager import (
+    ChatTurnConflictError,
+    ChatTurnRunAdmission,
+    ChatTurnRunManager,
+    ChatTurnRunRecord,
+    ChatTurnTransportUnavailableError,
+    UnsupportedChatTurnStrategyError,
+)
+from .schemas import (
+    ChatTurnDisconnectMode,
+    ChatTurnExecutionRenewal,
+    ChatTurnRunStatus,
+)
 
 __all__ = [
     "ChatTurnConflictError",
     "ChatTurnDisconnectMode",
+    "ChatTurnExecutionRenewal",
+    "ChatTurnRunAdmission",
     "ChatTurnRunManager",
     "ChatTurnRunRecord",
     "ChatTurnRunStatus",
+    "ChatTurnTransportUnavailableError",
     "UnsupportedChatTurnStrategyError",
     "run_chat_turn",
 ]

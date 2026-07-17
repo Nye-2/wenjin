@@ -177,7 +177,7 @@ class MissionRunRecord(Base):
     thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     workspace_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    mission_policy_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    mission_policy_id: Mapped[str] = mapped_column(String(120), nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     objective: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(

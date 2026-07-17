@@ -92,6 +92,9 @@ class DirectMissionStoreAdapter:
     async def list_items(self, mission_id, **kwargs):
         return await self.store.list_items_page(mission_id, **kwargs)
 
+    async def list_model_call_states(self, mission_id):
+        return await self.store.list_model_call_states(mission_id)
+
     async def list_unapplied_commands(self, mission_id, **kwargs):
         return await self.store.list_unapplied_commands(mission_id, **kwargs)
 

@@ -1,19 +1,16 @@
 """Base task execution function."""
 
-import copy
 import inspect
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import UTC, datetime
 from typing import Any, cast
 
 from celery import Task, shared_task
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.conversation import (
-    ConversationMessagesRebuildPayload,
-    ConversationThreadUpdatePayload,
+    ConversationAttachmentStatePatchPayload,
 )
 from src.task.registry import (
     DOCUMENT_PREPROCESS_TASK,
@@ -21,26 +18,6 @@ from src.task.registry import (
 )
 
 logger = logging.getLogger(__name__)
-def _conversation_message_to_bridge(message: Any) -> dict[str, Any]:
-    timestamp = getattr(message, "timestamp", None)
-    result: dict[str, Any] = {
-        "role": str(getattr(message, "role", "") or ""),
-        "content": str(getattr(message, "content", "") or ""),
-        "timestamp": timestamp.isoformat() if timestamp else None,
-    }
-    metadata = getattr(message, "metadata_json", None)
-    if isinstance(metadata, Mapping) and metadata:
-        result["metadata"] = dict(metadata)
-    blocks = getattr(message, "blocks", None)
-    if isinstance(blocks, list) and blocks:
-        result["blocks"] = [
-            dict(block.payload_json)
-            for block in blocks
-            if isinstance(getattr(block, "payload_json", None), Mapping)
-        ]
-    return result
-
-
 async def _maybe_await(value: Any) -> Any:
     """Await async values while tolerating sync test doubles."""
     if inspect.isawaitable(value):
@@ -134,48 +111,24 @@ async def _sync_preprocess_attachment_state(
     try:
         from src.services.thread_events import publish_thread_updated
 
-        thread = await dataservice.get_conversation_thread(thread_id)
-        if thread is None:
-            return
-
-        await dataservice.lock_conversation_thread(thread_id)
-        raw_messages = await dataservice.list_conversation_messages(thread_id)
-        messages = copy.deepcopy(
-            [_conversation_message_to_bridge(message_item) for message_item in raw_messages]
-        )
-        changed = _apply_attachment_preprocess_state(
-            messages,
-            task_id=task_id,
-            status=status,
-            preprocess=preprocess_payload,
-            message=message,
-            progress=progress,
-            current_step=current_step,
-            error=error,
+        changed = await dataservice.patch_conversation_attachment_state(
+            thread_id,
+            ConversationAttachmentStatePatchPayload(
+                thread_id=thread_id,
+                task_id=task_id,
+                state_key="preprocess",
+                status=status,
+                state_patch=dict(preprocess_payload or {}),
+                message=message,
+                progress=progress,
+                current_step=current_step,
+                error=error,
+            ),
         )
         if changed:
-            now = datetime.now(UTC)
-            updated = await dataservice.update_conversation_thread(
-                thread_id,
-                ConversationThreadUpdatePayload(
-                    message_count=len(messages),
-                    updated_at=now,
-                ),
-            )
-            await dataservice.rebuild_conversation_messages(
-                thread_id,
-                ConversationMessagesRebuildPayload(
-                    thread_id=thread_id,
-                    user_id=str(thread.user_id),
-                    workspace_id=thread.workspace_id,
-                    messages=messages,
-                ),
-            )
-            if updated is not None:
-                thread = updated
-            thread.message_count = len(messages)
-            thread.updated_at = now
-            await publish_thread_updated(thread)
+            thread = await dataservice.get_conversation_thread(thread_id)
+            if thread is not None:
+                await publish_thread_updated(thread)
     except Exception:
         logger.warning(
             "Failed to sync %s preprocess attachment state for thread %s",
@@ -183,76 +136,6 @@ async def _sync_preprocess_attachment_state(
             thread_id,
             exc_info=True,
         )
-
-
-def _apply_attachment_preprocess_state(
-    messages: list[dict[str, Any]],
-    *,
-    task_id: str,
-    status: str,
-    preprocess: dict[str, Any] | None = None,
-    message: str | None = None,
-    progress: int | None = None,
-    current_step: str | None = None,
-    error: str | None = None,
-) -> bool:
-    resolved_task_id = task_id.strip()
-    if not resolved_task_id:
-        return False
-
-    changed = False
-    for message_item in messages:
-        if not isinstance(message_item, dict):
-            continue
-        metadata = message_item.get("metadata")
-        if not isinstance(metadata, dict):
-            continue
-        attachments = metadata.get("attachments")
-        if not isinstance(attachments, list):
-            continue
-
-        for attachment in attachments:
-            if not isinstance(attachment, dict):
-                continue
-            attachment_metadata = attachment.get("metadata")
-            if not isinstance(attachment_metadata, dict):
-                continue
-            current_preprocess = attachment_metadata.get("preprocess")
-            if not isinstance(current_preprocess, dict):
-                continue
-            if current_preprocess.get("task_id") != resolved_task_id:
-                continue
-
-            next_preprocess = dict(current_preprocess)
-            if isinstance(preprocess, dict):
-                next_preprocess.update(preprocess)
-            next_preprocess["task_id"] = resolved_task_id
-            if status == "success" and isinstance(preprocess, dict):
-                next_preprocess["status"] = str(
-                    preprocess.get("status")
-                    or next_preprocess.get("status")
-                    or "succeeded"
-                )
-            elif status:
-                next_preprocess["status"] = status
-            if message:
-                next_preprocess["message"] = message
-            if progress is not None:
-                next_preprocess["progress"] = progress
-            if current_step:
-                next_preprocess["current_step"] = current_step
-            elif current_step == "":
-                next_preprocess.pop("current_step", None)
-            if error:
-                next_preprocess["error"] = error
-                next_preprocess["status"] = "failed"
-            elif next_preprocess.get("status") == "succeeded":
-                next_preprocess.pop("error", None)
-
-            attachment_metadata["preprocess"] = next_preprocess
-            changed = True
-
-    return changed
 
 
 def _execute_task_entry(

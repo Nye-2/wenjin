@@ -8,6 +8,8 @@
 - WorkspaceAgent is the single conversational and mission-navigation agent.
 - Every long task is a `MissionRun`; MissionView is its only frontend projection.
 - Mission persistence is the four-table aggregate and DataService owns transactions.
+- ChatTurnRun is transient; `thread_turn_billings` is financial truth only, atomically fences message persistence and settlement, and survives thread deletion.
+- Conversation history has no bulk-rebuild API; attachment metadata updates are atomic DataService commands, while long-task context belongs to Mission checkpoints.
 - Policy, stages, tools, model profile, and review mode are pinned at mission start.
 - ToolCatalog is frozen and every side effect has policy, operation id, fence, and receipt.
 - Stage progression is governed by `StageAcceptanceContract`.
@@ -29,18 +31,33 @@ cd backend
 
 Expected baseline at this cutover: full backend suite green except explicitly documented skips; one Alembic head; zero anti-compat findings.
 
+### PostgreSQL runtime accounting verification
+
+The runtime-accounting release gate must run against a real disposable PostgreSQL instance, not the lock-free unit fakes or recorded Alembic operations:
+
+```bash
+cd backend
+WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1 \
+  .venv/bin/python -m pytest \
+  tests/release_verification/test_runtime_accounting_postgres.py -q -rs
+```
+
+This command starts a uniquely named `pgvector/pgvector:pg16` container, binds it to a random loopback port, upgrades a randomly named empty database through `107_runtime_accounting`, and removes the container plus its anonymous data volume after the run. The fixture constructs its own database URL and never migrates the configured Wenjin database. Override the image only when required with `WENJIN_POSTGRES_VERIFICATION_IMAGE`.
+
+The release result must contain five passed tests and zero skipped tests. Without Docker, the default test suite reports these tests as explicitly skipped; `WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1` converts missing Docker or image infrastructure into a release-blocking failure. The gate covers reflected columns, unique and partial indexes, checks, foreign keys and `ON DELETE` actions, plus observed PostgreSQL row-lock waits for concurrent authorize, idempotent replay, settle/delete, and delete/release accounting transitions.
+
 Architecture-focused coverage must include:
 
-- MissionStore idempotency, optimistic version, lease fencing, stale queue hint, item ordering, command cursor;
+- MissionStore idempotency, optimistic version, lease fencing, stale queue hint, item ordering, command cursor, and cumulative resource-budget projection;
 - bounded runtime slices, pause/resume/cancel, reconciliation, wakeups, billing settlement;
-- WorkspaceAgent strict action frames and ChatTurnRun transport;
+- WorkspaceAgent strict action frames; actor-global ChatTurn request replay; durable Redis dispatch intent and reconciler recovery; owner-fenced execution lease loss; atomic chat authorization, usage-required settlement, release, expiry, rollback, and settled replay;
 - Subagent isolation, concurrency limits, allowed tools, stop reasons, report persistence;
 - ToolCatalog registration/group validation, policy narrowing, receipts, retries, error taxonomy;
 - model profile freshness and strict generation probe;
 - native search receipt parser and fail-closed behavior;
 - Sandbox preflight, path/symlink/network controls, manifests, read-before-write;
 - review decisions, conflicts, partial commit, idempotency, linked-domain provenance;
-- migrations 086-103 and DataService/Gateway import smoke.
+- migrations 086-107 on an empty PostgreSQL database, 107 non-empty-data rejection, financial constraints, foreign-key index coverage, and DataService/Gateway import smoke.
 
 ## Frontend gates
 
@@ -101,7 +118,7 @@ Run one real-provider, real-Docker, multi-turn case for each high-value family b
 - user steering during work;
 - permission pause/resume;
 - review decision and partial commit;
-- Prism/room materialization and provenance;
+- Prism, Source, and WorkspaceAsset materialization with MissionWriteAuthority provenance;
 - refresh/reconnect/history recovery;
 - desktop and mobile interaction review.
 

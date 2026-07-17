@@ -12,7 +12,13 @@ import pytest
 
 from src.application.handlers.thread_turn_handler import ThreadStreamDelta
 from src.application.results import PreparedThreadTurn, ThreadTurnRequest
-from src.runtime.chat_turns import ChatTurnConflictError, ChatTurnRunManager, ChatTurnRunStatus, run_chat_turn
+from src.runtime.chat_turns import (
+    ChatTurnConflictError,
+    ChatTurnRunManager,
+    ChatTurnRunStatus,
+    ChatTurnTransportUnavailableError,
+    run_chat_turn,
+)
 from src.runtime.stream_bridge import (
     END_SENTINEL,
     HEARTBEAT_SENTINEL,
@@ -45,6 +51,12 @@ class FakeRedisPipeline:
 
     def zrem(self, key: str, member: str) -> None:
         self._ops.append(("zrem", (key, member), {}))
+
+    def zremrangebyscore(self, key: str, minimum: Any, maximum: Any) -> None:
+        self._ops.append(("zremrangebyscore", (key, minimum, maximum), {}))
+
+    def set(self, key: str, value: str, *, ex: int | None = None) -> None:
+        self._ops.append(("set", (key, value), {"ex": ex}))
 
     def delete(self, key: str) -> None:
         self._ops.append(("delete", (key,), {}))
@@ -100,11 +112,41 @@ class FakeRedisBackend:
             return []
         return [member for member, _score in ordered[start: stop + 1]]
 
+    async def zrange(self, key: str, start: int, stop: int) -> list[str]:
+        bucket = self._sorted_sets.get(key, {})
+        ordered = sorted(bucket.items(), key=lambda item: item[1])
+        if stop < 0:
+            stop = len(ordered) + stop
+        if stop < start:
+            return []
+        return [member for member, _score in ordered[start : stop + 1]]
+
     async def zrem(self, key: str, member: str) -> int:
         bucket = self._sorted_sets.get(key, {})
         existed = 1 if member in bucket else 0
         bucket.pop(member, None)
         return existed
+
+    async def zremrangebyscore(
+        self,
+        key: str,
+        minimum: Any,
+        maximum: Any,
+    ) -> int:
+        bucket = self._sorted_sets.get(key, {})
+        lower = float("-inf") if minimum == "-inf" else float(minimum)
+        upper = float("inf") if maximum == "+inf" else float(maximum)
+        removed = [
+            member
+            for member, score in bucket.items()
+            if lower <= score <= upper
+        ]
+        for member in removed:
+            bucket.pop(member, None)
+        return len(removed)
+
+    async def get(self, key: str) -> str | None:
+        return self._strings.get(key)
 
     async def delete(self, key: str) -> int:
         existed = 1 if key in self._hashes or key in self._streams or key in self._strings else 0
@@ -177,6 +219,16 @@ class FakeRedisBackend:
         return [(key, entries)]
 
 
+class _FailingPipeline(FakeRedisPipeline):
+    async def execute(self) -> list[Any]:
+        raise RuntimeError("redis pipeline unavailable")
+
+
+class _FailingPersistRedis(FakeRedisBackend):
+    def pipeline(self) -> FakeRedisPipeline:
+        return _FailingPipeline(self)
+
+
 class _BlockingStreamRun:
     def __init__(self) -> None:
         self.started = asyncio.Event()
@@ -229,27 +281,48 @@ class _BlockingHandler:
 
 
 @pytest.mark.asyncio
-async def test_run_manager_hydrates_from_redis_and_recovers_inflight_runs():
+async def test_gateway_hydration_preserves_distributed_worker_state():
     backend = FakeRedisBackend()
     manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
-    created = await manager.create_or_reject("thread-1")
-    await manager.set_status(created.run_id, ChatTurnRunStatus.running)
+    created = (await manager.create_or_reject("thread-1")).record
+    assert await manager.transition_status(
+        created.run_id,
+        ChatTurnRunStatus.running,
+        expected=(ChatTurnRunStatus.pending,),
+    )
 
     recovered = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     await recovered.hydrate_recent(limit=50)
 
     loaded = recovered.get(created.run_id)
     assert loaded is not None
-    assert loaded.status == ChatTurnRunStatus.interrupted
-    assert loaded.error is not None
-    assert "restarted" in loaded.error.lower()
+    assert loaded.status == ChatTurnRunStatus.running
+    assert loaded.error is None
+
+
+@pytest.mark.asyncio
+async def test_admission_fails_closed_when_redis_persistence_fails():
+    manager = ChatTurnRunManager(redis_backend=_FailingPersistRedis())
+
+    with pytest.raises(
+        ChatTurnTransportUnavailableError,
+        match="admission could not be persisted",
+    ):
+        await manager.create_or_reject(
+            "thread-1",
+            request_idempotency_key="chat-turn:request-1",
+            request_fingerprint="a" * 64,
+        )
+
+    assert manager.get("thread-1") is None
+    assert await manager.list_all() == []
 
 
 @pytest.mark.asyncio
 async def test_run_manager_refresh_updates_stale_in_memory_record():
     backend = FakeRedisBackend()
     manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
-    created = await manager.create_or_reject("thread-1")
+    created = (await manager.create_or_reject("thread-1")).record
 
     # Simulate another process updating terminal status in Redis only.
     run_key = f"runtime:chat_turns:{created.run_id}"
@@ -269,7 +342,7 @@ async def test_run_manager_refresh_updates_stale_in_memory_record():
 async def test_run_manager_cancel_respects_refreshed_terminal_status():
     backend = FakeRedisBackend()
     manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
-    created = await manager.create_or_reject("thread-1")
+    created = (await manager.create_or_reject("thread-1")).record
 
     # Mark success in Redis before cancel attempt to emulate remote completion.
     run_key = f"runtime:chat_turns:{created.run_id}"
@@ -288,7 +361,7 @@ async def test_cross_manager_cancel_wins_over_worker_start_transition():
     backend = FakeRedisBackend()
     gateway_manager = ChatTurnRunManager(redis_backend=backend)
     worker_manager = ChatTurnRunManager(redis_backend=backend)
-    created = await gateway_manager.create_or_reject("thread-1")
+    created = (await gateway_manager.create_or_reject("thread-1")).record
     await worker_manager.get_or_load(created.run_id)
 
     assert await gateway_manager.cancel(created.run_id) is True
@@ -305,11 +378,44 @@ async def test_cross_manager_cancel_wins_over_worker_start_transition():
 
 
 @pytest.mark.asyncio
+async def test_cross_manager_execution_claim_recovers_after_worker_lease_expires():
+    backend = FakeRedisBackend()
+    first_manager = ChatTurnRunManager(
+        redis_backend=backend,
+        execution_lease_seconds=0.05,
+    )
+    second_manager = ChatTurnRunManager(
+        redis_backend=backend,
+        execution_lease_seconds=0.05,
+    )
+    created = (await first_manager.create_or_reject("thread-1")).record
+
+    first_owner = await first_manager.claim_execution(
+        created.run_id,
+        wait_seconds=0,
+    )
+    live_duplicate = await second_manager.claim_execution(
+        created.run_id,
+        wait_seconds=0,
+    )
+    await asyncio.sleep(0.06)
+    recovered_owner = await second_manager.claim_execution(
+        created.run_id,
+        wait_seconds=0,
+    )
+
+    assert first_owner is not None
+    assert live_duplicate is None
+    assert recovered_owner is not None
+    assert recovered_owner != first_owner
+
+
+@pytest.mark.asyncio
 async def test_cross_manager_cancel_interrupts_blocked_provider_stream():
     backend = FakeRedisBackend()
     gateway_manager = ChatTurnRunManager(redis_backend=backend)
     worker_manager = ChatTurnRunManager(redis_backend=backend)
-    record = await gateway_manager.create_or_reject("thread-1")
+    record = (await gateway_manager.create_or_reject("thread-1")).record
     worker_record = await worker_manager.get_or_load(record.run_id)
     assert worker_record is not None
     stream = _BlockingStreamRun()
@@ -319,6 +425,7 @@ async def test_cross_manager_cancel_interrupts_blocked_provider_stream():
         message="hello",
         workspace_id="workspace-1",
         thread_id="thread-1",
+        turn_idempotency_key="test-cross-manager-cancel",
     )
 
     with patch(
@@ -351,7 +458,7 @@ async def test_cross_manager_cancel_interrupts_blocked_provider_stream():
 async def test_list_by_thread_refreshes_existing_cached_status():
     backend = FakeRedisBackend()
     manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
-    created = await manager.create_or_reject("thread-1")
+    created = (await manager.create_or_reject("thread-1")).record
 
     run_key = f"runtime:chat_turns:{created.run_id}"
     backend._hashes[run_key]["status"] = ChatTurnRunStatus.success.value
@@ -366,13 +473,102 @@ async def test_list_by_thread_refreshes_existing_cached_status():
 async def test_create_or_reject_checks_redis_thread_index_for_inflight_conflict():
     backend = FakeRedisBackend()
     first_manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
-    created = await first_manager.create_or_reject("thread-1")
-    await first_manager.set_status(created.run_id, ChatTurnRunStatus.running)
+    created = (await first_manager.create_or_reject("thread-1")).record
+    assert await first_manager.transition_status(
+        created.run_id,
+        ChatTurnRunStatus.running,
+        expected=(ChatTurnRunStatus.pending,),
+    )
 
     # New process-local manager with empty memory should still see conflict.
     second_manager = ChatTurnRunManager(redis_backend=backend, chat_turn_ttl_seconds=3600)
     with pytest.raises(ChatTurnConflictError):
         await second_manager.create_or_reject("thread-1", multitask_strategy="reject")
+
+
+@pytest.mark.asyncio
+async def test_cross_manager_stable_request_replays_existing_transport():
+    backend = FakeRedisBackend()
+    first_manager = ChatTurnRunManager(redis_backend=backend)
+    second_manager = ChatTurnRunManager(redis_backend=backend)
+    first = await first_manager.create_or_reject(
+        "thread-1",
+        multitask_strategy="interrupt",
+        request_idempotency_key="chat-turn:request-1",
+        request_fingerprint="a" * 64,
+    )
+
+    replay = await second_manager.create_or_reject(
+        "thread-1",
+        multitask_strategy="interrupt",
+        request_idempotency_key="chat-turn:request-1",
+        request_fingerprint="a" * 64,
+    )
+
+    assert first.created is True
+    assert replay.created is False
+    assert replay.record.run_id == first.record.run_id
+    assert replay.record.status is ChatTurnRunStatus.pending
+
+
+@pytest.mark.asyncio
+async def test_cross_manager_request_index_is_global_across_threads():
+    backend = FakeRedisBackend()
+    first_manager = ChatTurnRunManager(redis_backend=backend)
+    second_manager = ChatTurnRunManager(redis_backend=backend)
+    first = await first_manager.create_or_reject(
+        "thread-1",
+        request_idempotency_key="chat-turn:global-request",
+        request_fingerprint="a" * 64,
+    )
+
+    replay = await second_manager.create_or_reject(
+        "thread-2",
+        request_idempotency_key="chat-turn:global-request",
+        request_fingerprint="a" * 64,
+    )
+
+    assert replay.created is False
+    assert replay.record.run_id == first.record.run_id
+
+
+@pytest.mark.asyncio
+async def test_dispatch_claim_is_fenced_and_persists_worker_receipt():
+    backend = FakeRedisBackend()
+    first_manager = ChatTurnRunManager(redis_backend=backend)
+    second_manager = ChatTurnRunManager(redis_backend=backend)
+    record = (await first_manager.create_or_reject("thread-1")).record
+
+    owner = await first_manager.claim_dispatch(record.run_id)
+    duplicate = await second_manager.claim_dispatch(record.run_id, wait_seconds=0)
+    assert owner is not None
+    assert duplicate is None
+
+    assert await first_manager.mark_dispatched(
+        record.run_id,
+        owner=owner,
+        worker_task_id="task-1",
+    )
+    loaded = await second_manager.get_or_load(record.run_id, refresh=True)
+    assert loaded is not None
+    assert loaded.worker_task_id == "task-1"
+    assert await second_manager.claim_dispatch(record.run_id) is None
+
+
+@pytest.mark.asyncio
+async def test_failed_dispatch_claim_can_be_retried_by_another_gateway():
+    backend = FakeRedisBackend()
+    first_manager = ChatTurnRunManager(redis_backend=backend)
+    second_manager = ChatTurnRunManager(redis_backend=backend)
+    record = (await first_manager.create_or_reject("thread-1")).record
+
+    owner = await first_manager.claim_dispatch(record.run_id)
+    assert owner is not None
+    await first_manager.release_dispatch_claim(record.run_id, owner=owner)
+
+    retry_owner = await second_manager.claim_dispatch(record.run_id)
+    assert retry_owner is not None
+    assert retry_owner != owner
 
 
 @pytest.mark.asyncio

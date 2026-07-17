@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage
 from src.agents.workspace_agent.mission_loop import WorkspaceMissionLoopAgent
 from src.dataservice_client.contracts.mission import MissionItemDraftPayload
 from src.mission_runtime.contracts import (
+    MissionSliceLimits,
     StageQualityOutcome,
 )
 
@@ -35,6 +36,12 @@ class PinnedStartContext:
                     "mission_policy_snapshot": {
                         "id": "sci_research",
                         "allowed_worker_skills": ["research-scout"],
+                        "execution_budget": {
+                            "max_model_calls": 100,
+                            "max_tool_operations": 100,
+                            "max_subagent_jobs": 20,
+                            "stop_after_total_tokens": 1_000_000,
+                        },
                     },
                     "worker_skill_snapshots": {
                         "research-scout": {
@@ -157,8 +164,18 @@ def decision_message(arguments: dict) -> AIMessage:
     }
     return AIMessage(
         content="",
+        id=f"response-{wire['decision_id']}",
+        usage_metadata={
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "total_tokens": 120,
+        },
         tool_calls=[
-            {"name": "mission_step", "args": wire, "id": "call-1"}
+            {
+                "name": "mission_step",
+                "args": wire,
+                "id": f"call-{wire['decision_id']}",
+            }
         ],
     )
 
@@ -293,6 +310,7 @@ async def test_mission_loop_rejects_tool_outside_pinned_policy(runtime_factory) 
     runtime, _deps = runtime_factory(
         agent=agent,
         start_context=PinnedStartContext(),
+        limits=MissionSliceLimits(max_protocol_retries_per_step=0),
     )
     receipt = await runtime.start(start_request(mission_policy_id="sci_research"))
     result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
@@ -333,6 +351,7 @@ async def test_mission_loop_rejects_model_supplied_worker_skill_content(runtime_
     runtime, deps = runtime_factory(
         agent=WorkspaceMissionLoopAgent(model_factory=lambda *_args, **_kwargs: model),
         start_context=PinnedStartContext(),
+        limits=MissionSliceLimits(max_protocol_retries_per_step=0),
     )
     receipt = await runtime.start(start_request(mission_policy_id="sci_research"))
 

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base, TimestampMixin, UUIDMixin
@@ -28,6 +28,17 @@ class User(Base, UUIDMixin, TimestampMixin):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "thread_consumed_tokens >= 0 AND reserved_thread_free_tokens >= 0",
+            name="ck_users_thread_token_counters_nonnegative",
+        ),
+        CheckConstraint(
+            "reserved_credits >= 0 AND total_credits_earned >= 0 "
+            "AND total_credits_spent >= 0",
+            name="ck_users_credit_counters_nonnegative",
+        ),
+    )
 
     email: Mapped[str] = mapped_column(
         String(255),
@@ -48,6 +59,18 @@ class User(Base, UUIDMixin, TimestampMixin):
     )
     reserved_credits: Mapped[int] = mapped_column(
         Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    thread_consumed_tokens: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    reserved_thread_free_tokens: Mapped[int] = mapped_column(
+        BigInteger,
         default=0,
         server_default="0",
         nullable=False,

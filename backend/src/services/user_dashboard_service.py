@@ -151,7 +151,7 @@ class UserDashboardService:
         """Build thread-specific credit status for dashboard display."""
         if default_model_id is None:
             raise ValueError("Default chat model pricing is unavailable")
-        can_start_thread = await credit_service.can_start_thread_turn(
+        can_start_thread = await credit_service.preview_thread_turn_capacity(
             user_id,
             model_name=default_model_id,
         )

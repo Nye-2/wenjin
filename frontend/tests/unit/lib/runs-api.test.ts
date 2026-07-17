@@ -30,18 +30,18 @@ describe("runs api wrappers", () => {
         data: { run_id: "run-2", thread_id: "thread-1", status: "success" },
       });
 
-    await createThreadRun("thread id/1", { message: "hello" });
-    await waitThreadRun("thread id/1", { message: "hello" });
+    await createThreadRun("thread id/1", { request_id: "request-1", message: "hello" });
+    await waitThreadRun("thread id/1", { request_id: "request-2", message: "hello" });
 
     expect(mockPost).toHaveBeenNthCalledWith(
       1,
       "/threads/thread%20id%2F1/runs",
-      { message: "hello" }
+      { request_id: "request-1", message: "hello" }
     );
     expect(mockPost).toHaveBeenNthCalledWith(
       2,
       "/threads/thread%20id%2F1/runs/wait",
-      { message: "hello" }
+      { request_id: "request-2", message: "hello" }
     );
   });
 

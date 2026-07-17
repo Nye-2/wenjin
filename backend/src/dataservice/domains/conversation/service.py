@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
@@ -15,10 +16,10 @@ from src.dataservice.domains.conversation.block_protocol import (
     normalize_block_payload,
 )
 from src.dataservice.domains.conversation.contracts import (
+    ConversationAttachmentStatePatchCommand,
     ConversationBlockRecord,
     ConversationMessageCreateCommand,
     ConversationMessageRecord,
-    ConversationMessagesRebuildCommand,
     ConversationThreadCreateCommand,
     ConversationThreadProjection,
     ConversationThreadUpdateCommand,
@@ -66,10 +67,6 @@ class DataServiceConversationService:
         )
         await self._finish()
         return self.to_thread_projection(thread)
-
-    async def lock_thread(self, thread_id: str) -> None:
-        await self.repository.lock_thread(thread_id)
-        await self._finish()
 
     async def get_thread(self, thread_id: str) -> ConversationThreadProjection | None:
         thread = await self.repository.get_thread(thread_id)
@@ -129,22 +126,6 @@ class DataServiceConversationService:
         await self._finish()
         return self.to_thread_projection(thread)
 
-    async def delete_thread(
-        self,
-        *,
-        thread_id: str,
-        user_id: str,
-    ) -> bool:
-        thread = await self.repository.get_owned_thread(
-            thread_id=thread_id,
-            user_id=user_id,
-        )
-        if thread is None:
-            return False
-        await self.repository.delete_thread(thread)
-        await self._finish()
-        return True
-
     async def append_message(self, command: ConversationMessageCreateCommand) -> ThreadMessage:
         await self.repository.lock_thread(command.thread_id)
         thread = await self.repository.get_thread(command.thread_id)
@@ -185,67 +166,85 @@ class DataServiceConversationService:
         await self._finish()
         return message
 
-    async def rebuild_messages(self, command: ConversationMessagesRebuildCommand) -> list[ThreadMessage]:
+    async def patch_attachment_state(
+        self,
+        command: ConversationAttachmentStatePatchCommand,
+    ) -> bool:
+        """Patch attachment state under the same thread lock used by chat writes."""
         await self.repository.lock_thread(command.thread_id)
         thread = await self.repository.get_thread(command.thread_id)
-        await self.repository.delete_thread_messages(command.thread_id)
-        created: list[ThreadMessage] = []
-        for index, raw_message in enumerate(command.messages):
-            if not isinstance(raw_message, Mapping):
+        if thread is None:
+            return False
+
+        changed = False
+        for persisted in await self.repository.list_messages(command.thread_id):
+            metadata = copy.deepcopy(dict(persisted.metadata_json or {}))
+            attachments = metadata.get("attachments")
+            if not isinstance(attachments, list):
                 continue
-            created.append(
-                await self._materialize_bridge_message(
-                    thread_id=command.thread_id,
-                    workspace_id=command.workspace_id,
-                    user_id=command.user_id,
-                    message=raw_message,
-                    sequence_index=index,
-                )
-            )
-        if thread is not None:
-            thread.message_count = len(created)
-            last_message = created[-1] if created else None
-            if last_message is not None:
-                thread.last_message_role = last_message.role
-                thread.last_message_preview = _truncate_message_preview(last_message.content)
-                thread.updated_at = last_message.timestamp or datetime.now(UTC)
-            else:
-                thread.last_message_role = None
-                thread.last_message_preview = None
-                thread.updated_at = datetime.now(UTC)
-        await self._finish()
-        return created
+            message_changed = False
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                attachment_metadata = attachment.get("metadata")
+                if not isinstance(attachment_metadata, dict):
+                    continue
+                current_state = attachment_metadata.get(command.state_key)
+                if (
+                    not isinstance(current_state, dict)
+                    or current_state.get("task_id") != command.task_id
+                ):
+                    continue
 
-    async def append_thread_message(
-        self,
-        thread: Thread,
-        message: Mapping[str, Any],
-        *,
-        sequence_index: int,
-    ) -> ThreadMessage:
-        command = self._command_from_bridge_message(
-            thread,
-            message,
-            sequence_index=sequence_index,
-        )
-        return await self.append_message(command)
+                next_state = dict(current_state)
+                next_state.update(command.state_patch)
+                next_state["task_id"] = command.task_id
+                if (
+                    command.state_key == "preprocess"
+                    and command.status == "success"
+                ):
+                    next_state["status"] = str(
+                        command.state_patch.get("status")
+                        or next_state.get("status")
+                        or "succeeded"
+                    )
+                else:
+                    next_state["status"] = command.status
+                if command.message:
+                    next_state["message"] = command.message
+                if command.progress is not None:
+                    next_state["progress"] = command.progress
+                if command.current_step:
+                    next_state["current_step"] = command.current_step
+                elif command.current_step == "":
+                    next_state.pop("current_step", None)
+                if command.error:
+                    next_state["error"] = command.error
+                    if command.state_key == "preprocess":
+                        next_state["status"] = "failed"
+                elif next_state.get("status") in {"success", "succeeded"}:
+                    next_state.pop("error", None)
 
-    async def replace_thread_messages(
-        self,
-        thread: Thread,
-        messages: list[dict[str, Any]],
-    ) -> list[ThreadMessage]:
-        return await self.rebuild_messages(
-            ConversationMessagesRebuildCommand(
-                thread_id=str(thread.id),
-                user_id=str(thread.user_id),
-                workspace_id=str(thread.workspace_id) if thread.workspace_id else None,
-                messages=[message for message in messages if isinstance(message, dict)],
-            )
-        )
+                attachment_metadata[command.state_key] = next_state
+                message_changed = True
+
+            if message_changed:
+                persisted.metadata_json = metadata
+                changed = True
+
+        if changed:
+            thread.updated_at = datetime.now(UTC)
+            await self._finish()
+        return changed
 
     async def list_message_records(self, thread_id: str) -> list[ConversationMessageRecord]:
         messages = await self.repository.list_messages(thread_id)
+        return await self._message_records(messages)
+
+    async def _message_records(
+        self,
+        messages: list[ThreadMessage],
+    ) -> list[ConversationMessageRecord]:
         blocks = await self.repository.list_blocks_for_messages([message.id for message in messages])
         blocks_by_message: dict[str, list[MessageBlock]] = {}
         for block in blocks:
@@ -254,6 +253,52 @@ class DataServiceConversationService:
             self.to_message_record(message, blocks=blocks_by_message.get(message.id, []))
             for message in messages
         ]
+
+    async def get_message_record(
+        self,
+        message_id: str,
+    ) -> ConversationMessageRecord | None:
+        message = await self.repository.get_message(message_id)
+        if message is None:
+            return None
+        blocks = await self.repository.list_blocks_for_messages([message_id])
+        return self.to_message_record(message, blocks=blocks)
+
+    async def delete_trailing_user_message(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        expected_message_id: str,
+    ) -> bool:
+        """Delete exactly one authorized trailing user turn under the thread lock."""
+        await self.repository.lock_thread(thread_id)
+        thread = await self.repository.get_owned_thread(
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        if thread is None:
+            return False
+        message = await self.repository.get_last_message(thread_id)
+        if (
+            message is None
+            or str(message.id) != expected_message_id
+            or message.role != "user"
+            or str(message.user_id) != user_id
+        ):
+            return False
+
+        await self.repository.delete_message(message)
+        await self.session.flush()
+        previous = await self.repository.get_last_message(thread_id)
+        thread.message_count = int(previous.sequence_index) + 1 if previous else 0
+        thread.last_message_role = previous.role if previous else None
+        thread.last_message_preview = (
+            _truncate_message_preview(previous.content) if previous else None
+        )
+        thread.updated_at = datetime.now(UTC)
+        await self._finish()
+        return True
 
     async def list_thread_messages(self, thread_id: str) -> list[dict[str, Any]]:
         """Project canonical conversation rows into the public API message shape."""
@@ -276,85 +321,11 @@ class DataServiceConversationService:
             )
         ]
 
-    async def _materialize_bridge_message(
-        self,
-        *,
-        thread_id: str,
-        workspace_id: str | None,
-        user_id: str,
-        message: Mapping[str, Any],
-        sequence_index: int,
-    ) -> ThreadMessage:
-        command = ConversationMessageCreateCommand(
-            thread_id=thread_id,
-            user_id=user_id,
-            workspace_id=workspace_id,
-            role=str(message.get("role") or "unknown"),
-            content=str(message.get("content") or ""),
-            sequence_index=sequence_index,
-            timestamp=self._coerce_timestamp(message.get("timestamp")),
-            blocks=blocks_from_message(message),
-            metadata=dict(message.get("metadata") or {}) if isinstance(message.get("metadata"), Mapping) else {},
-            source_json=dict(message),
-        )
-        created = self.repository.create_message(
-            thread_id=command.thread_id,
-            workspace_id=command.workspace_id,
-            user_id=command.user_id,
-            role=command.role,
-            content=command.content,
-            sequence_index=command.sequence_index,
-            timestamp=command.timestamp,
-            metadata_json=command.metadata,
-            source_json=command.source_json,
-        )
-        await self.session.flush([created])
-        for block_index, payload in enumerate(command.blocks):
-            self.repository.create_block(
-                message_id=created.id,
-                thread_id=command.thread_id,
-                block_type=canonical_block_kind(payload),
-                sequence_index=block_index,
-                payload_json=payload,
-            )
-        return created
-
-    def _command_from_bridge_message(
-        self,
-        thread: Thread,
-        message: Mapping[str, Any],
-        *,
-        sequence_index: int,
-    ) -> ConversationMessageCreateCommand:
-        return ConversationMessageCreateCommand(
-            thread_id=str(thread.id),
-            user_id=str(thread.user_id),
-            workspace_id=str(thread.workspace_id) if thread.workspace_id else None,
-            role=str(message.get("role") or "unknown"),
-            content=str(message.get("content") or ""),
-            sequence_index=sequence_index,
-            timestamp=self._coerce_timestamp(message.get("timestamp")),
-            blocks=blocks_from_message(message),
-            metadata=dict(message.get("metadata") or {}) if isinstance(message.get("metadata"), Mapping) else {},
-            source_json=dict(message),
-        )
-
     async def _finish(self) -> None:
         if self.autocommit:
             await self.session.commit()
         else:
             await self.session.flush()
-
-    @staticmethod
-    def _coerce_timestamp(value: Any) -> datetime | None:
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str) and value.strip():
-            try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                return None
-        return None
 
     @staticmethod
     def to_message_record(

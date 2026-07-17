@@ -25,7 +25,7 @@ Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable 
 | `bootstrap-admin` | one-shot admin/catalog bootstrap |
 | `worker` | `default,priority` queues |
 | `mission-worker` | `long_running`, concurrency 1, prefetch 1 |
-| `celery-beat` | single scheduler for Mission reconciliation and preview cleanup |
+| `celery-beat` | single scheduler for Mission reconciliation, ChatTurn dispatch recovery, bounded periodic credit grants, authorization expiry, and preview cleanup |
 | `gateway` | HTTP, chat streams, Mission API/SSE |
 | `frontend` | Next.js UI |
 
@@ -61,7 +61,7 @@ cd backend && .venv/bin/python -m alembic heads
 cd backend && .venv/bin/python -m src.quality.mission_cutover_gate --project-root ..
 ```
 
-Alembic must report one head: `106_remove_sandbox_pricing_policy`. The cutover gate must report zero findings.
+Alembic must report one head: `107_runtime_accounting`. The cutover gate must report zero findings.
 
 ## 5. Start
 
@@ -133,7 +133,7 @@ Native search uses an independent Responses SSE request. It is usable only when 
 
 ## 8. Migration policy
 
-Migrations 086-103 are an irreversible development cutover. Do not recreate removed tables or add dual-read/dual-write code. For a development database containing pre-cutover runtime data:
+Migrations 086-107 are an irreversible development cutover. Do not recreate removed tables or add dual-read/dual-write code. Migration 107 intentionally rejects any existing users, pricing rows, Missions, or credit history because cumulative usage cannot be reconstructed without weakening the accounting contract. For a development database containing pre-cutover data:
 
 1. stop all services;
 2. drop the development database/volume;
@@ -141,7 +141,7 @@ Migrations 086-103 are an irreversible development cutover. Do not recreate remo
 4. run migrations and seed/bootstrap once;
 5. verify catalog hashes and the model profile.
 
-Production rollout must be based on a clean snapshot/backup and an explicitly reviewed migration window.
+Production rollout must be based on a clean snapshot/backup and an explicitly reviewed reseed/import window; migration 107 is not an online historical-data migration.
 
 ## 9. Smoke test
 
@@ -164,4 +164,4 @@ Use a real browser and complete a multi-turn scenario:
 docker compose down
 ```
 
-Do not use `down -v` unless intentionally reseeding development data. Runtime code rollback across 086-103 is unsupported; restore a matching database snapshot with the matching application version.
+Do not use `down -v` unless intentionally reseeding development data. Runtime code rollback across 086-107 is unsupported; restore a matching database snapshot with the matching application version.

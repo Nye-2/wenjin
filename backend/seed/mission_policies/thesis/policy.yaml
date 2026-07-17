@@ -30,6 +30,11 @@ mission:
     - Every chapter claim retains evidence responsibility.
     - Structural and citation-bearing changes require review.
   forbidden_outcomes: [invented_school_rule, fabricated_citation, unsupported_chapter, direct_workspace_write]
+execution_budget:
+  max_model_calls: 160
+  max_tool_operations: 320
+  max_subagent_jobs: 40
+  stop_after_total_tokens: 10000000
 minimum_context:
   thesis_topic:
     requirement: required

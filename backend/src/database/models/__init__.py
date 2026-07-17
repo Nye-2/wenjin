@@ -3,7 +3,7 @@
 from .admin_log import AdminActionType, AdminLog
 from .artifact import Artifact, ArtifactType
 from .audit_log import AuditLog
-from .credit import CreditTransaction, CreditTransactionType
+from .credit import CreditTransaction
 from .credit_grant_rule import CreditGrantRule, CreditGrantRuleType
 from .credit_redeem_code import CreditRedeemCode
 from .credit_redemption import CreditRedemption
@@ -33,6 +33,7 @@ from .pricing_policy import PricingPolicy, PricingPolicyKind
 from .referral import Referral
 from .task import TaskRecord
 from .thread import Thread
+from .thread_turn_billing import ThreadTurnBilling
 from .user import User
 from .workspace import Workspace, WorkspaceType
 from .workspace_settings import WorkspaceSettings
@@ -51,7 +52,6 @@ __all__ = [
     "ArtifactType",
     # Credit
     "CreditTransaction",
-    "CreditTransactionType",
     "CreditGrantRule",
     "CreditGrantRuleType",
     "CreditRedeemCode",
@@ -79,6 +79,7 @@ __all__ = [
     "PricingPolicyKind",
     # Thread
     "Thread",
+    "ThreadTurnBilling",
     # Latex
     "LatexProject",
     "LatexTemplate",

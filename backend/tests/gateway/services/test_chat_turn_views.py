@@ -14,7 +14,7 @@ from src.runtime.chat_turns import ChatTurnRunManager
 @pytest.mark.asyncio
 async def test_build_wait_payload_reads_thread_messages_from_projection() -> None:
     run_manager = ChatTurnRunManager()
-    record = await run_manager.create_or_reject("thread-1")
+    record = (await run_manager.create_or_reject("thread-1")).record
     thread = SimpleNamespace(
         id="thread-1",
         workspace_id="ws-1",

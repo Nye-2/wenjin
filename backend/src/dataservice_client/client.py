@@ -30,9 +30,8 @@ from src.dataservice_client.contracts.asset import (
 )
 from src.dataservice_client.contracts.audit import AuditLogCreatePayload, AuditLogPayload
 from src.dataservice_client.contracts.conversation import (
-    ConversationMessageCreatePayload,
+    ConversationAttachmentStatePatchPayload,
     ConversationMessagePayload,
-    ConversationMessagesRebuildPayload,
     ConversationThreadCreatePayload,
     ConversationThreadPayload,
     ConversationThreadUpdatePayload,
@@ -83,6 +82,9 @@ from src.dataservice_client.mission_client import MissionDataServiceClient
 from src.dataservice_client.model_catalog_client import ModelCatalogDataServiceClientMixin
 from src.dataservice_client.pricing_client import PricingDataServiceClientMixin
 from src.dataservice_client.source_client import SourceDataServiceClientMixin
+from src.dataservice_client.thread_turn_billing_client import (
+    ThreadTurnBillingDataServiceClient,
+)
 from src.dataservice_client.workspace_client import WorkspaceDataServiceClientMixin
 
 
@@ -137,6 +139,9 @@ class AsyncDataServiceClient(
             trust_env=False,
         )
         self.missions = MissionDataServiceClient(self._request)
+        self.thread_turn_billings = ThreadTurnBillingDataServiceClient(
+            self._request
+        )
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -560,31 +565,6 @@ class AsyncDataServiceClient(
         return AccountUserGrowthPayload.model_validate(payload["data"])
 
 
-    async def append_conversation_message(
-        self,
-        thread_id: str,
-        command: ConversationMessageCreatePayload,
-    ) -> ConversationMessagePayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/conversations/{thread_id}/messages",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return ConversationMessagePayload.model_validate(data) if data is not None else None
-
-    async def rebuild_conversation_messages(
-        self,
-        thread_id: str,
-        command: ConversationMessagesRebuildPayload,
-    ) -> list[ConversationMessagePayload]:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/conversations/{thread_id}/messages",
-            json=command.model_dump(mode="json"),
-        )
-        return [ConversationMessagePayload.model_validate(item) for item in payload["data"]]
-
     async def list_conversation_messages(self, thread_id: str) -> list[ConversationMessagePayload]:
         payload = await self._request("GET", f"/internal/v1/conversations/{thread_id}/messages")
         return [ConversationMessagePayload.model_validate(item) for item in payload["data"]]
@@ -682,10 +662,18 @@ class AsyncDataServiceClient(
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("deleted")) if isinstance(data, dict) else False
 
-    async def lock_conversation_thread(self, thread_id: str) -> bool:
-        payload = await self._request("POST", f"/internal/v1/conversations/threads/{thread_id}/lock")
+    async def patch_conversation_attachment_state(
+        self,
+        thread_id: str,
+        command: ConversationAttachmentStatePatchPayload,
+    ) -> bool:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/conversations/threads/{thread_id}/attachment-state",
+            json=command.model_dump(mode="json"),
+        )
         data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("locked")) if isinstance(data, dict) else False
+        return bool(data.get("changed")) if isinstance(data, dict) else False
 
     async def register_asset(self, command: WorkspaceAssetCreatePayload) -> WorkspaceAssetPayload:
         payload = await self._request(

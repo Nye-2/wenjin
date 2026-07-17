@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from src.application.results import ThreadTurnAttachment, ThreadTurnRequest
 from src.contracts.reasoning import ReasoningEffort
 from src.runtime.chat_turns import ChatTurnRunRecord
+from src.runtime.chat_turns.schemas import chat_turn_idempotency_key
 
 ChatTurnUploadKind = Literal["literature", "workspace_context", "transient"]
 
 
 class ChatTurnAttachment(BaseModel):
     """Chat-turn attachment metadata."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     path: str
@@ -30,6 +33,12 @@ class ChatTurnAttachment(BaseModel):
 class ChatTurnCreateRequest(BaseModel):
     """Create one short-lived transport for a thread turn."""
 
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
+    ]
     message: str
     workspace_id: str | None = None
     thread_id: str | None = None
@@ -39,6 +48,19 @@ class ChatTurnCreateRequest(BaseModel):
     metadata: dict[str, Any] | None = None
     on_disconnect: Literal["cancel", "continue"] = "cancel"
     multitask_strategy: Literal["reject", "interrupt", "rollback"] = "reject"
+
+    @field_validator("metadata")
+    @classmethod
+    def _reject_reserved_metadata(
+        cls,
+        value: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        reserved = sorted(str(key) for key in value if str(key).startswith("_"))
+        if reserved:
+            raise ValueError("metadata keys beginning with '_' are server-owned")
+        return value
 
 
 class ChatTurnResponse(BaseModel):
@@ -65,16 +87,24 @@ class ChatTurnWaitResponse(BaseModel):
 def to_turn_request(
     body: ChatTurnCreateRequest,
     *,
+    actor_id: str,
     forced_thread_id: str | None = None,
 ) -> ThreadTurnRequest:
+    thread_id = forced_thread_id if forced_thread_id is not None else body.thread_id
+    if not thread_id or not thread_id.strip():
+        raise ValueError("thread-bound chat turn requires thread_id")
     return ThreadTurnRequest(
         message=body.message,
         workspace_id=body.workspace_id,
-        thread_id=forced_thread_id if forced_thread_id is not None else body.thread_id,
+        thread_id=thread_id,
         model=body.model,
         reasoning_effort=body.reasoning_effort,
         attachments=tuple(ThreadTurnAttachment(**item.model_dump()) for item in body.attachments),
-        metadata=body.metadata,
+        metadata=dict(body.metadata or {}) or None,
+        turn_idempotency_key=chat_turn_idempotency_key(
+            body.request_id,
+            actor_id=actor_id,
+        ),
     )
 
 

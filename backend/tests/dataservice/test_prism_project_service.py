@@ -366,7 +366,7 @@ async def test_upsert_workspace_file_appends_initial_content_and_reads_current_v
             path="docs/software-copyright/application.md",
             content_inline="# Application",
             content_hash="hash-1",
-            created_by="execution:run-1",
+            created_by="user-1",
         ),
     )
 

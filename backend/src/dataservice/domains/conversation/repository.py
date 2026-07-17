@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -179,9 +179,6 @@ class ConversationRepository:
         self.session.add(record)
         return record
 
-    async def delete_thread_messages(self, thread_id: str) -> None:
-        await self.session.execute(delete(ThreadMessage).where(ThreadMessage.thread_id == thread_id))
-
     async def list_messages(self, thread_id: str) -> list[ThreadMessage]:
         result = await self.session.execute(
             select(ThreadMessage)
@@ -189,6 +186,21 @@ class ConversationRepository:
             .order_by(ThreadMessage.sequence_index.asc())
         )
         return list(result.scalars().all())
+
+    async def get_message(self, message_id: str) -> ThreadMessage | None:
+        return await self.session.get(ThreadMessage, message_id)
+
+    async def get_last_message(self, thread_id: str) -> ThreadMessage | None:
+        result = await self.session.execute(
+            select(ThreadMessage)
+            .where(ThreadMessage.thread_id == thread_id)
+            .order_by(ThreadMessage.sequence_index.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_message(self, message: ThreadMessage) -> None:
+        await self.session.delete(message)
 
     async def list_blocks_for_messages(self, message_ids: list[str]) -> list[MessageBlock]:
         if not message_ids:

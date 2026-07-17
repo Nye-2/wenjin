@@ -20,7 +20,7 @@ from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL, StreamBr
 @pytest.mark.asyncio
 async def test_get_run_or_404_enforces_optional_thread_scope() -> None:
     manager = ChatTurnRunManager()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
 
     resolved = await get_chat_turn_or_404(manager, record.run_id)
     assert resolved.run_id == record.run_id
@@ -33,8 +33,12 @@ async def test_get_run_or_404_enforces_optional_thread_scope() -> None:
 @pytest.mark.asyncio
 async def test_cancel_run_with_wait_returns_204_and_interrupts_task() -> None:
     manager = ChatTurnRunManager()
-    record = await manager.create_or_reject("thread-1")
-    await manager.set_status(record.run_id, ChatTurnRunStatus.running)
+    record = (await manager.create_or_reject("thread-1")).record
+    assert await manager.transition_status(
+        record.run_id,
+        ChatTurnRunStatus.running,
+        expected=(ChatTurnRunStatus.pending,),
+    )
     record.task = asyncio.create_task(asyncio.sleep(60))
 
     response = await cancel_chat_turn_with_http_response(
@@ -51,8 +55,12 @@ async def test_cancel_run_with_wait_returns_204_and_interrupts_task() -> None:
 @pytest.mark.asyncio
 async def test_cancel_run_raises_409_for_non_cancellable_run() -> None:
     manager = ChatTurnRunManager()
-    record = await manager.create_or_reject("thread-1")
-    await manager.set_status(record.run_id, ChatTurnRunStatus.success)
+    record = (await manager.create_or_reject("thread-1")).record
+    assert await manager.transition_status(
+        record.run_id,
+        ChatTurnRunStatus.success,
+        expected=(ChatTurnRunStatus.pending,),
+    )
 
     with pytest.raises(HTTPException) as exc:
         await cancel_chat_turn_with_http_response(
@@ -68,7 +76,7 @@ async def test_cancel_run_raises_409_for_non_cancellable_run() -> None:
 @pytest.mark.asyncio
 async def test_maybe_cancel_then_wait_returns_none_without_action() -> None:
     manager = ChatTurnRunManager()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
 
     response = await maybe_cancel_chat_turn_then_wait(
         run_manager=manager,
@@ -83,12 +91,16 @@ async def test_maybe_cancel_then_wait_returns_none_without_action() -> None:
 @pytest.mark.asyncio
 async def test_await_run_task_polls_status_when_task_handle_missing() -> None:
     manager = ChatTurnRunManager()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
     record.task = None
 
     async def _finish() -> None:
         await asyncio.sleep(0.05)
-        await manager.set_status(record.run_id, ChatTurnRunStatus.success)
+        assert await manager.transition_status(
+            record.run_id,
+            ChatTurnRunStatus.success,
+            expected=(ChatTurnRunStatus.pending,),
+        )
 
     asyncio.create_task(_finish())
     latest = await await_chat_turn_task(
@@ -104,7 +116,7 @@ async def test_await_run_task_polls_status_when_task_handle_missing() -> None:
 @pytest.mark.asyncio
 async def test_await_run_task_uses_stream_events_when_bridge_provided() -> None:
     manager = ChatTurnRunManager()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
     record.task = None
 
     class EndAfterSuccessBridge(StreamBridge):
@@ -123,11 +135,12 @@ async def test_await_run_task_uses_stream_events_when_bridge_provided() -> None:
         ):
             _ = run_id, last_event_id, heartbeat_interval
             yield HEARTBEAT_SENTINEL
-            await manager.set_status(record.run_id, ChatTurnRunStatus.success)
+            assert await manager.transition_status(
+                record.run_id,
+                ChatTurnRunStatus.success,
+                expected=(ChatTurnRunStatus.pending,),
+            )
             yield END_SENTINEL
-
-        async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-            _ = run_id, delay
 
     latest = await await_chat_turn_task(
         record,
@@ -143,7 +156,7 @@ async def test_await_run_task_uses_stream_events_when_bridge_provided() -> None:
 @pytest.mark.asyncio
 async def test_await_run_task_stream_timeout_returns_504() -> None:
     manager = ChatTurnRunManager()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
     record.task = None
 
     class IdleBridge(StreamBridge):
@@ -164,9 +177,6 @@ async def test_await_run_task_stream_timeout_returns_504() -> None:
             while True:
                 yield HEARTBEAT_SENTINEL
                 await asyncio.sleep(0)
-
-        async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-            _ = run_id, delay
 
     with pytest.raises(HTTPException) as exc_info:
         await await_chat_turn_task(

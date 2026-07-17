@@ -35,6 +35,7 @@ class CreditTransactionPayload(BaseModel):
     workspace_id: str | None = None
     task_id: str | None = None
     admin_id: str | None = None
+    idempotency_key: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
 
@@ -72,8 +73,10 @@ class CreditHistoryPayload(BaseModel):
 
 class CreditSummaryPayload(BaseModel):
     credits: int
-    reserved_credits: int = 0
-    spendable_credits: int = 0
+    reserved_credits: int
+    spendable_credits: int
+    thread_consumed_tokens: int
+    reserved_thread_free_tokens: int
     total_earned: int
     total_spent: int
 
@@ -115,19 +118,6 @@ class CreditGrantRuleUpdatePayload(BaseModel):
     description: str | None = None
 
 
-class CreditConsumptionCreatePayload(BaseModel):
-    user_id: str
-    transaction_type: str
-    amount: int
-    description: str
-    mission_policy_id: str | None = None
-    mission_id: str | None = None
-    operation_key: str | None = None
-    workspace_id: str | None = None
-    task_id: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
 class CreditAdminAdjustPayload(BaseModel):
     admin_id: str | None = None
     target_user_id: str
@@ -158,11 +148,14 @@ class CreditReferralCreatePayload(BaseModel):
     referee_user_id: str
 
 
-class CreditPeriodicGrantProcessPayload(BaseModel):
-    now: datetime | None = None
+class CreditPeriodicGrantPageRequest(BaseModel):
+    cursor: str | None = Field(default=None, min_length=1, max_length=2048)
+    batch_size: int = Field(default=100, ge=1, le=500)
 
 
-class CreditPeriodicGrantSummaryPayload(BaseModel):
+class CreditPeriodicGrantPagePayload(BaseModel):
     rules_evaluated: int
     rules_fired: int
+    users_scanned: int
     users_granted: int
+    next_cursor: str | None = None

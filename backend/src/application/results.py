@@ -28,6 +28,7 @@ class ThreadTurnRequest:
     reasoning_effort: ReasoningEffort | None = None
     attachments: tuple[ThreadTurnAttachment, ...] = ()
     metadata: dict[str, Any] | None = None
+    turn_idempotency_key: str | None = None
 
 
 @dataclass(slots=True)
@@ -44,6 +45,8 @@ class PreparedThreadTurn:
     request: ThreadTurnRequest
     thread: Any
     user_message_id: str | None = None
+    billing_authorization_id: str | None = None
+    replayed_assistant_message: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -66,14 +66,11 @@ describe("LibraryDrawer", () => {
   it("renders normalized source payload items returned by the library API", async () => {
     const sourcePayload = {
       id: "src-1",
-      workspace_id: "ws-1",
       title: "OpenFedLLM: Training Large Language Models on Decentralized Private Data",
-      authors_json: ["Tianshi Che", "Ji Liu"],
+      authors: ["Tianshi Che", "Ji Liu"],
       year: 2023,
-      abstract: "A Semantic Scholar search result.",
-      ingest_label: "execution:run-1",
-      source_kind: "paper",
-      library_status: "included",
+      abstract: "A verified research source.",
+      added_by: "mission_verified",
       created_at: "2026-05-23T00:00:00Z",
     };
     global.fetch = vi.fn().mockImplementation((url: string) => {
@@ -100,7 +97,7 @@ describe("LibraryDrawer", () => {
     expect(screen.getByText("Tianshi Che, Ji Liu")).toBeInTheDocument();
     expect(screen.getByText("研究团队")).toBeInTheDocument();
     expect(
-      await screen.findByText("A Semantic Scholar search result."),
+      await screen.findByText("A verified research source."),
     ).toBeInTheDocument();
   });
 

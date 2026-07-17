@@ -642,7 +642,7 @@ sequenceDiagram
 24. **Review is not generation**：阶段通过后自动推进；最终预览可等待用户稍后决定，但不得让保存选择反向成为内容质量裁决或 Mission 完成阻塞。
 25. **Target-bound completion**：Mission 只按已钉住的 completion target 完成；所有动态展开阶段通过，且其 terminal output kinds 均由 accepted artifact 支撑并已向用户提供确认入口。
 26. **Exact review continuation**：终态补证/再生成只失效 reviewed source stage 及其传递下游；无来源账本时不创建续作。
-27. **One write authority**：Prism、Source、Asset、Memory、Room 和 Sandbox protected write 不得各自解释 provenance；统一在 DataService target transaction 校验 MissionWriteAuthority。
+27. **One write authority**：当前 Mission materialization 仅开放 Prism、Source、Asset 三个完整目标域，并统一在 DataService target transaction 校验 MissionWriteAuthority。Memory、Room、Task、Sandbox 只有在 producer、preview、target transaction、receipt、tests 全链路同时落地时才能加入，禁止预留死分支。
 
 ### 11.2 Release gates
 

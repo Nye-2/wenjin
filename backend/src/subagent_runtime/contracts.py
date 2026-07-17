@@ -58,6 +58,19 @@ class SubagentStopReason(StrEnum):
 class SubagentModelOutputError(ValueError):
     """The provider returned an invalid structured subagent action."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        usage_receipt: ModelUsageReceipt,
+    ) -> None:
+        super().__init__(message)
+        self.usage_receipt = usage_receipt
+
+
+class SubagentModelUsageError(RuntimeError):
+    """A provider response could not produce a non-zero usage receipt."""
+
 
 class SubagentBudget(_FrozenModel):
     max_turns: int = Field(default=6, ge=1, le=24)
@@ -180,7 +193,13 @@ class SubagentModelTurn(_FrozenModel):
     """One provider response: semantic action plus transport accounting."""
 
     action: SubagentAction
-    usage_receipt: ModelUsageReceipt | None = None
+    usage_receipt: ModelUsageReceipt
+
+    @model_validator(mode="after")
+    def require_non_zero_usage(self) -> SubagentModelTurn:
+        if self.usage_receipt.usage.total_tokens <= 0:
+            raise ValueError("subagent provider response requires non-zero usage")
+        return self
 
 
 class SubagentStep(_FrozenModel):

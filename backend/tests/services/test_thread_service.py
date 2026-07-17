@@ -55,9 +55,9 @@ class _FakeConversationDataService:
             side_effect=self._get_latest_workspace_thread
         )
         self.update_conversation_thread = AsyncMock(side_effect=self._update_thread)
-        self.lock_conversation_thread = AsyncMock(return_value=None)
-        self.append_conversation_message = AsyncMock(side_effect=self._append_message)
-        self.rebuild_conversation_messages = AsyncMock(side_effect=self._rebuild_messages)
+        self.patch_conversation_attachment_state = AsyncMock(
+            side_effect=self._patch_attachment_state
+        )
         self.list_conversation_messages = AsyncMock(side_effect=self._list_messages)
         self.list_conversation_threads = AsyncMock(side_effect=self._list_threads)
         self.delete_conversation_thread = AsyncMock(side_effect=self._delete_thread)
@@ -95,34 +95,13 @@ class _FakeConversationDataService:
             setattr(thread, key, value)
         return thread
 
-    async def _append_message(self, thread_id: str, command):
-        messages = self.messages.setdefault(thread_id, [])
-        sequence_index = len(messages)
-        messages.append(
-            {
-                "role": command.role,
-                "content": command.content,
-                "timestamp": command.timestamp.isoformat() if command.timestamp else None,
-                "metadata": dict(command.metadata or {}),
-                "blocks": list(command.blocks or []),
-            }
-        )
-        return ConversationMessagePayload(
-            id=f"msg-{sequence_index}",
-            thread_id=thread_id,
-            user_id=self.threads[thread_id].user_id,
-            workspace_id=self.threads[thread_id].workspace_id,
-            role=command.role,
-            content=command.content,
-            sequence_index=sequence_index,
-            timestamp=command.timestamp,
-            metadata_json=dict(command.metadata or {}),
-            blocks=[],
-        )
-
-    async def _rebuild_messages(self, thread_id: str, command):
-        self.messages[thread_id] = list(command.messages)
-        return None
+    async def _patch_attachment_state(self, thread_id: str, command):
+        for message in self.messages.get(thread_id, []):
+            for attachment in message.get("metadata", {}).get("attachments", []):
+                state = attachment.get("metadata", {}).get(command.state_key)
+                if isinstance(state, dict) and state.get("task_id") == command.task_id:
+                    return True
+        return False
 
     async def _list_messages(self, thread_id: str):
         return [
@@ -339,30 +318,6 @@ class TestThreadService:
             )
 
     @pytest.mark.asyncio
-    async def test_add_message_writes_conversation_rows_not_json_history(self, service, mock_db_session):
-        """Message append updates thread summary and delegates canonical storage to DataService."""
-        thread = _make_thread()
-        _store_thread(service, thread)
-
-        message = await service.add_message(
-            thread,
-            role="user",
-            content="Hello",
-        )
-
-        assert message["role"] == "user"
-        assert message["content"] == "Hello"
-        assert message["id"] == "msg-0"
-        assert message["sequence_index"] == 0
-        assert thread.message_count == 1
-        assert thread.last_message_role == "user"
-        assert thread.last_message_preview == "Hello"
-        service._dataservice.append_conversation_message.assert_awaited_once()  # noqa: SLF001
-        stored_message = service._dataservice.append_conversation_message.await_args.args[1]  # noqa: SLF001
-        assert stored_message.content == "Hello"
-        assert stored_message.sequence_index == 0
-
-    @pytest.mark.asyncio
     async def test_update_attachment_extraction_state_updates_matching_attachment(
         self,
         service,
@@ -391,6 +346,7 @@ class TestThreadService:
             }
         ]
         _store_thread(service, thread)
+        service._dataservice.messages["thread-1"] = source_messages  # noqa: SLF001
 
         updated = await service.update_attachment_extraction_state(
             thread,
@@ -399,18 +355,15 @@ class TestThreadService:
             message="Paper extraction completed",
             progress=100,
             current_step="complete",
-            source_messages=source_messages,
         )
 
         assert updated is True
-        stored_messages = service._dataservice.rebuild_conversation_messages.await_args.args[1].messages  # noqa: SLF001
-        extraction = stored_messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]
-        assert extraction["status"] == "success"
-        assert extraction["message"] == "Paper extraction completed"
-        assert extraction["progress"] == 100
-        assert extraction["current_step"] == "complete"
-        assert thread.updated_at is not None
-        service._dataservice.update_conversation_thread.assert_awaited_once()  # noqa: SLF001
+        command = service._dataservice.patch_conversation_attachment_state.await_args.args[1]  # noqa: SLF001
+        assert command.state_key == "extraction"
+        assert command.status == "success"
+        assert command.message == "Paper extraction completed"
+        assert command.progress == 100
+        assert command.current_step == "complete"
 
     @pytest.mark.asyncio
     async def test_update_attachment_extraction_state_reads_projection_by_default(
@@ -447,13 +400,8 @@ class TestThreadService:
         )
 
         assert updated is True
-        stored_messages = service._dataservice.rebuild_conversation_messages.await_args.args[1].messages  # noqa: SLF001
-        assert stored_messages[0]["content"] == "canonical message"
-        assert (
-            stored_messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]["status"]
-            == "success"
-        )
-        service._dataservice.list_conversation_messages.assert_awaited_once_with("thread-1")  # noqa: SLF001
+        command = service._dataservice.patch_conversation_attachment_state.await_args.args[1]  # noqa: SLF001
+        assert command.task_id == "task-paper-1"
 
     @pytest.mark.asyncio
     async def test_update_attachment_preprocess_state_updates_matching_attachment(
@@ -484,6 +432,7 @@ class TestThreadService:
             }
         ]
         _store_thread(service, thread)
+        service._dataservice.messages["thread-1"] = source_messages  # noqa: SLF001
 
         updated = await service.update_attachment_preprocess_state(
             thread,
@@ -498,20 +447,16 @@ class TestThreadService:
             message="Document preprocessing completed",
             progress=100,
             current_step="complete",
-            source_messages=source_messages,
         )
 
         assert updated is True
-        stored_messages = service._dataservice.rebuild_conversation_messages.await_args.args[1].messages  # noqa: SLF001
-        attachment_metadata = stored_messages[0]["metadata"]["attachments"][0]["metadata"]
-        preprocess = attachment_metadata["preprocess"]
-        assert preprocess["task_id"] == "task-preprocess-1"
-        assert preprocess["status"] == "succeeded"
-        assert preprocess["message"] == "Document preprocessing completed"
-        assert preprocess["progress"] == 100
-        assert preprocess["current_step"] == "complete"
-        assert preprocess["markdown_paths"] == ["/references/_preprocessed/paper/doc_0.md"]
-        service._dataservice.update_conversation_thread.assert_awaited_once()  # noqa: SLF001
+        command = service._dataservice.patch_conversation_attachment_state.await_args.args[1]  # noqa: SLF001
+        assert command.task_id == "task-preprocess-1"
+        assert command.state_key == "preprocess"
+        assert command.state_patch["status"] == "succeeded"
+        assert command.state_patch["markdown_paths"] == [
+            "/references/_preprocessed/paper/doc_0.md"
+        ]
 
     @pytest.mark.asyncio
     async def test_update_attachment_extraction_state_returns_false_when_missing_task(
@@ -540,128 +485,18 @@ class TestThreadService:
                 },
             }
         ]
+        _store_thread(service, thread)
+        service._dataservice.messages["thread-1"] = source_messages  # noqa: SLF001
 
         updated = await service.update_attachment_extraction_state(
             thread,
             task_id="task-paper-1",
             status="failed",
             error="boom",
-            source_messages=source_messages,
         )
 
         assert updated is False
-        service._dataservice.update_conversation_thread.assert_not_awaited()  # noqa: SLF001
-        service._dataservice.rebuild_conversation_messages.assert_not_awaited()  # noqa: SLF001
-
-    @pytest.mark.asyncio
-    async def test_compact_messages_persists_summary_and_recent_tail(
-        self,
-        service,
-        mock_db_session,
-    ):
-        thread = _make_thread()
-        source_messages = [
-            {"role": "user", "content": "old question", "timestamp": "2026-04-14T00:00:00+00:00"},
-            {"role": "assistant", "content": "old answer", "timestamp": "2026-04-14T00:01:00+00:00"},
-            {"role": "user", "content": "recent question", "timestamp": "2026-04-14T00:02:00+00:00"},
-            {"role": "assistant", "content": "recent answer", "timestamp": "2026-04-14T00:03:00+00:00"},
-        ]
-        thread.message_count = 4
-        _store_thread(service, thread)
-
-        compacted = await service.compact_messages(
-            thread,
-            summary="old exchange summary",
-            keep_messages=2,
-            timestamp=datetime(2026, 4, 14, tzinfo=UTC),
-            source_messages=source_messages,
-        )
-
-        assert compacted is True
-        stored_messages = service._dataservice.rebuild_conversation_messages.await_args.args[1].messages  # noqa: SLF001
-        assert len(stored_messages) == 3
-        assert stored_messages[0]["role"] == "system"
-        assert stored_messages[0]["metadata"]["type"] == "thread_compaction"
-        assert stored_messages[0]["metadata"]["compacted_message_count"] == 2
-        assert "old exchange summary" in stored_messages[0]["content"]
-        assert [message["content"] for message in stored_messages[1:]] == [
-            "recent question",
-            "recent answer",
-        ]
-        assert thread.message_count == 3
-        assert thread.last_message_role == "assistant"
-        assert thread.last_message_preview == "recent answer"
-        service._dataservice.update_conversation_thread.assert_awaited_once()  # noqa: SLF001
-
-    @pytest.mark.asyncio
-    async def test_rollback_last_user_message_removes_tail_user_turn(
-        self,
-        service,
-        mock_db_session,
-    ):
-        """Rollback should remove the most recent user message and refresh summary fields."""
-        thread = _make_thread()
-        source_messages = [
-            {
-                "role": "assistant",
-                "content": "previous answer",
-                "timestamp": "2026-04-14T00:00:00+00:00",
-            },
-            {
-                "role": "user",
-                "content": "new question",
-                "timestamp": "2026-04-14T00:01:00+00:00",
-            },
-        ]
-        thread.message_count = 2
-        thread.last_message_role = "user"
-        thread.last_message_preview = "new question"
-        _store_thread(service, thread)
-
-        rolled_back = await service.rollback_last_user_message(
-            thread,
-            expected_content="new question",
-            source_messages=source_messages,
-        )
-
-        assert rolled_back is True
-        stored_messages = service._dataservice.rebuild_conversation_messages.await_args.args[1].messages  # noqa: SLF001
-        assert len(stored_messages) == 1
-        assert stored_messages[0]["role"] == "assistant"
-        assert thread.message_count == 1
-        assert thread.last_message_role == "assistant"
-        assert thread.last_message_preview == "previous answer"
-        service._dataservice.update_conversation_thread.assert_awaited_once()  # noqa: SLF001
-
-    @pytest.mark.asyncio
-    async def test_rollback_last_user_message_requires_matching_tail(
-        self,
-        service,
-        mock_db_session,
-    ):
-        """Rollback should be a no-op when trailing message does not match request content."""
-        thread = _make_thread()
-        source_messages = [
-            {
-                "role": "assistant",
-                "content": "already done",
-                "timestamp": "2026-04-14T00:00:00+00:00",
-            }
-        ]
-        thread.message_count = 1
-        thread.last_message_role = "assistant"
-        thread.last_message_preview = "already done"
-
-        rolled_back = await service.rollback_last_user_message(
-            thread,
-            expected_content="new question",
-            source_messages=source_messages,
-        )
-
-        assert rolled_back is False
-        assert thread.message_count == 1
-        service._dataservice.update_conversation_thread.assert_not_awaited()  # noqa: SLF001
-        service._dataservice.rebuild_conversation_messages.assert_not_awaited()  # noqa: SLF001
+        service._dataservice.patch_conversation_attachment_state.assert_awaited_once()  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_list_thread_messages_reads_conversation_projection(self, service):

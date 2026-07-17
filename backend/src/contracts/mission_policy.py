@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.mission_budget import MissionExecutionBudget
 from src.contracts.research_evidence import (
     NON_BYPASSABLE_REVIEW_RISKS,
     ReviewRiskCategory,
@@ -188,6 +189,7 @@ class MissionPolicy(BaseModel):
     display: MissionPolicyDisplay
     routing: MissionRoutingPolicy
     mission: MissionGoal
+    execution_budget: MissionExecutionBudget
     minimum_context: dict[str, MinimumContextRequirement]
     stage_contract_refs: tuple[ImmutableContractRef, ...]
     tool_policy: ToolPolicy

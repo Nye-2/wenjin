@@ -67,6 +67,25 @@ async def admission_session() -> AsyncIterator[AsyncSession]:
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def model_pricing_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def get_model(
+        _repository: ModelCatalogRepository,
+        model_id: str,
+    ) -> object:
+        return type(
+            "ModelBinding",
+            (),
+            {
+                "model_id": model_id,
+                "enabled": True,
+                "pricing_policy_id": "default-model-usage",
+            },
+        )()
+
+    monkeypatch.setattr(ModelCatalogRepository, "get_model", get_model)
+
+
 def _mission_command() -> MissionCreatePayload:
     return MissionCreatePayload(
         workspace_id="workspace-1",
@@ -78,6 +97,16 @@ def _mission_command() -> MissionCreatePayload:
         objective="Identify a defensible research gap with evidence.",
         model_id="gpt-5.6-terra",
         reasoning_effort="xhigh",
+        runtime_context_json={
+            "mission_policy_snapshot": {
+                "execution_budget": {
+                    "max_model_calls": 100,
+                    "max_tool_operations": 100,
+                    "max_subagent_jobs": 20,
+                    "stop_after_total_tokens": 1_000_000,
+                }
+            }
+        },
         mission_idempotency_key="admission-1",
     )
 
@@ -151,23 +180,7 @@ async def _seed_user_and_policy(
 @pytest.mark.asyncio
 async def test_budget_wait_resume_and_terminal_settlement_are_one_lifecycle(
     admission_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def get_model(
-        _repository: ModelCatalogRepository,
-        model_id: str,
-    ) -> object:
-        return type(
-            "ModelBinding",
-            (),
-            {
-                "model_id": model_id,
-                "enabled": True,
-                "pricing_policy_id": "default-model-usage",
-            },
-        )()
-
-    monkeypatch.setattr(ModelCatalogRepository, "get_model", get_model)
     await _seed_user_and_policy(
         admission_session,
         credits=3,
@@ -206,6 +219,24 @@ async def test_budget_wait_resume_and_terminal_settlement_are_one_lifecycle(
     assert reservation is not None
     assert reservation.status is CreditReservationStatus.RESERVED
     assert reservation.reserved_credits == 10
+    pricing_snapshot = reservation.metadata_json["pricing_snapshot"]
+    assert pricing_snapshot["mission_policy"]["id"] == "pricing-1"
+    assert pricing_snapshot["model_policy"]["id"] == "pricing-model"
+
+    model_policy = await admission_session.get(PricingPolicy, "pricing-model")
+    mission_policy = await admission_session.get(PricingPolicy, "pricing-1")
+    assert model_policy is not None
+    assert mission_policy is not None
+    model_policy.enabled = False
+    model_policy.config_json = {
+        **dict(model_policy.config_json),
+        "min_mission_model_credits": 999,
+    }
+    mission_policy.config_json = {
+        **dict(mission_policy.config_json),
+        "base_fee_credits": 999,
+    }
+    await admission_session.commit()
 
     store = MissionStore(admission_session, autocommit=False)
     claimed = await store.claim_run_lease(
@@ -224,11 +255,27 @@ async def test_budget_wait_resume_and_terminal_settlement_are_one_lifecycle(
             lease_epoch=claimed.lease_epoch,
             items=[
                 MissionItemDraftPayload(
+                    item_type="model_call_started",
+                    operation_id="model-call:workspace:settlement",
+                    phase="started",
+                    producer="workspace_agent",
+                    payload_json={
+                        "model_call_id": "model-call:workspace:settlement",
+                        "model_id": "gpt-5.6-terra",
+                        "turn": 1,
+                        "attempt": 1,
+                    },
+                ),
+                MissionItemDraftPayload(
                     item_type="usage_receipt",
+                    operation_id="model-call:workspace:settlement",
                     phase="completed",
                     producer="workspace_agent",
                     payload_json={
+                        "model_call_id": "model-call:workspace:settlement",
                         "model_id": "gpt-5.6-terra",
+                        "turn": 1,
+                        "attempt": 1,
                         "usage": {
                             "input_tokens": 100,
                             "cached_input_tokens": 0,
@@ -239,13 +286,31 @@ async def test_budget_wait_resume_and_terminal_settlement_are_one_lifecycle(
                     },
                 ),
                 MissionItemDraftPayload(
+                    item_type="model_call_started",
+                    operation_id="model-call:subagent:settlement",
+                    phase="started",
+                    producer="subagent-1",
+                    payload_json={
+                        "model_call_id": "model-call:subagent:settlement",
+                        "model_id": "gpt-5.6-terra",
+                        "parent_operation_id": "settlement-subagent-operation",
+                        "job_id": "subagent-1",
+                        "turn": 1,
+                        "attempt": 1,
+                    },
+                ),
+                MissionItemDraftPayload(
                     item_type="usage_receipt",
+                    operation_id="model-call:subagent:settlement",
                     phase="completed",
                     producer="subagent-1",
                     payload_json={
+                        "model_call_id": "model-call:subagent:settlement",
                         "model_id": "gpt-5.6-terra",
+                        "parent_operation_id": "settlement-subagent-operation",
                         "job_id": "subagent-1",
                         "turn": 1,
+                        "attempt": 1,
                         "usage": {
                             "input_tokens": 250,
                             "cached_input_tokens": 50,
@@ -301,6 +366,214 @@ async def test_budget_wait_resume_and_terminal_settlement_are_one_lifecycle(
         "total_tokens": 500,
         "calculated_credits": 10,
     }
+
+
+@pytest.mark.asyncio
+async def test_unresolved_model_usage_retains_reservation_for_reconciliation(
+    admission_session: AsyncSession,
+) -> None:
+    await _seed_user_and_policy(
+        admission_session,
+        credits=20,
+        max_charge_credits=10,
+    )
+    created = await MissionAdmissionService(admission_session).admit(
+        _mission_command()
+    )
+    await admission_session.commit()
+    reservation = await admission_session.scalar(select(CreditReservation))
+    assert reservation is not None
+
+    store = MissionStore(admission_session, autocommit=False)
+    claimed = await store.claim_run_lease(
+        created.mission.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=created.mission.state_version,
+            ttl_seconds=120,
+        ),
+    )
+    model_call_id = "model-call:workspace:unresolved-settlement"
+    running = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="model_call_started",
+                    operation_id=model_call_id,
+                    phase="started",
+                    producer="workspace_agent",
+                    payload_json={
+                        "model_call_id": model_call_id,
+                        "model_id": "gpt-5.6-terra",
+                        "turn": 1,
+                        "attempt": 1,
+                    },
+                ),
+                MissionItemDraftPayload(
+                    item_type="model_call_terminal",
+                    operation_id=model_call_id,
+                    phase="failed",
+                    producer="workspace_agent",
+                    payload_json={
+                        "model_call_id": model_call_id,
+                        "model_id": "gpt-5.6-terra",
+                        "turn": 1,
+                        "attempt": 1,
+                        "outcome": "unresolved",
+                        "error_type": "ProviderTransportError",
+                        "detail": "Provider usage could not be confirmed",
+                    },
+                ),
+            ],
+            patch=MissionRunPatchPayload(status="running"),
+        ),
+    )
+    failed = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=running.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            patch=MissionRunPatchPayload(status="failed"),
+        ),
+    )
+    await admission_session.commit()
+
+    user = await admission_session.get(User, "user-1")
+    await admission_session.refresh(reservation)
+    transactions = list(
+        (await admission_session.scalars(select(CreditTransaction))).all()
+    )
+    billing_items = list(
+        (
+            await admission_session.scalars(
+                select(MissionItemRecord).where(
+                    MissionItemRecord.mission_id
+                    == created.mission.mission_id,
+                    MissionItemRecord.item_type.in_(
+                        (
+                            "billing_reconciliation_required",
+                            "billing_settled",
+                        )
+                    ),
+                )
+            )
+        ).all()
+    )
+
+    assert user is not None
+    assert failed.mission.status.value == "failed"
+    assert failed.mission.snapshot_json["billing"] == {
+        **created.mission.snapshot_json["billing"],
+        "state": "reconciliation_required",
+        "reservation_id": str(reservation.id),
+        "unresolved_model_call_ids": [model_call_id],
+    }
+    assert reservation.status is CreditReservationStatus.RESERVED
+    assert reservation.expires_at is None
+    assert reservation.metadata_json["reconciliation_required"] is True
+    assert reservation.metadata_json["unresolved_model_call_ids"] == [
+        model_call_id
+    ]
+    assert user.credits == 20
+    assert user.reserved_credits == 10
+    assert transactions == []
+    assert [item.item_type for item in billing_items] == [
+        "billing_reconciliation_required"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failed_mission_settles_exact_measured_usage(
+    admission_session: AsyncSession,
+) -> None:
+    await _seed_user_and_policy(
+        admission_session,
+        credits=20,
+        max_charge_credits=10,
+    )
+    created = await MissionAdmissionService(admission_session).admit(
+        _mission_command()
+    )
+    await admission_session.commit()
+    reservation = await admission_session.scalar(select(CreditReservation))
+    assert reservation is not None
+
+    store = MissionStore(admission_session, autocommit=False)
+    claimed = await store.claim_run_lease(
+        created.mission.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=created.mission.state_version,
+            ttl_seconds=120,
+        ),
+    )
+    model_call_id = "model-call:workspace:failed-measured-settlement"
+    running = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="model_call_started",
+                    operation_id=model_call_id,
+                    phase="started",
+                    producer="workspace_agent",
+                    payload_json={
+                        "model_call_id": model_call_id,
+                        "model_id": "gpt-5.6-terra",
+                        "turn": 1,
+                        "attempt": 1,
+                    },
+                ),
+                MissionItemDraftPayload(
+                    item_type="usage_receipt",
+                    operation_id=model_call_id,
+                    phase="completed",
+                    producer="workspace_agent",
+                    payload_json={
+                        "model_call_id": model_call_id,
+                        "model_id": "gpt-5.6-terra",
+                        "turn": 1,
+                        "attempt": 1,
+                        "usage": {
+                            "input_tokens": 100,
+                            "output_tokens": 100,
+                            "total_tokens": 200,
+                        },
+                    },
+                ),
+            ],
+            patch=MissionRunPatchPayload(status="running"),
+        ),
+    )
+    failed = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=running.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            patch=MissionRunPatchPayload(status="failed"),
+        ),
+    )
+    await admission_session.commit()
+
+    user = await admission_session.get(User, "user-1")
+    await admission_session.refresh(reservation)
+    assert user is not None
+    assert failed.mission.status.value == "failed"
+    assert failed.mission.snapshot_json["billing"]["state"] == "settled"
+    assert failed.mission.snapshot_json["billing"]["settled_credits"] == 10
+    assert reservation.status is CreditReservationStatus.SETTLED
+    assert reservation.settled_credits == 10
+    assert user.credits == 10
+    assert user.reserved_credits == 0
 
 
 @pytest.mark.asyncio

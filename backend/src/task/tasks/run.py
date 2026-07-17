@@ -45,6 +45,11 @@ def _build_turn_request(payload: dict[str, Any]) -> ThreadTurnRequest:
         reasoning_effort=normalize_reasoning_effort(payload.get("reasoning_effort")),
         attachments=attachments,
         metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+        turn_idempotency_key=(
+            str(payload.get("turn_idempotency_key")).strip()
+            if payload.get("turn_idempotency_key") is not None
+            else None
+        ),
     )
 
 
@@ -58,6 +63,7 @@ async def _process_chat_turn_async(
     from src.academic.services.workspace_service import WorkspaceService
     from src.dataservice_client.provider import dataservice_client
     from src.services import ThreadService
+    from src.services.thread_turn_billing_gateway import ThreadTurnBillingGateway
     from src.task.model_catalog_runtime import refresh_runtime_model_catalog
 
     if not redis_settings.enabled:
@@ -77,7 +83,7 @@ async def _process_chat_turn_async(
     )
     record = await run_manager.get_or_load(run_id)
     if record is None:
-        return {"ok": False, "reason": "run_not_found", "run_id": run_id}
+        raise RuntimeError(f"Chat turn transport {run_id} was not found")
 
     turn_request = _build_turn_request(request_payload)
     bridge = RedisStreamBridge(
@@ -95,6 +101,7 @@ async def _process_chat_turn_async(
             index_service=dataservice,
             artifact_service=ArtifactService(dataservice=dataservice),
             reference_service=dataservice,
+            billing_gateway=ThreadTurnBillingGateway(dataservice=dataservice),
         )
         await run_chat_turn(
             bridge,
@@ -132,4 +139,8 @@ def _process_chat_turn_entry(
 process_chat_turn = shared_task(
     bind=True,
     name="src.task.tasks.process_chat_turn",
+    autoretry_for=(Exception,),
+    retry_backoff=2,
+    retry_jitter=True,
+    max_retries=3,
 )(_process_chat_turn_entry)

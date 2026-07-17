@@ -19,7 +19,6 @@ from .models import (
     CreditRedeemCode,
     CreditRedemption,
     CreditTransaction,
-    CreditTransactionType,
     LatexProject,
     LatexTemplate,
     # Referral
@@ -71,7 +70,6 @@ __all__ = [
     "ArtifactType",
     # Models - Credit
     "CreditTransaction",
-    "CreditTransactionType",
     # Models - Admin audit
     "AdminLog",
     "AdminActionType",

@@ -30,6 +30,11 @@ mission:
     - Generated diagrams and descriptions must match supplied software.
     - Application documents remain reviewable before save.
   forbidden_outcomes: [fabricated_screenshot, fabricated_module, invented_ownership, direct_workspace_write]
+execution_budget:
+  max_model_calls: 80
+  max_tool_operations: 160
+  max_subagent_jobs: 20
+  stop_after_total_tokens: 4000000
 minimum_context:
   software_materials:
     requirement: required

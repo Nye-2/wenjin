@@ -108,7 +108,7 @@ class _FakeHandler:
         )
 
 
-class _FakeProcessChatTurnTask:
+class _FakeChatTurnEnqueuer:
     def __init__(
         self,
         *,
@@ -121,11 +121,19 @@ class _FakeProcessChatTurnTask:
         self._handler = handler
         self.calls: list[dict[str, Any]] = []
 
-    def apply_async(self, *, args: list[Any], queue: str):
-        self.calls.append({"args": list(args), "queue": queue})
-        run_id = str(args[0])
-        request_payload = args[1] if isinstance(args[1], dict) else {}
-        actor_id = str(args[2])
+    def __call__(
+        self,
+        run_id: str,
+        request_payload: dict[str, Any],
+        actor_id: str,
+    ) -> str:
+        self.calls.append(
+            {
+                "run_id": run_id,
+                "request_payload": dict(request_payload),
+                "actor_id": actor_id,
+            }
+        )
 
         async def _worker_run() -> None:
             record = await self._run_manager.get_or_load(run_id)
@@ -142,7 +150,7 @@ class _FakeProcessChatTurnTask:
             )
 
         asyncio.get_running_loop().create_task(_worker_run())
-        return SimpleNamespace(id=f"fake-worker-{len(self.calls)}")
+        return f"fake-worker-{len(self.calls)}"
 
 
 def _create_client(
@@ -179,7 +187,7 @@ def _create_client(
         workspace_id = kwargs.get("workspace_id")
         return SimpleNamespace(id=workspace_id)
 
-    fake_process_chat_turn = _FakeProcessChatTurnTask(
+    fake_enqueue_chat_turn = _FakeChatTurnEnqueuer(
         run_manager=run_manager,
         bridge=stream_bridge,
         handler=shared_handler,
@@ -191,7 +199,7 @@ def _create_client(
     )
     monkeypatch.setattr(run_lifecycle_module.celery_settings, "enabled", True)
     monkeypatch.setattr(run_lifecycle_module.redis_settings, "enabled", True)
-    monkeypatch.setattr(task_module, "process_chat_turn", fake_process_chat_turn)
+    monkeypatch.setattr(task_module, "enqueue_chat_turn", fake_enqueue_chat_turn)
 
     app.dependency_overrides[thread_runs.get_current_user] = _override_user
     app.dependency_overrides[thread_runs.get_thread_turn_handler] = _override_handler
@@ -205,7 +213,7 @@ def test_thread_run_stream_emits_expected_events(monkeypatch: pytest.MonkeyPatch
 
     response = client.post(
         "/threads/thread-1/runs/stream",
-        json={"message": "你好"},
+        json={"request_id": "stream-1", "message": "你好"},
     )
 
     assert response.status_code == 200
@@ -225,7 +233,7 @@ def test_thread_run_create_and_get(monkeypatch: pytest.MonkeyPatch):
 
     created = client.post(
         "/threads/thread-1/runs",
-        json={"message": "hello"},
+        json={"request_id": "create-1", "message": "hello"},
     )
     assert created.status_code == 200
     payload = created.json()
@@ -251,7 +259,7 @@ def test_thread_scoped_existing_stream_includes_run_content_location(monkeypatch
 
     created = client.post(
         "/threads/thread-1/runs",
-        json={"message": "hello"},
+        json={"request_id": "resume-1", "message": "hello"},
     )
     run_id = created.json()["run_id"]
 
@@ -267,7 +275,11 @@ def test_thread_wait_returns_thread_values_snapshot(monkeypatch: pytest.MonkeyPa
 
     response = client.post(
         "/threads/thread-1/runs/wait",
-        json={"message": "hello", "workspace_id": "ws-1"},
+        json={
+            "request_id": "wait-1",
+            "message": "hello",
+            "workspace_id": "ws-1",
+        },
     )
 
     assert response.status_code == 200
@@ -301,7 +313,7 @@ def test_thread_scoped_run_endpoints_require_thread_owner(monkeypatch: pytest.Mo
 
     created = owner_client.post(
         "/threads/thread-1/runs",
-        json={"message": "hello"},
+        json={"request_id": "owner-1", "message": "hello"},
     )
     assert created.status_code == 200
     run_id = created.json()["run_id"]

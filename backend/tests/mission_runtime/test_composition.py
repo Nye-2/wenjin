@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel, ConfigDict
 
+from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
 from src.mission_runtime.adapters import (
     MissionSandboxReceiptStore,
     MissionSubagentRuntimeAdapter,
@@ -116,7 +117,12 @@ class _UnusedAssessments:
 class _Model:
     async def next_action(self, job, steps, tool_results):
         return SubagentModelTurn(
-            action=SubagentAction(kind="complete", summary="done", result_json={})
+            action=SubagentAction(kind="complete", summary="done", result_json={}),
+            usage_receipt=ModelUsageReceipt(
+                model_id=job.model_id,
+                provider_response_id="composition-response",
+                usage=ModelUsage(input_tokens=4, output_tokens=1, total_tokens=5),
+            ),
         )
 
 

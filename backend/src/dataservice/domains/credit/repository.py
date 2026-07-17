@@ -8,7 +8,8 @@ from typing import Any
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.credit import CreditTransaction, CreditTransactionType
+from src.contracts.billing import CreditTransactionType
+from src.database.models.credit import CreditTransaction
 from src.database.models.credit_grant_rule import CreditGrantRule, CreditGrantRuleType
 from src.database.models.credit_redeem_code import CreditRedeemCode
 from src.database.models.credit_redemption import CreditRedemption
@@ -23,6 +24,9 @@ class CreditRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def database_now(self) -> datetime:
+        return (await self.session.execute(select(func.now()))).scalar_one()
+
     async def list_grant_rules(self) -> list[CreditGrantRule]:
         result = await self.session.execute(select(CreditGrantRule).order_by(CreditGrantRule.created_at))
         return list(result.scalars().all())
@@ -30,6 +34,18 @@ class CreditRepository:
     async def get_grant_rule(self, rule_id: str) -> CreditGrantRule | None:
         result = await self.session.execute(select(CreditGrantRule).where(CreditGrantRule.id == rule_id))
         return result.scalars().first()
+
+    async def get_grant_rule_for_update(
+        self,
+        rule_id: str,
+    ) -> CreditGrantRule | None:
+        result = await self.session.execute(
+            select(CreditGrantRule)
+            .where(CreditGrantRule.id == rule_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
 
     def create_grant_rule(self, values: dict[str, Any]) -> CreditGrantRule:
         rule = CreditGrantRule(**values)
@@ -51,34 +67,69 @@ class CreditRepository:
         )
         return result.scalars().first()
 
-    async def list_enabled_grant_rules(
+    async def get_next_enabled_grant_rule_for_update(
         self,
         rule_type: CreditGrantRuleType,
-    ) -> list[CreditGrantRule]:
-        result = await self.session.execute(
-            select(CreditGrantRule).where(CreditGrantRule.rule_type == rule_type).where(CreditGrantRule.enabled == True)  # noqa: E712
+        *,
+        after_rule_id: str | None,
+        created_through: datetime,
+    ) -> CreditGrantRule | None:
+        stmt = select(CreditGrantRule).where(
+            CreditGrantRule.rule_type == rule_type,
+            CreditGrantRule.enabled == True,  # noqa: E712
+            CreditGrantRule.created_at <= created_through,
         )
-        return list(result.scalars().all())
+        if after_rule_id is not None:
+            stmt = stmt.where(CreditGrantRule.id > after_rule_id)
+        result = await self.session.execute(
+            stmt
+            .order_by(CreditGrantRule.id)
+            .limit(1)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
 
     async def get_user_for_update(self, user_id: str) -> User | None:
         result = await self.session.execute(select(User).where(User.id == user_id).with_for_update())
         return result.scalar_one_or_none()
 
-    async def list_users_for_periodic_credit_filter(
+    async def list_user_ids_for_periodic_credit_filter(
         self,
         *,
         active_since: Any | None,
         role: str | None,
-    ) -> list[User]:
-        stmt = select(User)
+        created_through: datetime,
+        after_user_id: str | None,
+        limit: int,
+    ) -> list[str]:
+        stmt = select(User.id).where(User.created_at <= created_through)
         if active_since is not None:
             stmt = stmt.where(User.last_login >= active_since)
         if role == "user":
             stmt = stmt.where(User.is_superuser == False)  # noqa: E712
         elif role == "admin":
             stmt = stmt.where(User.is_superuser == True)  # noqa: E712
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        if after_user_id is not None:
+            stmt = stmt.where(User.id > after_user_id)
+        result = await self.session.execute(stmt.order_by(User.id).limit(limit))
+        return [str(user_id) for user_id in result.scalars().all()]
+
+    async def find_credit_transaction_by_idempotency_key(
+        self,
+        *,
+        user_id: str,
+        transaction_type: CreditTransactionType,
+        idempotency_key: str,
+    ) -> CreditTransaction | None:
+        result = await self.session.execute(
+            select(CreditTransaction).where(
+                CreditTransaction.user_id == user_id,
+                CreditTransaction.transaction_type == transaction_type,
+                CreditTransaction.idempotency_key == idempotency_key,
+            )
+        )
+        return result.scalar_one_or_none()
 
     def create_credit_transaction(self, values: dict[str, Any]) -> CreditTransaction:
         tx = CreditTransaction(**values)
@@ -166,14 +217,32 @@ class CreditRepository:
             "total_transactions": tx_total,
         }
 
-    async def list_thread_token_transactions(self) -> list[CreditTransaction]:
-        result = await self.session.execute(
-            select(CreditTransaction).where(
-                CreditTransaction.transaction_type
-                == CreditTransactionType.THREAD_TOKEN_CONSUME
+    async def get_thread_token_usage_summary(self) -> dict[str, int]:
+        usage = (
+            await self.session.execute(
+                select(
+                    func.coalesce(func.sum(User.thread_consumed_tokens), 0),
+                    func.count(User.id),
+                ).where(User.thread_consumed_tokens > 0)
             )
+        ).one()
+        transaction_count = int(
+            (
+                await self.session.execute(
+                    select(func.count())
+                    .select_from(CreditTransaction)
+                    .where(
+                        CreditTransaction.transaction_type
+                        == CreditTransactionType.THREAD_TOKEN_CONSUME
+                    )
+                )
+            ).scalar_one()
         )
-        return list(result.scalars().all())
+        return {
+            "total_tokens": int(usage[0]),
+            "transactions": transaction_count,
+            "users": int(usage[1]),
+        }
 
     async def aggregate_credit_transactions_by_bucket(
         self,
@@ -223,38 +292,6 @@ class CreditRepository:
         total = int((await self.session.execute(count_query)).scalar() or 0)
         result = await self.session.execute(base_query.order_by(desc(CreditTransaction.created_at)).offset(offset).limit(limit))
         return list(result.scalars().all()), total
-
-    async def list_token_accounting_transactions(
-        self,
-        *,
-        user_id: str,
-        consume_type: CreditTransactionType,
-    ) -> list[CreditTransaction]:
-        result = await self.session.execute(
-            select(CreditTransaction).where(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type == consume_type,
-            )
-        )
-        return list(result.scalars().all())
-
-    async def find_consumption_by_idempotency_key(
-        self,
-        *,
-        user_id: str,
-        transaction_type: CreditTransactionType,
-        idempotency_key: str,
-    ) -> CreditTransaction | None:
-        result = await self.session.execute(
-            select(CreditTransaction)
-            .where(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type == transaction_type,
-                CreditTransaction.tx_metadata["idempotency_key"].as_string() == idempotency_key,
-            )
-            .order_by(CreditTransaction.created_at)
-        )
-        return result.scalars().first()
 
     def create_redeem_code(self, values: dict[str, Any]) -> CreditRedeemCode:
         code = CreditRedeemCode(**values)
@@ -313,7 +350,5 @@ class CreditRepository:
 
 
 __all__ = [
-    "CreditGrantRuleType",
     "CreditRepository",
-    "CreditTransactionType",
 ]

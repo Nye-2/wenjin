@@ -275,6 +275,63 @@ async def test_command_client_uses_mission_route_and_stable_command_id() -> None
 
 
 @pytest.mark.asyncio
+async def test_model_call_state_client_uses_typed_projection_route() -> None:
+    now = datetime.now(UTC).isoformat()
+    started = {
+        "id": "item-model-started",
+        "mission_id": "mission-1",
+        "seq": 4,
+        "item_type": "model_call_started",
+        "operation_id": "model-call:workspace:1",
+        "phase": "started",
+        "producer": "workspace_agent",
+        "payload_json": {
+            "model_call_id": "model-call:workspace:1",
+            "model_id": "gpt-5.6-sol",
+            "turn": 1,
+            "attempt": 1,
+        },
+        "created_at": now,
+    }
+    terminal = {
+        **started,
+        "id": "item-model-terminal",
+        "seq": 5,
+        "item_type": "model_call_terminal",
+        "phase": "failed",
+        "payload_json": {
+            **started["payload_json"],
+            "outcome": "unresolved",
+            "detail": "Provider usage could not be confirmed",
+        },
+    }
+
+    async def request(method: str, path: str, **kwargs):
+        assert method == "GET"
+        assert path == "/internal/v1/missions/mission-1/model-calls"
+        assert kwargs == {}
+        return {
+            "status": "ok",
+            "data": [
+                {
+                    "state": "unresolved",
+                    "started": started,
+                    "terminal": terminal,
+                }
+            ],
+        }
+
+    states = await MissionDataServiceClient(request).list_model_call_states(
+        "mission-1"
+    )
+
+    assert len(states) == 1
+    assert states[0].state.value == "unresolved"
+    assert states[0].terminal is not None
+    assert states[0].terminal.seq == 5
+
+
+@pytest.mark.asyncio
 async def test_item_seq_batch_client_uses_one_typed_request() -> None:
     async def request(method: str, path: str, **kwargs):
         assert method == "POST"

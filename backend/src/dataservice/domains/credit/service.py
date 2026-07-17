@@ -2,37 +2,182 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from croniter import croniter
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.credit import CreditTransactionType
+from src.contracts.billing import CreditTransactionType
 from src.database.models.credit_grant_rule import CreditGrantRuleType
 from src.database.models.credit_reservation import CreditReservationStatus
-from src.dataservice.common.errors import CreditOverdraftLimitError
+from src.dataservice.common.errors import (
+    CreditOverdraftLimitError,
+    DataServiceValidationError,
+)
 from src.dataservice.domains.credit.repository import CreditRepository
 
+_PERIODIC_GRANT_CURSOR_VERSION = 1
+_PERIODIC_GRANT_CURSOR_MAX_LENGTH = 2048
+_PERIODIC_GRANT_MAX_BATCH_SIZE = 500
 
-def _max_overdraft_credits(metadata: dict[str, Any] | None) -> int:
-    """Read the enforced overdraft floor from billing metadata."""
-    if not isinstance(metadata, dict):
-        return 0
-    policy = metadata.get("policy")
-    if not isinstance(policy, dict):
-        return 0
+
+@dataclass(frozen=True, slots=True)
+class _PeriodicRuleCursor:
+    scan_started_at: datetime
+    after_rule_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _PeriodicUserCursor:
+    scan_started_at: datetime
+    rule_id: str
+    occurrence: datetime
+    amount: int
+    active_within_days: int | None
+    role: str | None
+    after_user_id: str | None
+
+
+_PeriodicCursor = _PeriodicRuleCursor | _PeriodicUserCursor
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _cursor_datetime(value: Any) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError("cursor timestamp is required")
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        raise ValueError("cursor timestamp must include a timezone")
+    return parsed.astimezone(UTC)
+
+
+def _encode_periodic_cursor(cursor: _PeriodicCursor) -> str:
+    if isinstance(cursor, _PeriodicRuleCursor):
+        payload: dict[str, Any] = {
+            "after_rule_id": cursor.after_rule_id,
+            "kind": "rule",
+            "scan_started_at": cursor.scan_started_at.isoformat(),
+            "version": _PERIODIC_GRANT_CURSOR_VERSION,
+        }
+    else:
+        payload = {
+            "active_within_days": cursor.active_within_days,
+            "after_user_id": cursor.after_user_id,
+            "amount": cursor.amount,
+            "kind": "users",
+            "occurrence": cursor.occurrence.isoformat(),
+            "role": cursor.role,
+            "rule_id": cursor.rule_id,
+            "scan_started_at": cursor.scan_started_at.isoformat(),
+            "version": _PERIODIC_GRANT_CURSOR_VERSION,
+        }
+    encoded = json.dumps(
+        payload,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+
+
+def _decode_periodic_cursor(cursor: str) -> _PeriodicCursor:
     try:
-        return max(int(policy.get("max_overdraft_credits", 0) or 0), 0)
-    except (TypeError, ValueError):
-        return 0
+        if not cursor or len(cursor) > _PERIODIC_GRANT_CURSOR_MAX_LENGTH:
+            raise ValueError("cursor length is invalid")
+        padding = "=" * (-len(cursor) % 4)
+        decoded = base64.b64decode(
+            cursor + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+        payload = json.loads(decoded)
+        if not isinstance(payload, dict):
+            raise ValueError("cursor payload must be an object")
+        if payload.get("version") != _PERIODIC_GRANT_CURSOR_VERSION:
+            raise ValueError("unsupported cursor version")
 
+        kind = payload.get("kind")
+        if kind == "rule":
+            if set(payload) != {
+                "after_rule_id",
+                "kind",
+                "scan_started_at",
+                "version",
+            }:
+                raise ValueError("invalid rule cursor shape")
+            after_rule_id = payload["after_rule_id"]
+            if after_rule_id is not None and (
+                not isinstance(after_rule_id, str) or not after_rule_id
+            ):
+                raise ValueError("invalid rule cursor position")
+            return _PeriodicRuleCursor(
+                scan_started_at=_cursor_datetime(payload["scan_started_at"]),
+                after_rule_id=after_rule_id,
+            )
 
-def _idempotency_key(metadata: dict[str, Any] | None) -> str | None:
-    if not isinstance(metadata, dict):
-        return None
-    value = str(metadata.get("idempotency_key") or "").strip()
-    return value or None
+        if kind != "users" or set(payload) != {
+            "active_within_days",
+            "after_user_id",
+            "amount",
+            "kind",
+            "occurrence",
+            "role",
+            "rule_id",
+            "scan_started_at",
+            "version",
+        }:
+            raise ValueError("invalid user cursor shape")
+        rule_id = payload["rule_id"]
+        after_user_id = payload["after_user_id"]
+        amount = payload["amount"]
+        active_within_days = payload["active_within_days"]
+        role = payload["role"]
+        if not isinstance(rule_id, str) or not rule_id:
+            raise ValueError("invalid cursor rule id")
+        if not isinstance(after_user_id, str) or not after_user_id:
+            raise ValueError("invalid user cursor position")
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
+            raise ValueError("invalid periodic grant amount")
+        if active_within_days is not None and (
+            isinstance(active_within_days, bool)
+            or not isinstance(active_within_days, int)
+            or not 0 <= active_within_days <= 36_500
+        ):
+            raise ValueError("invalid active user window")
+        if role not in {None, "user", "admin"}:
+            raise ValueError("invalid periodic grant role")
+        scan_started_at = _cursor_datetime(payload["scan_started_at"])
+        occurrence = _cursor_datetime(payload["occurrence"])
+        if occurrence > scan_started_at:
+            raise ValueError("periodic occurrence is after scan start")
+        return _PeriodicUserCursor(
+            scan_started_at=scan_started_at,
+            rule_id=rule_id,
+            occurrence=occurrence,
+            amount=amount,
+            active_within_days=active_within_days,
+            role=role,
+            after_user_id=after_user_id,
+        )
+    except (
+        binascii.Error,
+        json.JSONDecodeError,
+        TypeError,
+        UnicodeError,
+        ValueError,
+    ) as exc:
+        raise DataServiceValidationError(
+            "Invalid periodic credit grant cursor"
+        ) from exc
 
 
 class DataServiceCreditService:
@@ -57,11 +202,13 @@ class DataServiceCreditService:
         if user is None:
             return None
         credits = int(user.credits)
-        reserved_credits = max(int(getattr(user, "reserved_credits", 0) or 0), 0)
+        reserved_credits = max(int(user.reserved_credits or 0), 0)
         return {
             "credits": credits,
             "reserved_credits": reserved_credits,
             "spendable_credits": credits - reserved_credits,
+            "thread_consumed_tokens": int(user.thread_consumed_tokens or 0),
+            "reserved_thread_free_tokens": int(user.reserved_thread_free_tokens or 0),
             "total_earned": int(user.total_credits_earned),
             "total_spent": int(user.total_credits_spent),
         }
@@ -70,26 +217,7 @@ class DataServiceCreditService:
         return await self.repository.get_admin_credit_summary()
 
     async def get_thread_token_usage_summary(self) -> dict[str, int]:
-        transactions = await self.repository.list_thread_token_transactions()
-
-        total_tokens = 0
-        transaction_count = 0
-        user_ids: set[str] = set()
-        for tx in transactions:
-            if tx.transaction_type != CreditTransactionType.THREAD_TOKEN_CONSUME:
-                continue
-            metadata = tx.tx_metadata if isinstance(tx.tx_metadata, dict) else {}
-            token_usage = metadata.get("token_usage")
-            if not isinstance(token_usage, dict):
-                continue
-            total_tokens += max(int(token_usage.get("total_tokens", 0) or 0), 0)
-            transaction_count += 1
-            user_ids.add(str(tx.user_id))
-        return {
-            "total_tokens": total_tokens,
-            "transactions": transaction_count,
-            "users": len(user_ids),
-        }
+        return await self.repository.get_thread_token_usage_summary()
 
     async def aggregate_credit_consumption_stats(
         self,
@@ -150,27 +278,6 @@ class DataServiceCreditService:
             limit=limit,
             offset=offset,
         )
-
-    async def get_consumed_tokens(
-        self,
-        *,
-        user_id: str,
-        consume_type: CreditTransactionType,
-        metadata_type: str | None = None,
-    ) -> int:
-        transactions = await self.repository.list_token_accounting_transactions(
-            user_id=user_id,
-            consume_type=consume_type,
-        )
-        total = 0
-        for tx in transactions:
-            metadata = tx.tx_metadata or {}
-            if metadata_type is not None and (not isinstance(metadata, dict) or metadata.get("type") != metadata_type):
-                continue
-            token_usage = metadata.get("token_usage") if isinstance(metadata, dict) else {}
-            if isinstance(token_usage, dict):
-                total += max(int(token_usage.get("total_tokens", 0) or 0), 0)
-        return total
 
     async def get_user_for_update(self, user_id: str) -> Any | None:
         return await self.repository.get_user_for_update(user_id)
@@ -237,14 +344,23 @@ class DataServiceCreditService:
     async def get_active_grant_rule(self, rule_type: CreditGrantRuleType) -> Any | None:
         return await self.repository.get_active_grant_rule(rule_type)
 
-    async def list_enabled_periodic_grant_rules(self) -> list[Any]:
-        return await self.repository.list_enabled_grant_rules(CreditGrantRuleType.PERIODIC)
-
     async def apply_registration_bonus_from_rule(self, *, user_id: str, rule: Any) -> Any:
         user = await self.repository.get_user_for_update(user_id)
         if user is None:
             raise ValueError("user not found")
         amount = int(rule.amount)
+        if amount <= 0:
+            raise DataServiceValidationError(
+                "registration bonus rule amount must be positive"
+            )
+        idempotency_key = f"registration-bonus:{rule.id}"
+        existing = await self.repository.find_credit_transaction_by_idempotency_key(
+            user_id=user_id,
+            transaction_type=CreditTransactionType.REGISTRATION_BONUS,
+            idempotency_key=idempotency_key,
+        )
+        if existing is not None:
+            return existing
         user.credits = int(user.credits or 0) + amount
         user.total_credits_earned = int(user.total_credits_earned or 0) + amount
         tx = self.repository.create_credit_transaction(
@@ -254,69 +370,291 @@ class DataServiceCreditService:
                 "amount": amount,
                 "balance_after": user.credits,
                 "description": f"注册奖励 (rule {str(rule.id)[:8]}***)",
+                "idempotency_key": idempotency_key,
             }
         )
         await self._finish(tx)
         return tx
 
-    async def apply_periodic_grant_rule(self, *, rule: Any, now: Any) -> int:
-        target_filter = rule.config.get("target_filter", {}) if isinstance(rule.config, dict) else {}
-        active_since = None
-        active_within_days = target_filter.get("active_within_days")
-        if active_within_days is not None:
-            active_since = now - timedelta(days=int(active_within_days))
-        users = await self.repository.list_users_for_periodic_credit_filter(
-            active_since=active_since,
-            role=target_filter.get("role"),
-        )
-        amount = int(rule.amount)
-        for user in users:
-            user.credits = int(user.credits or 0) + amount
-            user.total_credits_earned = int(user.total_credits_earned or 0) + amount
-            self.repository.create_credit_transaction(
-                {
-                    "user_id": user.id,
-                    "transaction_type": CreditTransactionType.ADMIN_GRANT,
-                    "amount": amount,
-                    "balance_after": user.credits,
-                    "description": f"周期发放（rule {str(rule.id)[:8]}***）",
-                }
+    async def process_periodic_grant_page(
+        self,
+        *,
+        now: datetime | None = None,
+        cursor: str | None = None,
+        batch_size: int = 100,
+    ) -> dict[str, Any]:
+        """Process one bounded periodic-grant page and return its opaque cursor."""
+        if (
+            isinstance(batch_size, bool)
+            or not 1 <= int(batch_size) <= _PERIODIC_GRANT_MAX_BATCH_SIZE
+        ):
+            raise DataServiceValidationError(
+                f"batch_size must be between 1 and {_PERIODIC_GRANT_MAX_BATCH_SIZE}"
             )
-        rule.last_triggered_at = now
-        await self._finish()
-        return len(users)
+        if cursor is not None and now is not None:
+            raise DataServiceValidationError(
+                "now may only be supplied when starting a periodic grant scan"
+            )
 
-    async def process_periodic_grant_rules(self, *, now: datetime | None = None) -> dict[str, int]:
-        effective_now = now or datetime.now(UTC)
-        summary: dict[str, int] = {
-            "rules_evaluated": 0,
-            "rules_fired": 0,
-            "users_granted": 0,
-        }
-        rules = await self.list_enabled_periodic_grant_rules()
-        for rule in rules:
-            summary["rules_evaluated"] += 1
-            config = rule.config if isinstance(rule.config, dict) else {}
-            cron_expr = config.get("cron")
-            if not cron_expr:
-                continue
-            base = rule.last_triggered_at or (effective_now - timedelta(days=30))
-            try:
-                next_fire = croniter(cron_expr, base).get_next(datetime)
-                if next_fire.tzinfo is None:
-                    next_fire = next_fire.replace(tzinfo=UTC)
-                else:
-                    next_fire = next_fire.astimezone(UTC)
-            except Exception:
-                continue
-            if next_fire > effective_now:
-                continue
-            summary["users_granted"] += await self.apply_periodic_grant_rule(
-                rule=rule,
-                now=effective_now,
+        state: _PeriodicCursor
+        if cursor is None:
+            state = _PeriodicRuleCursor(
+                scan_started_at=_as_utc(
+                    now or await self.repository.database_now()
+                ),
+                after_rule_id=None,
             )
-            summary["rules_fired"] += 1
-        return summary
+        else:
+            state = _decode_periodic_cursor(cursor)
+
+        if isinstance(state, _PeriodicRuleCursor):
+            result = await self._process_periodic_rule_cursor(
+                state=state,
+                batch_size=int(batch_size),
+            )
+        else:
+            result = await self._process_periodic_user_cursor(
+                state=state,
+                batch_size=int(batch_size),
+            )
+        await self._finish()
+        return result
+
+    async def _process_periodic_rule_cursor(
+        self,
+        *,
+        state: _PeriodicRuleCursor,
+        batch_size: int,
+    ) -> dict[str, Any]:
+        rule = await self.repository.get_next_enabled_grant_rule_for_update(
+            CreditGrantRuleType.PERIODIC,
+            after_rule_id=state.after_rule_id,
+            created_through=state.scan_started_at,
+        )
+        if rule is None:
+            return {
+                "rules_evaluated": 0,
+                "rules_fired": 0,
+                "users_scanned": 0,
+                "users_granted": 0,
+                "next_cursor": None,
+            }
+
+        next_rule_cursor = _encode_periodic_cursor(
+            _PeriodicRuleCursor(
+                scan_started_at=state.scan_started_at,
+                after_rule_id=str(rule.id),
+            )
+        )
+        snapshot = self._periodic_rule_snapshot(
+            rule=rule,
+            scan_started_at=state.scan_started_at,
+        )
+        if snapshot is None:
+            return self._periodic_rule_scan_result(next_rule_cursor)
+        occurrence, amount, active_within_days, role = snapshot
+
+        return await self._process_periodic_user_cursor(
+            state=_PeriodicUserCursor(
+                scan_started_at=state.scan_started_at,
+                rule_id=str(rule.id),
+                occurrence=occurrence,
+                amount=amount,
+                active_within_days=active_within_days,
+                role=role,
+                after_user_id=None,
+            ),
+            batch_size=batch_size,
+            rule=rule,
+            rules_evaluated=1,
+            rules_fired=1,
+        )
+
+    @staticmethod
+    def _periodic_rule_scan_result(next_cursor: str) -> dict[str, Any]:
+        return {
+            "rules_evaluated": 1,
+            "rules_fired": 0,
+            "users_scanned": 0,
+            "users_granted": 0,
+            "next_cursor": next_cursor,
+        }
+
+    @staticmethod
+    def _periodic_rule_snapshot(
+        *,
+        rule: Any,
+        scan_started_at: datetime,
+    ) -> tuple[datetime, int, int | None, str | None] | None:
+        if not bool(rule.enabled):
+            return None
+        config = rule.config if isinstance(rule.config, dict) else {}
+        cron_expr = config.get("cron")
+        if not isinstance(cron_expr, str) or not cron_expr:
+            return None
+        base = rule.last_triggered_at or (scan_started_at - timedelta(days=30))
+        try:
+            occurrence = _as_utc(croniter(cron_expr, base).get_next(datetime))
+            amount = int(rule.amount)
+            target_filter = (
+                config.get("target_filter", {})
+                if isinstance(config.get("target_filter", {}), dict)
+                else {}
+            )
+            raw_active_within_days = target_filter.get("active_within_days")
+            active_within_days = (
+                None
+                if raw_active_within_days is None
+                else int(raw_active_within_days)
+            )
+            role = target_filter.get("role")
+        except (TypeError, ValueError):
+            return None
+        if (
+            occurrence > scan_started_at
+            or amount <= 0
+            or (
+                active_within_days is not None
+                and not 0 <= active_within_days <= 36_500
+            )
+            or role not in {None, "user", "admin"}
+        ):
+            return None
+        return occurrence, amount, active_within_days, role
+
+    async def _process_periodic_user_cursor(
+        self,
+        *,
+        state: _PeriodicUserCursor,
+        batch_size: int,
+        rule: Any | None = None,
+        rules_evaluated: int = 0,
+        rules_fired: int = 0,
+    ) -> dict[str, Any]:
+        if rule is None:
+            rule = await self.repository.get_grant_rule_for_update(state.rule_id)
+        if rule is None or rule.rule_type != CreditGrantRuleType.PERIODIC:
+            return {
+                "rules_evaluated": rules_evaluated,
+                "rules_fired": rules_fired,
+                "users_scanned": 0,
+                "users_granted": 0,
+                "next_cursor": _encode_periodic_cursor(
+                    _PeriodicRuleCursor(
+                        scan_started_at=state.scan_started_at,
+                        after_rule_id=state.rule_id,
+                    )
+                ),
+            }
+
+        snapshot = self._periodic_rule_snapshot(
+            rule=rule,
+            scan_started_at=state.scan_started_at,
+        )
+        if snapshot is None or snapshot != (
+            state.occurrence,
+            state.amount,
+            state.active_within_days,
+            state.role,
+        ):
+            return {
+                "rules_evaluated": rules_evaluated,
+                "rules_fired": rules_fired,
+                "users_scanned": 0,
+                "users_granted": 0,
+                "next_cursor": _encode_periodic_cursor(
+                    _PeriodicRuleCursor(
+                        scan_started_at=state.scan_started_at,
+                        after_rule_id=state.rule_id,
+                    )
+                ),
+            }
+
+        active_since = None
+        if state.active_within_days is not None:
+            active_since = state.scan_started_at - timedelta(
+                days=state.active_within_days
+            )
+        user_ids = await self.repository.list_user_ids_for_periodic_credit_filter(
+            active_since=active_since,
+            role=state.role,
+            created_through=state.scan_started_at,
+            after_user_id=state.after_user_id,
+            limit=batch_size + 1,
+        )
+        page_user_ids = user_ids[:batch_size]
+        granted = 0
+        for user_id in page_user_ids:
+            if await self._grant_periodic_user(user_id=user_id, state=state):
+                granted += 1
+
+        if len(user_ids) > batch_size:
+            next_cursor = _encode_periodic_cursor(
+                replace(state, after_user_id=page_user_ids[-1])
+            )
+        else:
+            last_triggered_at = rule.last_triggered_at
+            if (
+                last_triggered_at is None
+                or _as_utc(last_triggered_at) < state.scan_started_at
+            ):
+                rule.last_triggered_at = state.scan_started_at
+            next_cursor = _encode_periodic_cursor(
+                _PeriodicRuleCursor(
+                    scan_started_at=state.scan_started_at,
+                    after_rule_id=state.rule_id,
+                )
+            )
+
+        return {
+            "rules_evaluated": rules_evaluated,
+            "rules_fired": rules_fired,
+            "users_scanned": len(page_user_ids),
+            "users_granted": granted,
+            "next_cursor": next_cursor,
+        }
+
+    async def _grant_periodic_user(
+        self,
+        *,
+        user_id: str,
+        state: _PeriodicUserCursor,
+    ) -> bool:
+        user = await self.repository.get_user_for_update(user_id)
+        if user is None:
+            return False
+
+        occurrence_key = state.occurrence.isoformat()
+        idempotency_key = f"periodic-grant:{state.rule_id}:{occurrence_key}"
+        existing = await self.repository.find_credit_transaction_by_idempotency_key(
+            user_id=user_id,
+            transaction_type=CreditTransactionType.ADMIN_GRANT,
+            idempotency_key=idempotency_key,
+        )
+        if existing is not None:
+            return False
+
+        user.credits = int(user.credits or 0) + state.amount
+        user.total_credits_earned = (
+            int(user.total_credits_earned or 0) + state.amount
+        )
+        self.repository.create_credit_transaction(
+            {
+                "user_id": user.id,
+                "transaction_type": CreditTransactionType.ADMIN_GRANT,
+                "amount": state.amount,
+                "balance_after": user.credits,
+                "description": f"周期发放（rule {state.rule_id[:8]}***）",
+                "idempotency_key": idempotency_key,
+                "tx_metadata": {
+                    "rule_id": state.rule_id,
+                    "scheduled_occurrence": occurrence_key,
+                    "scan_started_at": state.scan_started_at.isoformat(),
+                    "rule_amount": state.amount,
+                },
+            }
+        )
+        return True
 
     async def create_reservation(
         self,
@@ -345,11 +683,11 @@ class DataServiceCreditService:
         if existing is not None:
             return existing
 
-        spendable_credits = int(user.credits or 0) - int(getattr(user, "reserved_credits", 0) or 0)
+        spendable_credits = int(user.credits or 0) - int(user.reserved_credits or 0)
         if normalized_reserved > spendable_credits:
             raise CreditOverdraftLimitError("insufficient spendable credits for reservation")
 
-        user.reserved_credits = int(getattr(user, "reserved_credits", 0) or 0) + normalized_reserved
+        user.reserved_credits = int(user.reserved_credits or 0) + normalized_reserved
         reservation = self.repository.create_credit_reservation(
             {
                 "user_id": user_id,
@@ -392,12 +730,12 @@ class DataServiceCreditService:
 
         reserved_credits = max(int(reservation.reserved_credits or 0), 0)
         credits_to_charge = min(max(int(settled_credits or 0), 0), reserved_credits)
-        user.reserved_credits = max(int(getattr(user, "reserved_credits", 0) or 0) - reserved_credits, 0)
+        user.reserved_credits = max(int(user.reserved_credits or 0) - reserved_credits, 0)
         if credits_to_charge > 0:
             user.credits = int(user.credits or 0) - credits_to_charge
             user.total_credits_spent = int(user.total_credits_spent or 0) + credits_to_charge
 
-        tx_metadata = dict(getattr(reservation, "metadata_json", {}) or {})
+        tx_metadata = dict(reservation.metadata_json or {})
         tx_metadata.update(metadata or {})
         tx_metadata.update(
             {
@@ -418,6 +756,7 @@ class DataServiceCreditService:
                 "operation_key": operation_key,
                 "workspace_id": reservation.workspace_id,
                 "task_id": None,
+                "idempotency_key": f"reservation-settlement:{reservation.id}",
                 "tx_metadata": tx_metadata,
             }
         )
@@ -425,7 +764,7 @@ class DataServiceCreditService:
         reservation.settled_credits = credits_to_charge
         reservation.transaction_id = str(tx.id)
         reservation.metadata_json = {
-            **dict(getattr(reservation, "metadata_json", {}) or {}),
+            **dict(reservation.metadata_json or {}),
             "settlement_metadata": dict(metadata or {}),
         }
         await self._finish(reservation, tx)
@@ -468,16 +807,12 @@ class DataServiceCreditService:
         if user is None:
             raise ValueError("User not found")
         normalized_reserved = max(int(reserved_credits or 0), 0)
-        spendable_credits = int(user.credits or 0) - int(
-            getattr(user, "reserved_credits", 0) or 0
-        )
+        spendable_credits = int(user.credits or 0) - int(user.reserved_credits or 0)
         if normalized_reserved > spendable_credits:
             raise CreditOverdraftLimitError(
                 "insufficient spendable credits for reservation"
             )
-        user.reserved_credits = int(
-            getattr(user, "reserved_credits", 0) or 0
-        ) + normalized_reserved
+        user.reserved_credits = int(user.reserved_credits or 0) + normalized_reserved
         reservation.status = CreditReservationStatus.RESERVED
         reservation.reserved_credits = normalized_reserved
         reservation.settled_credits = 0
@@ -531,73 +866,17 @@ class DataServiceCreditService:
         if user is None:
             raise ValueError("User not found")
         user.reserved_credits = max(
-            int(getattr(user, "reserved_credits", 0) or 0) - max(int(reservation.reserved_credits or 0), 0),
+            int(user.reserved_credits or 0)
+            - max(int(reservation.reserved_credits or 0), 0),
             0,
         )
         reservation.status = status
         reservation.metadata_json = {
-            **dict(getattr(reservation, "metadata_json", {}) or {}),
+            **dict(reservation.metadata_json or {}),
             "release_reason": reason,
         }
         await self._finish(reservation)
         return reservation
-
-    async def record_consumption(
-        self,
-        *,
-        user_id: str,
-        transaction_type: CreditTransactionType,
-        amount: int,
-        description: str,
-        mission_policy_id: str | None = None,
-        mission_id: str | None = None,
-        operation_key: str | None = None,
-        workspace_id: str | None = None,
-        task_id: str | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> Any:
-        user = await self.repository.get_user_for_update(user_id)
-        if user is None:
-            raise ValueError("User not found")
-        balance_before = int(user.credits)
-        idempotency_key = _idempotency_key(metadata)
-        if idempotency_key:
-            existing_tx = await self.repository.find_consumption_by_idempotency_key(
-                user_id=user_id,
-                transaction_type=transaction_type,
-                idempotency_key=idempotency_key,
-            )
-            if existing_tx is not None:
-                return existing_tx, balance_before
-        credits_to_charge = max(int(amount), 0)
-        if credits_to_charge > 0:
-            reserved_credits = max(int(getattr(user, "reserved_credits", 0) or 0), 0)
-            spendable_before = balance_before - reserved_credits
-            if reserved_credits > 0 and credits_to_charge > spendable_before:
-                raise CreditOverdraftLimitError("credit spendable balance exceeded")
-            projected_balance = balance_before - credits_to_charge
-            if projected_balance < -_max_overdraft_credits(metadata):
-                raise CreditOverdraftLimitError("credit overdraft limit exceeded")
-        if credits_to_charge > 0:
-            user.credits -= credits_to_charge
-            user.total_credits_spent += credits_to_charge
-        tx = self.repository.create_credit_transaction(
-            {
-                "user_id": user_id,
-                "transaction_type": transaction_type,
-                "amount": -credits_to_charge,
-                "balance_after": user.credits,
-                "description": description,
-                "mission_policy_id": mission_policy_id,
-                "mission_id": mission_id,
-                "operation_key": operation_key,
-                "workspace_id": workspace_id,
-                "task_id": task_id,
-                "tx_metadata": dict(metadata or {}),
-            }
-        )
-        await self._finish(tx)
-        return tx, balance_before
 
     async def admin_adjust(
         self,
@@ -613,11 +892,17 @@ class DataServiceCreditService:
         if user is None:
             raise ValueError("User not found")
         signed_amount = int(amount)
+        projected_credits = int(user.credits or 0) + signed_amount
+        active_hold = int(user.reserved_credits or 0)
+        if signed_amount < 0 and active_hold > 0 and projected_credits < active_hold:
+            raise CreditOverdraftLimitError(
+                "admin deduction cannot consume credits held by active work"
+            )
         if signed_amount > 0:
-            user.credits += signed_amount
+            user.credits = projected_credits
             user.total_credits_earned += signed_amount
         else:
-            user.credits += signed_amount
+            user.credits = projected_credits
             user.total_credits_spent = int(user.total_credits_spent) + abs(signed_amount)
         tx = self.repository.create_credit_transaction(
             {

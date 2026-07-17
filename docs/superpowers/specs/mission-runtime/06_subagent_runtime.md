@@ -136,6 +136,10 @@ These are semantic milestones, not every model/tool delta. Each item carries `op
 
 `MissionRuntime` owns `subagent_spawned` and `subagent_completed`. The child ledger appends bounded `subagent_progress` items with `lifecycle_phase`; a terminal progress item contains the result hash, job fingerprint, and structured result so an interrupted parent slice can recover it without rerunning the worker.
 
+Every progress item carries a deterministic `progress_id` and SHA-256 over its canonical summary and payload. A job terminal uses the fixed identity `subagent-terminal:{job_id}`. Before writing and after every append exception, the adapter queries durable progress by parent operation and identity, recomputes the hash, and adopts only one exact match; duplicate or divergent content is a hard error. This makes a committed terminal authoritative even when its response ACK is lost.
+
+The adapter reconstructs a terminal result only after validating lifecycle phase, producer/job identity, job fingerprint, frozen budget, result hash, and progress hash. If child execution raises, both the adapter and the parent MissionRuntime probe this durable terminal projection. The parent performs its final probe immediately before persisting a failed `subagent_completed`; an adopted terminal therefore cannot be overwritten as failed or have its inflight state cleared by an ACK-loss path.
+
 ## Display Names
 
 WorkspaceAgent or SubagentRuntime generates names using the overview naming rules. Names are user-facing labels only; they are not identifiers.

@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from src.contracts.mission_budget import MissionExecutionBudget
 from src.contracts.mission_policy import (
     CompletionContract,
     CompletionTarget,
@@ -63,6 +64,12 @@ def _policy(stage: StageAcceptanceContract, **updates) -> MissionPolicy:
             objective="Produce grounded research.",
             target_outcomes=("research_brief",),
             hard_constraints=("stage contracts decide progression",),
+        ),
+        "execution_budget": MissionExecutionBudget(
+            max_model_calls=32,
+            max_tool_operations=64,
+            max_subagent_jobs=8,
+            stop_after_total_tokens=100_000,
         ),
         "minimum_context": {"topic": MinimumContextRequirement(requirement="required", ask="研究什么？")},
         "stage_contract_refs": (stage.immutable_ref(),),

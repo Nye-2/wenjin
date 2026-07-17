@@ -36,10 +36,6 @@ class FakeBridge(StreamBridge):
         if False:  # pragma: no cover
             yield run_id, last_event_id, heartbeat_interval
 
-    async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-        return None
-
-
 @dataclass
 class _DummyHandler:
     async def preflight_stream_turn(self, request: ThreadTurnRequest, *, actor_id: str) -> None:
@@ -50,9 +46,39 @@ class _DummyExecuteRunTask:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def apply_async(self, *, args: list[Any], queue: str):
-        self.calls.append({"args": list(args), "queue": queue})
-        return SimpleNamespace(id="celery-task-1")
+    def __call__(
+        self,
+        run_id: str,
+        request_payload: dict[str, Any],
+        actor_id: str,
+    ) -> str:
+        self.calls.append(
+            {
+                "run_id": run_id,
+                "request_payload": dict(request_payload),
+                "actor_id": actor_id,
+            }
+        )
+        return "celery-task-1"
+
+
+class _FlakyExecuteRunTask(_DummyExecuteRunTask):
+    def __call__(
+        self,
+        run_id: str,
+        request_payload: dict[str, Any],
+        actor_id: str,
+    ) -> str:
+        self.calls.append(
+            {
+                "run_id": run_id,
+                "request_payload": dict(request_payload),
+                "actor_id": actor_id,
+            }
+        )
+        if len(self.calls) == 1:
+            raise RuntimeError("broker unavailable")
+        return "celery-task-retry"
 
 
 @dataclass
@@ -75,7 +101,11 @@ async def _launch_for_test(
         bridge=bridge,
         actor_id="user-1",
         run_thread_id="thread-1",
-        turn_request=ThreadTurnRequest(message="hello", thread_id="thread-1"),
+        turn_request=ThreadTurnRequest(
+            message="hello",
+            thread_id="thread-1",
+            turn_idempotency_key="chat-turn:test-launch",
+        ),
         assistant_id="thread",
         metadata={},
         kwargs={},
@@ -93,17 +123,9 @@ async def test_launch_thread_run_dispatches_to_celery_worker(monkeypatch):
     bridge = FakeBridge()
     handler = _DummyHandler()
     dummy_task = _DummyExecuteRunTask()
-    scheduled: list[Any] = []
-
-    def _fake_create_task(coro):
-        scheduled.append(coro)
-        coro.close()
-        return SimpleNamespace()
-
     monkeypatch.setattr(run_lifecycle_module.celery_settings, "enabled", True)
     monkeypatch.setattr(run_lifecycle_module.redis_settings, "enabled", True)
-    monkeypatch.setattr(task_module, "process_chat_turn", dummy_task)
-    monkeypatch.setattr(run_lifecycle_module.asyncio, "create_task", _fake_create_task)
+    monkeypatch.setattr(task_module, "enqueue_chat_turn", dummy_task)
 
     record = await launch_chat_turn(
         handler=handler,  # type: ignore[arg-type]
@@ -111,7 +133,28 @@ async def test_launch_thread_run_dispatches_to_celery_worker(monkeypatch):
         bridge=bridge,
         actor_id="user-1",
         run_thread_id="thread-1",
-        turn_request=ThreadTurnRequest(message="hello", thread_id="thread-1"),
+        turn_request=ThreadTurnRequest(
+            message="hello",
+            thread_id="thread-1",
+            turn_idempotency_key="chat-turn:test-dispatch",
+        ),
+        assistant_id="thread",
+        metadata={},
+        kwargs={},
+        on_disconnect=ChatTurnDisconnectMode.cancel.value,
+        multitask_strategy="reject",
+    )
+    replayed = await launch_chat_turn(
+        handler=handler,  # type: ignore[arg-type]
+        run_manager=manager,
+        bridge=bridge,
+        actor_id="user-1",
+        run_thread_id="thread-1",
+        turn_request=ThreadTurnRequest(
+            message="hello",
+            thread_id="thread-1",
+            turn_idempotency_key="chat-turn:test-dispatch",
+        ),
         assistant_id="thread",
         metadata={},
         kwargs={},
@@ -119,14 +162,56 @@ async def test_launch_thread_run_dispatches_to_celery_worker(monkeypatch):
         multitask_strategy="reject",
     )
 
+    assert replayed is record
     assert record.task is None
     assert len(dummy_task.calls) == 1
-    assert dummy_task.calls[0]["queue"] == "default"
-    assert dummy_task.calls[0]["args"][0] == record.run_id
+    assert dummy_task.calls[0]["run_id"] == record.run_id
+    assert dummy_task.calls[0]["actor_id"] == "user-1"
+    assert dummy_task.calls[0]["request_payload"]["turn_idempotency_key"] == (
+        "chat-turn:test-dispatch"
+    )
     assert any(event == "run_queued" for _, event, _ in bridge.events)
-    assert record.metadata.get("dispatch_mode") == "celery_worker"
-    assert record.metadata.get("worker_task_id") == "celery-task-1"
-    assert len(scheduled) == 1
+    assert record.worker_task_id == "celery-task-1"
+
+
+@pytest.mark.asyncio
+async def test_queue_publication_failure_keeps_same_run_retryable(monkeypatch):
+    import src.gateway.services.chat_turn_lifecycle as run_lifecycle_module
+    import src.task.tasks as task_module
+
+    manager = ChatTurnRunManager()
+    bridge = FakeBridge()
+    handler = _DummyHandler()
+    task = _FlakyExecuteRunTask()
+    monkeypatch.setattr(run_lifecycle_module.celery_settings, "enabled", True)
+    monkeypatch.setattr(run_lifecycle_module.redis_settings, "enabled", True)
+    monkeypatch.setattr(task_module, "enqueue_chat_turn", task)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _launch_for_test(manager=manager, bridge=bridge, handler=handler)
+    assert exc_info.value.status_code == 503
+
+    record = await launch_chat_turn(
+        handler=handler,  # type: ignore[arg-type]
+        run_manager=manager,
+        bridge=bridge,
+        actor_id="user-1",
+        run_thread_id="thread-1",
+        turn_request=ThreadTurnRequest(
+            message="hello",
+            thread_id="thread-1",
+            turn_idempotency_key="chat-turn:test-launch",
+        ),
+        assistant_id="thread",
+        metadata={},
+        kwargs={},
+        on_disconnect=ChatTurnDisconnectMode.cancel.value,
+        multitask_strategy="reject",
+    )
+
+    assert len(task.calls) == 2
+    assert record.status is ChatTurnRunStatus.pending
+    assert record.worker_task_id == "celery-task-retry"
 
 
 @pytest.mark.asyncio
@@ -149,10 +234,8 @@ async def test_launch_thread_run_fails_when_celery_disabled(monkeypatch):
 
     assert exc_info.value.status_code == 503
     records = await manager.list_all()
-    assert records
-    assert records[0].status == ChatTurnRunStatus.error
-    assert any(event == "error" for _, event, _ in bridge.events)
-    assert any(event == "__end__" for _, event, _ in bridge.events)
+    assert records == []
+    assert bridge.events == []
 
 
 @pytest.mark.asyncio
@@ -175,10 +258,8 @@ async def test_launch_thread_run_fails_when_redis_disabled(monkeypatch):
 
     assert exc_info.value.status_code == 503
     records = await manager.list_all()
-    assert records
-    assert records[0].status == ChatTurnRunStatus.error
-    assert any(event == "error" for _, event, _ in bridge.events)
-    assert any(event == "__end__" for _, event, _ in bridge.events)
+    assert records == []
+    assert bridge.events == []
 
 
 @pytest.mark.asyncio
@@ -199,9 +280,6 @@ async def test_sse_consumer_does_not_cancel_after_end_with_stale_record_state():
         ):
             _ = run_id, last_event_id, heartbeat_interval
             yield END_SENTINEL
-
-        async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-            _ = run_id, delay
 
     record = ChatTurnRunRecord(
         run_id="run-1",
@@ -251,9 +329,6 @@ async def test_sse_consumer_emits_error_frame_and_skips_cancel_on_subscription_f
             if False:  # pragma: no cover
                 yield None
 
-        async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-            _ = run_id, delay
-
     record = ChatTurnRunRecord(
         run_id="run-2",
         thread_id="thread-1",
@@ -301,9 +376,6 @@ async def test_sse_consumer_disconnect_grace_skips_cancel_after_run_completes(mo
         ):
             _ = run_id, last_event_id, heartbeat_interval
             yield SimpleNamespace(id="1-0", event="content", data={"type": "content", "content": "hi"})
-
-        async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-            _ = run_id, delay
 
     class DisconnectingRequest:
         def __init__(self) -> None:
@@ -381,9 +453,6 @@ async def test_sse_consumer_disconnect_grace_cancels_when_still_running(monkeypa
         ):
             _ = run_id, last_event_id, heartbeat_interval
             yield SimpleNamespace(id="1-0", event="content", data={"type": "content", "content": "hi"})
-
-        async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-            _ = run_id, delay
 
     class DisconnectingRequest:
         def __init__(self) -> None:

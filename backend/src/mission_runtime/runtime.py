@@ -13,7 +13,22 @@ from enum import StrEnum
 from typing import Any, TypeVar
 
 from src.agents.harness.stage_acceptance import resolve_stage_instance
+from src.contracts.mission_budget import (
+    MissionResourceUsage,
+    execution_budget_from_runtime_context,
+    resource_delta_for_item,
+    resource_usage_from_snapshot,
+    snapshot_with_resource_usage,
+    unavailable_budget_dimensions,
+)
 from src.contracts.mission_input import merge_mission_input_manifests
+from src.contracts.model_usage import (
+    ModelCallStartedPayload,
+    ModelCallState,
+    ModelCallTerminalOutcome,
+    ModelCallTerminalPayload,
+    ModelUsageReceipt,
+)
 from src.contracts.prism_context import PrismContextRef
 from src.contracts.reasoning import ReasoningEffort
 from src.contracts.stage_acceptance import (
@@ -31,6 +46,7 @@ from src.dataservice_client.contracts.mission import (
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
     MissionLeaseReleasePayload,
+    MissionModelCallStatePayload,
     MissionResumePayload,
     MissionReviewItemPayload,
     MissionReviewItemsCreatePayload,
@@ -46,6 +62,8 @@ from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
     MissionAgentDecision,
     MissionAgentProtocolError,
+    MissionAgentResponseError,
+    MissionAgentUsageError,
     MissionDecisionKind,
     MissionLoopContext,
     MissionPauseRequest,
@@ -189,11 +207,21 @@ class MissionRuntime:
     async def start(self, request: MissionStartRequest) -> MissionStartReceipt:
         request = await self.start_context.pin(request)
         snapshot = dict(request.snapshot_json)
-        if any(key in snapshot for key in ("stage_acceptance", "stage_item_counts", "mission_lineage")):
+        if any(
+            key in snapshot
+            for key in (
+                "stage_acceptance",
+                "stage_item_counts",
+                "mission_lineage",
+                "resource_usage",
+            )
+        ):
             raise MissionStartRejectedError(
-                "Mission start cannot provide server-owned acceptance or lineage state",
+                "Mission start cannot provide server-owned acceptance, lineage, or resource state",
                 code=MissionStartRejectionCode.INVALID_START_STATE,
             )
+        execution_budget_from_runtime_context(request.runtime_context_json)
+        snapshot = snapshot_with_resource_usage(snapshot, MissionResourceUsage())
         if request.continuation is not None and request.parent_mission_id is None:
             raise MissionStartRejectedError(
                 "Mission continuation feedback requires a parent MissionRun",
@@ -666,6 +694,14 @@ class MissionRuntime:
         *,
         command_hint: str | None,
     ) -> MissionSliceTelemetry:
+        if await self._reconcile_model_call_ledger(state):
+            return self._telemetry(
+                state.run,
+                MissionSliceOutcome.TERMINAL,
+                "model_usage_reconciliation_required",
+                state=state,
+                command_hint=command_hint,
+            )
         if _status_value(state.run) == "created":
             await self._append(
                 state,
@@ -702,6 +738,14 @@ class MissionRuntime:
         protocol_retry_count = 0
         protocol_feedback: str | None = None
         while True:
+            if await self._reconcile_model_call_ledger(state):
+                return self._telemetry(
+                    state.run,
+                    MissionSliceOutcome.TERMINAL,
+                    "model_usage_reconciliation_required",
+                    state=state,
+                    command_hint=command_hint,
+                )
             command_result = await self._apply_commands_at_boundary(state)
             if command_result is not None:
                 return self._telemetry(
@@ -752,13 +796,103 @@ class MissionRuntime:
                 state,
                 protocol_feedback=protocol_feedback,
             )
+            unavailable = self._unavailable_resource_dimensions(
+                state.run,
+                model_calls=1,
+            )
+            if unavailable:
+                await self._fail_resource_budget(state, unavailable)
+                return self._telemetry(
+                    state.run,
+                    MissionSliceOutcome.TERMINAL,
+                    "resource_budget_exhausted",
+                    state=state,
+                    command_hint=command_hint,
+                )
+
+            model_turn = state.model_turns + 1
+            model_attempt = protocol_retry_count + 1
+            model_call_id = f"model-call:workspace:{state.run.lease_epoch}:{state.run.last_item_seq + 1}"
+            await self._persist_workspace_model_call_started(
+                state,
+                model_call_id=model_call_id,
+                model_turn=model_turn,
+                model_attempt=model_attempt,
+            )
             state.model_turns += 1
             try:
                 decision = await self._invoke_with_deadline(
                     self.agent.decide(context),
                     state,
                 )
+                usage_receipt = self._require_model_usage_receipt(
+                    decision.usage_receipt,
+                    model_id=state.run.model_id,
+                )
+            except asyncio.CancelledError as exc:
+                try:
+                    await asyncio.shield(
+                        self._persist_workspace_model_terminal(
+                            state,
+                            model_call_id=model_call_id,
+                            model_turn=model_turn,
+                            model_attempt=model_attempt,
+                            outcome=ModelCallTerminalOutcome.UNRESOLVED,
+                            error_type=type(exc).__name__,
+                            detail=(
+                                "Workspace model call was cancelled before usage "
+                                "could be confirmed"
+                            ),
+                        )
+                    )
+                finally:
+                    raise
             except Exception as exc:
+                error_receipt = (
+                    exc.usage_receipt
+                    if isinstance(exc, MissionAgentResponseError)
+                    else None
+                )
+                if error_receipt is not None:
+                    try:
+                        error_receipt = self._require_model_usage_receipt(
+                            error_receipt,
+                            model_id=state.run.model_id,
+                        )
+                        await self._persist_workspace_model_usage(
+                            state,
+                            model_call_id=model_call_id,
+                            model_turn=model_turn,
+                            model_attempt=model_attempt,
+                            usage_receipt=error_receipt,
+                        )
+                    except MissionAgentUsageError as usage_exc:
+                        exc = usage_exc
+                        error_receipt = None
+                if error_receipt is None:
+                    if isinstance(exc, MissionAgentResponseError):
+                        exc = MissionAgentUsageError(
+                            "Mission response error did not carry a usage receipt"
+                        )
+                    terminal_outcome = self._nonreceipt_model_call_outcome(exc)
+                    await self._persist_workspace_model_terminal(
+                        state,
+                        model_call_id=model_call_id,
+                        model_turn=model_turn,
+                        model_attempt=model_attempt,
+                        outcome=terminal_outcome,
+                        error_type=type(exc).__name__,
+                        detail=str(exc)[:1000] or type(exc).__name__,
+                    )
+                    if terminal_outcome is ModelCallTerminalOutcome.UNRESOLVED:
+                        await self._fail_model_call_reconciliation(state)
+                        return self._telemetry(
+                            state.run,
+                            MissionSliceOutcome.TERMINAL,
+                            "model_usage_reconciliation_required",
+                            state=state,
+                            command_hint=command_hint,
+                        )
                 if isinstance(exc, MissionAgentProtocolError) and protocol_retry_count < self.limits.max_protocol_retries_per_step and not self._slice_budget_exhausted(state):
                     protocol_retry_count += 1
                     protocol_feedback = str(exc)[:1000]
@@ -780,36 +914,27 @@ class MissionRuntime:
                     retry_delay_seconds=(_transient_retry_delay_seconds(state.run) if transient_failure else 0),
                 )
 
+            await self._persist_workspace_model_usage(
+                state,
+                model_call_id=model_call_id,
+                model_turn=model_turn,
+                model_attempt=model_attempt,
+                usage_receipt=usage_receipt,
+            )
             protocol_retry_count = 0
             protocol_feedback = None
+            last_applied_command_seq = state.run.last_applied_command_seq
             command_result = await self._apply_commands_at_boundary(state)
             if command_result is not None:
                 return self._telemetry(
                     state.run,
                     command_result,
-                    "durable_command_applied_after_agent_step",
+                    "durable_command_applied",
                     state=state,
                     command_hint=command_hint,
                 )
-            usage = decision.snapshot_patch.get("last_model_usage")
-            if isinstance(usage, dict) and int(usage.get("total_tokens") or 0) > 0:
-                await self._append(
-                    state,
-                    items=[
-                        MissionItemDraftPayload(
-                            item_type="usage_receipt",
-                            operation_id=decision.operation_id,
-                            phase=MissionItemPhase.COMPLETED,
-                            stage_id=decision.stage_id,
-                            producer="workspace_agent",
-                            summary="Workspace Agent model usage recorded",
-                            payload_json={
-                                "model_id": state.run.model_id,
-                                "usage": dict(usage),
-                            },
-                        )
-                    ],
-                )
+            if state.run.last_applied_command_seq > last_applied_command_seq:
+                continue
             outcome = await self._handle_decision(state, decision)
             if outcome is not None:
                 return self._telemetry(
@@ -852,22 +977,49 @@ class MissionRuntime:
                 workspace_id=state.run.workspace_id,
                 thread_id=state.run.thread_id,
             )
-        incoming_prism_refs = [value for command in commands if isinstance((value := command.payload_json.get("prism_context_ref")), dict)]
-        if incoming_prism_refs:
-            prism_ref = PrismContextRef.model_validate(incoming_prism_refs[-1])
-            if prism_ref.workspace_id != state.run.workspace_id:
-                raise ValueError("Prism context does not belong to the Mission workspace")
-            snapshot_patch["prism_context_ref"] = prism_ref.model_dump(mode="json")
+        invalid_command_seqs: set[int] = set()
+        latest_prism_ref: PrismContextRef | None = None
+        for command in commands:
+            raw_prism_ref = command.payload_json.get("prism_context_ref")
+            if raw_prism_ref is None:
+                continue
+            try:
+                prism_ref = PrismContextRef.model_validate(raw_prism_ref)
+                if prism_ref.workspace_id != state.run.workspace_id:
+                    raise ValueError(
+                        "Prism context does not belong to the Mission workspace"
+                    )
+            except ValueError:
+                invalid_command_seqs.add(command.seq)
+                continue
+            latest_prism_ref = prism_ref
+        if latest_prism_ref is not None:
+            snapshot_patch["prism_context_ref"] = latest_prism_ref.model_dump(
+                mode="json"
+            )
         items = [
             MissionItemDraftPayload(
                 item_type="status_update",
                 operation_id=command.operation_id,
-                phase=MissionItemPhase.COMPLETED,
+                phase=(
+                    MissionItemPhase.FAILED
+                    if command.seq in invalid_command_seqs
+                    else MissionItemPhase.COMPLETED
+                ),
                 producer="mission_runtime",
-                summary=command.summary or "Durable mission input applied",
+                summary=(
+                    "Durable Mission command rejected an invalid Prism context"
+                    if command.seq in invalid_command_seqs
+                    else command.summary or "Durable mission input applied"
+                ),
                 payload_json={
                     "command_seq": command.seq,
                     "command_type": str(command.payload_json.get("command_type") or "steer"),
+                    **(
+                        {"error_code": "invalid_prism_context"}
+                        if command.seq in invalid_command_seqs
+                        else {}
+                    ),
                 },
             )
             for command in commands
@@ -1086,6 +1238,29 @@ class MissionRuntime:
                 patch=self._stage_patch(decision.stage_id),
             )
             return None
+
+        if decision.kind == MissionDecisionKind.TOOL:
+            unavailable = self._unavailable_resource_dimensions(
+                state.run,
+                tool_operations=1,
+            )
+            if unavailable:
+                return await self._fail_resource_budget(state, unavailable)
+        if decision.kind == MissionDecisionKind.SUBAGENT:
+            input_scope = decision.payload_json.get("input_scope")
+            delta = resource_delta_for_item(
+                item_type="subagent_spawned",
+                payload_json={
+                    "input_scope": input_scope if isinstance(input_scope, dict) else {}
+                },
+            )
+            unavailable = self._unavailable_resource_dimensions(
+                state.run,
+                model_calls=delta.subagent_jobs,
+                subagent_jobs=delta.subagent_jobs,
+            )
+            if unavailable:
+                return await self._fail_resource_budget(state, unavailable)
 
         if decision.kind in {
             MissionDecisionKind.TOOL,
@@ -1580,23 +1755,37 @@ class MissionRuntime:
         stage_id: str | None,
         frozen_context: SubagentFrozenContext,
     ) -> MissionSliceOutcome | None:
+        request = SubagentExecutionRequest(
+            mission=state.run,
+            operation_id=operation_id,
+            task_summary=task_summary,
+            input_scope=input_scope,
+            stage_id=stage_id,
+            frozen_context=frozen_context,
+            deadline_monotonic=state.deadline_monotonic,
+        )
         try:
             outcome = await self._invoke_with_deadline(
-                self.subagents.run(
-                    SubagentExecutionRequest(
-                        mission=state.run,
-                        operation_id=operation_id,
-                        task_summary=task_summary,
-                        input_scope=input_scope,
-                        stage_id=stage_id,
-                        frozen_context=frozen_context,
-                        deadline_monotonic=state.deadline_monotonic,
-                    )
-                ),
+                self.subagents.run(request),
                 state,
             )
         except Exception as exc:
-            outcome = self._failed_port_outcome("Subagent did not complete", exc)
+            adopted = await self.subagents.adopt_terminal(request)
+            if adopted is not None:
+                outcome = adopted
+            else:
+                if await self._reconcile_model_call_ledger(state):
+                    return MissionSliceOutcome.TERMINAL
+                outcome = self._failed_port_outcome(
+                    "Subagent did not complete",
+                    exc,
+                )
+        if await self._reconcile_model_call_ledger(state):
+            return MissionSliceOutcome.TERMINAL
+        if outcome.status is MissionPortOutcomeStatus.FAILED:
+            adopted = await self.subagents.adopt_terminal(request)
+            if adopted is not None:
+                outcome = adopted
         return await self._finish_port_operation(
             state,
             operation_id=operation_id,
@@ -2087,10 +2276,6 @@ class MissionRuntime:
             state.run.snapshot_json,
             {
                 "context_checkpoint_summary": checkpoint_summary,
-                "budgets": {
-                    "last_slice_model_turns": state.model_turns,
-                    "last_slice_tool_steps": state.tool_steps,
-                },
             },
         )
         await self._append(
@@ -2213,6 +2398,248 @@ class MissionRuntime:
         )
         state.run = result.mission
         await publish_after_commit(self.events, self.clock, state.run)
+
+    @staticmethod
+    def _require_model_usage_receipt(
+        receipt: ModelUsageReceipt | None,
+        *,
+        model_id: str,
+    ) -> ModelUsageReceipt:
+        if (
+            receipt is None
+            or receipt.model_id != model_id
+            or receipt.usage.total_tokens <= 0
+        ):
+            raise MissionAgentUsageError(
+                "Mission provider response requires a matching non-zero usage receipt"
+            )
+        return receipt
+
+    @staticmethod
+    def _nonreceipt_model_call_outcome(
+        exc: BaseException,
+    ) -> ModelCallTerminalOutcome:
+        if getattr(exc, "usage_not_incurred", False) is not True:
+            return ModelCallTerminalOutcome.UNRESOLVED
+        raw_outcome = str(
+            getattr(exc, "model_call_terminal_outcome", "failed")
+        )
+        if raw_outcome == ModelCallTerminalOutcome.CANCELLED.value:
+            return ModelCallTerminalOutcome.CANCELLED
+        return ModelCallTerminalOutcome.FAILED
+
+    @staticmethod
+    def _model_ledger_item_matches(
+        item: MissionItemPayload,
+        draft: MissionItemDraftPayload,
+    ) -> bool:
+        return (
+            item.item_type == draft.item_type
+            and item.operation_id == draft.operation_id
+            and item.phase == draft.phase
+            and item.stage_id == draft.stage_id
+            and item.producer == draft.producer
+            and item.summary == draft.summary
+            and item.risk_level == draft.risk_level
+            and item.payload_json == draft.payload_json
+            and item.payload_ref == draft.payload_ref
+        )
+
+    async def _persist_workspace_model_call_started(
+        self,
+        state: _SliceState,
+        *,
+        model_call_id: str,
+        model_turn: int,
+        model_attempt: int,
+    ) -> None:
+        await self._persist_model_ledger_item(
+            state,
+            MissionItemDraftPayload(
+                item_type="model_call_started",
+                operation_id=model_call_id,
+                phase=MissionItemPhase.STARTED,
+                stage_id=state.run.active_stage_id,
+                producer="workspace_agent",
+                summary="Workspace Agent model call started",
+                payload_json={
+                    "model_call_id": model_call_id,
+                    "model_id": state.run.model_id,
+                    "turn": model_turn,
+                    "attempt": model_attempt,
+                },
+            ),
+        )
+
+    async def _persist_model_ledger_item(
+        self,
+        state: _SliceState,
+        draft: MissionItemDraftPayload,
+    ) -> None:
+        async def adopt_existing() -> bool:
+            existing = await self.store.list_items(
+                state.run.mission_id,
+                item_type=draft.item_type,
+                operation_id=draft.operation_id,
+                limit=2,
+            )
+            if not existing:
+                return False
+            if len(existing) != 1 or not self._model_ledger_item_matches(
+                existing[0],
+                draft,
+            ):
+                raise RuntimeError(
+                    "model_call_id has a divergent durable ledger item"
+                )
+            latest = await self.store.get(state.run.mission_id)
+            if latest is not None:
+                state.run = latest
+            return True
+
+        for _attempt in range(16):
+            try:
+                await self._append(state, items=[draft])
+                return
+            except Exception as exc:
+                if await adopt_existing():
+                    return
+                if not _is_conflict(exc):
+                    raise
+                latest = await self.store.get(state.run.mission_id)
+                if (
+                    latest is None
+                    or latest.lease_owner != state.worker_id
+                    or latest.lease_epoch != state.run.lease_epoch
+                    or latest.lease_expires_at is None
+                    or latest.lease_expires_at <= self.clock.now()
+                ):
+                    raise
+                state.run = latest
+                await asyncio.sleep(0)
+        raise RuntimeError(
+            "Mission state changed repeatedly while recording model ledger item"
+        )
+
+    async def _persist_workspace_model_usage(
+        self,
+        state: _SliceState,
+        *,
+        model_call_id: str,
+        model_turn: int,
+        model_attempt: int,
+        usage_receipt: ModelUsageReceipt,
+    ) -> None:
+        usage_receipt = self._require_model_usage_receipt(
+            usage_receipt,
+            model_id=state.run.model_id,
+        )
+        draft = MissionItemDraftPayload(
+            item_type="usage_receipt",
+            operation_id=model_call_id,
+            phase=MissionItemPhase.COMPLETED,
+            stage_id=state.run.active_stage_id,
+            producer="workspace_agent",
+            summary="Workspace Agent model usage recorded",
+            payload_json={
+                **usage_receipt.model_dump(mode="json"),
+                "model_call_id": model_call_id,
+                "turn": model_turn,
+                "attempt": model_attempt,
+            },
+        )
+        await self._persist_model_ledger_item(state, draft)
+
+    async def _persist_workspace_model_terminal(
+        self,
+        state: _SliceState,
+        *,
+        model_call_id: str,
+        model_turn: int,
+        model_attempt: int,
+        outcome: ModelCallTerminalOutcome,
+        error_type: str | None,
+        detail: str,
+    ) -> None:
+        payload = ModelCallTerminalPayload(
+            model_call_id=model_call_id,
+            model_id=state.run.model_id,
+            turn=model_turn,
+            attempt=model_attempt,
+            outcome=outcome,
+            error_type=error_type,
+            detail=detail,
+        )
+        await self._persist_model_ledger_item(
+            state,
+            MissionItemDraftPayload(
+                item_type="model_call_terminal",
+                operation_id=model_call_id,
+                phase=(
+                    MissionItemPhase.CANCELLED
+                    if outcome is ModelCallTerminalOutcome.CANCELLED
+                    else MissionItemPhase.FAILED
+                ),
+                stage_id=state.run.active_stage_id,
+                producer="workspace_agent",
+                summary=f"Workspace Agent model call {outcome.value}",
+                payload_json=payload.model_dump(mode="json"),
+            ),
+        )
+
+    @staticmethod
+    def _recovered_model_call_terminal(
+        model_call: MissionModelCallStatePayload,
+    ) -> MissionItemDraftPayload:
+        started = model_call.started
+        payload = ModelCallStartedPayload.model_validate(started.payload_json)
+        terminal = ModelCallTerminalPayload(
+            **payload.model_dump(mode="python"),
+            outcome=ModelCallTerminalOutcome.UNRESOLVED,
+            error_type="ModelCallRecoveryUnresolved",
+            detail=(
+                "Mission recovery found a started provider call without a durable "
+                "terminal outcome; usage could not be confirmed"
+            ),
+        )
+        return MissionItemDraftPayload(
+            item_type="model_call_terminal",
+            operation_id=started.operation_id,
+            phase=MissionItemPhase.FAILED,
+            stage_id=started.stage_id,
+            producer=started.producer,
+            summary="Recovered model call requires usage reconciliation",
+            payload_json=terminal.model_dump(mode="json"),
+        )
+
+    async def _reconcile_model_call_ledger(
+        self,
+        state: _SliceState,
+    ) -> bool:
+        model_calls = await self.store.list_model_call_states(
+            state.run.mission_id
+        )
+        open_calls = [
+            model_call
+            for model_call in model_calls
+            if model_call.state is ModelCallState.OPEN
+        ]
+        for model_call in open_calls:
+            await self._persist_model_ledger_item(
+                state,
+                self._recovered_model_call_terminal(model_call),
+            )
+        if open_calls:
+            model_calls = await self.store.list_model_call_states(
+                state.run.mission_id
+            )
+        if not any(
+            model_call.state is ModelCallState.UNRESOLVED
+            for model_call in model_calls
+        ):
+            return False
+        await self._fail_model_call_reconciliation(state)
+        return True
 
     async def _heartbeat_if_due(self, state: _SliceState) -> None:
         now = self.clock.monotonic()
@@ -2398,6 +2825,157 @@ class MissionRuntime:
         return remaining <= next_step_reserve or state.model_turns >= self.limits.max_model_turns or state.tool_steps >= self.limits.max_tool_steps
 
     @staticmethod
+    def _unavailable_resource_dimensions(
+        run: MissionRunPayload,
+        *,
+        model_calls: int = 0,
+        tool_operations: int = 0,
+        subagent_jobs: int = 0,
+    ) -> tuple[str, ...]:
+        budget = execution_budget_from_runtime_context(run.runtime_context_json)
+        usage = resource_usage_from_snapshot(run.snapshot_json)
+        return unavailable_budget_dimensions(
+            usage,
+            budget,
+            model_calls=model_calls,
+            tool_operations=tool_operations,
+            subagent_jobs=subagent_jobs,
+        )
+
+    async def _fail_resource_budget(
+        self,
+        state: _SliceState,
+        dimensions: tuple[str, ...],
+    ) -> MissionSliceOutcome:
+        budget = execution_budget_from_runtime_context(
+            state.run.runtime_context_json
+        )
+        usage = resource_usage_from_snapshot(state.run.snapshot_json)
+        snapshot = self._merge_snapshot(
+            state.run.snapshot_json,
+            {
+                "failure_reason": "resource_budget_exhausted",
+                "resource_budget_stop": {
+                    "dimensions": list(dimensions),
+                    "usage": usage.model_dump(mode="json"),
+                    "budget": budget.model_dump(mode="json"),
+                },
+            },
+        )
+        await self._append(
+            state,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="error",
+                    phase=MissionItemPhase.FAILED,
+                    stage_id=state.run.active_stage_id,
+                    producer="mission_runtime",
+                    summary=(
+                        "Mission reached its cumulative execution limit; "
+                        "partial work was preserved"
+                    ),
+                    payload_json={
+                        "error_code": "resource_budget_exhausted",
+                        "dimensions": list(dimensions),
+                    },
+                )
+            ],
+            snapshot=snapshot,
+            patch=MissionRunPatchPayload(status=MissionStatus.FAILED),
+        )
+        return MissionSliceOutcome.TERMINAL
+
+    async def _fail_model_call_reconciliation(
+        self,
+        state: _SliceState,
+    ) -> None:
+        for _attempt in range(16):
+            model_calls = await self.store.list_model_call_states(
+                state.run.mission_id
+            )
+            unresolved_ids = [
+                str(model_call.started.operation_id)
+                for model_call in model_calls
+                if model_call.state is ModelCallState.UNRESOLVED
+            ]
+            if not unresolved_ids:
+                return
+            inflight = state.run.snapshot_json.get("inflight_operation")
+            inflight_kind = (
+                str(inflight.get("kind") or "")
+                if isinstance(inflight, dict)
+                else ""
+            )
+            snapshot = self._merge_snapshot(
+                state.run.snapshot_json,
+                {
+                    "failure_reason": "model_usage_reconciliation_required",
+                    "last_error": {
+                        "kind": "model_usage_reconciliation_required",
+                        "model_call_ids": unresolved_ids,
+                    },
+                    "inflight_operation": None,
+                    "next_actions": None,
+                },
+            )
+            try:
+                await self._append(
+                    state,
+                    items=[
+                        MissionItemDraftPayload(
+                            item_type="error",
+                            operation_id=unresolved_ids[0],
+                            phase=MissionItemPhase.FAILED,
+                            stage_id=state.run.active_stage_id,
+                            producer="mission_runtime",
+                            summary=(
+                                "Mission stopped because model usage could not be "
+                                "verified"
+                            ),
+                            payload_json={
+                                "error_code": (
+                                    "model_usage_reconciliation_required"
+                                ),
+                                "model_call_ids": unresolved_ids,
+                            },
+                        )
+                    ],
+                    snapshot=snapshot,
+                    patch=MissionRunPatchPayload(
+                        status=MissionStatus.FAILED,
+                        active_subagent_count_delta=(
+                            -1
+                            if inflight_kind == "subagent"
+                            and state.run.active_subagent_count > 0
+                            else 0
+                        ),
+                    ),
+                )
+                return
+            except Exception as append_exc:
+                latest = await self.store.get(state.run.mission_id)
+                if (
+                    latest is not None
+                    and latest.status is MissionStatus.FAILED
+                    and latest.snapshot_json.get("failure_reason")
+                    == "model_usage_reconciliation_required"
+                ):
+                    state.run = latest
+                    return
+                if (
+                    not _is_conflict(append_exc)
+                    or latest is None
+                    or latest.lease_owner != state.worker_id
+                    or latest.lease_epoch != state.run.lease_epoch
+                ):
+                    raise
+                state.run = latest
+                await asyncio.sleep(0)
+        raise RuntimeError(
+            "Mission state changed repeatedly while recording usage reconciliation"
+        )
+
+    @staticmethod
     def _merge_snapshot(
         current: dict[str, Any],
         patch: dict[str, Any],
@@ -2497,12 +3075,23 @@ class MissionRuntime:
         mission_id: str,
         operation_id: str,
     ) -> bool:
-        items = await self.store.list_items(
-            mission_id,
-            limit=100,
-            operation_id=operation_id,
-        )
-        return any(item.phase in {MissionItemPhase.COMPLETED, MissionItemPhase.FAILED} for item in items)
+        after_seq = 0
+        while True:
+            items = await self.store.list_items(
+                mission_id,
+                after_seq=after_seq,
+                limit=100,
+                operation_id=operation_id,
+            )
+            if any(
+                item.phase
+                in {MissionItemPhase.COMPLETED, MissionItemPhase.FAILED}
+                for item in items
+            ):
+                return True
+            if len(items) < 100:
+                return False
+            after_seq = items[-1].seq
 
     @staticmethod
     def _failed_port_outcome(summary: str, exc: BaseException) -> MissionPortOutcome:

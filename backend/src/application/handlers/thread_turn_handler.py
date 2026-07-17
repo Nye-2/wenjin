@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass
@@ -30,13 +31,15 @@ from src.application.results import (
     ThreadTurnRequest,
 )
 from src.config import get_model_config
+from src.contracts.billing import ThreadTurnBillingStatus
+from src.contracts.model_usage import ModelUsage
 from src.contracts.prism_context import PrismContextRef
 from src.contracts.reasoning import (
     DEFAULT_REASONING_EFFORT,
     normalize_reasoning_effort,
 )
 from src.contracts.review_policy import ReviewMode
-from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client import AsyncDataServiceClient, DataServiceClientError
 from src.dataservice_client.contracts.mission import (
     MissionRunPayload,
     MissionStatus,
@@ -45,12 +48,14 @@ from src.dataservice_client.provider import dataservice_client
 from src.models import create_chat_model, route_chat_model
 from src.models.router import InvalidRequestedModelError
 from src.services import ThreadAccessError, ThreadService
-from src.services.credit_service import CreditService
 from src.services.mission_inputs import MissionInputService
 from src.services.mission_policy_hints import load_mission_policy_hints
 from src.services.mission_runtime_service import MissionRuntimeService, build_mission_runtime
-from src.services.thread_billing import normalize_token_usage
 from src.services.thread_events import publish_thread_updated, set_thread_status
+from src.services.thread_turn_billing_gateway import (
+    ThreadTurnBillingGateway,
+    message_payload_to_bridge,
+)
 from src.services.workspace_uploads import is_image_upload
 
 _MISSION_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
@@ -61,6 +66,7 @@ _EXPLICIT_MISSION_REFERENCE_RE = re.compile(
     rf"mission\s*(?:id|run)?|/missions?/"
     rf")\s*[:：#=/]?\s*(?P<mission_id>{_MISSION_UUID})"
 )
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -609,6 +615,7 @@ class ThreadTurnHandler:
         artifact_service: ArtifactService | None = None,
         reference_service: Any | None = None,
         mission_input_service: MissionInputService | None = None,
+        billing_gateway: ThreadTurnBillingGateway | None = None,
     ) -> None:
         self.thread_service = thread_service
         self.workspace_service = workspace_service
@@ -616,10 +623,10 @@ class ThreadTurnHandler:
         self.artifact_service = artifact_service
         self.reference_service = reference_service
         self.mission_input_service = mission_input_service or MissionInputService()
+        self.billing_gateway = billing_gateway or ThreadTurnBillingGateway()
 
     async def prepare_turn(self, request: ThreadTurnRequest, *, actor_id: str) -> PreparedThreadTurn:
         thread = await self._get_or_create_owned_thread(request, actor_id=actor_id)
-        await ensure_thread_turn_budget(actor_id, model_name=thread.model)
         metadata = dict(request.metadata or {})
         if request.attachments:
             metadata["attachments"] = [asdict(item) for item in request.attachments]
@@ -641,15 +648,158 @@ class ThreadTurnHandler:
                 )
                 for item in prepared_inputs.contexts
             ]
-        message = await self.thread_service.add_message(
-            thread,
-            role="user",
-            content=request.message,
-            metadata=metadata or None,
+        idempotency_key = str(request.turn_idempotency_key or "").strip()
+        if not idempotency_key:
+            raise BadRequestError("Chat turn requires a stable request identity")
+        authorization_task = asyncio.create_task(
+            self._authorize_turn(
+                thread=thread,
+                content=request.message,
+                metadata=metadata or None,
+                idempotency_key=idempotency_key,
+            )
         )
-        await set_thread_status(thread.workspace_id, thread.id, status="running")
-        message_id = str(message.get("id") or "") if isinstance(message, Mapping) else ""
-        return PreparedThreadTurn(request=request, thread=thread, user_message_id=message_id or None)
+        pending_cancellation: asyncio.CancelledError | None = None
+        try:
+            while True:
+                try:
+                    authorization = await asyncio.shield(authorization_task)
+                    break
+                except asyncio.CancelledError as exc:
+                    pending_cancellation = pending_cancellation or exc
+                    if authorization_task.cancelled():
+                        raise
+                    if authorization_task.done():
+                        authorization = authorization_task.result()
+                        break
+        except DataServiceClientError as exc:
+            if pending_cancellation is not None:
+                raise pending_cancellation from exc
+            if exc.status_code == 402:
+                raise PaymentRequiredError(
+                    "主线对话积分额度不足，请先补充积分后继续。"
+                ) from exc
+            raise
+        prepared = PreparedThreadTurn(
+            request=request,
+            thread=thread,
+            billing_authorization_id=authorization.billing.id,
+        )
+        if pending_cancellation is not None:
+            await self._fail(
+                prepared,
+                actor_id=actor_id,
+                reason="chat turn authorization cancelled",
+            )
+            raise pending_cancellation
+        try:
+            user_message_id = (
+                authorization.user_message.id
+                if authorization.user_message is not None
+                else authorization.billing.user_message_id
+            )
+            replayed_assistant = (
+                message_payload_to_bridge(authorization.assistant_message)
+                if authorization.assistant_message is not None
+                else None
+            )
+            if (
+                authorization.billing.status == ThreadTurnBillingStatus.AUTHORIZED
+                and not user_message_id
+            ):
+                raise RuntimeError("Active chat-turn authorization has no user message")
+            if (
+                authorization.billing.status == ThreadTurnBillingStatus.SETTLED
+                and replayed_assistant is None
+            ):
+                raise RuntimeError(
+                    "Settled chat-turn authorization has no assistant message"
+                )
+            prepared = PreparedThreadTurn(
+                request=request,
+                thread=thread,
+                user_message_id=user_message_id,
+                billing_authorization_id=authorization.billing.id,
+                replayed_assistant_message=replayed_assistant,
+            )
+            await set_thread_status(thread.workspace_id, thread.id, status="running")
+            return prepared
+        except BaseException:
+            await self._fail(
+                prepared,
+                actor_id=actor_id,
+                reason="chat turn preparation failed",
+            )
+            raise
+
+    async def _authorize_turn(
+        self,
+        *,
+        thread: Any,
+        content: str,
+        metadata: dict[str, Any] | None,
+        idempotency_key: str,
+    ) -> Any:
+        try:
+            return await self.billing_gateway.authorize(
+                thread=thread,
+                content=content,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+        except DataServiceClientError as exc:
+            if exc.status_code is not None and exc.status_code < 500:
+                raise
+            logger.warning(
+                "Retrying chat-turn authorization %s after DataService failure",
+                idempotency_key,
+                exc_info=True,
+            )
+        except Exception:
+            logger.warning(
+                "Retrying chat-turn authorization %s after transport failure",
+                idempotency_key,
+                exc_info=True,
+            )
+        try:
+            return await self.billing_gateway.authorize(
+                thread=thread,
+                content=content,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+        except DataServiceClientError as exc:
+            if exc.status_code is not None and exc.status_code < 500:
+                raise
+            await self._release_lost_authorization(
+                thread=thread,
+                idempotency_key=idempotency_key,
+            )
+            raise
+        except Exception:
+            await self._release_lost_authorization(
+                thread=thread,
+                idempotency_key=idempotency_key,
+            )
+            raise
+
+    async def _release_lost_authorization(
+        self,
+        *,
+        thread: Any,
+        idempotency_key: str,
+    ) -> None:
+        try:
+            await self.billing_gateway.release_by_idempotency_key(
+                idempotency_key=idempotency_key,
+                user_id=str(thread.user_id),
+                reason="authorization response unavailable after retry",
+            )
+        except (Exception, asyncio.CancelledError):
+            logger.exception(
+                "Failed to compensate chat-turn authorization %s",
+                idempotency_key,
+            )
 
     async def preflight_stream_turn(self, request: ThreadTurnRequest, *, actor_id: str) -> None:
         try:
@@ -664,6 +814,8 @@ class ThreadTurnHandler:
 
     async def complete_turn(self, prepared: PreparedThreadTurn, *, actor_id: str) -> CompletedThreadTurn:
         try:
+            if prepared.replayed_assistant_message is not None:
+                return await self._complete_replay(prepared)
             messages = await self.thread_service.list_thread_messages(prepared.thread)
             reply = await generate_thread_response(
                 prepared.request,
@@ -676,7 +828,7 @@ class ThreadTurnHandler:
             )
             return await self._finalize(prepared, actor_id=actor_id, reply=reply)
         except BaseException:
-            await self._fail(prepared.thread)
+            await self._fail(prepared, actor_id=actor_id, reason="chat turn failed")
             raise
 
     def stream_turn(self, prepared: PreparedThreadTurn, *, actor_id: str) -> _CompletedTurnStreamRun:
@@ -685,6 +837,12 @@ class ThreadTurnHandler:
         async def iterator() -> AsyncIterator[ThreadStreamDelta]:
             stream = None
             try:
+                if prepared.replayed_assistant_message is not None:
+                    content = str(prepared.replayed_assistant_message.get("content") or "")
+                    if content:
+                        yield ThreadStreamDelta(kind="content", text=content)
+                    future.set_result(await self._complete_replay(prepared))
+                    return
                 messages = await self.thread_service.list_thread_messages(prepared.thread)
                 stream = stream_thread_response(
                     prepared.request,
@@ -704,7 +862,7 @@ class ThreadTurnHandler:
                 )
                 future.set_result(completed)
             except BaseException as exc:
-                await self._fail(prepared.thread)
+                await self._fail(prepared, actor_id=actor_id, reason="chat turn failed")
                 if not future.done():
                     future.set_exception(exc)
                 raise
@@ -721,28 +879,23 @@ class ThreadTurnHandler:
         actor_id: str,
         reply: GeneratedThreadReply,
     ) -> CompletedThreadTurn:
-        usage = normalize_token_usage(reply.metadata.get("usage"))
-        if usage is not None:
-            billing = await CreditService().consume_for_thread_usage(
-                user_id=actor_id,
-                token_usage=usage,
-                model_name=reply.metadata.get("usage", {}).get("model_name"),
-                workspace_id=prepared.thread.workspace_id,
-                thread_id=prepared.thread.id,
-                metadata={
-                    "source": "workspace_agent",
-                    "user_message_id": prepared.user_message_id,
-                    "idempotency_key": f"thread_token_billing:{prepared.user_message_id}",
-                },
+        if not prepared.billing_authorization_id:
+            raise RuntimeError("Thread turn is missing its billing authorization")
+        usage = ModelUsage.from_provider_metadata(reply.metadata.get("usage"))
+        if usage is None:
+            raise RuntimeError(
+                "WorkspaceAgent completed without a verifiable model-usage receipt"
             )
-            reply.metadata["billing"] = billing.as_metadata()
-        assistant = await self.thread_service.add_message(
-            prepared.thread,
-            role="assistant",
+        completion = await self.billing_gateway.complete(
+            thread=prepared.thread,
+            billing_id=prepared.billing_authorization_id,
             content=reply.content,
             blocks=reply.blocks,
             metadata=reply.metadata,
+            usage=usage,
         )
+        reply.metadata["billing"] = dict(completion.billing_metadata)
+        assistant = message_payload_to_bridge(completion.assistant_message)
         await self.thread_service.set_title_if_empty(prepared.thread, prepared.request.message)
         await publish_thread_updated(prepared.thread)
         await set_thread_status(
@@ -751,6 +904,35 @@ class ThreadTurnHandler:
             status="completed",
         )
         return CompletedThreadTurn(thread=prepared.thread, assistant_message=dict(assistant), reply=reply)
+
+    async def _complete_replay(
+        self,
+        prepared: PreparedThreadTurn,
+    ) -> CompletedThreadTurn:
+        assistant = dict(prepared.replayed_assistant_message or {})
+        reply = GeneratedThreadReply(
+            content=str(assistant.get("content") or ""),
+            blocks=[
+                dict(item)
+                for item in assistant.get("blocks", [])
+                if isinstance(item, Mapping)
+            ],
+            metadata=(
+                dict(assistant.get("metadata") or {})
+                if isinstance(assistant.get("metadata"), Mapping)
+                else {}
+            ),
+        )
+        await set_thread_status(
+            prepared.thread.workspace_id,
+            prepared.thread.id,
+            status="completed",
+        )
+        return CompletedThreadTurn(
+            thread=prepared.thread,
+            assistant_message=assistant,
+            reply=reply,
+        )
 
     async def _get_or_create_owned_thread(self, request: ThreadTurnRequest, *, actor_id: str):
         try:
@@ -769,14 +951,50 @@ class ThreadTurnHandler:
         return thread
 
     async def handle_run_interruption(self, prepared: PreparedThreadTurn, *, rollback: bool) -> None:
-        if rollback and not await self._started_mission_exists(prepared):
-            messages = await self.thread_service.list_thread_messages(prepared.thread)
-            await self.thread_service.rollback_last_user_message(
-                prepared.thread,
-                expected_content=prepared.request.message,
-                source_messages=messages,
+        if not prepared.billing_authorization_id:
+            await self._set_failed_status(prepared)
+            return
+        authorization_closed = False
+        if rollback:
+            try:
+                started_mission_exists = await self._started_mission_exists(prepared)
+            except (Exception, asyncio.CancelledError):
+                logger.exception(
+                    "Failed to inspect Mission state while interrupting chat turn %s",
+                    prepared.billing_authorization_id,
+                )
+                started_mission_exists = True
+            if not started_mission_exists:
+                try:
+                    await self.billing_gateway.rollback(
+                        thread=prepared.thread,
+                        billing_id=prepared.billing_authorization_id,
+                        user_id=str(prepared.thread.user_id),
+                        reason="chat turn interrupted with rollback",
+                    )
+                    authorization_closed = True
+                except (Exception, asyncio.CancelledError):
+                    logger.exception(
+                        "Failed to roll back interrupted chat-turn authorization %s",
+                        prepared.billing_authorization_id,
+                    )
+        if not authorization_closed:
+            await self._release_authorization(
+                prepared,
+                user_id=str(prepared.thread.user_id),
+                reason="chat turn interrupted",
             )
-        await self._fail(prepared.thread)
+        await self._set_failed_status(prepared)
+
+    async def handle_run_failure(
+        self,
+        prepared: PreparedThreadTurn,
+        *,
+        actor_id: str,
+        reason: str,
+    ) -> None:
+        """Close an authorization when the outer transport fails."""
+        await self._fail(prepared, actor_id=actor_id, reason=reason)
 
     @staticmethod
     async def _started_mission_exists(prepared: PreparedThreadTurn) -> bool:
@@ -790,12 +1008,51 @@ class ThreadTurnHandler:
             )
             return mission is not None
 
+    async def _fail(
+        self,
+        prepared: PreparedThreadTurn,
+        *,
+        actor_id: str,
+        reason: str,
+    ) -> None:
+        await self._release_authorization(
+            prepared,
+            user_id=actor_id,
+            reason=reason,
+        )
+        await self._set_failed_status(prepared)
+
+    async def _release_authorization(
+        self,
+        prepared: PreparedThreadTurn,
+        *,
+        user_id: str,
+        reason: str,
+    ) -> None:
+        if not prepared.billing_authorization_id:
+            return
+        try:
+            await self.billing_gateway.release(
+                billing_id=prepared.billing_authorization_id,
+                user_id=user_id,
+                reason=reason,
+            )
+        except (Exception, asyncio.CancelledError):
+            logger.exception(
+                "Failed to release chat-turn authorization %s",
+                prepared.billing_authorization_id,
+            )
+
     @staticmethod
-    async def _fail(thread: Any) -> None:
-        await set_thread_status(thread.workspace_id, thread.id, status="failed")
-
-
-async def ensure_thread_turn_budget(actor_id: str, *, model_name: str) -> None:
-    if await CreditService().can_start_thread_turn(actor_id, model_name=model_name):
-        return
-    raise PaymentRequiredError("主线对话积分额度不足，请先补充积分后继续。")
+    async def _set_failed_status(prepared: PreparedThreadTurn) -> None:
+        try:
+            await set_thread_status(
+                prepared.thread.workspace_id,
+                prepared.thread.id,
+                status="failed",
+            )
+        except (Exception, asyncio.CancelledError):
+            logger.exception(
+                "Failed to mark thread %s after chat-turn failure",
+                prepared.thread.id,
+            )

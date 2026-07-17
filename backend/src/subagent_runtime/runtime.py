@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from time import monotonic
 from typing import Protocol
 
+from src.contracts.model_usage import ModelCallTerminalOutcome, ModelUsageReceipt
 from src.models.provider_errors import is_rate_limit_error, is_transient_model_error
 from src.subagent_runtime.contracts import (
     SubagentAction,
@@ -17,6 +18,7 @@ from src.subagent_runtime.contracts import (
     SubagentJobSpec,
     SubagentModelOutputError,
     SubagentModelTurn,
+    SubagentModelUsageError,
     SubagentStatus,
     SubagentStep,
     SubagentStopReason,
@@ -53,8 +55,58 @@ class SubagentLedgerPort(Protocol):
         job: SubagentJobSpec,
         *,
         turn: int,
-        model_turn: SubagentModelTurn,
+        attempt: int,
+        model_call_id: str,
+        usage_receipt: ModelUsageReceipt,
     ) -> None: ...
+
+    async def record_model_call_started(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        attempt: int,
+        model_call_id: str,
+    ) -> None: ...
+
+    async def record_model_call_terminal(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        attempt: int,
+        model_call_id: str,
+        outcome: ModelCallTerminalOutcome,
+        error_type: str | None,
+        detail: str,
+    ) -> None: ...
+
+
+def _require_subagent_model_usage(
+    receipt: object,
+    *,
+    model_id: str,
+) -> ModelUsageReceipt:
+    if (
+        not isinstance(receipt, ModelUsageReceipt)
+        or receipt.model_id != model_id
+        or receipt.usage.total_tokens <= 0
+    ):
+        raise SubagentModelUsageError(
+            "Subagent provider response requires matching non-zero usage"
+        )
+    return receipt
+
+
+def _nonreceipt_model_call_outcome(
+    exc: BaseException,
+) -> ModelCallTerminalOutcome:
+    if getattr(exc, "usage_not_incurred", False) is not True:
+        return ModelCallTerminalOutcome.UNRESOLVED
+    raw_outcome = str(getattr(exc, "model_call_terminal_outcome", "failed"))
+    if raw_outcome == ModelCallTerminalOutcome.CANCELLED.value:
+        return ModelCallTerminalOutcome.CANCELLED
+    return ModelCallTerminalOutcome.FAILED
 
 
 class SubagentRuntime:
@@ -250,14 +302,10 @@ class SubagentRuntime:
             try:
                 model_turn = await self._next_model_action_with_retry(
                     job,
+                    turn=turn,
                     steps=tuple(steps),
                     tool_results=tuple(tool_results),
                     deadline_monotonic=deadline_monotonic,
-                )
-                await self.ledger.record_model_usage(
-                    job,
-                    turn=turn,
-                    model_turn=model_turn,
                 )
                 action = model_turn.action
             except SubagentModelOutputError as exc:
@@ -481,15 +529,85 @@ class SubagentRuntime:
         self,
         job: SubagentJobSpec,
         *,
+        turn: int,
         steps: tuple[SubagentStep, ...],
         tool_results: tuple[SubagentToolResult, ...],
         deadline_monotonic: float,
     ) -> SubagentModelTurn:
         transient_attempt = 0
         while True:
+            attempt = transient_attempt + 1
+            model_call_id = subagent_model_call_id(
+                job,
+                turn=turn,
+                attempt=attempt,
+            )
+            await self.ledger.record_model_call_started(
+                job,
+                turn=turn,
+                attempt=attempt,
+                model_call_id=model_call_id,
+            )
             try:
-                return await self.model.next_action(job, steps, tool_results)
+                model_turn = await self.model.next_action(job, steps, tool_results)
+            except asyncio.CancelledError as exc:
+                try:
+                    await asyncio.shield(
+                        self.ledger.record_model_call_terminal(
+                            job,
+                            turn=turn,
+                            attempt=attempt,
+                            model_call_id=model_call_id,
+                            outcome=ModelCallTerminalOutcome.UNRESOLVED,
+                            error_type=type(exc).__name__,
+                            detail=(
+                                "Subagent model call was cancelled before usage "
+                                "could be confirmed"
+                            ),
+                        )
+                    )
+                finally:
+                    raise
+            except SubagentModelOutputError as exc:
+                try:
+                    usage_receipt = _require_subagent_model_usage(
+                        exc.usage_receipt,
+                        model_id=job.model_id,
+                    )
+                except SubagentModelUsageError as usage_exc:
+                    await self.ledger.record_model_call_terminal(
+                        job,
+                        turn=turn,
+                        attempt=attempt,
+                        model_call_id=model_call_id,
+                        outcome=ModelCallTerminalOutcome.UNRESOLVED,
+                        error_type=type(usage_exc).__name__,
+                        detail=str(usage_exc),
+                    )
+                    raise
+                await self.ledger.record_model_usage(
+                    job,
+                    turn=turn,
+                    attempt=attempt,
+                    model_call_id=model_call_id,
+                    usage_receipt=usage_receipt,
+                )
+                raise
             except Exception as exc:
+                terminal_outcome = _nonreceipt_model_call_outcome(exc)
+                await self.ledger.record_model_call_terminal(
+                    job,
+                    turn=turn,
+                    attempt=attempt,
+                    model_call_id=model_call_id,
+                    outcome=terminal_outcome,
+                    error_type=type(exc).__name__,
+                    detail=str(exc)[:1000] or type(exc).__name__,
+                )
+                if terminal_outcome is ModelCallTerminalOutcome.UNRESOLVED:
+                    raise SubagentModelUsageError(
+                        "Subagent model usage could not be confirmed"
+                    ) from exc
                 if not is_transient_model_error(exc) or transient_attempt >= self.max_transient_model_retries:
                     raise
                 transient_attempt += 1
@@ -512,6 +630,31 @@ class SubagentRuntime:
                     },
                 )
                 await self.sleep(delay)
+                continue
+            try:
+                usage_receipt = _require_subagent_model_usage(
+                    getattr(model_turn, "usage_receipt", None),
+                    model_id=job.model_id,
+                )
+            except SubagentModelUsageError as exc:
+                await self.ledger.record_model_call_terminal(
+                    job,
+                    turn=turn,
+                    attempt=attempt,
+                    model_call_id=model_call_id,
+                    outcome=ModelCallTerminalOutcome.UNRESOLVED,
+                    error_type=type(exc).__name__,
+                    detail=str(exc),
+                )
+                raise
+            await self.ledger.record_model_usage(
+                job,
+                turn=turn,
+                attempt=attempt,
+                model_call_id=model_call_id,
+                usage_receipt=usage_receipt,
+            )
+            return model_turn
 
     async def _terminal_result(
         self,
@@ -568,6 +711,7 @@ class SubagentRuntime:
                 "stop_reason": stop_reason.value,
                 "result_sha256": result.result_sha256,
                 "job_fingerprint": subagent_job_fingerprint(job),
+                "frozen_budget": job.budget.model_dump(mode="json"),
                 "result": result.model_dump(mode="json"),
             },
         )
@@ -595,6 +739,17 @@ def _tool_request_fingerprint(tool_name: str, arguments: dict[str, object]) -> s
         default=repr,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def subagent_model_call_id(
+    job: SubagentJobSpec,
+    *,
+    turn: int,
+    attempt: int,
+) -> str:
+    identity = f"{job.job_id}:{job.lease_epoch}:{turn}:{attempt}"
+    digest = hashlib.sha256(identity.encode()).hexdigest()
+    return f"model-call:subagent:{digest}"
 
 
 def _transient_model_retry_delay(
@@ -727,4 +882,5 @@ __all__ = [
     "SubagentRuntime",
     "SubagentToolPort",
     "subagent_job_fingerprint",
+    "subagent_model_call_id",
 ]

@@ -46,9 +46,11 @@ celery_app.conf.update(
     task_routes={
         "src.task.tasks.execute_task": {"queue": "default"},
         "src.task.tasks.process_chat_turn": {"queue": "default"},
+        "src.task.tasks.reconcile_chat_turn_dispatches": {"queue": "default"},
         "src.task.tasks.drive_mission": {"queue": "long_running"},
         "src.task.tasks.reconcile_missions": {"queue": "default"},
         "src.task.tasks.cleanup_mission_previews": {"queue": "default"},
+        "src.task.tasks.reconcile_thread_turn_billings": {"queue": "default"},
         "credit_periodic.process_credit_grant_rules": {"queue": "default"},
     },
 
@@ -93,5 +95,13 @@ celery_app.conf.beat_schedule = {
     "cleanup-expired-mission-previews": {
         "task": "src.task.tasks.cleanup_mission_previews",
         "schedule": MISSION_PREVIEW_CLEANUP_INTERVAL_SECONDS,
+    },
+    "reconcile-expired-thread-turn-billings": {
+        "task": "src.task.tasks.reconcile_thread_turn_billings",
+        "schedule": 60.0,
+    },
+    "reconcile-chat-turn-dispatches": {
+        "task": "src.task.tasks.reconcile_chat_turn_dispatches",
+        "schedule": 5.0,
     },
 }

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -16,8 +14,6 @@ except Exception:  # pragma: no cover - redis package always present in runtime
 from src.runtime.serialization import dumps_json
 
 from .base import END_SENTINEL, HEARTBEAT_SENTINEL, StreamBridge, StreamEvent
-
-logger = logging.getLogger(__name__)
 
 
 class RedisStreamBridge(StreamBridge):
@@ -120,14 +116,3 @@ class RedisStreamBridge(StreamBridge):
                         event=event or "message",
                         data=payload,
                     )
-
-    async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-        if delay > 0:
-            await asyncio.sleep(delay)
-        try:
-            await self._redis.expire(
-                self._stream_key(run_id),
-                self._stream_ttl_seconds,
-            )
-        except Exception:
-            logger.warning("Failed to cleanup stream for run %s", run_id, exc_info=True)

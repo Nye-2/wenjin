@@ -115,12 +115,6 @@ class MemoryStreamBridge(StreamBridge):
                 return
             yield item
 
-    async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-        if delay > 0:
-            await asyncio.sleep(delay)
-        self._streams.pop(run_id, None)
-        self._counters.pop(run_id, None)
-
     async def close(self) -> None:
         self._streams.clear()
         self._counters.clear()

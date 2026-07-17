@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -51,13 +51,18 @@ class ConversationMessageCreatePayload(BaseModel):
     source_json: dict[str, Any] = Field(default_factory=dict)
 
 
-class ConversationMessagesRebuildPayload(BaseModel):
-    """Client-facing rebuild-message payload."""
+class ConversationAttachmentStatePatchPayload(BaseModel):
+    """Client-facing atomic attachment-state patch."""
 
     thread_id: str = Field(min_length=1, max_length=36)
-    user_id: str = Field(min_length=1, max_length=36)
-    workspace_id: str | None = Field(default=None, max_length=36)
-    messages: list[dict[str, Any]] = Field(default_factory=list)
+    task_id: str = Field(min_length=1, max_length=100)
+    state_key: Literal["extraction", "preprocess"]
+    status: str = Field(min_length=1, max_length=50)
+    state_patch: dict[str, Any] = Field(default_factory=dict)
+    message: str | None = None
+    progress: int | None = Field(default=None, ge=0, le=100)
+    current_step: str | None = None
+    error: str | None = None
 
 
 class ConversationThreadCreatePayload(BaseModel):

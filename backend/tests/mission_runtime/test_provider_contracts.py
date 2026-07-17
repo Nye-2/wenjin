@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage
 from src.dataservice_client.contracts.mission import MissionItemDraftPayload
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.adapters import (
+    LangChainSubagentModel,
     MissionLeaseFenceAdapter,
     _append_under_current_lease,
     _parse_subagent_action,
@@ -20,7 +21,12 @@ from src.mission_runtime.reference_authority import (
     canonical_reference_read,
     canonical_reference_read_for_receipt,
 )
-from src.subagent_runtime.contracts import SubagentJobSpec, SubagentToolResult
+from src.subagent_runtime.contracts import (
+    SubagentJobSpec,
+    SubagentModelOutputError,
+    SubagentModelUsageError,
+    SubagentToolResult,
+)
 from src.tools.orchestrator import (
     ResearchToolOutcome,
     ToolOutcomeStatus,
@@ -50,6 +56,95 @@ def test_subagent_provider_action_decodes_open_objects() -> None:
 
     assert action.arguments == {"query": "federated LoRA"}
     assert action.result_json == {}
+
+
+def _provider_worker_job() -> SubagentJobSpec:
+    return SubagentJobSpec(
+        job_id="sj-provider-response",
+        operation_id="op-provider-response",
+        mission_id="mission-1",
+        workspace_id="workspace-1",
+        model_id="gpt-5.6-sol",
+        reasoning_effort="xhigh",
+        lease_owner="worker-1",
+        lease_epoch=1,
+        display_name="证据核验员",
+        role_label="证据核验",
+        task_summary="Validate one bounded response",
+        objective="Validate the current stage",
+    )
+
+
+class _SubagentProviderResponseModel:
+    def __init__(self, response: AIMessage) -> None:
+        self.response = response
+
+    def bind_tools(self, *args, **kwargs):
+        del args, kwargs
+        return self
+
+    async def ainvoke(self, messages):
+        del messages
+        return self.response
+
+
+@pytest.mark.asyncio
+async def test_subagent_parse_error_carries_provider_usage(
+    monkeypatch,
+) -> None:
+    response = AIMessage(
+        content="malformed",
+        id="worker-response-1",
+        usage_metadata={
+            "input_tokens": 30,
+            "output_tokens": 4,
+            "total_tokens": 34,
+        },
+    )
+    monkeypatch.setattr(
+        "src.mission_runtime.adapters.create_chat_model",
+        lambda *args, **kwargs: _SubagentProviderResponseModel(response),
+    )
+
+    with pytest.raises(SubagentModelOutputError) as raised:
+        await LangChainSubagentModel().next_action(
+            _provider_worker_job(),
+            (),
+            (),
+        )
+
+    assert raised.value.usage_receipt.provider_response_id == "worker-response-1"
+    assert raised.value.usage_receipt.usage.total_tokens == 34
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "usage_metadata",
+    [
+        None,
+        {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+    ],
+)
+async def test_subagent_response_without_usage_fails_before_parsing(
+    monkeypatch,
+    usage_metadata,
+) -> None:
+    response = AIMessage(
+        content="malformed",
+        id="worker-response-unmetered",
+        usage_metadata=usage_metadata,
+    )
+    monkeypatch.setattr(
+        "src.mission_runtime.adapters.create_chat_model",
+        lambda *args, **kwargs: _SubagentProviderResponseModel(response),
+    )
+
+    with pytest.raises(SubagentModelUsageError, match="non-zero usage"):
+        await LangChainSubagentModel().next_action(
+            _provider_worker_job(),
+            (),
+            (),
+        )
 
 
 def test_subagent_provider_schema_has_no_open_objects_or_defaults() -> None:

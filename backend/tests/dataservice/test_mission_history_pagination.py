@@ -53,6 +53,16 @@ async def _create_run(
             objective="Test stable Mission history pagination.",
             model_id="gpt-5.6-sol",
             reasoning_effort="xhigh",
+            runtime_context_json={
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 10,
+                        "max_tool_operations": 10,
+                        "max_subagent_jobs": 5,
+                        "stop_after_total_tokens": 100_000,
+                    }
+                }
+            },
             mission_idempotency_key=f"mission-history-{index}",
         )
     )

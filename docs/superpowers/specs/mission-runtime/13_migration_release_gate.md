@@ -3,7 +3,7 @@
 Status: Implemented; production deployment acceptance pending
 Updated: 2026-07-17
 
-Implementation outcome: production paths were deleted/migrated, migrations 086-103 form one head, and the strict scanner reports zero findings. A clean Docker drop/reseed deployment now passes the persisted live probe for all enabled models, the complete backend/frontend suites, and a real-provider multi-turn math-modeling browser chain covering Mission start, steer, subagents, stage acceptance, pause/resume, preview, user review, commit, evidence, artifacts, trace, and panel demand. The remaining external release step is production-environment image/network attestation plus a deployed smoke run; it does not require another architecture path.
+Implementation outcome: production paths were deleted/migrated, migrations 086-107 form one head, and the strict scanner reports zero findings. A clean Docker drop/reseed deployment is the only supported baseline; 107 rejects non-empty development data before installing cumulative Mission accounting and atomic chat billing. Release still requires the persisted live probe for all enabled models, complete backend/frontend suites, and a real-provider multi-turn browser chain covering chat authorization/settlement, Mission start, steer, subagents, stage acceptance, pause/resume, preview, user review, commit, evidence, artifacts, trace, and panel demand.
 Depends on: all mission-runtime specs
 
 ## Goal
@@ -147,7 +147,12 @@ Even in allowlisted locations, wording should make clear the old path is histori
 Backend:
 
 - MissionRun is the only durable long-task creation path.
-- ChatTurnRun is short-lived transport only and is not persisted to DataService mission tables.
+- ChatTurnRun is short-lived transport only and is not persisted to DataService mission tables; `thread_turn_billings` persists financial authorization only, survives thread deletion as audit truth, and never enters Mission history.
+- Canonical conversation messages are never bulk rebuilt; attachment metadata uses one atomic DataService patch, and long-task context stays in Mission checkpoints.
+- A required actor-bound client `request_id` survives reconnect; duplicate HTTP launch is deduplicated before interruption/dispatch, payload drift conflicts, no run-id/random billing-key fallback exists, and dual authorization response loss is compensated by that stable key.
+- Chat admission persists an actor-global request index and dispatch intent before broker publication; gateway crash, ambiguous publication, replay, and reconciler republish remain at-least-once without duplicate durable effects. Gateway hydration is read-only, execution-owner lease loss fences stale terminal effects, and Redis unavailability causes bounded worker retry.
+- Chat authorization, user-message append, hold, exact non-zero usage, assistant append, capped settlement, release/expiry, rollback, and settled replay pass atomic lifecycle tests.
+- Mission cumulative accounting is DataService-owned and cannot be reset by runtime snapshots.
 - MissionStore transaction tests pass.
 - One non-terminal foreground mission per thread and one active driver per mission are enforced.
 - Lease epoch fencing, duplicate queue/command delivery, reconciler recovery, and stable operation idempotency tests pass.

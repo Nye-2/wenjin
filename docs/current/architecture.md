@@ -1,7 +1,7 @@
 # Wenjin Current Architecture
 
 > Status: Current source of truth
-> Updated: 2026-07-15
+> Updated: 2026-07-17
 
 Wenjin is a chat-native academic workbench. A single `WorkspaceAgent` owns each user conversation and long research goals are executed as durable `MissionRun`s. The runtime gives the model freedom inside pinned policy, tool, quality, review, budget, and sandbox boundaries.
 
@@ -35,7 +35,7 @@ There is no separate conversational router and research leader. `WorkspaceAgent`
 |---|---|---|
 | `WorkspaceAgent` | conversation, intent, strict action frames, mission start/steer | durable mission state or direct room writes |
 | `MissionInput` | validate thread-local attachment paths, extract bounded text, seal immutable inputs, project verified excerpts | workspace documents, user-review state, or arbitrary client paths |
-| `MissionRuntime` | bounded drive slices, commands, stages, leases, wakeups, billing lifecycle | database transactions or UI projection |
+| `MissionRuntime` | bounded drive slices, commands, stages, leases, wakeups, Mission credit lifecycle | database transactions or UI projection |
 | `SubagentRuntime` | isolated worker jobs, tool-scoped context, structured reports | mission lifecycle or acceptance decisions |
 | `ToolOrchestrator` | frozen registry, policy resolution, idempotent operations, receipts, error taxonomy | tool-specific business logic |
 | `StageAcceptance` | deterministic stage contracts and pass/revise decisions | free-form model grading without evidence |
@@ -47,7 +47,13 @@ There is no separate conversational router and research leader. `WorkspaceAgent`
 
 ## 3. Chat and mission lifecycle
 
-`ChatTurnRun` is a transport lifecycle for streaming one conversational turn. It is not the durable research aggregate and is not shown as research history. Every ChatTurn route is thread-bound under `/api/threads/{thread_id}/runs`; there is no parallel global-run API. Conversation messages and blocks are persisted in the conversation domain; transient turn coordination lives under `backend/src/runtime/chat_turns/`.
+`ChatTurnRun` is a transport lifecycle for streaming one conversational turn. It is not the durable research aggregate and is not shown as research history. Every ChatTurn route is thread-bound under `/api/threads/{thread_id}/runs`; there is no parallel global-run API. Admission deduplicates the actor-bound request key and canonical payload fingerprint before applying multitask interruption or publishing a worker task, so an HTTP retry cannot execute the same user action twice. Conversation messages and blocks are persisted in the conversation domain; transient turn coordination lives under `backend/src/runtime/chat_turns/`.
+
+Chat transport durability is intentionally Redis-scoped rather than a fifth database run model. Admission atomically persists the run, actor-global request index, canonical fingerprint, dispatch payload, and a due dispatch intent before any broker publication. The gateway and a single Celery-beat reconciler may publish that intent at least once with the deterministic run id as the task id; a worker claim clears the intent. Publication uncertainty therefore stays pending and recoverable instead of being mislabeled as an application failure. Worker execution uses an owner-bound renewable lease, and every terminal status, thread bind, billing cleanup, and end-of-stream effect is fenced by that owner. Confirmed lease loss stops the old provider task; temporary Redis unavailability triggers bounded Celery retry. Terminal hashes, request indexes, and streams use bounded TTLs, while dispatch indexes are amortized-pruned. No request-scoped sleeper task owns cleanup, and gateway hydration never mutates an active worker lifecycle.
+
+Chat finance is durable but is not another run model. The browser creates one required `request_id` per user action and preserves it across SSE reconnects; the server binds it to the authenticated actor before deriving the `thread_turn_billings` idempotency key. A transient run id or random server fallback is never a financial identity. DataService atomically appends the user message and freezes free-token/credit capacity before provider work, then atomically appends the assistant message, exact non-zero usage, capped settlement transaction, and terminal billing state. Failure or cancellation releases the hold; if both authorization responses are lost, the handler compensates by the same idempotency key after serializing on the user row. An explicit pre-Mission interruption may also delete only the exact trailing user message. Expired authorizations cannot be settled and are reconciled by Celery beat. Replaying a settled idempotency key returns the stored assistant without another model call or charge. Deleting a thread releases every active authorization in the same transaction, while settled/released billing rows remain as financial audit truth through a deliberate soft thread reference. Periodic grants and turn settlement both lock the canonical user balance row. Generic Gateway message append is not a production API.
+
+Canonical conversation messages are durable history and are never bulk-deleted or rebuilt. Attachment task metadata is patched atomically under the thread lock, so background preprocessing cannot overwrite a concurrently authorized turn or invalidate billing message anchors. Long research context is checkpointed by MissionRuntime rather than by rewriting Chat history.
 
 Readable thread attachments enter the agent through one `MissionInput` path. The server validates the canonical `/mnt/user-data` path against the authenticated thread root, extracts PDF/preprocessed Markdown/plain text under hard limits, and seals the normalized text as `mission-input:<sha256>`. Conversation metadata stores the immutable manifest and a bounded context projection, never an injected pseudo-message or a client-trusted local path. A pending attachment may be promoted on a later turn after background preprocessing succeeds. A Mission pins only refs selected by WorkspaceAgent, and every Mission/subagent read rechecks workspace, thread, content hash, and object size through `workspace.read_input`.
 
@@ -58,6 +64,7 @@ A mission is created only when the `WorkspaceAgent` emits a valid structured sta
 - verified model profile and probe hash;
 - exact tool ids, permissions, network profiles, and known capability gaps;
 - user-selected review mode, reasoning effort, budget estimate, initial intake, and exact Mission input manifests.
+- one policy-pinned cumulative execution budget for model calls, tool claims, subagent jobs, and the post-response token stop threshold.
 
 Each worker invocation drives a bounded `MissionDriveSlice`. It claims a fenced lease, consumes ordered commands, advances the agent loop, invokes tools or subagents, evaluates stage acceptance, emits review candidates, checkpoints state, and either completes or schedules a wakeup. Production permits one model decision per durable slice, with a 165-second request budget and provider-internal retries disabled; the durable scheduler owns retries. Repeated transient model failures are capped and terminate with `model_service_unavailable` while preserving partial work. A slice never owns an unbounded in-process research session.
 
@@ -84,13 +91,21 @@ Mission persistence is deliberately four-table:
 
 `mission_runs.state_version` protects optimistic updates. `lease_owner`, `lease_epoch`, and `lease_expires_at` fence worker effects. `last_item_seq` orders the ledger; `last_command_seq` and `last_applied_command_seq` provide exactly-once command consumption at the aggregate boundary. Redis/Celery messages are hints only; a stale hint cannot make an undelayed waiting mission claimable.
 
+`mission_runs.snapshot_json.resource_usage` is a DataService-owned O(1) projection derived only while appending immutable `model_call_started`, `operation_claim`, `subagent_spawned`, and `usage_receipt` facts under the Mission row lock. Agent/runtime snapshots may neither replace nor decrement it. Model/tool/subagent dispatch stops before a count ceiling is crossed. A provider response that reaches or crosses `stop_after_total_tokens` is still recorded exactly, after which no further dispatch is allowed; audit and terminal items remain writable so the Mission can stop durably.
+
+Every `model_call_started` must converge to exactly one immutable terminal fact with the same full call binding: either an exact non-zero `usage_receipt`, or `model_call_terminal` with `failed`, `cancelled`, or `unresolved`. Producers may use `failed` or `cancelled` only when they can prove that provider usage was not incurred; an ambiguous transport, cancellation, malformed metering response, or recovered open call is `unresolved`. DataService projects these pairs from MissionItems and rejects divergent or second terminals. Open or unresolved calls block further dispatch, stage advancement, waiting transitions, and voluntary lease release; an open call also blocks a terminal Mission transition.
+
+Recovery closes an orphaned open call as `unresolved` before any new provider dispatch, then fails the Mission into explicit usage reconciliation. Terminal settlement charges exact receipts even when the Mission failed. If any call is unresolved, settlement emits `billing_reconciliation_required`, keeps the credit reservation and hold live without expiry, and never writes `billing_settled` or silently assumes zero usage. This lifecycle remains inside the four-table Mission aggregate; there is no model-call table.
+
+`MissionStore` is one transaction facade composed from focused core, lifecycle, execution, review, and query modules. The split is an internal ownership boundary, not five stores or five units of work.
+
 Model decisions are strict structured actions. A schema-invalid action receives one budget-counted repair attempt inside the same bounded drive slice. Repeated violations become a durable, recoverable Mission event and schedule another structured-decision repair; prose parsing and compatibility fallbacks are forbidden.
 
 Sequential tool workflows stay with WorkspaceAgent: it issues durable tool or Sandbox operations across Mission slices, inspects their receipts, and revises the next action. In-process subagents are bounded collaborators for independent parallel analysis and optional diagnosis; they are not an extra relay layer around a sequential Sandbox workflow, and an equivalent timed-out delegation is not retried under a new display name. Subagents inherit the Mission's pinned model and reasoning effort. Their `selected_refs` use one prefix-routed canonical read path: `mission-input:` resolves through the immutable attachment reader, `prism-file:` through the document reader, `artifact-candidate:` through the immutable candidate reader, and `sandbox-artifact:` through the verified Sandbox object reader. A verified `artifact-candidate:` may also be a provenance source for a downstream candidate, preserving the accepted inter-stage derivation chain without materializing intermediate files. Within the bounded parent context, an identical read of an immutable input, asset, candidate, or sealed Sandbox object reuses the existing result rather than spending another tool operation. User-review items never become agent input. Unknown or transient refs are not guessed into another tool.
 
 A continuation Mission inherits passed stage receipts plus the bounded canonical lineage actually required to continue accepted work without materializing intermediate files. Accepted internal candidates and verified Sandbox artifacts remain immutable refs; committed outputs resolve through the same `output_key` to the latest committed workspace target. Parent review queues, preview decisions, and unrelated draft candidates never become child runtime state.
 
-Linked domains use `mission_id`, `mission_item_seq`, `mission_review_item_id`, and `mission_commit_id` provenance. Historical development data was intentionally dropped/reseeded during migrations 086-103 rather than translated through runtime shims.
+Linked domains use `mission_id`, `mission_item_seq`, `mission_review_item_id`, and `mission_commit_id` provenance. Historical development data was intentionally dropped/reseeded during migrations 086-107 rather than translated through runtime shims.
 
 DataService writes user-facing semantic projections at the same transaction boundary as their cause. Finishing a tool operation atomically appends its immutable terminal receipt plus typed `evidence` and `artifact` items; counters are derived from those appended items. A retry either observes the complete projection or none of it and cannot duplicate references. The frontend never scans operation payloads to reconstruct evidence or artifacts.
 
@@ -102,6 +117,8 @@ The runtime catalog has two DataService tables:
 - `worker_skills`: reusable worker guidance, examples, constraints, and suggested tool scope.
 
 There is no runtime CRUD surface for assembling fixed workflows. Skills guide worker behavior; they do not create another orchestrator. A policy states what a mission must achieve and which boundaries apply. The `WorkspaceAgent` and its loop decide how to reach that outcome.
+
+Model-usage pricing treats cached-input and reasoning counters as subsets of input and output, so detail rates replace rather than double-count their parent rates. Chat authorization uses the same pricing function to quote a bounded maximum hold; settlement records the uncapped calculation for audit but can never deduct more than the amount authorized under the user-row lock. Mission admission freezes the exact Mission, model, and global pricing policy ids, versions, and validated configs into its immutable admission receipt and credit reservation. Terminal settlement uses only that snapshot, so an admin policy edit cannot reprice or strand in-flight work.
 
 `StageAcceptanceContract` is the quality boundary. Each stage defines minimum and excellent criteria, required artifacts/evidence, model effort, iteration budget, blockers, and allowed transitions. `StageGuard` rejects downstream work before prerequisites pass. The WorkspaceAgent first freezes its best complete result as an internal content-addressed artifact candidate, then proposes criterion judgments against exact candidate and evidence refs. Every decision receives a bounded, server-derived `quality_reference_inventory`; those authoritative ids are also injected as dynamic enums into the strict provider schema, so the model judges content without manually reconstructing identity hashes. An invented, stale, or mismatched quality ref is rejected before it can consume a stage revision attempt. StageAcceptance then reconstructs candidates and evidence from verified Mission receipts, requires every candidate to belong to the current stage, and rejects changed bodies, hashes, unsupported refs, or missing surfaces. The model cannot self-certify evidence or artifact identity.
 
@@ -142,7 +159,7 @@ Review modes are `review_all`, `balanced_default`, and `auto_draft`. They are se
 
 Generation quality is handled before this boundary by the Mission loop and StageAcceptance. Critic workers are optional diagnostics triggered only by an explicit user audit, not mandatory reviewers on every output. Review candidates are atomic, previewable write proposals created only for accepted deliverables that may change protected workspace truth. Users may inspect them when convenient, ask Chat to audit a suspicious section, accept, reject, request more evidence, or commit accepted subsets. `ReviewCommitRuntime` verifies ownership, decision state, base revision/hash, and idempotency before materialization. A commit records per-item outcomes, allowing partial save without pretending the whole mission succeeded.
 
-Every protected target write carries one `MissionWriteAuthority(mission_id, mission_review_item_id, mission_commit_id, attempt_token)`. The target DataService transaction rechecks the applying commit lease, accepted review item, Mission ownership, workspace, token, and expiry before writing. Provenance strings and caller-supplied ids never substitute for this authority. The same contract protects Prism, Source, Asset, Memory, Room, and Sandbox materialization.
+Every protected target write carries one `MissionWriteAuthority(mission_id, mission_review_item_id, mission_commit_id, attempt_token)`. The target DataService transaction rechecks the applying commit lease, accepted review item, Mission ownership, workspace, token, and expiry before writing. Provenance strings and caller-supplied ids never substitute for this authority. The active Mission materialization surface is exactly Prism document/visual writes, Library Source import, and WorkspaceAsset creation; there are no dormant Memory, Room, or Sandbox materialization operations.
 
 Permissions are durable mission pauses. Approval applies to a specific request and operation; sandboxed low-risk work is not interrupted by generic confirmation prompts. Resume appends an ordered user command and schedules the mission again.
 
@@ -184,7 +201,7 @@ Workspace activity is also Mission-only. Thread, auxiliary Celery task, and arti
 - DataService is the only runtime database transaction boundary.
 - `worker` consumes `default,priority` for chat, document preprocessing, and other short jobs.
 - `mission-worker` consumes `long_running` with concurrency 1 and prefetch 1 for durable slices.
-- `celery-beat` is the single periodic scheduler and publishes Mission reconciliation hints every 15 seconds.
+- `celery-beat` is the single periodic scheduler; it publishes Mission reconciliation hints every 15 seconds, reconciles due ChatTurn dispatch intents every 5 seconds, releases expired chat-turn authorizations every 60 seconds, and advances periodic credit grants in bounded idempotent pages.
 - PostgreSQL stores durable truth; Redis backs Celery and event hints.
 
 The runtime can recover after process loss because leases expire, commands and items are durable, and the reconciler republishes due missions. In-memory UI state and queue delivery are never authoritative.
@@ -212,6 +229,8 @@ The runtime can recover after process loss because leases expire, commands and i
 19. Stage acceptance runs inside generation and auto-continues after pass; user review controls protected writes and does not grade or block completed generation.
 20. Dynamic per-item cardinality is declared once by WorkspaceAgent after prerequisite understanding, validated and pinned by MissionRuntime, and never accepted from the client.
 21. Mission completion is evaluated against one selected target: all expanded required stages pass and every required terminal output kind is backed by an accepted artifact exposed for user confirmation.
+22. Mission resource usage is projected only by DataService from immutable accounting facts; callers cannot overwrite it through a snapshot.
+23. A chat success requires a non-zero provider usage receipt, and settled credits never exceed the atomically authorized hold.
 
 ## 13. Key code
 
@@ -255,5 +274,6 @@ The runtime can recover after process loss because leases expire, commands and i
 - `104_remove_dataservice_sandbox`: removes the obsolete persisted sandbox aggregate; Sandbox vNext keeps typed execution receipts and content-addressed artifacts under Mission ownership.
 - `105_remove_latex_compile_history`: removes Gateway-owned LaTeX compilation history and the direct Docker/process execution stack.
 - `106_remove_sandbox_pricing_policy`: removes standalone sandbox/refund billing surfaces and converges Mission reservations and public pricing on canonical DataService policy bindings.
+- `107_runtime_accounting`: requires pinned Mission execution budgets, adds DataService-owned cumulative Mission resource accounting, and introduces atomic chat-turn financial authorization/settlement. It rejects non-empty development data and requires drop/reseed.
 
 These migrations are intentionally irreversible in development. Recovery is drop/reseed, not compatibility code.

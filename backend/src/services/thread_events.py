@@ -6,10 +6,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from src.runtime.serialization import serialize_lc_object
-from src.services.thread_billing import (
-    extract_persisted_message_usage,
-    summarize_persisted_messages_usage,
-)
 from src.workspace_events import publish_workspace_event
 
 if TYPE_CHECKING:
@@ -74,9 +70,6 @@ def serialize_thread_summary(thread: Thread) -> dict[str, Any]:
         if isinstance(stored_last_preview, str) and stored_last_preview.strip()
         else _truncate_preview(_message_preview_text(last_message_content))
     )
-    last_message_usage = extract_persisted_message_usage(last_message)
-    thread_usage = summarize_persisted_messages_usage(messages)
-
     payload = {
         "id": thread.id,
         "workspace_id": thread.workspace_id,
@@ -88,10 +81,6 @@ def serialize_thread_summary(thread: Thread) -> dict[str, Any]:
         "created_at": thread.created_at.isoformat() if thread.created_at else None,
         "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
     }
-    if last_message_usage is not None:
-        payload["last_message_token_usage"] = last_message_usage.as_dict()
-    if thread_usage is not None:
-        payload["thread_token_usage"] = thread_usage.as_dict()
     return payload
 
 

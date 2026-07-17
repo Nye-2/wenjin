@@ -55,7 +55,11 @@ async def launch_chat_turn_from_create_request(
         body.workspace_id,
         user_id=actor_id,
     )
-    turn_request = to_turn_request(body, forced_thread_id=request_thread_id)
+    turn_request = to_turn_request(
+        body,
+        actor_id=actor_id,
+        forced_thread_id=request_thread_id,
+    )
 
     try:
         return await launch_chat_turn(

@@ -36,23 +36,12 @@ function normalizeLibraryItem(value: unknown): LibraryItem {
     throw new Error("文献资料格式异常");
   }
   const normalizedAuthors = readStringArray(value.authors);
-  const authors =
-    normalizedAuthors.length > 0
-      ? normalizedAuthors
-      : readStringArray(value.authors_json);
-  const id = String(value.id ?? value.source_id ?? "");
-  const addedBy = String(
-    value.added_by ??
-      value.source_label ??
-      value.ingest_label ??
-      value.source_type ??
-      value.ingest_kind ??
-      "library",
-  );
+  const id = String(value.id ?? "");
+  const addedBy = String(value.added_by ?? "manual");
   return {
     id,
     title: String(value.title ?? "未命名文献"),
-    authors,
+    authors: normalizedAuthors,
     year: typeof value.year === "number" ? value.year : undefined,
     doi: typeof value.doi === "string" ? value.doi : undefined,
     url: typeof value.url === "string" ? value.url : undefined,
@@ -64,17 +53,14 @@ function normalizeLibraryItem(value: unknown): LibraryItem {
 
 function sourceLabel(value: string): string {
   const normalized = value.toLowerCase();
-  if (normalized.startsWith("execution:") || normalized.includes("agent")) {
+  if (normalized === "mission_verified") {
     return "研究团队";
   }
-  if (normalized.includes("search") || normalized.includes("semantic")) {
+  if (normalized === "model_native_search") {
     return "检索结果";
   }
-  if (normalized.includes("upload") || normalized.includes("user")) {
+  if (normalized === "upload" || normalized === "manual") {
     return "用户上传";
-  }
-  if (normalized === "library" || normalized === "source") {
-    return "资料库";
   }
   return value;
 }
@@ -85,13 +71,7 @@ function normalizeLibraryDetail(value: unknown): LibraryItemDetail {
   return {
     ...base,
     venue: typeof record.venue === "string" ? record.venue : undefined,
-    source: sourceLabel(
-      typeof record.source === "string"
-        ? record.source
-        : typeof record.source_type === "string"
-          ? record.source_type
-          : "library",
-    ),
+    source: base.added_by,
   };
 }
 

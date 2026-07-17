@@ -81,16 +81,10 @@ async def test_get_dashboard_includes_thread_credit_status() -> None:
         )
     )
 
-    with (
-        patch(
-            "src.services.user_dashboard_service.CreditService.get_consumed_thread_tokens",
-            AsyncMock(return_value=120000),
-        ),
-        patch(
-            "src.services.user_dashboard_service.CreditService.can_start_thread_turn",
-            AsyncMock(return_value=False),
-        ) as can_start_thread_turn,
-    ):
+    with patch(
+        "src.services.user_dashboard_service.CreditService.preview_thread_turn_capacity",
+        AsyncMock(return_value=False),
+    ) as preview_turn_capacity:
         payload = await service.get_dashboard("user-1")
 
     assert payload["credits"]["thread"] == {
@@ -118,7 +112,7 @@ async def test_get_dashboard_includes_thread_credit_status() -> None:
     assert "token_usage" not in payload
     assert "tokens_per_credit" not in payload["credits"]["thread"]
     assert "free_tokens" not in payload["credits"]["thread"]
-    can_start_thread_turn.assert_awaited_once_with(
+    preview_turn_capacity.assert_awaited_once_with(
         "user-1",
         model_name="gpt-5.6-terra",
     )

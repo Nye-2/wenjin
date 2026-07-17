@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
@@ -19,9 +21,10 @@ from src.runtime.chat_turns import (
     ChatTurnRunManager,
     ChatTurnRunRecord,
     ChatTurnRunStatus,
+    ChatTurnTransportUnavailableError,
     UnsupportedChatTurnStrategyError,
 )
-from src.runtime.serialization import dumps_json
+from src.runtime.serialization import dumps_json, serialize
 from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL, StreamBridge
 
 logger = logging.getLogger(__name__)
@@ -51,7 +54,18 @@ def _serialize_turn_request(request: ThreadTurnRequest) -> dict[str, Any]:
         "reasoning_effort": request.reasoning_effort,
         "attachments": attachments,
         "metadata": request.metadata,
+        "turn_idempotency_key": request.turn_idempotency_key,
     }
+
+
+def _request_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        serialize(payload),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def format_sse(event: str, data: Any, *, event_id: str | None = None) -> str:
@@ -81,6 +95,24 @@ async def launch_chat_turn(
     """Create a run record and launch the thread run worker."""
 
     await handler.preflight_stream_turn(turn_request, actor_id=actor_id)
+    stable_request_key = str(turn_request.turn_idempotency_key or "").strip()
+    if not stable_request_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Chat turn requires a stable request identity",
+        )
+    if not celery_settings.enabled:
+        track_run_dispatch("backend_unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail="Run execution backend unavailable: CELERY_ENABLED must be true",
+        )
+    if not redis_settings.enabled:
+        track_run_dispatch("stream_unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail="Run execution backend unavailable: REDIS_ENABLED must be true",
+        )
 
     resolved_metadata: dict[str, Any] = dict(metadata) if isinstance(metadata, dict) else {}
     # Server-owned identity fields for run-level authorization. These keys are
@@ -94,13 +126,17 @@ async def launch_chat_turn(
     disconnect_mode = ChatTurnDisconnectMode.cancel if on_disconnect == ChatTurnDisconnectMode.cancel.value else ChatTurnDisconnectMode.continue_
 
     try:
-        record = await run_manager.create_or_reject(
+        serialized_request = _serialize_turn_request(turn_request)
+        admission = await run_manager.create_or_reject(
             run_thread_id,
             assistant_id=assistant_id,
             on_disconnect=disconnect_mode,
             metadata=resolved_metadata,
             kwargs=kwargs,
             multitask_strategy=multitask_strategy,
+            request_idempotency_key=stable_request_key,
+            request_fingerprint=_request_fingerprint(serialized_request),
+            dispatch_payload=serialized_request,
         )
     except ChatTurnConflictError as exc:
         track_run_dispatch("conflict")
@@ -108,60 +144,38 @@ async def launch_chat_turn(
     except UnsupportedChatTurnStrategyError as exc:
         track_run_dispatch("invalid_strategy")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # Gateway process keeps lightweight in-memory indices; drop local copies
-    # after a grace period to avoid unbounded growth.
-    asyncio.create_task(run_manager.cleanup(record.run_id, delay=300))
-
-    if not celery_settings.enabled:
-        track_run_dispatch("backend_unavailable")
-        await run_manager.set_status(
-            record.run_id,
-            ChatTurnRunStatus.error,
-            error="Run execution requires Celery worker mode (CELERY_ENABLED=true)",
-        )
-        await bridge.publish(
-            record.run_id,
-            "error",
-            {"type": "error", "error": "后台执行服务未启用，请联系管理员。"},
-        )
-        await bridge.publish_end(record.run_id)
+    except ChatTurnTransportUnavailableError as exc:
+        track_run_dispatch("transport_unavailable")
         raise HTTPException(
             status_code=503,
-            detail="Run execution backend unavailable: CELERY_ENABLED must be true",
-        )
-
-    if not redis_settings.enabled:
-        track_run_dispatch("stream_unavailable")
-        await run_manager.set_status(
-            record.run_id,
-            ChatTurnRunStatus.error,
-            error="Run streaming requires Redis runtime mode (REDIS_ENABLED=true)",
-        )
-        await bridge.publish(
-            record.run_id,
-            "error",
-            {"type": "error", "error": "后台流式服务未启用，请联系管理员。"},
-        )
-        await bridge.publish_end(record.run_id)
-        raise HTTPException(
-            status_code=503,
-            detail="Run execution backend unavailable: REDIS_ENABLED must be true",
-        )
+            detail="Chat turn transport is temporarily unavailable",
+        ) from exc
+    record = admission.record
+    dispatch_owner = await run_manager.claim_dispatch(record.run_id)
+    if dispatch_owner is None:
+        track_run_dispatch("replay")
+        return record
 
     try:
-        from src.task.tasks import process_chat_turn
+        from src.task.tasks import enqueue_chat_turn
 
-        worker_task = process_chat_turn.apply_async(
-            args=[record.run_id, _serialize_turn_request(turn_request), actor_id],
-            queue="default",
-        )
-        await run_manager.update_metadata(
+        worker_task_id = enqueue_chat_turn(
             record.run_id,
-            {
-                "dispatch_mode": "celery_worker",
-                "worker_task_id": str(worker_task.id),
-            },
+            serialized_request,
+            actor_id,
         )
+        marked = await run_manager.mark_dispatched(
+            record.run_id,
+            owner=dispatch_owner,
+            worker_task_id=worker_task_id,
+        )
+        if not marked:
+            logger.warning(
+                "Worker task %s was published but dispatch receipt for run %s "
+                "could not be persisted",
+                worker_task_id,
+                record.run_id,
+            )
         await bridge.publish(
             record.run_id,
             "run_queued",
@@ -176,17 +190,10 @@ async def launch_chat_turn(
         return record
     except Exception as exc:
         track_run_dispatch("queue_error")
-        await run_manager.set_status(
+        await run_manager.release_dispatch_claim(
             record.run_id,
-            ChatTurnRunStatus.error,
-            error=f"Failed to dispatch run to worker: {exc}",
+            owner=dispatch_owner,
         )
-        await bridge.publish(
-            record.run_id,
-            "error",
-            {"type": "error", "error": "后台执行队列暂时不可用，请稍后重试。"},
-        )
-        await bridge.publish_end(record.run_id)
         raise HTTPException(
             status_code=503,
             detail="Run worker queue unavailable",

@@ -38,6 +38,7 @@ def _run(*, user_id: str = "user-1") -> MissionRunPayload:
         thread_id="thread-1",
         user_id=user_id,
         workspace_type="sci",
+        mission_policy_id="sci.research",
         title="Research",
         objective="Create a visual",
         status="running",

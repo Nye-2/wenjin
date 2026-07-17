@@ -62,7 +62,12 @@ class _Handler:
 
 
 def _request() -> ThreadTurnRequest:
-    return ThreadTurnRequest(message="hi", workspace_id="ws-1", thread_id="thread-1")
+    return ThreadTurnRequest(
+        message="hi",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        turn_idempotency_key="test-block-stream",
+    )
 
 
 async def _collect(bridge: MemoryStreamBridge, run_id: str) -> list[tuple[str, Any]]:
@@ -79,7 +84,7 @@ async def _collect(bridge: MemoryStreamBridge, run_id: str) -> list[tuple[str, A
 async def test_emits_one_block_event_per_block_with_shared_message_id():
     manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
 
     blocks = [
         {"kind": "text", "content": "好"},
@@ -109,7 +114,7 @@ async def test_emits_one_block_event_per_block_with_shared_message_id():
 async def test_no_legacy_assistant_message_event_emitted():
     manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
     handler = _Handler(_StreamRunWithBlocks(blocks=[{"kind": "text", "content": "hi"}]))
 
     with patch("src.runtime.chat_turns.worker.set_thread_status", new=AsyncMock()):
@@ -129,7 +134,7 @@ async def test_missing_blocks_coerces_content_to_text_block():
     """Defensive: legacy free-text replies get wrapped as a single TextBlock."""
     manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
     handler = _Handler(_StreamRunWithBlocks(blocks=[], content="hello"))
 
     with patch("src.runtime.chat_turns.worker.set_thread_status", new=AsyncMock()):
@@ -151,7 +156,7 @@ async def test_empty_blocks_and_empty_content_emits_no_blocks():
     """Edge case: nothing to emit. No spurious empty TextBlock."""
     manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
-    record = await manager.create_or_reject("thread-1")
+    record = (await manager.create_or_reject("thread-1")).record
     handler = _Handler(_StreamRunWithBlocks(blocks=[], content=""))
 
     with patch("src.runtime.chat_turns.worker.set_thread_status", new=AsyncMock()):

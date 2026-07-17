@@ -19,12 +19,25 @@ from src.agents.harness.stage_acceptance import (
     can_start_stage,
     evaluate_stage_acceptance,
 )
-from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
+from src.contracts.mission_budget import (
+    execution_budget_from_runtime_context,
+    resource_usage_from_snapshot,
+)
+from src.contracts.model_usage import (
+    ModelCallTerminalOutcome,
+    ModelCallTerminalPayload,
+    ModelUsage,
+    ModelUsageReceipt,
+)
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     StageAcceptanceResult,
     StageAssessmentInput,
     StageProgressState,
+)
+from src.contracts.subagent_progress import (
+    subagent_progress_sha256,
+    validate_subagent_progress_identity,
 )
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
@@ -87,6 +100,7 @@ from src.subagent_runtime.contracts import (
     SubagentJobSpec,
     SubagentModelOutputError,
     SubagentModelTurn,
+    SubagentModelUsageError,
     SubagentStatus,
     SubagentStep,
     SubagentStopReason,
@@ -126,6 +140,12 @@ _ACTIVE_SUBAGENT_DEADLINE: ContextVar[float | None] = ContextVar(
 
 def _is_conflict(exc: BaseException) -> bool:
     return isinstance(exc, DataServiceClientError) and exc.status_code == 409
+
+
+def _is_retryable_append_error(exc: BaseException) -> bool:
+    if not isinstance(exc, DataServiceClientError):
+        return True
+    return exc.status_code in {408, 409, 429} or exc.status_code >= 500
 
 
 async def _append_under_current_lease(
@@ -168,6 +188,145 @@ async def _append_under_current_lease(
                 raise
             await asyncio.sleep(min(0.002 * (2**attempt), 0.05))
     raise StaleToolLeaseError("mission state changed repeatedly while appending an effect receipt")
+
+
+def _mission_item_matches_draft(
+    item: MissionItemPayload,
+    draft: MissionItemDraftPayload,
+) -> bool:
+    return (
+        item.item_type == draft.item_type
+        and item.operation_id == draft.operation_id
+        and item.phase == draft.phase
+        and item.stage_id == draft.stage_id
+        and item.producer == draft.producer
+        and item.summary == draft.summary
+        and item.risk_level == draft.risk_level
+        and item.payload_json == draft.payload_json
+        and item.payload_ref == draft.payload_ref
+    )
+
+
+async def _append_model_ledger_item_once(
+    store: MissionStorePort,
+    *,
+    job: SubagentJobSpec,
+    draft: MissionItemDraftPayload,
+) -> None:
+    async def existing_items() -> list[MissionItemPayload]:
+        return await store.list_items(
+            job.mission_id,
+            item_type=draft.item_type,
+            operation_id=draft.operation_id,
+            limit=2,
+        )
+
+    try:
+        await _append_under_current_lease(
+            store,
+            mission_id=job.mission_id,
+            lease_owner=job.lease_owner,
+            lease_epoch=job.lease_epoch,
+            items=[draft],
+        )
+    except Exception as exc:
+        existing = await existing_items()
+        if len(existing) == 1 and _mission_item_matches_draft(existing[0], draft):
+            return
+        if existing:
+            raise RuntimeError(
+                "model_call_id has a divergent durable ledger item"
+            ) from exc
+        raise
+
+
+async def _append_subagent_progress_once(
+    store: MissionStorePort,
+    *,
+    job: SubagentJobSpec,
+    draft: MissionItemDraftPayload,
+) -> None:
+    try:
+        progress_id, expected_hash = validate_subagent_progress_identity(
+            summary=draft.summary,
+            payload_json=draft.payload_json,
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            "subagent progress requires deterministic identity and hash"
+        ) from exc
+
+    async def durable_matches() -> bool:
+        matches: list[MissionItemPayload] = []
+        after_seq = 0
+        while True:
+            items = await store.list_items(
+                job.mission_id,
+                after_seq=after_seq,
+                item_type="subagent_progress",
+                operation_id=job.operation_id,
+                limit=100,
+            )
+            matches.extend(
+                item
+                for item in items
+                if item.payload_json.get("progress_id") == progress_id
+            )
+            if len(items) < 100:
+                break
+            after_seq = items[-1].seq
+        if not matches:
+            return False
+        if len(matches) != 1:
+            raise RuntimeError(
+                "subagent progress identity has duplicate durable ledger items"
+            )
+        existing = matches[0]
+        durable_hash = subagent_progress_sha256(
+            summary=existing.summary or "",
+            payload_json=existing.payload_json,
+        )
+        if (
+            durable_hash != expected_hash
+            or existing.payload_json.get("progress_sha256") != durable_hash
+            or not _mission_item_matches_draft(existing, draft)
+        ):
+            raise RuntimeError(
+                "subagent progress identity has divergent durable content"
+            )
+        return True
+
+    if await durable_matches():
+        return
+    for attempt in range(16):
+        mission = await store.get(job.mission_id)
+        if mission is None:
+            raise StaleToolLeaseError("mission no longer exists")
+        if (
+            mission.lease_owner != job.lease_owner
+            or mission.lease_epoch != job.lease_epoch
+        ):
+            raise StaleToolLeaseError("mission lease fence is no longer current")
+        try:
+            await store.append_items(
+                job.mission_id,
+                MissionAppendPayload(
+                    expected_state_version=mission.state_version,
+                    lease_owner=job.lease_owner,
+                    lease_epoch=job.lease_epoch,
+                    items=[draft],
+                ),
+            )
+            return
+        except Exception as exc:
+            if await durable_matches():
+                return
+            if not _is_retryable_append_error(exc):
+                raise
+            await asyncio.sleep(min(0.002 * (2**attempt), 0.05))
+    raise StaleToolLeaseError(
+        "mission state changed repeatedly while appending subagent progress"
+    )
 
 
 def _operation_request_hash(kind: MissionOperationKind, operation_key: str) -> str:
@@ -771,28 +930,44 @@ class MissionSubagentLedger(SubagentLedgerPort):
         summary: str,
         payload_json: dict[str, object] | None = None,
     ) -> None:
-        await _append_under_current_lease(
+        canonical_payload: dict[str, object] = {
+            **(payload_json or {}),
+            "job_id": job.job_id,
+            "display_name": job.display_name,
+            "role_label": job.role_label,
+            "lifecycle_phase": phase,
+            "job_fingerprint": subagent_job_fingerprint(job),
+        }
+        progress_hash = subagent_progress_sha256(
+            summary=summary,
+            payload_json=canonical_payload,
+        )
+        canonical_payload.update(
+            {
+                "progress_id": (
+                    f"subagent-terminal:{job.job_id}"
+                    if phase == "terminal"
+                    else f"subagent-progress:{progress_hash}"
+                ),
+                "progress_sha256": progress_hash,
+            }
+        )
+        await _append_subagent_progress_once(
             self.store,
-            mission_id=job.mission_id,
-            lease_owner=job.lease_owner,
-            lease_epoch=job.lease_epoch,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="subagent_progress",
-                    operation_id=job.operation_id,
-                    phase=(MissionItemPhase.COMPLETED if phase == "terminal" else MissionItemPhase.PROGRESS),
-                    stage_id=job.stage_id,
-                    producer=job.job_id,
-                    summary=summary,
-                    payload_json={
-                        "job_id": job.job_id,
-                        "display_name": job.display_name,
-                        "role_label": job.role_label,
-                        "lifecycle_phase": phase,
-                        **(payload_json or {}),
-                    },
-                )
-            ],
+            job=job,
+            draft=MissionItemDraftPayload(
+                item_type="subagent_progress",
+                operation_id=job.operation_id,
+                phase=(
+                    MissionItemPhase.COMPLETED
+                    if phase == "terminal"
+                    else MissionItemPhase.PROGRESS
+                ),
+                stage_id=job.stage_id,
+                producer=job.job_id,
+                summary=summary,
+                payload_json=canonical_payload,
+            ),
         )
 
     async def record_model_usage(
@@ -800,31 +975,105 @@ class MissionSubagentLedger(SubagentLedgerPort):
         job: SubagentJobSpec,
         *,
         turn: int,
-        model_turn: SubagentModelTurn,
+        attempt: int,
+        model_call_id: str,
+        usage_receipt: ModelUsageReceipt,
     ) -> None:
-        receipt = model_turn.usage_receipt
-        if receipt is None:
-            return
-        await _append_under_current_lease(
+        if (
+            usage_receipt.model_id != job.model_id
+            or usage_receipt.usage.total_tokens <= 0
+        ):
+            raise SubagentModelUsageError(
+                "Subagent usage receipt does not match the model call"
+            )
+        await _append_model_ledger_item_once(
             self.store,
-            mission_id=job.mission_id,
-            lease_owner=job.lease_owner,
-            lease_epoch=job.lease_epoch,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="usage_receipt",
-                    operation_id=job.operation_id,
-                    phase=MissionItemPhase.COMPLETED,
-                    stage_id=job.stage_id,
-                    producer=job.job_id,
-                    summary="Subagent model usage recorded",
-                    payload_json={
-                        **receipt.model_dump(mode="json"),
-                        "job_id": job.job_id,
-                        "turn": turn,
-                    },
-                )
-            ],
+            job=job,
+            draft=MissionItemDraftPayload(
+                item_type="usage_receipt",
+                operation_id=model_call_id,
+                phase=MissionItemPhase.COMPLETED,
+                stage_id=job.stage_id,
+                producer=job.job_id,
+                summary="Subagent model usage recorded",
+                payload_json={
+                    **usage_receipt.model_dump(mode="json"),
+                    "model_call_id": model_call_id,
+                    "parent_operation_id": job.operation_id,
+                    "job_id": job.job_id,
+                    "turn": turn,
+                    "attempt": attempt,
+                },
+            ),
+        )
+
+    async def record_model_call_started(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        attempt: int,
+        model_call_id: str,
+    ) -> None:
+        await _append_model_ledger_item_once(
+            self.store,
+            job=job,
+            draft=MissionItemDraftPayload(
+                item_type="model_call_started",
+                operation_id=model_call_id,
+                phase=MissionItemPhase.STARTED,
+                stage_id=job.stage_id,
+                producer=job.job_id,
+                summary="Subagent model call started",
+                payload_json={
+                    "model_call_id": model_call_id,
+                    "parent_operation_id": job.operation_id,
+                    "job_id": job.job_id,
+                    "model_id": job.model_id,
+                    "turn": turn,
+                    "attempt": attempt,
+                },
+            ),
+        )
+
+    async def record_model_call_terminal(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        attempt: int,
+        model_call_id: str,
+        outcome: ModelCallTerminalOutcome,
+        error_type: str | None,
+        detail: str,
+    ) -> None:
+        payload = ModelCallTerminalPayload(
+            model_call_id=model_call_id,
+            parent_operation_id=job.operation_id,
+            job_id=job.job_id,
+            model_id=job.model_id,
+            turn=turn,
+            attempt=attempt,
+            outcome=outcome,
+            error_type=error_type,
+            detail=detail,
+        )
+        await _append_model_ledger_item_once(
+            self.store,
+            job=job,
+            draft=MissionItemDraftPayload(
+                item_type="model_call_terminal",
+                operation_id=model_call_id,
+                phase=(
+                    MissionItemPhase.CANCELLED
+                    if outcome is ModelCallTerminalOutcome.CANCELLED
+                    else MissionItemPhase.FAILED
+                ),
+                stage_id=job.stage_id,
+                producer=job.job_id,
+                summary=f"Subagent model call {outcome.value}",
+                payload_json=payload.model_dump(mode="json"),
+            ),
         )
 
 
@@ -910,22 +1159,34 @@ class LangChainSubagentModel(SubagentModelPort):
                 HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
             ]
         )
+        usage = ModelUsage.from_provider_metadata(
+            getattr(result, "usage_metadata", None)
+        )
+        if usage is None or usage.total_tokens <= 0:
+            raise SubagentModelUsageError(
+                "Subagent provider response did not include non-zero usage"
+            )
+        response_id = getattr(result, "id", None)
+        usage_receipt = ModelUsageReceipt(
+            model_id=job.model_id,
+            usage=usage,
+            provider_response_id=str(response_id) if response_id else None,
+        )
+        if not isinstance(result, AIMessage):
+            raise SubagentModelOutputError(
+                "subagent response was not an AI message",
+                usage_receipt=usage_receipt,
+            )
         try:
             action = _parse_subagent_action(result)
         except ValueError as exc:
-            raise SubagentModelOutputError(_subagent_output_diagnostic(exc)) from exc
-        usage = ModelUsage.from_provider_metadata(result.usage_metadata)
+            raise SubagentModelOutputError(
+                _subagent_output_diagnostic(exc),
+                usage_receipt=usage_receipt,
+            ) from exc
         return SubagentModelTurn(
             action=action,
-            usage_receipt=(
-                ModelUsageReceipt(
-                    model_id=job.model_id,
-                    usage=usage,
-                    provider_response_id=(str(result.id) if result.id else None),
-                )
-                if usage is not None
-                else None
-            ),
+            usage_receipt=usage_receipt,
         )
 
 
@@ -1166,19 +1427,28 @@ class MissionSubagentRuntimeAdapter:
         )
 
     async def run(self, request: SubagentExecutionRequest) -> MissionPortOutcome:
+        terminal_items = await self._terminal_progress_items(request)
+        frozen_budgets = self._frozen_terminal_budgets(terminal_items)
         jobs = _subagent_jobs(
             request,
             input_schema_resolver=self.tools.input_schemas,
+            frozen_budgets=frozen_budgets,
         )
-        recovered = await self._recovered_results(request, jobs)
+        recovered = self._recovered_results(request, jobs, terminal_items)
         missing = tuple(job for job in jobs if job.job_id not in recovered)
         if missing:
             token = _ACTIVE_SUBAGENT_DEADLINE.set(request.deadline_monotonic)
             try:
-                fresh = await self.runtime.run_batch(
-                    missing,
-                    deadline_monotonic=request.deadline_monotonic,
-                )
+                try:
+                    fresh = await self.runtime.run_batch(
+                        missing,
+                        deadline_monotonic=request.deadline_monotonic,
+                    )
+                except Exception:
+                    adopted = await self.adopt_terminal(request)
+                    if adopted is not None:
+                        return adopted
+                    raise
             finally:
                 _ACTIVE_SUBAGENT_DEADLINE.reset(token)
             recovered.update({item.job_id: item for item in fresh.results})
@@ -1188,33 +1458,134 @@ class MissionSubagentRuntimeAdapter:
         )
         return _subagent_port_outcome(result)
 
-    async def _recovered_results(
+    async def adopt_terminal(
         self,
         request: SubagentExecutionRequest,
-        jobs: tuple[SubagentJobSpec, ...],
-    ) -> dict[str, SubagentJobResult]:
-        items = await self.store.list_items(
-            request.mission.mission_id,
-            item_type="subagent_progress",
-            operation_id=request.operation_id,
-            limit=100,
+    ) -> MissionPortOutcome | None:
+        terminal_items = await self._terminal_progress_items(request)
+        if not terminal_items:
+            return None
+        frozen_budgets = self._frozen_terminal_budgets(terminal_items)
+        jobs = _subagent_jobs(
+            request,
+            input_schema_resolver=self.tools.input_schemas,
+            frozen_budgets=frozen_budgets,
         )
-        expected = {job.job_id: job for job in jobs}
-        recovered: dict[str, SubagentJobResult] = {}
+        recovered = self._recovered_results(request, jobs, terminal_items)
+        if len(recovered) != len(jobs):
+            return None
+        return _subagent_port_outcome(
+            SubagentBatchResult(
+                operation_id=request.operation_id,
+                results=tuple(recovered[job.job_id] for job in jobs),
+            )
+        )
+
+    async def _terminal_progress_items(
+        self,
+        request: SubagentExecutionRequest,
+    ) -> list[MissionItemPayload]:
+        terminal_items: list[MissionItemPayload] = []
+        after_seq = 0
+        while True:
+            items = await self.store.list_items(
+                request.mission.mission_id,
+                after_seq=after_seq,
+                item_type="subagent_progress",
+                operation_id=request.operation_id,
+                limit=100,
+            )
+            terminal_items.extend(
+                item
+                for item in items
+                if item.payload_json.get("lifecycle_phase") == "terminal"
+            )
+            if len(items) < 100:
+                return terminal_items
+            after_seq = items[-1].seq
+
+    @staticmethod
+    def _frozen_terminal_budgets(
+        items: list[MissionItemPayload],
+    ) -> dict[str, SubagentBudget]:
+        frozen: dict[str, SubagentBudget] = {}
         for item in items:
             payload = item.payload_json
-            if payload.get("lifecycle_phase") != "terminal":
-                continue
             job_id = str(payload.get("job_id") or "")
+            raw_budget = payload.get("frozen_budget")
+            if not job_id or not isinstance(raw_budget, dict):
+                raise RuntimeError(
+                    "durable subagent terminal receipt has no frozen job budget"
+                )
+            try:
+                budget = SubagentBudget.model_validate(raw_budget)
+            except ValueError as exc:
+                raise RuntimeError(
+                    "durable subagent terminal receipt has an invalid frozen budget"
+                ) from exc
+            prior = frozen.get(job_id)
+            if prior is not None and prior != budget:
+                raise RuntimeError(
+                    "durable subagent terminal receipts have divergent frozen budgets"
+                )
+            frozen[job_id] = budget
+        return frozen
+
+    @staticmethod
+    def _recovered_results(
+        request: SubagentExecutionRequest,
+        jobs: tuple[SubagentJobSpec, ...],
+        items: list[MissionItemPayload],
+    ) -> dict[str, SubagentJobResult]:
+        expected = {job.job_id: job for job in jobs}
+        recovered: dict[str, SubagentJobResult] = {}
+        progress_ids: set[str] = set()
+        for item in items:
+            payload = item.payload_json
+            job_id = str(payload.get("job_id") or "")
+            progress_id = str(payload.get("progress_id") or "")
             job = expected.get(job_id)
             raw_result = payload.get("result")
-            if job is None or not isinstance(raw_result, dict):
-                continue
+            if job is None:
+                raise RuntimeError(
+                    "durable subagent terminal receipt does not belong to the frozen request"
+                )
+            if not isinstance(raw_result, dict):
+                raise RuntimeError(
+                    "durable subagent terminal receipt has no typed result"
+                )
+            progress_hash = subagent_progress_sha256(
+                summary=item.summary or "",
+                payload_json=payload,
+            )
+            if (
+                item.phase != MissionItemPhase.COMPLETED
+                or item.producer != job_id
+                or progress_id != f"subagent-terminal:{job_id}"
+                or payload.get("progress_sha256") != progress_hash
+            ):
+                raise RuntimeError(
+                    "durable subagent terminal receipt has invalid identity or hash"
+                )
+            if progress_id in progress_ids:
+                raise RuntimeError(
+                    "durable subagent terminal identity has duplicate ledger items"
+                )
+            progress_ids.add(progress_id)
             if payload.get("job_fingerprint") != subagent_job_fingerprint(job):
                 raise RuntimeError("durable subagent terminal result has a divergent semantic request")
             result = SubagentJobResult.model_validate(raw_result)
-            if result.result_sha256 != payload.get("result_sha256"):
+            if (
+                result.job_id != job_id
+                or result.operation_id != request.operation_id
+                or result.result_sha256 != payload.get("result_sha256")
+            ):
                 raise RuntimeError("durable subagent terminal result hash does not match")
+            prior = recovered.get(job_id)
+            if prior is not None and prior != result:
+                raise RuntimeError(
+                    "durable subagent terminal receipts contain divergent results"
+                )
             recovered[job_id] = result
         return recovered
 
@@ -1351,13 +1722,52 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
         )
 
 
+def _subagent_job_id(
+    request: SubagentExecutionRequest,
+    *,
+    index: int,
+    raw: object,
+) -> str:
+    if not isinstance(raw, dict):
+        raise ValueError("subagent jobs must be objects")
+    task = str(raw.get("task_summary") or request.task_summary).strip()
+    digest = hashlib.sha256(
+        f"{request.operation_id}:{index}:{task}".encode()
+    ).hexdigest()[:20]
+    return f"sj_{digest}"
+
+
 def _subagent_jobs(
     request: SubagentExecutionRequest,
     *,
     input_schema_resolver: Callable[[tuple[str, ...]], dict[str, dict[str, Any]]],
+    frozen_budgets: dict[str, SubagentBudget] | None = None,
 ) -> tuple[SubagentJobSpec, ...]:
     raw_jobs = request.input_scope.get("jobs")
     entries = raw_jobs if isinstance(raw_jobs, list) and raw_jobs else [request.input_scope]
+    entry_job_ids = tuple(
+        _subagent_job_id(request, index=index, raw=raw)
+        for index, raw in enumerate(entries)
+    )
+    frozen_budgets = dict(frozen_budgets or {})
+    unknown_frozen_jobs = set(frozen_budgets).difference(entry_job_ids)
+    if unknown_frozen_jobs:
+        raise ValueError(
+            "durable subagent terminal receipt does not match the requested jobs"
+        )
+    execution_budget = execution_budget_from_runtime_context(
+        request.mission.runtime_context_json
+    )
+    resource_usage = resource_usage_from_snapshot(request.mission.snapshot_json)
+    remaining_model_calls = execution_budget.max_model_calls - resource_usage.model_calls
+    missing_job_count = sum(
+        job_id not in frozen_budgets for job_id in entry_job_ids
+    )
+    if remaining_model_calls < missing_job_count:
+        raise ValueError(
+            "Mission execution budget cannot fund one model call per subagent job"
+        )
+    missing_jobs_left = missing_job_count
     jobs: list[SubagentJobSpec] = []
     lease_owner = request.mission.lease_owner
     if lease_owner is None:
@@ -1400,10 +1810,10 @@ def _subagent_jobs(
         mission_tools = set(mission_tool_policy.get("allowed_tool_ids", ()))
         if not set(allowed_tools).issubset(mission_tools):
             raise ValueError("pinned WorkerSkill tools exceed the Mission tool policy")
-        digest = hashlib.sha256(f"{request.operation_id}:{index}:{task}".encode()).hexdigest()[:20]
+        job_id = entry_job_ids[index]
         selected_refs = tuple(str(item) for item in raw.get("selected_refs", ()))
         job_values = {
-            "job_id": f"sj_{digest}",
+            "job_id": job_id,
             "operation_id": request.operation_id,
             "mission_id": request.mission.mission_id,
             "workspace_id": request.mission.workspace_id,
@@ -1452,21 +1862,38 @@ def _subagent_jobs(
             "exit_criteria": tuple(str(item) for item in skill_contract.get("quality_focus") or ()),
             "depth": 1,
         }
-        budget_raw = dict(raw.get("budget")) if isinstance(raw.get("budget"), dict) else {}
-        budget_raw["max_tool_steps"] = max(
-            SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
-            int(budget_raw.get("max_tool_steps") or 0),
-            len(job_values["context_reads"]),
-        )
-        budget_raw["max_context_bytes"] = max(
-            SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
-            int(budget_raw.get("max_context_bytes") or 0),
-            subagent_context_size_bytes(job_values),
-        )
+        budget = frozen_budgets.get(job_id)
+        if budget is None:
+            budget_raw = (
+                dict(raw.get("budget"))
+                if isinstance(raw.get("budget"), dict)
+                else {}
+            )
+            requested_turns = int(
+                budget_raw.get("max_turns") or SubagentBudget().max_turns
+            )
+            allocated_turns = max(
+                remaining_model_calls // missing_jobs_left,
+                1,
+            )
+            budget_raw["max_turns"] = min(requested_turns, allocated_turns)
+            budget_raw["max_tool_steps"] = max(
+                SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
+                int(budget_raw.get("max_tool_steps") or 0),
+                len(job_values["context_reads"]),
+            )
+            budget_raw["max_context_bytes"] = max(
+                SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
+                int(budget_raw.get("max_context_bytes") or 0),
+                subagent_context_size_bytes(job_values),
+            )
+            budget = SubagentBudget.model_validate(budget_raw)
+            remaining_model_calls -= budget.max_turns
+            missing_jobs_left -= 1
         jobs.append(
             SubagentJobSpec(
                 **job_values,
-                budget=SubagentBudget.model_validate(budget_raw),
+                budget=budget,
             )
         )
     return tuple(jobs)

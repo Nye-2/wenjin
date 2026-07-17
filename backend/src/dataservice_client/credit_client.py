@@ -8,14 +8,13 @@ from typing import Any
 from src.dataservice_client.contracts.credit import (
     CreditAdminAdjustPayload,
     CreditAdminSummaryPayload,
-    CreditConsumptionCreatePayload,
     CreditConsumptionStatsPayload,
     CreditGrantRuleCreatePayload,
     CreditGrantRulePayload,
     CreditGrantRuleUpdatePayload,
     CreditHistoryPayload,
-    CreditPeriodicGrantProcessPayload,
-    CreditPeriodicGrantSummaryPayload,
+    CreditPeriodicGrantPagePayload,
+    CreditPeriodicGrantPageRequest,
     CreditRedeemCodeCreatePayload,
     CreditRedeemCodePayload,
     CreditRedeemPayload,
@@ -112,31 +111,16 @@ class CreditDataServiceClientMixin:
         data = payload.get("data")
         return CreditSummaryPayload.model_validate(data) if data is not None else None
 
-    async def get_credit_consumed_tokens(
+    async def process_credit_periodic_grant_page(
         self,
-        *,
-        user_id: str,
-        consume_type: str,
-        metadata_type: str | None = None,
-    ) -> int:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/credit/users/{user_id}/consumed-tokens",
-            params={"consume_type": consume_type, "metadata_type": metadata_type},
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return int(data.get("consumed_tokens", 0)) if isinstance(data, dict) else 0
-
-    async def process_credit_periodic_grant_rules(
-        self,
-        command: CreditPeriodicGrantProcessPayload | None = None,
-    ) -> CreditPeriodicGrantSummaryPayload:
+        command: CreditPeriodicGrantPageRequest | None = None,
+    ) -> CreditPeriodicGrantPagePayload:
         payload = await self._request(
             "POST",
-            "/internal/v1/credit/periodic-grants/process",
-            json=(command or CreditPeriodicGrantProcessPayload()).model_dump(mode="json"),
+            "/internal/v1/credit/periodic-grants/process-page",
+            json=(command or CreditPeriodicGrantPageRequest()).model_dump(mode="json"),
         )
-        return CreditPeriodicGrantSummaryPayload.model_validate(payload["data"])
+        return CreditPeriodicGrantPagePayload.model_validate(payload["data"])
 
     async def get_credit_history(
         self,
@@ -178,22 +162,6 @@ class CreditDataServiceClientMixin:
             params={"since": since.isoformat(), "granularity": granularity},
         )
         return CreditConsumptionStatsPayload.model_validate(payload["data"])
-
-    async def record_credit_consumption(
-        self,
-        command: CreditConsumptionCreatePayload,
-    ) -> tuple[CreditTransactionPayload | None, int]:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/consume",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload["data"]
-        transaction = data.get("transaction")
-        return (
-            CreditTransactionPayload.model_validate(transaction) if transaction else None,
-            int(data.get("balance_before", 0)),
-        )
 
     async def admin_adjust_credit(
         self,

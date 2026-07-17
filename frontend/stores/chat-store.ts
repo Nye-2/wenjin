@@ -583,6 +583,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       });
 
       const runPayload: RunRequest = {
+        request_id: requestId,
         message: content,
         workspace_id: workspaceId,
         thread_id: threadId,

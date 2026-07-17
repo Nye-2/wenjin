@@ -30,6 +30,11 @@ mission:
     - Computed results require scripts, input refs, parameters, manifests and robustness checks.
     - Figures and conclusions must trace to computed data; generated data imagery is forbidden.
   forbidden_outcomes: [fabricated_data, skipped_question_gate, non_reproducible_result, misleading_figure, direct_workspace_write]
+execution_budget:
+  max_model_calls: 160
+  max_tool_operations: 320
+  max_subagent_jobs: 40
+  stop_after_total_tokens: 10000000
 minimum_context:
   problem_statement:
     requirement: required

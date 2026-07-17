@@ -124,6 +124,19 @@ def test_old_model_provider_protocol_is_rejected(tmp_path: Path) -> None:
     assert report["findings"][0]["rule_id"] == "old_model_provider_protocol"
 
 
+def test_old_execution_provenance_is_rejected(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "frontend/lib/api/v2/library.ts",
+        'const source = "execution:run-1";\n',
+    )
+
+    report = build_cutover_report(tmp_path)
+
+    assert report["finding_count"] == 1
+    assert report["findings"][0]["rule_id"] == "old_execution_provenance"
+
+
 def test_old_thread_checkpoint_api_is_rejected(tmp_path: Path) -> None:
     _write(
         tmp_path,
@@ -285,6 +298,22 @@ def test_removed_runtime_modules_and_billing_compatibility_are_rejected(
         "old_memory_worker": 1,
         "old_subagents_path": 1,
         "old_thesis_runtime_path": 1,
+    }
+
+
+def test_hardcoded_registration_credit_bonus_is_rejected(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "backend/src/services/credit_service.py",
+        "REGISTRATION_BONUS = 100\n"
+        "async def grant_registration_bonus(user_id: str): ...\n",
+    )
+
+    report = build_cutover_report(tmp_path)
+
+    assert report["finding_count"] == 2
+    assert report["counts_by_rule"] == {
+        "hardcoded_registration_credit_bonus": 2
     }
 
 

@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.contracts.mission_budget import MissionExecutionBudget
 from src.contracts.mission_policy import (
     CompletionContract,
     CompletionTarget,
@@ -51,6 +52,12 @@ def _policy() -> MissionPolicy:
             objective="Research",
             target_outcomes=("brief",),
             hard_constraints=("stage pass",),
+        ),
+        execution_budget=MissionExecutionBudget(
+            max_model_calls=32,
+            max_tool_operations=64,
+            max_subagent_jobs=8,
+            stop_after_total_tokens=100_000,
         ),
         minimum_context={"topic": MinimumContextRequirement(requirement="required", ask="Topic?")},
         stage_contract_refs=(stage.immutable_ref(),),

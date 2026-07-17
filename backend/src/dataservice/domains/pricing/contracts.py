@@ -40,6 +40,21 @@ class ModelUsagePolicyConfig(BaseModel):
     raw_cost: ModelRawCostPolicyConfig = Field(default_factory=ModelRawCostPolicyConfig)
     free_tokens: int = Field(default=0, ge=0)
     max_overdraft_credits: int = Field(default=100, ge=0)
+    chat_turn_token_reserve: int = Field(default=65_536, ge=1, le=1_000_000)
+    chat_turn_max_credits: int = Field(default=100, ge=0, le=1_000_000)
+    chat_turn_authorization_ttl_seconds: int = Field(
+        default=3_600,
+        ge=300,
+        le=86_400,
+    )
+
+    @model_validator(mode="after")
+    def validate_chat_turn_limit(self) -> ModelUsagePolicyConfig:
+        if self.chat_turn_max_credits < self.min_chat_credits:
+            raise ValueError(
+                "chat_turn_max_credits must cover min_chat_credits"
+            )
+        return self
 
 
 class MissionPricingPolicyConfig(BaseModel):

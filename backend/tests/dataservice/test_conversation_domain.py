@@ -11,7 +11,10 @@ import pytest
 
 from src.dataservice.conversation_api import ConversationDataService
 from src.dataservice.domains.conversation.block_protocol import blocks_from_message
-from src.dataservice.domains.conversation.contracts import ConversationMessageCreateCommand
+from src.dataservice.domains.conversation.contracts import (
+    ConversationAttachmentStatePatchCommand,
+    ConversationMessageCreateCommand,
+)
 from src.dataservice.domains.conversation.models import MessageBlock, ThreadMessage, ToolInvocationRecord
 from src.dataservice.domains.conversation.service import DataServiceConversationService
 
@@ -198,25 +201,51 @@ async def test_append_message_materializes_ordered_blocks_and_tool_record() -> N
 
 
 @pytest.mark.asyncio
-async def test_conversation_public_api_replaces_thread_messages() -> None:
+async def test_attachment_state_patch_preserves_canonical_message_identity() -> None:
     session = FakeSession()
     api = ConversationDataService(session, autocommit=False)  # type: ignore[arg-type]
     thread = _thread_like()
+    message = SimpleNamespace(
+        id="message-1",
+        metadata_json={
+            "attachments": [
+                {
+                    "metadata": {
+                        "preprocess": {
+                            "task_id": "task-1",
+                            "status": "queued",
+                        }
+                    }
+                }
+            ]
+        },
+    )
     api._domain.repository.lock_thread = AsyncMock()  # type: ignore[attr-defined,method-assign] # noqa: SLF001
     api._domain.repository.get_thread = AsyncMock(return_value=thread)  # type: ignore[attr-defined,method-assign] # noqa: SLF001
-    messages = [
-        {"role": "user", "content": "Hello"},
-        {"role": "assistant", "content": "Hi", "blocks": [{"kind": "text", "content": "Hi"}]},
-    ]
+    api._domain.repository.list_messages = AsyncMock(return_value=[message])  # type: ignore[attr-defined,method-assign] # noqa: SLF001
 
-    await api.replace_thread_messages(thread, messages)
+    changed = await api.patch_attachment_state(
+        ConversationAttachmentStatePatchCommand(
+            thread_id="thread-1",
+            task_id="task-1",
+            state_key="preprocess",
+            status="success",
+            state_patch={"status": "succeeded", "text": "ready"},
+            progress=100,
+        )
+    )
 
-    assert session.execute.await_count == 1
-    message_rows = [item for item in session.added if isinstance(item, ThreadMessage)]
-    assert [row.sequence_index for row in message_rows] == [0, 1]
-    block_rows = [item for item in session.added if isinstance(item, MessageBlock)]
-    assert [row.sequence_index for row in block_rows] == [0, 0]
-    assert session.flush.await_count == 3
+    assert changed is True
+    assert message.id == "message-1"
+    state = message.metadata_json["attachments"][0]["metadata"]["preprocess"]
+    assert state == {
+        "task_id": "task-1",
+        "status": "succeeded",
+        "text": "ready",
+        "progress": 100,
+    }
+    assert session.added == []
+    session.flush.assert_awaited_once()
 
 
 @pytest.mark.asyncio

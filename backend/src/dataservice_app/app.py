@@ -90,6 +90,7 @@ from .routers import (  # noqa: E402
     source,
     task,
     template,
+    thread_turn_billing,
     workspace,
     workspace_memory,
 )
@@ -111,6 +112,7 @@ app.include_router(rooms.router)
 app.include_router(source.router)
 app.include_router(task.router)
 app.include_router(template.router)
+app.include_router(thread_turn_billing.router)
 app.include_router(workspace.router)
 app.include_router(workspace_memory.router)
 

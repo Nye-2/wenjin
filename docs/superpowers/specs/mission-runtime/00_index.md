@@ -1,7 +1,7 @@
 # Mission Runtime Refactor Specs
 
 Status: Implemented; production-environment acceptance pending
-Updated: 2026-07-16
+Updated: 2026-07-17
 Parent overview: `docs/superpowers/specs/mission-runtime-overview.md`
 
 This directory breaks the Mission Runtime overview into implementation-oriented specs. The specs are written for a clean cutover: no long-lived compatibility layer, no dual-write execution path, and no second frontend state system.
@@ -35,8 +35,9 @@ Final schema chain:
 - `104_remove_dataservice_sandbox`: remove the obsolete DataService sandbox aggregate.
 - `105_remove_latex_compile_history`: remove direct LaTeX execution and compile-history persistence.
 - `106_remove_sandbox_pricing_policy`: converge pricing and credit reservations on Mission-owned billing.
+- `107_runtime_accounting`: require Mission execution budgets and add atomic chat-turn authorization/settlement plus user-balance counters.
 
-Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. Empty-database online migration through `103` is the release baseline.
+Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. A clean empty-database migration through `107` is the release baseline; 107 rejects non-empty development data and requires drop/reseed.
 
 ## Locked Decisions
 
@@ -47,7 +48,7 @@ Remaining production-environment acceptance includes the independent native-sear
 5. Admin capability editing is secondary to generation quality, UX, and runtime architecture.
 6. Review is item-level at the data layer; frontend can offer review modes and batch actions.
 7. First sandbox provider is Docker/rootless workspace provider.
-8. `ChatTurnRun` is short-lived chat transport state only. It stays in Redis/memory with TTL and never becomes Mission history or DataService mission truth.
+8. `ChatTurnRun` is short-lived chat transport state only. It stays in Redis/memory with TTL and never becomes Mission history. `ThreadTurnBilling` is separate DataService financial truth and never becomes a workflow/run aggregate.
 9. `MissionRun` is the only durable long-task run. User-facing Run History is mission history, not chat transport history.
 10. `ReviewBatch`, `ChangeSet`, `accepted_ids`, and `accepted_unit_ids` are removed from the runtime review/commit path. `MissionReviewItem` + `MissionCommit` own those duties.
 11. DataService migration includes every execution-linked domain: credit, sandbox, source/provenance, Prism, review, task, memory, rooms, and run history.
@@ -56,7 +57,7 @@ Remaining production-environment acceptance includes the independent native-sear
 14. Queue delivery is at-least-once. Durable command items and stable operation keys make duplicate delivery safe; MissionEvent and SSE loss recover from snapshot/items.
 15. MissionState is a typed runtime view, not a second persistent owner. Snapshot JSON never duplicates canonical scalar columns or stores unbounded detail lists.
 16. MissionReviewItem is one atomic domain-write candidate; one MissionCommit applies one accepted item. Frontend batch action does not create a batch domain object.
-17. Raw model trace, token deltas, stdout/stderr, large tool payloads, and old review previews are externalized, redacted, bounded, and TTL-managed.
+17. Raw model trace, stdout/stderr, large tool payloads, and old review previews are externalized, redacted, bounded, and TTL-managed. Normalized provider usage is a small immutable `usage_receipt` MissionItem and its cumulative projection is DataService-owned.
 18. Every MissionRun captures resolved model, `low | medium | high | xhigh` effort, and prompt/policy/tool/sandbox version refs or hashes.
 19. A queue delivery drives one bounded `MissionDriveSlice`; safe checkpoint/yield happens before Celery hard/visibility limits, and the database reconciler owns continuation recovery.
 20. MissionRun runnable fields plus immutable command items are the only dispatch intent; domain unique keys own idempotency. The unused DataService operations outbox/idempotency/migration-report domain is deleted.
@@ -93,7 +94,7 @@ Remaining production-environment acceptance includes the independent native-sear
 5. High-risk citation, claim, evidence, Prism edit, experiment conclusion, and memory writes require review no matter which review mode is selected.
 6. Frontend stores cannot own lifecycle, review, commit, or node/subagent state.
 7. All old execution runtime writes must disappear in the same cutover as MissionRuntime writes appear.
-8. `ChatTurnRun` can be lost without data loss; recovery comes from Thread messages and MissionRun snapshots.
+8. `ChatTurnRun` can be lost without research-state loss; recovery comes from Thread messages, `ThreadTurnBilling` idempotent settlement, and MissionRun snapshots.
 9. No runtime code may expose `ReviewBatch` or `ChangeSet` as the task review SSOT after cutover.
 10. A valid mission state write must carry the current state version and lease epoch; stale drivers are fenced out.
 11. A completed mission may still have pending review items; pending review does not reopen or mutate mission execution status.

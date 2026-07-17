@@ -25,7 +25,7 @@ from src.gateway.services.chat_turn_http import (
 )
 from src.gateway.services.chat_turn_launch import launch_chat_turn_from_create_request
 from src.gateway.services.chat_turn_views import build_chat_turn_wait_payload
-from src.runtime.chat_turns import ChatTurnRunManager
+from src.runtime.chat_turns import ChatTurnConflictError, ChatTurnRunManager
 from src.runtime.stream_bridge import StreamBridge
 from src.services.thread_service import ThreadService
 
@@ -193,7 +193,10 @@ async def delete_chat_turn(
         actor_id=str(current_user.id),
     )
     await get_chat_turn_or_404(run_manager, run_id, thread_id=thread_id)
-    await run_manager.cleanup(run_id, delay=0, remove_persistent=True)
+    try:
+        await run_manager.delete(run_id)
+    except ChatTurnConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=204)
 
 

@@ -8,7 +8,7 @@ Wenjin (问津) is a chat-native AI workbench for academic research and writing.
 
 - **Single agent topology**: `WorkspaceAgent` owns conversation, intent, Mission start/steer, and the structured Mission loop. It may spawn isolated workers through `SubagentRuntime`; there is no separate conversational/leader agent layer.
 - **Durable Mission aggregate**: `MissionRun`, ordered `MissionItem`, atomic `MissionReviewItem`, and idempotent `MissionCommit` are the only long-task persistence model.
-- **Transient chat transport**: `ChatTurnRun` streams one conversational turn. It is not research history or a durable workflow aggregate.
+- **Transient chat transport**: `ChatTurnRun` streams one conversational turn. Redis atomically holds the actor-global request index and recoverable dispatch intent; Celery delivery is at-least-once and worker terminal effects are execution-owner fenced. It is not research history or a durable workflow aggregate. `ThreadTurnBilling` is a separate financial authorization/settlement record, never a run store.
 - **Outcome-first methodology**: `MissionPolicy` pins goals, completion targets, stage contracts, tool groups, review, and budget. `WorkerSkill` supplies compact guidance/examples. The agent loop chooses the internal plan.
 - **Quality progression**: the main Agent freezes a content-addressed candidate, then `StageAcceptanceContract` deterministically blocks downstream stages until receipt-backed evidence, artifacts, and criteria pass. Optional critic workers are diagnostic only.
 - **Canonical tools**: a frozen `ToolCatalog` plus `ToolOrchestrator` owns tool ids, policy, operation identity, lease fencing, receipts, and typed failures.
@@ -20,11 +20,12 @@ Wenjin (问津) is a chat-native AI workbench for academic research and writing.
 ## Persistence and queues
 
 - Mission tables: `mission_runs`, `mission_items`, `mission_review_items`, `mission_commits`.
+- Chat finance table: `thread_turn_billings`; it atomically binds one user message, bounded hold, assistant message, exact usage, and credit transaction, and survives thread deletion as audit truth.
 - Catalog tables: `mission_policies`, `worker_skills`.
 - Default worker queues: `default,priority`.
 - Mission worker queue: `long_running`, concurrency 1, prefetch 1.
-- Current migration head: `106_remove_sandbox_pricing_policy`.
-- Migrations 086-106 are irreversible development cutovers; use drop/reseed, never compatibility layers.
+- Current migration head: `107_runtime_accounting`.
+- Migrations 086-107 are irreversible development cutovers; use drop/reseed, never compatibility layers. Migration 107 rejects non-empty development data.
 
 ## Model and search
 
@@ -41,6 +42,7 @@ Wenjin (问津) is a chat-native AI workbench for academic research and writing.
 | Workspace agent | `backend/src/agents/workspace_agent/agent.py` |
 | Mission loop | `backend/src/agents/workspace_agent/mission_loop.py` |
 | Chat turn transport | `backend/src/runtime/chat_turns/` |
+| Chat turn billing | `backend/src/dataservice/domains/thread_turn_billing/` |
 | Mission inputs | `backend/src/contracts/mission_input.py`, `backend/src/services/mission_inputs.py` |
 | Mission runtime | `backend/src/mission_runtime/runtime.py` |
 | Production composition | `backend/src/mission_runtime/composition.py` |

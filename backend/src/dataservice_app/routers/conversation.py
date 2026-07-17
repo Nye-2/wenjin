@@ -7,12 +7,12 @@ from fastapi import APIRouter, Depends
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.conversation.contracts import (
-    ConversationMessageCreateCommand,
-    ConversationMessagesRebuildCommand,
+    ConversationAttachmentStatePatchCommand,
     ConversationThreadCreateCommand,
     ConversationThreadUpdateCommand,
 )
 from src.dataservice.domains.conversation.service import DataServiceConversationService
+from src.dataservice.domains.thread_turn_billing.service import ThreadTurnBillingService
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
 
@@ -117,48 +117,24 @@ async def delete_thread(
     user_id: str,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
-    service = DataServiceConversationService(uow.required_session, autocommit=False)
+    service = ThreadTurnBillingService(uow.required_session, autocommit=False)
     deleted = await service.delete_thread(thread_id=thread_id, user_id=user_id)
     await uow.commit()
     return envelope_ok({"deleted": deleted})
 
 
-@router.post("/threads/{thread_id}/lock")
-async def lock_thread(
+@router.patch("/threads/{thread_id}/attachment-state")
+async def patch_attachment_state(
     thread_id: str,
+    command: ConversationAttachmentStatePatchCommand,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = DataServiceConversationService(uow.required_session, autocommit=False)
-    await service.lock_thread(thread_id)
+    changed = await service.patch_attachment_state(
+        command.model_copy(update={"thread_id": thread_id})
+    )
     await uow.commit()
-    return envelope_ok({"locked": True})
-
-
-@router.post("/{thread_id}/messages")
-async def append_message(
-    thread_id: str,
-    command: ConversationMessageCreateCommand,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceConversationService(uow.required_session, autocommit=False)
-    message = await service.append_message(command.model_copy(update={"thread_id": thread_id}))
-    await uow.commit()
-    records = await service.list_message_records(thread_id)
-    record = next((item for item in records if item.id == str(message.id)), None)
-    return envelope_ok(record.model_dump(mode="json") if record else None)
-
-
-@router.put("/{thread_id}/messages")
-async def rebuild_messages(
-    thread_id: str,
-    command: ConversationMessagesRebuildCommand,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = DataServiceConversationService(uow.required_session, autocommit=False)
-    await service.rebuild_messages(command.model_copy(update={"thread_id": thread_id}))
-    await uow.commit()
-    records = await service.list_message_records(thread_id)
-    return envelope_ok([record.model_dump(mode="json") for record in records])
+    return envelope_ok({"changed": changed})
 
 
 @router.get("/{thread_id}/messages")

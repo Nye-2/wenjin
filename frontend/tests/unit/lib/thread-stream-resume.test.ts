@@ -89,6 +89,7 @@ describe("chat stream resume", () => {
 
     const outcome = await streamThread(
       {
+        request_id: "request-reconnect",
         message: "hello",
         thread_id: "thread-1",
       },
@@ -156,7 +157,11 @@ describe("chat stream resume", () => {
     );
 
     const outcome = await streamThread(
-      { message: "hello", thread_id: "thread-1" },
+      {
+        request_id: "request-metadata",
+        message: "hello",
+        thread_id: "thread-1",
+      },
       { onContent: () => {} },
     ).completion;
     expect(outcome.status).toBe("completed");
@@ -192,7 +197,11 @@ describe("chat stream resume", () => {
       .mockResolvedValueOnce(new Response("", { status: 202 }));
 
     const handle = streamThread(
-      { message: "hello", thread_id: "thread-1" },
+      {
+        request_id: "request-cancel",
+        message: "hello",
+        thread_id: "thread-1",
+      },
       { onContent: () => {} },
     );
 
@@ -233,7 +242,11 @@ describe("chat stream resume", () => {
     let doneCount = 0;
 
     const outcome = await streamThread(
-      { message: "hello", thread_id: "thread-1" },
+      {
+        request_id: "request-end",
+        message: "hello",
+        thread_id: "thread-1",
+      },
       { onContent: (content) => chunks.push(content) },
     ).completion;
     if (outcome.status === "failed") errors.push(outcome.error);

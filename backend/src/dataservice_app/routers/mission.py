@@ -395,6 +395,15 @@ async def list_mission_items(
     return envelope_ok(result.model_dump(mode="json"))
 
 
+@router.get("/missions/{mission_id}/model-calls")
+async def list_mission_model_calls(
+    mission_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    results = await _store(uow).list_model_call_states(mission_id)
+    return envelope_ok([result.model_dump(mode="json") for result in results])
+
+
 @router.post("/missions/{mission_id}/items/by-seqs")
 async def list_mission_items_by_seqs(
     mission_id: str,

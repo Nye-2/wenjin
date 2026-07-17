@@ -42,10 +42,6 @@ class StreamBridge(abc.ABC):
     ) -> AsyncIterator[StreamEvent]:
         """Subscribe to events for ``run_id`` with optional replay."""
 
-    @abc.abstractmethod
-    async def cleanup(self, run_id: str, *, delay: float = 0) -> None:
-        """Cleanup retained state for ``run_id``."""
-
     async def close(self) -> None:
         """Release backend resources (default no-op)."""
         return None

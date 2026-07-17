@@ -498,6 +498,7 @@ export type WorkspaceEvent =
   | WorkspaceSubagentUpdatedEvent;
 
 export interface RunRequest {
+  request_id: string;
   message: string;
   workspace_id?: string;
   thread_id?: string;

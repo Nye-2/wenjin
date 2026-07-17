@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.conversation.contracts import (
+    ConversationAttachmentStatePatchCommand,
     ConversationMessageRecord,
     ConversationThreadCreateCommand,
     ConversationThreadProjection,
     ConversationThreadUpdateCommand,
 )
 from src.dataservice.domains.conversation.service import DataServiceConversationService
-
-if TYPE_CHECKING:
-    from src.database import Thread
 
 
 class ConversationDataService:
@@ -73,36 +70,11 @@ class ConversationDataService:
     ) -> ConversationThreadProjection | None:
         return await self._domain.update_thread(thread_id, command)
 
-    async def delete_thread(
+    async def patch_attachment_state(
         self,
-        *,
-        thread_id: str,
-        user_id: str,
+        command: ConversationAttachmentStatePatchCommand,
     ) -> bool:
-        return await self._domain.delete_thread(thread_id=thread_id, user_id=user_id)
-
-    async def lock_thread(self, thread_id: str) -> None:
-        await self._domain.lock_thread(thread_id)
-
-    async def append_thread_message(
-        self,
-        thread: Thread,
-        message: Mapping[str, Any],
-        *,
-        sequence_index: int,
-    ) -> None:
-        await self._domain.append_thread_message(
-            thread,
-            message,
-            sequence_index=sequence_index,
-        )
-
-    async def replace_thread_messages(
-        self,
-        thread: Thread,
-        messages: list[dict[str, Any]],
-    ) -> None:
-        await self._domain.replace_thread_messages(thread, messages)
+        return await self._domain.patch_attachment_state(command)
 
     async def list_message_records(self, thread_id: str) -> list[ConversationMessageRecord]:
         return await self._domain.list_message_records(thread_id)

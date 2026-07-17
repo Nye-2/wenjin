@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.contracts.model_usage import ModelUsageReceipt
 from src.contracts.reasoning import ReasoningEffort
 from src.contracts.review_policy import ReviewMode
 from src.dataservice_client.contracts.mission import (
@@ -112,7 +113,7 @@ class MissionStartRequest(_StrictModel):
     title: str = Field(min_length=1, max_length=60)
     objective: str = Field(min_length=1, max_length=20_000)
     mission_idempotency_key: str = Field(min_length=1, max_length=160)
-    mission_policy_id: str | None = Field(default=None, max_length=120)
+    mission_policy_id: str = Field(min_length=1, max_length=120)
     parent_mission_id: str | None = Field(default=None, max_length=36)
     continuation: MissionContinuationDirective | None = None
     review_mode: ReviewMode = ReviewMode.BALANCED_DEFAULT
@@ -146,6 +147,8 @@ class MissionPauseRequest(_StrictModel):
 
 
 class MissionAgentDecision(_StrictModel):
+    """One semantic decision with transport accounting attached after parsing."""
+
     decision_id: str = Field(min_length=1, max_length=160)
     kind: MissionDecisionKind
     summary: str = Field(min_length=1, max_length=4000)
@@ -155,6 +158,7 @@ class MissionAgentDecision(_StrictModel):
     payload_json: dict[str, Any] = Field(default_factory=dict)
     snapshot_patch: dict[str, Any] = Field(default_factory=dict)
     pause_request: MissionPauseRequest | None = None
+    usage_receipt: ModelUsageReceipt | None = None
 
     @model_validator(mode="after")
     def validate_kind_fields(self) -> MissionAgentDecision:
@@ -171,8 +175,25 @@ class MissionAgentDecision(_StrictModel):
         return self
 
 
-class MissionAgentProtocolError(RuntimeError):
+class MissionAgentResponseError(RuntimeError):
+    """Post-response processing failed after transport accounting was available."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        usage_receipt: ModelUsageReceipt | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.usage_receipt = usage_receipt
+
+
+class MissionAgentProtocolError(MissionAgentResponseError):
     """A model response violated the structured Mission agent contract."""
+
+
+class MissionAgentUsageError(RuntimeError):
+    """A provider response could not produce a non-zero usage receipt."""
 
 
 class MissionLoopContext(_StrictModel):

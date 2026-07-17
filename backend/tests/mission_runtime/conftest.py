@@ -10,6 +10,12 @@ from typing import Any
 
 import pytest
 
+from src.contracts.mission_budget import (
+    resource_delta_for_item,
+    resource_usage_from_snapshot,
+    snapshot_with_resource_usage,
+)
+from src.contracts.model_usage import ModelCallState, ModelUsage, ModelUsageReceipt
 from src.contracts.review_policy import project_review_policy
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
@@ -23,6 +29,7 @@ from src.dataservice_client.contracts.mission import (
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
     MissionLeaseReleasePayload,
+    MissionModelCallStatePayload,
     MissionOperationClaimPayload,
     MissionOperationClaimResultPayload,
     MissionOperationFinishPayload,
@@ -41,6 +48,7 @@ from src.dataservice_client.contracts.mission import (
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
     MissionAgentDecision,
+    MissionAgentResponseError,
     MissionEventEnvelope,
     MissionLoopContext,
     MissionPortOutcome,
@@ -117,8 +125,15 @@ class FakeMissionStore:
         run: MissionRunPayload,
         drafts: list[Any],
     ) -> list[MissionItemPayload]:
+        usage = resource_usage_from_snapshot(run.snapshot_json)
         appended: list[MissionItemPayload] = []
         for draft in drafts:
+            usage = usage.add(
+                resource_delta_for_item(
+                    item_type=draft.item_type,
+                    payload_json=draft.payload_json,
+                )
+            )
             self._item_counter += 1
             run.last_item_seq += 1
             item = MissionItemPayload(
@@ -138,11 +153,18 @@ class FakeMissionStore:
             )
             self.items[run.mission_id].append(item)
             appended.append(item)
+        run.snapshot_json = snapshot_with_resource_usage(
+            run.snapshot_json,
+            usage,
+        )
         return appended
 
     def _apply_patch(self, run: MissionRunPayload, command: MissionAppendPayload) -> None:
         if command.snapshot_json is not None:
-            run.snapshot_json = dict(command.snapshot_json)
+            run.snapshot_json = snapshot_with_resource_usage(
+                command.snapshot_json,
+                resource_usage_from_snapshot(run.snapshot_json),
+            )
         patch = command.patch
         fields = patch.model_fields_set
         if patch.status is not None:
@@ -413,6 +435,48 @@ class FakeMissionStore:
         command: MissionAppendPayload,
     ) -> MissionAppendResultPayload:
         run = self._require_run(mission_id)
+        if command.items and all(
+            item.item_type
+            in {"model_call_started", "usage_receipt", "model_call_terminal"}
+            for item in command.items
+        ):
+            replayed: list[MissionItemPayload] = []
+            for draft in command.items:
+                existing = [
+                    item
+                    for item in self.items[mission_id]
+                    if item.item_type == draft.item_type
+                    and item.operation_id == draft.operation_id
+                ]
+                if not existing:
+                    break
+                if len(existing) != 1:
+                    raise conflict("duplicate model ledger rows")
+                item = existing[0]
+                if not (
+                    item.phase == draft.phase
+                    and item.stage_id == draft.stage_id
+                    and item.producer == draft.producer
+                    and item.summary == draft.summary
+                    and item.risk_level == draft.risk_level
+                    and item.payload_json == draft.payload_json
+                    and item.payload_ref == draft.payload_ref
+                ):
+                    raise conflict("divergent model ledger replay")
+                replayed.append(item)
+            if len(replayed) == len(command.items):
+                if (
+                    run.status.value in {"completed", "failed", "cancelled"}
+                    or run.lease_owner != command.lease_owner
+                    or run.lease_epoch != command.lease_epoch
+                    or run.lease_expires_at is None
+                    or run.lease_expires_at <= self.clock.now()
+                ):
+                    raise conflict("lease fence rejected")
+                return MissionAppendResultPayload(
+                    mission=self._copy_run(run),
+                    items=[item.model_copy(deep=True) for item in replayed],
+                )
         self._require_fence(
             run,
             owner=command.lease_owner,
@@ -444,6 +508,42 @@ class FakeMissionStore:
             and (operation_id is None or item.operation_id == operation_id)
         ]
         return [item.model_copy(deep=True) for item in items[:limit]]
+
+    async def list_model_call_states(
+        self,
+        mission_id: str,
+    ) -> list[MissionModelCallStatePayload]:
+        states: list[MissionModelCallStatePayload] = []
+        for started in self.items[mission_id]:
+            if started.item_type != "model_call_started":
+                continue
+            terminals = [
+                item
+                for item in self.items[mission_id]
+                if item.operation_id == started.operation_id
+                and item.item_type in {"usage_receipt", "model_call_terminal"}
+            ]
+            if len(terminals) > 1:
+                raise conflict("duplicate model call terminal")
+            terminal = terminals[0] if terminals else None
+            if terminal is None:
+                state = ModelCallState.OPEN
+            elif terminal.item_type == "usage_receipt":
+                state = ModelCallState.RECEIPT
+            else:
+                state = ModelCallState(str(terminal.payload_json["outcome"]))
+            states.append(
+                MissionModelCallStatePayload(
+                    state=state,
+                    started=started.model_copy(deep=True),
+                    terminal=(
+                        terminal.model_copy(deep=True)
+                        if terminal is not None
+                        else None
+                    ),
+                )
+            )
+        return states
 
     async def list_review_items(
         self,
@@ -672,22 +772,67 @@ class ScriptedAgent:
     def __init__(self, decisions: list[MissionAgentDecision | DecisionFactory]) -> None:
         self.decisions = list(decisions)
         self.contexts: list[MissionLoopContext] = []
+        self.provider_calls = 0
+
+    def _usage_receipt(self, *, model_id: str) -> ModelUsageReceipt:
+        return ModelUsageReceipt(
+            model_id=model_id,
+            provider_response_id=f"scripted-response-{self.provider_calls}",
+            usage=ModelUsage(
+                input_tokens=10,
+                output_tokens=5,
+                total_tokens=15,
+            ),
+        )
 
     async def decide(self, context: MissionLoopContext) -> MissionAgentDecision:
         self.contexts.append(context.model_copy(deep=True))
         if not self.decisions:
             raise RuntimeError("scripted agent exhausted")
+        self.provider_calls += 1
         decision = self.decisions.pop(0)
-        if callable(decision):
-            decision = decision(context)
-            if inspect.isawaitable(decision):
-                decision = await decision
+        try:
+            if callable(decision):
+                decision = decision(context)
+                if inspect.isawaitable(decision):
+                    decision = await decision
+        except MissionAgentResponseError as exc:
+            if exc.usage_receipt is not None:
+                raise
+            raise type(exc)(
+                str(exc),
+                usage_receipt=self._usage_receipt(
+                    model_id=context.mission.model_id
+                ),
+            ) from exc
+        if decision.usage_receipt is None:
+            decision = decision.model_copy(
+                update={
+                    "usage_receipt": self._usage_receipt(
+                        model_id=context.mission.model_id
+                    )
+                }
+            )
         return decision
 
 
 class FakeStartContext:
     async def pin(self, request: MissionStartRequest) -> MissionStartRequest:
-        return request
+        runtime_context = dict(request.runtime_context_json)
+        policy = dict(runtime_context.get("mission_policy_snapshot") or {})
+        policy.setdefault(
+            "execution_budget",
+            {
+                "max_model_calls": 1_000,
+                "max_tool_operations": 1_000,
+                "max_subagent_jobs": 100,
+                "stop_after_total_tokens": 10_000_000,
+            },
+        )
+        runtime_context["mission_policy_snapshot"] = policy
+        return request.model_copy(
+            update={"runtime_context_json": runtime_context}
+        )
 
 
 class FakeTools:
@@ -729,6 +874,10 @@ class FakeSubagents:
             summary="subagent completed",
             payload_json={"result_ref": request.operation_id},
         )
+
+    async def adopt_terminal(self, request: Any) -> MissionPortOutcome | None:
+        del request
+        return None
 
 
 class FakeQuality:
@@ -820,6 +969,7 @@ def start_request(**overrides: Any) -> MissionStartRequest:
         "title": "Federated PEFT study",
         "objective": "Map research gaps for federated LLM fine-tuning",
         "mission_idempotency_key": "start-1",
+        "mission_policy_id": "sci_research",
         "model_id": "gpt-5.6-sol",
         "reasoning_effort": "xhigh",
     }

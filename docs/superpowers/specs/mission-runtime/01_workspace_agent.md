@@ -69,10 +69,14 @@ ChatTurnRun owns: SSE stream id, disconnect mode, abort signal, worker task id, 
 ChatTurnRun does not own: mission status, stage status, review state, evidence, artifacts, commits, Run History
 ```
 
+`ThreadTurnBilling` is a separate financial aggregate, not an extension of ChatTurnRun. One required client `request_id`, bound to the authenticated actor, authorizes one bounded hold and user message before provider work; reconnects reuse it, while transient run ids and generated fallback keys are forbidden. Settlement atomically binds the assistant message, non-zero usage receipt, and one credit transaction. If an authorization commits but both responses are lost, compensation addresses it by the same idempotency key under the canonical user-row lock. Released/expired rows remain financial audit records but never appear in Mission history or Mission Console.
+
+ChatTurn admission atomically stores the private actor-global request key, canonical payload fingerprint, serialized dispatch payload, and due dispatch intent in TTL Redis transport state before broker publication. Duplicate HTTP launches return the indexed transport before multitask handling; reusing the key with a different payload is a conflict. Gateway publication is best effort and a Celery-beat reconciler republishes due intents at least once with a deterministic task id. Worker execution is owner-fenced: lease loss cancels the local provider task, temporary Redis failure retries through Celery, and stale workers cannot publish terminal status, billing cleanup, or stream completion. Gateway hydration is read-only. Terminal state uses Redis TTL and amortized index pruning rather than process-local sleeper cleanup. The request key is serialized explicitly to the worker and never smuggled through user metadata.
+
 Production rule:
 
 - Chat turn transport can live in Redis/memory and expire.
-- Chat messages persist through Thread / ChatBlock.
+- Chat messages persist through Thread / ChatBlock; production user/assistant append is owned by the atomic billing transaction.
 - Long tasks persist through MissionRun / MissionItem.
 - If a chat stream dies after mission creation, recovery comes from MissionRun lookup by idempotency key or workspace mission list.
 - Frontend must not display ChatTurnRun as a research run.

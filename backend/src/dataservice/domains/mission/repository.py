@@ -481,6 +481,76 @@ class MissionRepository:
         result = await self.session.execute(statement)
         return list(result.scalars())
 
+    async def list_operation_receipt_items(
+        self,
+        *,
+        mission_id: str,
+        operation_id: str,
+    ) -> list[MissionItemRecord]:
+        """Load the latest claim/terminal pair without a history-page cutoff."""
+
+        result = await self.session.execute(
+            select(MissionItemRecord)
+            .where(
+                MissionItemRecord.mission_id == mission_id,
+                MissionItemRecord.operation_id == operation_id,
+                MissionItemRecord.item_type.in_(
+                    ("operation_claim", "operation_terminal")
+                ),
+            )
+            .order_by(MissionItemRecord.seq.desc())
+            .limit(2)
+        )
+        records = list(result.scalars())
+        records.reverse()
+        return records
+
+    async def list_model_ledger_items(
+        self,
+        *,
+        mission_id: str,
+        operation_ids: tuple[str, ...] | None = None,
+    ) -> list[MissionItemRecord]:
+        if operation_ids == ():
+            return []
+        statement = select(MissionItemRecord).where(
+                MissionItemRecord.mission_id == mission_id,
+                MissionItemRecord.item_type.in_(
+                    (
+                        "model_call_started",
+                        "usage_receipt",
+                        "model_call_terminal",
+                    )
+                ),
+            )
+        if operation_ids is not None:
+            statement = statement.where(
+                MissionItemRecord.operation_id.in_(operation_ids)
+            )
+        result = await self.session.execute(
+            statement.order_by(MissionItemRecord.seq.asc())
+        )
+        return list(result.scalars())
+
+    async def list_subagent_progress_items(
+        self,
+        *,
+        mission_id: str,
+        operation_ids: tuple[str, ...],
+    ) -> list[MissionItemRecord]:
+        if not operation_ids:
+            return []
+        result = await self.session.execute(
+            select(MissionItemRecord)
+            .where(
+                MissionItemRecord.mission_id == mission_id,
+                MissionItemRecord.item_type == "subagent_progress",
+                MissionItemRecord.operation_id.in_(operation_ids),
+            )
+            .order_by(MissionItemRecord.seq.asc())
+        )
+        return list(result.scalars())
+
     async def list_items(
         self,
         *,

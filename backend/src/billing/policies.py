@@ -76,6 +76,28 @@ class ModelUsageCreditCharge:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatTurnAuthorizationQuote:
+    """Bounded financial hold for one chat turn."""
+
+    token_envelope: int
+    free_token_hold: int
+    billable_token_envelope: int
+    uncapped_credit_ceiling: int
+    credit_limit: int
+    credit_hold: int
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "token_envelope": self.token_envelope,
+            "free_token_hold": self.free_token_hold,
+            "billable_token_envelope": self.billable_token_envelope,
+            "uncapped_credit_ceiling": self.uncapped_credit_ceiling,
+            "credit_limit": self.credit_limit,
+            "credit_hold": self.credit_hold,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class MissionPricingEstimate:
     """Value-based Mission estimate used before long-running work."""
 
@@ -104,10 +126,16 @@ def calculate_free_token_usage(
     historical_before = max(int(historical_tokens_before or 0), 0)
     historical_after = historical_before + normalized_total
 
-    if not allowance.enabled or normalized_total <= 0:
+    if normalized_total <= 0:
         return FreeTokenUsage(
             free_tokens_applied=0,
             billable_tokens=0,
+            historical_tokens_after=historical_after,
+        )
+    if not allowance.enabled:
+        return FreeTokenUsage(
+            free_tokens_applied=0,
+            billable_tokens=normalized_total,
             historical_tokens_after=historical_after,
         )
 
@@ -134,11 +162,12 @@ def calculate_weighted_tokens(
     output_weight = _float_policy_value(policy, "output_weight", default=1.0)
     reasoning_weight = _float_policy_value(policy, "reasoning_weight", default=1.0)
 
+    partitions = _partition_usage(usage)
     return (
-        usage["input_tokens"] * input_weight
-        + usage["cached_input_tokens"] * cached_input_weight
-        + usage["output_tokens"] * output_weight
-        + usage["reasoning_tokens"] * reasoning_weight
+        partitions["uncached_input_tokens"] * input_weight
+        + partitions["cached_input_tokens"] * cached_input_weight
+        + partitions["visible_output_tokens"] * output_weight
+        + partitions["reasoning_tokens"] * reasoning_weight
     )
 
 
@@ -195,6 +224,104 @@ def calculate_model_usage_credits(
         raw_cost_guard_credits=raw_cost_guard_credits,
         minimum_credits=minimum_credits,
         credits_to_charge=credits_to_charge,
+    )
+
+
+def calculate_chat_turn_authorization(
+    *,
+    model_policy: Any,
+    global_policy: Any | None,
+    historical_tokens: int,
+    reserved_free_tokens: int,
+) -> ChatTurnAuthorizationQuote:
+    """Price the maximum charge that may be settled for one chat turn."""
+
+    policy = _policy_config(model_policy)
+    token_envelope = _int_policy_value(
+        policy,
+        "chat_turn_token_reserve",
+        default=65_536,
+    )
+    free_tokens = _int_policy_value(policy, "free_tokens", default=0)
+    remaining_free_tokens = max(
+        free_tokens
+        - max(int(historical_tokens or 0), 0)
+        - max(int(reserved_free_tokens or 0), 0),
+        0,
+    )
+    free_token_hold = min(remaining_free_tokens, token_envelope)
+    billable_token_envelope = max(token_envelope - free_token_hold, 0)
+    uncapped_credit_ceiling = calculate_model_usage_credit_ceiling(
+        model_policy=policy,
+        global_policy=global_policy,
+        token_limit=billable_token_envelope,
+        surface="chat",
+    )
+    credit_limit = _int_policy_value(
+        policy,
+        "chat_turn_max_credits",
+        default=100,
+    )
+    return ChatTurnAuthorizationQuote(
+        token_envelope=token_envelope,
+        free_token_hold=free_token_hold,
+        billable_token_envelope=billable_token_envelope,
+        uncapped_credit_ceiling=uncapped_credit_ceiling,
+        credit_limit=credit_limit,
+        credit_hold=min(uncapped_credit_ceiling, credit_limit),
+    )
+
+
+def calculate_model_usage_credit_ceiling(
+    *,
+    model_policy: Any,
+    global_policy: Any | None,
+    token_limit: int,
+    surface: str,
+) -> int:
+    """Return the worst charge over every valid token-detail partition."""
+
+    normalized_limit = max(int(token_limit or 0), 0)
+    if normalized_limit <= 0:
+        return 0
+    scenarios = (
+        {
+            "input_tokens": normalized_limit,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": normalized_limit,
+        },
+        {
+            "input_tokens": normalized_limit,
+            "cached_input_tokens": normalized_limit,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": normalized_limit,
+        },
+        {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": normalized_limit,
+            "reasoning_tokens": 0,
+            "total_tokens": normalized_limit,
+        },
+        {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": normalized_limit,
+            "reasoning_tokens": normalized_limit,
+            "total_tokens": normalized_limit,
+        },
+    )
+    return max(
+        calculate_model_usage_credits(
+            model_policy=model_policy,
+            global_policy=global_policy,
+            token_usage=usage,
+            surface=surface,
+        ).credits_to_charge
+        for usage in scenarios
     )
 
 
@@ -297,20 +424,21 @@ def _billable_usage_slice(usage: dict[str, int], billable_tokens: int | None) ->
     ratio = normalized_billable / total_tokens
     sliced = {
         "input_tokens": math.floor(usage["input_tokens"] * ratio),
-        "cached_input_tokens": math.floor(usage["cached_input_tokens"] * ratio),
         "output_tokens": math.floor(usage["output_tokens"] * ratio),
-        "reasoning_tokens": math.floor(usage["reasoning_tokens"] * ratio),
         "total_tokens": normalized_billable,
     }
-    allocated = (
-        sliced["input_tokens"]
-        + sliced["cached_input_tokens"]
-        + sliced["output_tokens"]
-        + sliced["reasoning_tokens"]
-    )
+    allocated = sliced["input_tokens"] + sliced["output_tokens"]
     remainder = max(normalized_billable - allocated, 0)
     if remainder > 0:
         sliced["output_tokens"] += remainder
+    sliced["cached_input_tokens"] = min(
+        math.floor(usage["cached_input_tokens"] * ratio),
+        sliced["input_tokens"],
+    )
+    sliced["reasoning_tokens"] = min(
+        math.floor(usage["reasoning_tokens"] * ratio),
+        sliced["output_tokens"],
+    )
     return sliced
 
 
@@ -325,12 +453,32 @@ def _raw_cost_usd(policy: dict[str, Any], usage: dict[str, int]) -> float:
     raw_cost = policy.get("raw_cost")
     if not isinstance(raw_cost, dict):
         raw_cost = {}
+    partitions = _partition_usage(usage)
     return (
-        usage["input_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("input_usd_per_1m"), default=0)
-        + usage["cached_input_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("cached_input_usd_per_1m"), default=0)
-        + usage["output_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("output_usd_per_1m"), default=0)
-        + usage["reasoning_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("reasoning_usd_per_1m"), default=0)
+        partitions["uncached_input_tokens"]
+        / 1_000_000
+        * _coerce_float(raw_cost.get("input_usd_per_1m"), default=0)
+        + partitions["cached_input_tokens"]
+        / 1_000_000
+        * _coerce_float(raw_cost.get("cached_input_usd_per_1m"), default=0)
+        + partitions["visible_output_tokens"]
+        / 1_000_000
+        * _coerce_float(raw_cost.get("output_usd_per_1m"), default=0)
+        + partitions["reasoning_tokens"]
+        / 1_000_000
+        * _coerce_float(raw_cost.get("reasoning_usd_per_1m"), default=0)
     )
+
+
+def _partition_usage(usage: dict[str, int]) -> dict[str, int]:
+    cached_input = min(usage["cached_input_tokens"], usage["input_tokens"])
+    reasoning = min(usage["reasoning_tokens"], usage["output_tokens"])
+    return {
+        "uncached_input_tokens": usage["input_tokens"] - cached_input,
+        "cached_input_tokens": cached_input,
+        "visible_output_tokens": usage["output_tokens"] - reasoning,
+        "reasoning_tokens": reasoning,
+    }
 
 
 def _int_policy_value(policy: dict[str, Any], key: str, *, default: int) -> int:

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Mapping
+from dataclasses import replace
 from typing import Any
 
 from src.application.errors import ApplicationError
@@ -15,9 +17,17 @@ from src.services.thread_events import set_thread_status
 
 from ..stream_bridge import StreamBridge
 from .manager import ChatTurnRunManager, ChatTurnRunRecord
-from .schemas import ChatTurnRunStatus
+from .schemas import ChatTurnExecutionRenewal, ChatTurnRunStatus
 
 logger = logging.getLogger(__name__)
+
+
+class _ExecutionLeaseLost(RuntimeError):
+    """The worker can no longer produce side effects for this transport."""
+
+
+class _ExecutionLeaseUnavailable(RuntimeError):
+    """The execution lease could not be renewed before its deadline."""
 
 
 async def _emit_assistant_blocks(
@@ -84,6 +94,30 @@ async def _maybe_close_stream_run(stream_run: Any) -> None:
         await maybe_awaitable
 
 
+async def _close_stream_run_best_effort(stream_run: Any, *, run_id: str) -> None:
+    try:
+        await _maybe_close_stream_run(stream_run)
+    except (Exception, asyncio.CancelledError):
+        logger.warning("Failed to close stream for run %s", run_id, exc_info=True)
+
+
+async def _publish_best_effort(
+    bridge: StreamBridge,
+    run_id: str,
+    event: str,
+    data: Mapping[str, Any],
+) -> None:
+    try:
+        await bridge.publish(run_id, event, data)
+    except (Exception, asyncio.CancelledError):
+        logger.warning(
+            "Failed to publish %s event for run %s",
+            event,
+            run_id,
+            exc_info=True,
+        )
+
+
 async def _set_idle_status_if_no_other_active_chat_turns(
     *,
     run_manager: ChatTurnRunManager,
@@ -126,61 +160,159 @@ async def run_chat_turn(
     """Execute one thread turn and publish canonical stream events."""
 
     run_id = record.run_id
+    turn_idempotency_key = str(request.turn_idempotency_key or "").strip()
     stream_run = None
     prepared = None
     execution_task: asyncio.Task[Any] | None = None
     abort_task: asyncio.Task[str] | None = None
+    heartbeat_task: asyncio.Task[None] | None = None
+    authorization_cleanup_attempted = False
+    lost_execution_ownership = False
+
+    execution_owner = await run_manager.claim_execution(run_id)
+    if execution_owner is None:
+        return
+
+    async def renew_execution_claim() -> None:
+        interval = max(0.02, run_manager.execution_lease_seconds / 3)
+        last_confirmed = time.monotonic()
+        while True:
+            await asyncio.sleep(interval)
+            renewal = await run_manager.renew_execution_claim(
+                run_id,
+                execution_owner,
+            )
+            if renewal is ChatTurnExecutionRenewal.renewed:
+                last_confirmed = time.monotonic()
+                continue
+            if renewal is ChatTurnExecutionRenewal.lost:
+                raise _ExecutionLeaseLost(
+                    f"Execution lease lost for chat turn {run_id}"
+                )
+            if (
+                time.monotonic() - last_confirmed
+                >= run_manager.execution_lease_seconds
+            ):
+                raise _ExecutionLeaseUnavailable(
+                    f"Execution lease unavailable for chat turn {run_id}"
+                )
+
+    async def fail_authorized_turn(reason: str) -> None:
+        nonlocal authorization_cleanup_attempted
+        if prepared is None or authorization_cleanup_attempted:
+            return
+        failure_handler = getattr(handler, "handle_run_failure", None)
+        if failure_handler is None or not callable(failure_handler):
+            return
+        authorization_cleanup_attempted = True
+        try:
+            await failure_handler(
+                prepared,
+                actor_id=actor_id,
+                reason=reason,
+            )
+        except (Exception, asyncio.CancelledError):
+            logger.exception(
+                "Failed to close authorization after run %s failure",
+                run_id,
+            )
 
     async def execute() -> Any:
         nonlocal prepared, stream_run
-        prepared = await handler.prepare_turn(request, actor_id=actor_id)
-        resolved_thread_id = str(prepared.thread.id)
-        await run_manager.bind_thread(run_id, resolved_thread_id)
+        try:
+            prepared = await handler.prepare_turn(request, actor_id=actor_id)
+            resolved_thread_id = str(prepared.thread.id)
+            bound = await run_manager.bind_thread(
+                run_id,
+                resolved_thread_id,
+                expected_execution_owner=execution_owner,
+            )
+            if not bound:
+                renewal = await run_manager.renew_execution_claim(
+                    run_id,
+                    execution_owner,
+                )
+                if renewal is ChatTurnExecutionRenewal.renewed:
+                    bound = await run_manager.bind_thread(
+                        run_id,
+                        resolved_thread_id,
+                        expected_execution_owner=execution_owner,
+                    )
+                if not bound and renewal is not ChatTurnExecutionRenewal.lost:
+                    raise _ExecutionLeaseUnavailable(
+                        f"Transport unavailable before binding chat turn {run_id}"
+                    )
+            if not bound:
+                raise _ExecutionLeaseLost(
+                    f"Execution lease lost before binding chat turn {run_id}"
+                )
 
-        await bridge.publish(
-            run_id,
-            "metadata",
-            {
-                "run_id": run_id,
-                "thread_id": resolved_thread_id,
-                "workspace_id": prepared.thread.workspace_id,
-            },
-        )
-        await bridge.publish(
-            run_id,
-            "thread_id",
-            {
-                "type": "thread_id",
-                "thread_id": resolved_thread_id,
-            },
-        )
-
-        stream_run = handler.stream_turn(prepared, actor_id=actor_id)
-        async for delta in stream_run:
             await bridge.publish(
                 run_id,
-                "content",
-                {"type": "content", "content": delta.text},
+                "metadata",
+                {
+                    "run_id": run_id,
+                    "thread_id": resolved_thread_id,
+                    "workspace_id": prepared.thread.workspace_id,
+                },
             )
-        return await stream_run.wait_completed()
+            await bridge.publish(
+                run_id,
+                "thread_id",
+                {
+                    "type": "thread_id",
+                    "thread_id": resolved_thread_id,
+                },
+            )
+
+            stream_run = handler.stream_turn(prepared, actor_id=actor_id)
+            async for delta in stream_run:
+                await bridge.publish(
+                    run_id,
+                    "content",
+                    {"type": "content", "content": delta.text},
+                )
+            return await stream_run.wait_completed()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            await _close_stream_run_best_effort(stream_run, run_id=run_id)
+            renewal = await run_manager.renew_execution_claim(
+                run_id,
+                execution_owner,
+            )
+            if renewal is ChatTurnExecutionRenewal.renewed:
+                await fail_authorized_turn("chat turn transport failed")
+            raise
 
     async def interrupt(abort_action: str) -> None:
+        nonlocal authorization_cleanup_attempted
         if execution_task is not None and not execution_task.done():
             execution_task.cancel()
             try:
                 await execution_task
             except BaseException:
                 pass
-        await _maybe_close_stream_run(stream_run)
+        await _close_stream_run_best_effort(stream_run, run_id=run_id)
         if prepared is not None:
-            await handler.handle_run_interruption(
-                prepared,
-                rollback=abort_action == "rollback",
-            )
+            try:
+                await handler.handle_run_interruption(
+                    prepared,
+                    rollback=abort_action == "rollback",
+                )
+                authorization_cleanup_attempted = True
+            except (Exception, asyncio.CancelledError):
+                logger.exception("Failed to interrupt authorization for run %s", run_id)
+                await fail_authorized_turn("chat turn interruption failed")
         await run_manager.transition_status(
             run_id,
             ChatTurnRunStatus.interrupted,
-            expected=(ChatTurnRunStatus.pending, ChatTurnRunStatus.running),
+            expected=(
+                ChatTurnRunStatus.pending,
+                ChatTurnRunStatus.running,
+                ChatTurnRunStatus.interrupted,
+            ),
+            expected_execution_owner=execution_owner,
         )
         if prepared is not None:
             await _set_idle_status_if_no_other_active_chat_turns(
@@ -190,23 +322,24 @@ async def run_chat_turn(
             )
 
     try:
-        started = await run_manager.transition_status(
-            run_id,
-            ChatTurnRunStatus.running,
-            expected=(ChatTurnRunStatus.pending,),
+        if not turn_idempotency_key:
+            raise RuntimeError("Chat turn is missing its stable request identity")
+        request = replace(
+            request,
+            turn_idempotency_key=turn_idempotency_key,
         )
-        if not started:
-            return
-
+        heartbeat_task = asyncio.create_task(renew_execution_claim())
         execution_task = asyncio.create_task(execute())
         abort_task = asyncio.create_task(run_manager.wait_for_abort(run_id))
         done, _ = await asyncio.wait(
-            (execution_task, abort_task),
+            (execution_task, abort_task, heartbeat_task),
             return_when=asyncio.FIRST_COMPLETED,
         )
         if abort_task in done:
             await interrupt(abort_task.result())
             return
+        if heartbeat_task in done:
+            heartbeat_task.result()
 
         abort_task.cancel()
         try:
@@ -218,8 +351,13 @@ async def run_chat_turn(
             run_id,
             ChatTurnRunStatus.success,
             expected=(ChatTurnRunStatus.running,),
+            expected_execution_owner=execution_owner,
         )
         if not completed_transition:
+            latest = await run_manager.get_or_load(run_id, refresh=True)
+            lost_execution_ownership = (
+                latest is None or latest.execution_owner != execution_owner
+            )
             return
         await _emit_assistant_blocks(bridge, run_id=run_id, message=completed.assistant_message)
         await bridge.publish(run_id, "done", {"type": "done"})
@@ -227,18 +365,49 @@ async def run_chat_turn(
         logger.warning("Run %s cancelled; marking interrupted", run_id)
         abort_action = await run_manager.get_abort_action(run_id)
         await interrupt(abort_action)
+    except _ExecutionLeaseLost:
+        lost_execution_ownership = True
+        logger.warning("Run %s lost its execution lease; fencing old worker", run_id)
+        if execution_task is not None and not execution_task.done():
+            execution_task.cancel()
+            try:
+                await execution_task
+            except BaseException:
+                pass
+        await _close_stream_run_best_effort(stream_run, run_id=run_id)
+    except _ExecutionLeaseUnavailable:
+        lost_execution_ownership = True
+        logger.warning(
+            "Run %s could not renew its execution lease; retrying delivery",
+            run_id,
+        )
+        if execution_task is not None and not execution_task.done():
+            execution_task.cancel()
+            try:
+                await execution_task
+            except BaseException:
+                pass
+        await _close_stream_run_best_effort(stream_run, run_id=run_id)
+        raise
     except ApplicationError as exc:
         changed = await run_manager.transition_status(
             run_id,
             ChatTurnRunStatus.error,
             expected=(ChatTurnRunStatus.running,),
             error=exc.message,
+            expected_execution_owner=execution_owner,
         )
         if changed:
-            await bridge.publish(
+            await _publish_best_effort(
+                bridge,
                 run_id,
                 "error",
                 {"type": "error", "error": exc.message},
+            )
+        else:
+            latest = await run_manager.get_or_load(run_id, refresh=True)
+            lost_execution_ownership = (
+                latest is None or latest.execution_owner != execution_owner
             )
     except Exception as exc:
         logger.exception("Run %s failed", run_id)
@@ -252,12 +421,19 @@ async def run_chat_turn(
             ChatTurnRunStatus.error,
             expected=(ChatTurnRunStatus.running,),
             error=str(exc),
+            expected_execution_owner=execution_owner,
         )
         if changed:
-            await bridge.publish(
+            await _publish_best_effort(
+                bridge,
                 run_id,
                 "error",
                 {"type": "error", "error": message},
+            )
+        else:
+            latest = await run_manager.get_or_load(run_id, refresh=True)
+            lost_execution_ownership = (
+                latest is None or latest.execution_owner != execution_owner
             )
     finally:
         if abort_task is not None and not abort_task.done():
@@ -266,6 +442,24 @@ async def run_chat_turn(
                 await abort_task
             except asyncio.CancelledError:
                 pass
-        await bridge.publish_end(run_id)
-        asyncio.create_task(bridge.cleanup(run_id, delay=120))
-        asyncio.create_task(run_manager.cleanup(run_id, delay=300))
+        if heartbeat_task is not None:
+            if not heartbeat_task.done():
+                heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            except (_ExecutionLeaseLost, _ExecutionLeaseUnavailable):
+                pass
+            except Exception:
+                logger.warning(
+                    "Execution-claim heartbeat failed for run %s",
+                    run_id,
+                    exc_info=True,
+                )
+        await run_manager.release_execution_claim(run_id, execution_owner)
+        if not lost_execution_ownership:
+            try:
+                await bridge.publish_end(run_id)
+            except (Exception, asyncio.CancelledError):
+                logger.warning("Failed to publish end for run %s", run_id, exc_info=True)

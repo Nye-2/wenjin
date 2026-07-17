@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.contracts.mission_write_authority import MissionWriteAuthority
 from src.contracts.stage_acceptance import StageAcceptanceContract
+from src.contracts.subagent_progress import subagent_progress_sha256
 from src.database.models.credit_reservation import CreditReservation
 from src.database.models.mission import (
     MissionCommitRecord,
@@ -23,11 +24,13 @@ from src.dataservice.common.errors import (
     DataServiceConflictError,
     DataServiceValidationError,
 )
+from src.dataservice.domains.mission._store_core import (
+    _project_stage_instance_ids,
+    _stage_projection_title,
+)
 from src.dataservice.domains.mission.service import (
     MissionProjectionStaleError,
     MissionStore,
-    _project_stage_instance_ids,
-    _stage_projection_title,
 )
 from src.dataservice.domains.mission.write_authority import assert_active_mission_write
 from src.dataservice_client.contracts.mission import (
@@ -64,6 +67,185 @@ MISSION_TABLES = [
     MissionReviewItemRecord.__table__,
     MissionCommitRecord.__table__,
 ]
+
+_MISSION_POLICY_SNAPSHOT = {
+    "execution_budget": {
+        "max_model_calls": 1_000,
+        "max_tool_operations": 1_000,
+        "max_subagent_jobs": 100,
+        "stop_after_total_tokens": 10_000_000,
+    }
+}
+_ZERO_RESOURCE_USAGE = {
+    "model_calls": 0,
+    "tool_operations": 0,
+    "subagent_jobs": 0,
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_tokens": 0,
+    "total_tokens": 0,
+}
+
+
+def _model_call_started(
+    model_call_id: str,
+    *,
+    producer: str = "workspace_agent",
+    stage_id: str | None = None,
+    turn: int = 1,
+    attempt: int = 1,
+    parent_operation_id: str | None = None,
+    job_id: str | None = None,
+) -> MissionItemDraftPayload:
+    payload = {
+        "model_call_id": model_call_id,
+        "model_id": "gpt-5.6-sol",
+        "turn": turn,
+        "attempt": attempt,
+    }
+    if parent_operation_id is not None or job_id is not None:
+        payload.update(
+            {
+                "parent_operation_id": parent_operation_id,
+                "job_id": job_id,
+            }
+        )
+    return MissionItemDraftPayload(
+        item_type="model_call_started",
+        operation_id=model_call_id,
+        phase="started",
+        stage_id=stage_id,
+        producer=producer,
+        summary=(
+            "Workspace Agent model call started"
+            if producer == "workspace_agent"
+            else "Subagent model call started"
+        ),
+        payload_json=payload,
+    )
+
+
+def _model_usage_receipt(
+    model_call_id: str,
+    *,
+    usage: dict[str, int],
+    producer: str = "workspace_agent",
+    stage_id: str | None = None,
+    turn: int = 1,
+    attempt: int = 1,
+    parent_operation_id: str | None = None,
+    job_id: str | None = None,
+    provider_response_id: str | None = None,
+) -> MissionItemDraftPayload:
+    payload = {
+        "model_call_id": model_call_id,
+        "model_id": "gpt-5.6-sol",
+        "turn": turn,
+        "attempt": attempt,
+        "usage": usage,
+        "provider_response_id": provider_response_id,
+    }
+    if parent_operation_id is not None or job_id is not None:
+        payload.update(
+            {
+                "parent_operation_id": parent_operation_id,
+                "job_id": job_id,
+            }
+        )
+    return MissionItemDraftPayload(
+        item_type="usage_receipt",
+        operation_id=model_call_id,
+        phase="completed",
+        stage_id=stage_id,
+        producer=producer,
+        summary=(
+            "Workspace Agent model usage recorded"
+            if producer == "workspace_agent"
+            else "Subagent model usage recorded"
+        ),
+        payload_json=payload,
+    )
+
+
+def _model_call_terminal(
+    model_call_id: str,
+    *,
+    outcome: str = "unresolved",
+    producer: str = "workspace_agent",
+    stage_id: str | None = None,
+    turn: int = 1,
+    attempt: int = 1,
+    parent_operation_id: str | None = None,
+    job_id: str | None = None,
+) -> MissionItemDraftPayload:
+    payload = {
+        "model_call_id": model_call_id,
+        "model_id": "gpt-5.6-sol",
+        "turn": turn,
+        "attempt": attempt,
+        "outcome": outcome,
+        "error_type": "ProviderTransportError",
+        "detail": "Provider usage could not be confirmed",
+    }
+    if parent_operation_id is not None or job_id is not None:
+        payload.update(
+            {
+                "parent_operation_id": parent_operation_id,
+                "job_id": job_id,
+            }
+        )
+    return MissionItemDraftPayload(
+        item_type="model_call_terminal",
+        operation_id=model_call_id,
+        phase="cancelled" if outcome == "cancelled" else "failed",
+        stage_id=stage_id,
+        producer=producer,
+        summary=f"Model call {outcome}",
+        payload_json=payload,
+    )
+
+
+def _subagent_terminal_progress(
+    *,
+    operation_id: str,
+    job_id: str,
+    result_version: int,
+) -> MissionItemDraftPayload:
+    summary = f"Subagent terminal version {result_version}"
+    payload = {
+        "job_id": job_id,
+        "display_name": "终态核验员",
+        "role_label": "终态核验",
+        "lifecycle_phase": "terminal",
+        "job_fingerprint": "a" * 64,
+        "frozen_budget": {
+            "max_turns": 1,
+            "max_tool_steps": 1,
+            "max_context_bytes": 4096,
+            "max_result_bytes": 4096,
+        },
+        "result": {"version": result_version},
+    }
+    progress_hash = subagent_progress_sha256(
+        summary=summary,
+        payload_json=payload,
+    )
+    payload.update(
+        {
+            "progress_id": f"subagent-terminal:{job_id}",
+            "progress_sha256": progress_hash,
+        }
+    )
+    return MissionItemDraftPayload(
+        item_type="subagent_progress",
+        operation_id=operation_id,
+        phase="completed",
+        stage_id="literature",
+        producer=job_id,
+        summary=summary,
+        payload_json=payload,
+    )
 
 
 def _per_item_stage_contract(stage_id: str, template: str) -> StageAcceptanceContract:
@@ -189,8 +371,9 @@ async def test_mission_view_preserves_dynamic_stage_while_waiting_for_review(
                     "question_1_model": {"result": "pass"},
                 }
             },
-            "runtime_context_json": {
-                "required_stage_ids": [
+                "runtime_context_json": {
+                    "mission_policy_snapshot": _MISSION_POLICY_SNAPSHOT,
+                    "required_stage_ids": [
                     "problem_understanding",
                     "question_model",
                     "question_solution_validation",
@@ -300,7 +483,10 @@ def _create_payload(
         model_id="gpt-5.6-sol",
         reasoning_effort="xhigh",
         snapshot_json={"plan_summary": "Scope the literature."},
-        runtime_context_json={"policy_ref": "policy-v1"},
+        runtime_context_json={
+            "policy_ref": "policy-v1",
+            "mission_policy_snapshot": _MISSION_POLICY_SNAPSHOT,
+        },
         mission_idempotency_key=idempotency_key,
     )
 
@@ -706,7 +892,10 @@ async def test_append_allocates_ordered_immutable_items_and_updates_snapshot_onc
     assert [item.seq for item in result.items] == [1, 2]
     assert result.mission.last_item_seq == 2
     assert result.mission.state_version == claimed.state_version + 1
-    assert result.mission.snapshot_json == {"plan_summary": "Literature first."}
+    assert result.mission.snapshot_json == {
+        "plan_summary": "Literature first.",
+        "resource_usage": _ZERO_RESOURCE_USAGE,
+    }
 
     checkpoint = await store.checkpoint_run(
         mission_id,
@@ -745,6 +934,722 @@ async def test_append_allocates_ordered_immutable_items_and_updates_snapshot_onc
     )
     assert [item.seq for item in second_page.items] == [3]
     assert second_page.page.next_cursor is None
+
+
+@pytest.mark.asyncio
+async def test_append_projects_cumulative_mission_resource_usage(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    payload = _create_payload(
+        thread_id="thread-resource-usage",
+        idempotency_key="resource-usage",
+    ).model_copy(
+        update={
+            "runtime_context_json": {
+                "policy_ref": "policy-v1",
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 3,
+                        "max_tool_operations": 1,
+                        "max_subagent_jobs": 2,
+                        "stop_after_total_tokens": 100,
+                    }
+                },
+            }
+        }
+    )
+    created = await store.create_run(payload)
+    claimed = await _claim(
+        store,
+        created.mission.mission_id,
+        version=created.mission.state_version,
+    )
+
+    result = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _model_call_started("model-call:workspace:resource-usage"),
+                MissionItemDraftPayload(
+                    item_type="operation_claim",
+                    phase="started",
+                ),
+                MissionItemDraftPayload(
+                    item_type="subagent_spawned",
+                    phase="started",
+                    payload_json={"input_scope": {"jobs": [{}, {}]}},
+                ),
+                _model_usage_receipt(
+                    "model-call:workspace:resource-usage",
+                    usage={
+                        "input_tokens": 40,
+                        "cached_input_tokens": 10,
+                        "output_tokens": 20,
+                        "reasoning_tokens": 5,
+                        "total_tokens": 60,
+                    },
+                ),
+            ],
+        ),
+    )
+
+    assert result.mission.snapshot_json["resource_usage"] == {
+        "model_calls": 1,
+        "tool_operations": 1,
+        "subagent_jobs": 2,
+        "input_tokens": 40,
+        "cached_input_tokens": 10,
+        "output_tokens": 20,
+        "reasoning_tokens": 5,
+        "total_tokens": 60,
+    }
+
+
+@pytest.mark.asyncio
+async def test_resource_budget_preflights_the_complete_item_batch(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    payload = _create_payload(
+        thread_id="thread-resource-preflight",
+        idempotency_key="resource-preflight",
+    ).model_copy(
+        update={
+            "runtime_context_json": {
+                "policy_ref": "policy-v1",
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 1,
+                        "max_tool_operations": 1,
+                        "max_subagent_jobs": 1,
+                        "stop_after_total_tokens": 100,
+                    }
+                },
+            }
+        }
+    )
+    created = await store.create_run(payload)
+    claimed = await _claim(
+        store,
+        created.mission.mission_id,
+        version=created.mission.state_version,
+    )
+
+    with pytest.raises(
+        DataServiceValidationError,
+        match="execution budget is exhausted",
+    ):
+        await store.append_items_and_update_snapshot(
+            created.mission.mission_id,
+            MissionAppendPayload(
+                expected_state_version=claimed.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[
+                    _model_call_started("model-call:workspace:preflight-1"),
+                    _model_call_started("model-call:workspace:preflight-2"),
+                ],
+            ),
+        )
+
+    persisted = await store.load_run_snapshot(created.mission.mission_id)
+    assert persisted is not None
+    assert persisted.last_item_seq == 0
+    assert persisted.snapshot_json["resource_usage"] == _ZERO_RESOURCE_USAGE
+    assert await store.list_items_page(created.mission.mission_id) == []
+
+
+@pytest.mark.asyncio
+async def test_token_overage_is_recorded_but_blocks_only_future_dispatch(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    payload = _create_payload(
+        thread_id="thread-token-overage",
+        idempotency_key="token-overage",
+    ).model_copy(
+        update={
+            "runtime_context_json": {
+                "policy_ref": "policy-v1",
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 2,
+                        "max_tool_operations": 1,
+                        "max_subagent_jobs": 1,
+                        "stop_after_total_tokens": 100,
+                    }
+                },
+            }
+        }
+    )
+    created = await store.create_run(payload)
+    claimed = await _claim(
+        store,
+        created.mission.mission_id,
+        version=created.mission.state_version,
+    )
+    recorded = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _model_call_started("model-call:workspace:token-overage"),
+                _model_usage_receipt(
+                    "model-call:workspace:token-overage",
+                    usage={
+                        "input_tokens": 80,
+                        "output_tokens": 40,
+                        "total_tokens": 120,
+                    },
+                ),
+                MissionItemDraftPayload(
+                    item_type="error",
+                    phase="failed",
+                    summary="Token ceiling crossed after provider completion",
+                ),
+            ],
+        ),
+    )
+    assert recorded.mission.snapshot_json["resource_usage"]["total_tokens"] == 120
+
+    with pytest.raises(DataServiceValidationError) as exc_info:
+        await store.append_items_and_update_snapshot(
+            created.mission.mission_id,
+            MissionAppendPayload(
+                expected_state_version=recorded.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[
+                    MissionItemDraftPayload(
+                        item_type="operation_claim",
+                        phase="started",
+                    )
+                ],
+            ),
+        )
+    assert exc_info.value.detail["dimensions"] == ["total_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_token_threshold_equality_blocks_the_next_model_dispatch(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    payload = _create_payload(
+        thread_id="thread-token-threshold",
+        idempotency_key="token-threshold",
+    ).model_copy(
+        update={
+            "runtime_context_json": {
+                "policy_ref": "policy-v1",
+                "mission_policy_snapshot": {
+                    "execution_budget": {
+                        "max_model_calls": 2,
+                        "max_tool_operations": 1,
+                        "max_subagent_jobs": 1,
+                        "stop_after_total_tokens": 100,
+                    }
+                },
+            }
+        }
+    )
+    created = await store.create_run(payload)
+    claimed = await _claim(
+        store,
+        created.mission.mission_id,
+        version=created.mission.state_version,
+    )
+    recorded = await store.append_items_and_update_snapshot(
+        created.mission.mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _model_call_started("model-call:workspace:threshold-1"),
+                _model_usage_receipt(
+                    "model-call:workspace:threshold-1",
+                    usage={
+                        "input_tokens": 60,
+                        "output_tokens": 40,
+                        "total_tokens": 100,
+                    },
+                ),
+            ],
+        ),
+    )
+
+    with pytest.raises(DataServiceValidationError) as exc_info:
+        await store.append_items_and_update_snapshot(
+            created.mission.mission_id,
+            MissionAppendPayload(
+                expected_state_version=recorded.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[
+                    _model_call_started("model-call:workspace:threshold-2")
+                ],
+            ),
+        )
+
+    assert exc_info.value.detail["dimensions"] == ["total_tokens"]
+    persisted = await store.load_run_snapshot(created.mission.mission_id)
+    assert persisted is not None
+    assert persisted.snapshot_json["resource_usage"]["model_calls"] == 1
+
+
+@pytest.mark.asyncio
+async def test_model_ledger_replay_is_adopted_atomically_under_the_run_lock(
+    mission_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-model-ledger-replay",
+        idempotency_key="model-ledger-replay",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    real_get_run = store.repository.get_run
+    lock_observations: list[bool] = []
+
+    async def tracked_get_run(
+        candidate_mission_id: str,
+        *,
+        for_update: bool = False,
+        skip_locked: bool = False,
+    ):
+        lock_observations.append(for_update)
+        return await real_get_run(
+            candidate_mission_id,
+            for_update=for_update,
+            skip_locked=skip_locked,
+        )
+
+    monkeypatch.setattr(store.repository, "get_run", tracked_get_run)
+    model_call_id = "model-call:workspace:atomic-replay"
+    started = _model_call_started(model_call_id)
+    started_command = MissionAppendPayload(
+        expected_state_version=claimed.state_version,
+        lease_owner="worker-1",
+        lease_epoch=claimed.lease_epoch,
+        items=[started],
+    )
+
+    first_started = await store.append_items_and_update_snapshot(
+        mission_id,
+        started_command,
+    )
+    replayed_started = await store.append_items_and_update_snapshot(
+        mission_id,
+        started_command,
+    )
+    receipt = _model_usage_receipt(
+        model_call_id,
+        usage={"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+        provider_response_id="provider-response-atomic",
+    )
+    receipt_command = MissionAppendPayload(
+        expected_state_version=first_started.mission.state_version,
+        lease_owner="worker-1",
+        lease_epoch=claimed.lease_epoch,
+        items=[receipt],
+    )
+    first_receipt = await store.append_items_and_update_snapshot(
+        mission_id,
+        receipt_command,
+    )
+    replayed_receipt = await store.append_items_and_update_snapshot(
+        mission_id,
+        receipt_command,
+    )
+    assert lock_observations == [True, True, True, True]
+
+    items = await store.list_items_page(
+        mission_id,
+        operation_id=model_call_id,
+        limit=10,
+    )
+    assert replayed_started.mission.state_version == first_started.mission.state_version
+    assert replayed_started.items[0].id == first_started.items[0].id
+    assert replayed_receipt.mission.state_version == first_receipt.mission.state_version
+    assert replayed_receipt.items[0].id == first_receipt.items[0].id
+    assert [item.item_type for item in items] == [
+        "model_call_started",
+        "usage_receipt",
+    ]
+    assert first_receipt.mission.snapshot_json["resource_usage"] == {
+        **_ZERO_RESOURCE_USAGE,
+        "model_calls": 1,
+        "input_tokens": 12,
+        "output_tokens": 3,
+        "total_tokens": 15,
+    }
+
+
+@pytest.mark.asyncio
+async def test_subagent_terminal_progress_replay_is_atomic_and_hash_bound(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-subagent-terminal-replay",
+        idempotency_key="subagent-terminal-replay",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    operation_id = "subagent-terminal-parent"
+    job_id = "subagent-terminal-job"
+    terminal = _subagent_terminal_progress(
+        operation_id=operation_id,
+        job_id=job_id,
+        result_version=1,
+    )
+    command = MissionAppendPayload(
+        expected_state_version=claimed.state_version,
+        lease_owner="worker-1",
+        lease_epoch=claimed.lease_epoch,
+        items=[terminal],
+    )
+
+    first = await store.append_items_and_update_snapshot(mission_id, command)
+    replayed = await store.append_items_and_update_snapshot(mission_id, command)
+
+    assert replayed.mission.state_version == first.mission.state_version
+    assert replayed.items[0].id == first.items[0].id
+    with pytest.raises(DataServiceConflictError, match="divergent content"):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=first.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[
+                    _subagent_terminal_progress(
+                        operation_id=operation_id,
+                        job_id=job_id,
+                        result_version=2,
+                    )
+                ],
+            ),
+        )
+    items = await store.list_items_page(
+        mission_id,
+        item_type="subagent_progress",
+        operation_id=operation_id,
+        limit=10,
+    )
+    assert len(items) == 1
+    assert items[0].payload_json["result"] == {"version": 1}
+
+
+@pytest.mark.asyncio
+async def test_usage_receipt_requires_complete_matching_started_semantics(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-receipt-semantics",
+        idempotency_key="receipt-semantics",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    model_call_id = "model-call:workspace:receipt-semantics"
+    orphan = _model_usage_receipt(
+        model_call_id,
+        usage={"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
+    )
+
+    with pytest.raises(
+        DataServiceValidationError,
+        match="requires a matching started model call",
+    ):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=claimed.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[orphan],
+            ),
+        )
+
+    started = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[_model_call_started(model_call_id, turn=2, attempt=1)],
+        ),
+    )
+    mismatched = _model_usage_receipt(
+        model_call_id,
+        turn=2,
+        attempt=2,
+        usage={"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
+    )
+    with pytest.raises(
+        DataServiceValidationError,
+        match="does not match its started model call",
+    ):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=started.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[mismatched],
+            ),
+        )
+
+    zero_usage = _model_usage_receipt(
+        model_call_id,
+        turn=2,
+        usage={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+    )
+    with pytest.raises(
+        DataServiceValidationError,
+        match="model ledger payload is invalid",
+    ):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=started.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[zero_usage],
+            ),
+        )
+
+    current = await store.load_run_snapshot(mission_id)
+    assert current is not None
+    assert current.snapshot_json["resource_usage"]["model_calls"] == 1
+    assert current.snapshot_json["resource_usage"]["total_tokens"] == 0
+
+
+@pytest.mark.asyncio
+async def test_nonreceipt_model_terminal_replay_is_adopted_and_immutable(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-model-terminal-replay",
+        idempotency_key="model-terminal-replay",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    model_call_id = "model-call:workspace:terminal-replay"
+    started = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[_model_call_started(model_call_id)],
+        ),
+    )
+    terminal_command = MissionAppendPayload(
+        expected_state_version=started.mission.state_version,
+        lease_owner="worker-1",
+        lease_epoch=claimed.lease_epoch,
+        items=[_model_call_terminal(model_call_id)],
+    )
+
+    first = await store.append_items_and_update_snapshot(
+        mission_id,
+        terminal_command,
+    )
+    replayed = await store.append_items_and_update_snapshot(
+        mission_id,
+        terminal_command,
+    )
+    states = await store.list_model_call_states(mission_id)
+
+    assert replayed.mission.state_version == first.mission.state_version
+    assert replayed.items[0].id == first.items[0].id
+    assert len(states) == 1
+    assert states[0].state.value == "unresolved"
+    assert states[0].terminal is not None
+    assert states[0].terminal.id == first.items[0].id
+    with pytest.raises(
+        DataServiceConflictError,
+        match="already has a terminal ledger item",
+    ):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=first.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[
+                    _model_usage_receipt(
+                        model_call_id,
+                        usage={
+                            "input_tokens": 8,
+                            "output_tokens": 2,
+                            "total_tokens": 10,
+                        },
+                    )
+                ],
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_open_or_unresolved_model_call_blocks_progression_and_dispatch(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-model-call-gates",
+        idempotency_key="model-call-gates",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    model_call_id = "model-call:workspace:gated"
+    started = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[_model_call_started(model_call_id)],
+        ),
+    )
+
+    with pytest.raises(DataServiceConflictError, match="open model calls"):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=started.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                patch=MissionRunPatchPayload(status="failed"),
+            ),
+        )
+    with pytest.raises(DataServiceConflictError, match="before operation dispatch"):
+        await store.claim_operation(
+            mission_id,
+            MissionOperationClaimPayload(
+                operation_key="tool-after-open-call",
+                kind="tool",
+                request_hash="a" * 64,
+                claimant="tool-orchestrator",
+                lease_epoch=claimed.lease_epoch,
+            ),
+        )
+    with pytest.raises(DataServiceConflictError, match="cannot wait"):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=started.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                patch=MissionRunPatchPayload(status="waiting"),
+            ),
+        )
+    with pytest.raises(DataServiceConflictError, match="cannot be released"):
+        await store.release_run_lease(
+            mission_id,
+            MissionLeaseReleasePayload(
+                worker_id="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                expected_state_version=started.mission.state_version,
+            ),
+        )
+    with pytest.raises(DataServiceConflictError, match="before dispatch"):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=started.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[
+                    _model_call_started("model-call:workspace:next-dispatch")
+                ],
+            ),
+        )
+
+    unresolved = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=started.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[_model_call_terminal(model_call_id)],
+        ),
+    )
+    with pytest.raises(DataServiceConflictError, match="advance stages"):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=unresolved.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                patch=MissionRunPatchPayload(active_stage_id="next-stage"),
+            ),
+        )
+    terminal = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=unresolved.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            patch=MissionRunPatchPayload(status="failed"),
+        ),
+    )
+
+    assert terminal.mission.status.value == "failed"
+    assert terminal.mission.snapshot_json["billing"]["state"] == (
+        "reconciliation_required"
+    )
+    items = await store.list_items_page(mission_id, limit=100)
+    assert len(
+        [
+            item
+            for item in items
+            if item.item_type == "billing_reconciliation_required"
+        ]
+    ) == 1
+    assert not any(item.item_type == "billing_settled" for item in items)
+
+
+@pytest.mark.asyncio
+async def test_terminal_transition_rejects_new_open_call_in_same_append(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-new-open-terminal",
+        idempotency_key="new-open-terminal",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+
+    with pytest.raises(DataServiceConflictError, match="open model calls"):
+        await store.append_items_and_update_snapshot(
+            mission_id,
+            MissionAppendPayload(
+                expected_state_version=claimed.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                items=[
+                    _model_call_started("model-call:workspace:new-and-open")
+                ],
+                patch=MissionRunPatchPayload(status="failed"),
+            ),
+        )
+
+    current = await store.load_run_snapshot(mission_id)
+    assert current is not None and current.status.value == "created"
+    assert await store.list_model_call_states(mission_id) == []
 
 
 @pytest.mark.asyncio
@@ -834,6 +1739,69 @@ async def test_operation_claim_is_atomic_reusable_and_terminal_epoch_fenced(
     assert terminal.finalized is True
     assert replay.acquired is False
     assert replay.receipt.receipt_json == {"outcome": {"ok": True}}
+
+
+@pytest.mark.asyncio
+async def test_operation_terminal_receipt_is_not_hidden_after_first_100_items(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-operation-terminal-page",
+        idempotency_key="operation-terminal-page",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    operation_key = "operation-terminal-after-page"
+    operation = await store.claim_operation(
+        mission_id,
+        MissionOperationClaimPayload(
+            operation_key=operation_key,
+            kind="tool",
+            request_hash="d" * 64,
+            claimant="tool-call-terminal-page",
+            lease_epoch=claimed.lease_epoch,
+        ),
+    )
+    current = await store.load_run_snapshot(mission_id)
+    assert current is not None
+    await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=current.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="operation_progress",
+                    operation_id=operation_key,
+                    phase="progress",
+                    producer="tool-call-terminal-page",
+                    summary=f"progress {index}",
+                )
+                for index in range(99)
+            ],
+        ),
+    )
+    await store.finish_operation(
+        mission_id,
+        MissionOperationFinishPayload(
+            operation_key=operation_key,
+            kind="tool",
+            request_hash="d" * 64,
+            claimant="tool-call-terminal-page",
+            lease_epoch=claimed.lease_epoch,
+            claim_token=operation.receipt.claim_token,
+            status="succeeded",
+            receipt_json={"outcome": {"ok": True}},
+        ),
+    )
+
+    receipt = await store.get_operation(mission_id, operation_key)
+
+    assert receipt is not None
+    assert receipt.status.value == "succeeded"
+    assert receipt.receipt_json == {"outcome": {"ok": True}}
 
 
 @pytest.mark.asyncio
@@ -1602,6 +2570,72 @@ async def test_command_is_durable_once_and_cursor_advances_with_driver_state(
 
 
 @pytest.mark.asyncio
+async def test_command_snapshot_cannot_overwrite_resource_usage_projection(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-command-resource",
+        idempotency_key="command-resource",
+    )
+    queued = await store.append_command_once(
+        mission_id,
+        MissionUserCommandPayload(
+            command_id="command-resource-1",
+            command_type="steer",
+            payload_json={"focus": "evidence"},
+        ),
+    )
+    claimed = await _claim(
+        store,
+        mission_id,
+        version=queued.mission.state_version,
+    )
+    metered = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _model_call_started("model-call:workspace:command-resource")
+            ],
+        ),
+    )
+
+    with pytest.raises(
+        DataServiceValidationError,
+        match="resource_usage is DataService-owned",
+    ):
+        await store.apply_commands_and_advance_cursor(
+            mission_id,
+            MissionApplyCommandsPayload(
+                expected_state_version=metered.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=claimed.lease_epoch,
+                through_command_seq=queued.mission.last_command_seq,
+                snapshot_json={"resource_usage": _ZERO_RESOURCE_USAGE},
+            ),
+        )
+
+    applied = await store.apply_commands_and_advance_cursor(
+        mission_id,
+        MissionApplyCommandsPayload(
+            expected_state_version=metered.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            through_command_seq=queued.mission.last_command_seq,
+            snapshot_json={"plan_summary": "Use receipt-backed evidence."},
+        ),
+    )
+    assert applied.mission.snapshot_json["resource_usage"]["model_calls"] == 1
+    assert applied.mission.snapshot_json["plan_summary"] == (
+        "Use receipt-backed evidence."
+    )
+
+
+@pytest.mark.asyncio
 async def test_new_review_candidate_atomically_replaces_same_output(
     mission_session: AsyncSession,
 ) -> None:
@@ -1700,6 +2734,114 @@ async def test_new_review_candidate_atomically_replaces_same_output(
     assert view.review_summary.superseded == 0
     assert view.artifact_page.total == 1
     assert [item.item_id for item in view.artifact_items] == ["review-best"]
+
+
+@pytest.mark.asyncio
+async def test_retryable_failed_commit_blocks_candidate_supersession(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    first = await store.create_review_items(
+        mission_id,
+        MissionReviewItemsCreatePayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            review_items=[
+                MissionReviewItemDraftPayload(
+                    review_item_id="review-retryable",
+                    output_key="question_1_model",
+                    target_kind="document",
+                    target_room="documents",
+                    title="第一问模型规格",
+                    risk_level="medium",
+                    preview_json={"content": "first"},
+                )
+            ],
+        ),
+    )
+    accepted = await store.apply_review_decisions(
+        mission_id,
+        MissionReviewDecisionsPayload(
+            decision_id="decision-retryable",
+            expected_state_version=first.mission.state_version,
+            actor_user_id="user-1",
+            decisions=[
+                MissionReviewDecisionPayload(
+                    review_item_id="review-retryable",
+                    status="accepted",
+                )
+            ],
+        ),
+    )
+    recorded = await store.record_commit(
+        mission_id,
+        MissionCommitCreatePayload(
+            expected_state_version=accepted.mission.state_version,
+            review_item_id="review-retryable",
+            commit_key="commit-retryable",
+            actor_user_id="user-1",
+        ),
+    )
+    started = await store.start_commit(
+        mission_id,
+        recorded.commit.commit_id,
+        MissionCommitStartPayload(attempt_token="attempt-retryable"),
+    )
+    failed = await store.finish_commit(
+        mission_id,
+        recorded.commit.commit_id,
+        MissionCommitFinishPayload(
+            attempt_token="attempt-retryable",
+            status="failed",
+            targets_json={},
+            error_json={"code": "temporary_target_failure"},
+        ),
+    )
+    next_candidate = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=failed.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=started.mission.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="artifact",
+                    phase="completed",
+                    stage_id="question_1_model",
+                    payload_json={"kind": "artifact_candidate"},
+                    payload_ref="artifact-candidate:replacement",
+                )
+            ],
+        ),
+    )
+
+    with pytest.raises(DataServiceConflictError, match="retryable save"):
+        await store.create_review_items(
+            mission_id,
+            MissionReviewItemsCreatePayload(
+                expected_state_version=next_candidate.mission.state_version,
+                lease_owner="worker-1",
+                lease_epoch=next_candidate.mission.lease_epoch,
+                review_items=[
+                    MissionReviewItemDraftPayload(
+                        review_item_id="review-replacement",
+                        source_item_seq=next_candidate.items[0].seq,
+                        output_key="question_1_model",
+                        target_kind="document",
+                        target_room="documents",
+                        title="第一问模型规格",
+                        risk_level="medium",
+                        preview_json={"content": "replacement"},
+                    )
+                ],
+            ),
+        )
+
+    current = {item.review_item_id: item.status.value for item in await store.list_review_items(mission_id)}
+    assert current == {"review-retryable": "accepted"}
 
 
 @pytest.mark.asyncio

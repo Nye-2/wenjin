@@ -1,9 +1,9 @@
 # 03 DataService Mission Schema Spec
 
 Status: Implemented
-Updated: 2026-07-16
+Updated: 2026-07-17
 
-Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, aggregate references by 096, final workspace/runtime cutovers by 097-101, review policy projection by 102, and DataService concurrency fencing by 103. Development history is drop/reseed. Empty-database online migration through 103 is the release baseline.
+Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, aggregate references by 096, final workspace/runtime cutovers by 097-101, review policy projection by 102, DataService concurrency fencing by 103, and required Mission budgets plus atomic chat billing by 107. Development history is drop/reseed. A clean empty-database migration through 107 is the release baseline.
 Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `13_migration_release_gate.md`
 
 ## Goal
@@ -51,7 +51,7 @@ Do not create:
 
 Artifacts, sources, Prism files, rooms, assets, and memory remain in their existing domains.
 
-`ChatTurnRun` is not part of this schema. It is Redis/memory transport state with short TTL; the durable recovery surface is Thread messages plus MissionRun.
+`ChatTurnRun` is not part of this schema. It is Redis/memory transport state with short TTL; the durable recovery surface is canonical Thread messages, `ThreadTurnBilling`, and MissionRun. The billing table is financial authorization/settlement truth only. It must not acquire transport, Mission stage, evidence, review, or history fields.
 
 No separate outbox is used. A durable command MissionItem plus MissionRun runnable/lease/`next_wakeup_at` state records dispatch intent before queue publish. Queue messages are at-least-once wake-up hints, and an indexed reconciler republishes runnable or expired-lease missions. The existing unused DataService operations domain (`dataservice_idempotency_keys`, `dataservice_outbox_events`, `dataservice_migration_reports`) is deleted. Mission creation, command append, tool operation, review, and commit use their own scoped unique keys instead of one generic idempotency table.
 
@@ -68,7 +68,7 @@ workspace_id uuid not null
 thread_id uuid null
 user_id uuid not null
 workspace_type text not null
-mission_policy_id text null
+mission_policy_id text not null
 title text not null
 objective text not null
 status text not null
@@ -106,15 +106,31 @@ Indexes:
 ```text
 primary key (mission_id)
 unique (workspace_id, mission_idempotency_key) where mission_idempotency_key is not null
-index (workspace_id, updated_at desc)
+index (workspace_id, updated_at, mission_id)
+index (user_id, updated_at, mission_id)
 index (thread_id, created_at desc)
-index (status, next_wakeup_at, lease_expires_at)
+partial index (next_wakeup_at, dispatch_expires_at) for runnable statuses
+partial index (lease_expires_at, dispatch_expires_at) for active leased statuses
 partial unique (thread_id) where status in ('created', 'planning', 'running', 'waiting')
 ```
 
-Avoid JSON indexes unless a query proves necessary. Do not add a user-history index until a real cross-workspace query proves it; normal history is workspace-scoped. Scalar columns are canonical and must not be duplicated in `snapshot_json`. `model_id` and `reasoning_effort` are scalar truth; `runtime_context_json` stores prompt, policy, exemplar, ModelCapabilityProfile, tool-schema, and sandbox-image refs/hashes. It is immutable after mission start except through an explicit runtime-context migration.
+Avoid JSON indexes unless a query proves necessary. Workspace and user keyset-history indexes serve the two canonical history projections; do not add alternate history indexes. Scalar columns are canonical and must not be duplicated in `snapshot_json`. `model_id` and `reasoning_effort` are scalar truth; `runtime_context_json` stores prompt, policy, exemplar, ModelCapabilityProfile, tool-schema, and sandbox-image refs/hashes. It is immutable after mission start except through an explicit runtime-context migration.
 
 `last_command_seq` advances when a durable command is appended. `last_applied_command_seq` advances only with the state/audit transaction that applies it. `next_wakeup_at` is the reconciler cursor for initial dispatch, continuation, retry, and lease recovery; it is cleared for waiting-without-resume and terminal missions. Lease claim/recovery comparisons use PostgreSQL time, not worker clocks.
+
+`snapshot_json.resource_usage` is the bounded, DataService-owned cumulative projection. Only append of `model_call_started`, `operation_claim`, `subagent_spawned`, and `usage_receipt` changes it. Any supplied replacement snapshot must omit it or match the current projection exactly; DataService reinstalls the latest projection after every item batch.
+
+Model-call lifecycle is projected from append-only `mission_items`, not a separate table. `model_call_started` increments the dispatch count; exactly one later `usage_receipt` or `model_call_terminal` closes that identity. DataService validates the complete binding and item phase, adopts only exact replay after a lost response ACK, and rejects orphan, duplicate, divergent, or cross-terminal writes. `GET /internal/v1/missions/{mission_id}/model-calls` is the canonical typed projection with `open | receipt | failed | cancelled | unresolved` state.
+
+Operation claim, model/subagent dispatch, stage advancement, waiting transition, voluntary lease release, and terminal mutation all consult this projection under the Mission row lock. Open calls block terminalization. Open and unresolved calls block later dispatch, stage advancement, waiting, or voluntary release. A terminal Mission with exact receipts settles their measured usage regardless of success or failure. A terminal Mission with unresolved calls records `billing_reconciliation_required`; an existing reservation remains `reserved`, its expiry is removed, and no settlement transaction or `billing_settled` item is written until explicit reconciliation exists.
+
+## `thread_turn_billings` (financial, not Mission)
+
+One row owns a stable actor-bound chat-turn idempotency key, request hash, user/thread/workspace/model identity, user and assistant message ids, frozen pricing/authorization quote, reserved free tokens and credits, exact normalized usage, settlement transaction, expiry, and `authorized | settled | released | expired` state. User counters and holds live on the locked user row. Authorization writes the user message and hold in one transaction; completion writes the assistant, exact usage, capped charge, ledger transaction, and terminal state in one transaction. Authorization retry and release-by-idempotency-key use the same user-first lock order, so response-loss compensation observes any concurrent commit. The settled charge can never exceed the reserved hold, settlement is forbidden at or after expiry, and a settled row must reference its immutable credit transaction. Expiry/release and exact trailing-message rollback are idempotent.
+
+This table has unique idempotency/message/transaction constraints, a partial `(expires_at, id)` index for active authorization cleanup, and covering indexes for `user_id`, `thread_id`, and `workspace_id`. `thread_id` is intentionally a soft audit reference: thread deletion atomically releases active holds but never deletes financial history. Message references become null only when the containing thread is intentionally deleted. It is not included in the four-table Mission aggregate and is never projected as a run.
+
+Canonical `thread_messages` rows are append-oriented conversation history and must never be replaced wholesale. Attachment preprocessing patches message metadata atomically under the same thread lock used by chat writes. Research-task context compaction belongs to Mission checkpoints; Chat has no parallel context state machine.
 
 ## `mission_items`
 
@@ -281,7 +297,7 @@ The mission cutover includes every DataService field that currently stores execu
 
 Domain-specific requirements:
 
-- Credit reservations attach to a required, unique `mission_id`; the table has no polymorphic scope or item-level ownership fields. `ChatTurnRun` never owns feature-task credits.
+- Credit reservations attach to a required, unique `mission_id`; the table has no polymorphic scope or item-level ownership fields. Each Mission reservation carries the frozen Mission/model/global pricing snapshot copied from the immutable admission receipt, and terminal settlement reads no mutable active policy. `ChatTurnRun` never owns feature-task credits.
 - Sandbox jobs attach to `mission_id` and optional `mission_item_seq`; sandbox leases use mission or sandbox job ownership, not execution ownership.
 - Source/provenance records use `ingest_mission_id` / `ingest_mission_commit_id` and domain source kinds; `source_run_id`, `source_artifact_id`, and old provider-only history values are absent from runtime projections.
 - Prism, task, memory, and room write provenance use `source_mission_id` or `mission_commit_id`.
@@ -306,26 +322,32 @@ Runtime-facing service:
 
 ```text
 create_run()
+apply_initial_admission()
 load_run_snapshot()
 find_by_mission_idempotency_key()
 claim_run_lease()
 heartbeat_run_lease()
 release_run_lease()
 claim_runnable_batch_skip_locked()
+release_dispatch_claim()
 append_items_and_update_snapshot()
 append_command_once()
 list_unapplied_commands()
 apply_commands_and_advance_cursor()
-schedule_next_wakeup()
 pause_run()
 resume_run()
+claim_operation()
+get_operation()
+finish_operation()
+checkpoint_run()
 create_review_items()
 apply_review_decisions()
-record_commit()
+start_commit()
+finish_commit()
 list_runs_summary()
 list_items_page()
 list_items_by_seqs()
-drop_or_reseed_development_data()
+get_view()
 ```
 
 ## Cutover Rules
@@ -352,6 +374,8 @@ DataService:
 - transaction appends items and updates snapshot/version.
 - MissionItem rows cannot be updated after append.
 - snapshot rejects duplicated scalar lifecycle fields and oversized payloads.
+- snapshot rejects any caller attempt to replace DataService-owned cumulative resource usage.
+- cumulative count ceilings block the next dispatch before a model/tool/subagent side effect; a token receipt crossing `stop_after_total_tokens` is preserved and blocks subsequent dispatch.
 - stale lease epochs cannot update MissionRun or attach terminal operation results.
 - review decisions update only matching mission review items.
 - commit key is idempotent per atomic MissionReviewItem.
@@ -361,9 +385,10 @@ DataService:
 - command append and apply cursors survive a dropped queue hint.
 - publish-after-commit recovery works from `next_wakeup_at` with no outbox table.
 - review item statuses exclude `auto_draft`, `regenerate`, `save_draft_only`, and checkbox selection state.
+- chat authorization/message/hold and assistant/usage/transaction settlement are each atomic and idempotent; release, expiry, rollback, and settled replay do not double-charge.
 
 Migration:
 
-- dev drop/reseed removes execution tables or old data paths.
+- dev drop/reseed removes execution tables or old data paths; migration 107 fails fast on non-empty users, pricing, Mission, or credit data.
 - old execution client methods are not imported by runtime.
 - anti-compat scan fails on `accepted_ids`, `node_states_json`, execution-node writes, `deep_search`, `Semantic Scholar`, and `curated_academic` runtime provider paths.

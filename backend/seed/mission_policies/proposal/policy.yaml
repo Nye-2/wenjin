@@ -30,6 +30,11 @@ mission:
     - Innovation, foundation and feasibility claims require evidence.
     - Reviewable drafts cannot be committed without user decision.
   forbidden_outcomes: [invented_applicant_fact, invented_call_rule, unsupported_innovation, direct_workspace_write]
+execution_budget:
+  max_model_calls: 96
+  max_tool_operations: 192
+  max_subagent_jobs: 24
+  stop_after_total_tokens: 6000000
 minimum_context:
   proposal_goal:
     requirement: required

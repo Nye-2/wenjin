@@ -83,6 +83,10 @@ FORBIDDEN_PRODUCTION_PATH_PREFIXES = {
         "backend/src/task/tasks/memory.py",
     ),
     "old_event_bus_path": ("backend/src/services/event_bus.py",),
+    "old_thread_usage_accumulator_path": (
+        "backend/src/services/thread_billing.py",
+        "backend/src/services/token_usage_collector.py",
+    ),
     "old_observability_shim_path": (
         "backend/src/observability/metrics.py",
         "backend/src/observability/tracing.py",
@@ -124,8 +128,29 @@ RULES: tuple[CutoverRule, ...] = (
         ("backend/src",),
     ),
     CutoverRule(
+        "old_chat_turn_accounting_surface",
+        re.compile(
+            r"\bappend_conversation_message\b|\bappend_thread_message\b"
+            r"|\bensure_thread_turn_budget\b|\bcan_start_thread_turn\b"
+            r"|\bhas_thread_turn_capacity\b|\bget_consumed_thread_tokens\b"
+            r"|\brecord_credit_consumption\b|\bget_credit_consumed_tokens\b"
+            r"|\brollback_last_user_message\b|\bchat_turn_credit_reserve\b"
+            r"|\bmax_total_tokens\b|\breserved_thread_tokens\b"
+            r"|\bConversationMessagesRebuild(?:Command|Payload)\b"
+            r"|\brebuild_conversation_messages\b|\brebuild_messages\b"
+            r"|\breplace_thread_messages\b|\block_conversation_thread\b"
+            r"|\bdirect:|chat-turn:\{run_id\}"
+            r"|\bCHAT_TURN_REQUEST_ID_METADATA_KEY\b|_chat_turn_request_id"
+        ),
+        ("backend/src", "backend/seed"),
+    ),
+    CutoverRule(
         "old_execution_record",
         re.compile(r"\bExecution(?:Node)?Record\b"),
+    ),
+    CutoverRule(
+        "old_execution_provenance",
+        re.compile(r"\bexecution:"),
     ),
     CutoverRule(
         "old_lead_agent_runtime",
@@ -324,6 +349,14 @@ RULES: tuple[CutoverRule, ...] = (
             r"|refund_failed_task)\b"
             r"|\bsandbox_operation_billing\b"
         ),
+    ),
+    CutoverRule(
+        "hardcoded_registration_credit_bonus",
+        re.compile(
+            r"^\s*REGISTRATION_BONUS\s*=\s*\d+"
+            r"|\bgrant_registration_bonus\b"
+        ),
+        ("backend/src/services/credit_service.py",),
     ),
     CutoverRule(
         "old_external_credit_reservation_transport",

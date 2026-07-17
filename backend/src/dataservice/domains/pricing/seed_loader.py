@@ -77,6 +77,9 @@ def default_pricing_policy_commands() -> list[PricingPolicyCreateCommand]:
                 },
                 "free_tokens": 100000,
                 "max_overdraft_credits": 100,
+                "chat_turn_token_reserve": 65536,
+                "chat_turn_max_credits": 100,
+                "chat_turn_authorization_ttl_seconds": 3600,
             },
         ),
         PricingPolicyCreateCommand(
