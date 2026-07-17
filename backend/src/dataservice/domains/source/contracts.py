@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class SourceCreateCommand(BaseModel):
     source_id: str | None = Field(default=None, min_length=1, max_length=36)
@@ -77,6 +79,7 @@ class SourceAssetUpdateCommand(BaseModel):
 class SourceImportCommand(SourceCreateCommand):
     external_ids: list[SourceExternalIdCreateCommand] = Field(default_factory=list)
     dedupe_by_title: bool = True
+    mission_write_authority: MissionWriteAuthority | None = None
 
 
 class SourceProjection(BaseModel):

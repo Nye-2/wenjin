@@ -86,6 +86,23 @@ def test_removed_capability_switches_are_rejected_not_hydrated() -> None:
         assert get_llm_models() == []
 
 
+def test_responses_is_not_a_supported_main_generation_api() -> None:
+    stale = json.loads(_gpt_seed())
+    stale[0]["generation_api"] = "responses"
+
+    with patch.dict(
+        os.environ,
+        {
+            "LLM_MODELS": json.dumps(stale),
+            "LLM_DEFAULT_MODEL": "",
+            "OPENAI_API_KEY": "sk-test",
+        },
+        clear=False,
+    ):
+        reload_models()
+        assert get_llm_models() == []
+
+
 def test_image_seed_remains_available_without_language_generation_api() -> None:
     image_seed = json.dumps(
         [

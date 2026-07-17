@@ -44,16 +44,24 @@ class UserDashboardService:
         """Build user dashboard payload."""
         async with self._client() as client:
             user = await client.get_account_user(user_id)
+            pricing = await client.get_public_pricing_catalog()
         if user is None:
             raise ValueError("User not found")
 
-        credit_service = CreditService()
         workspace_stats = await self._get_workspace_stats(user_id)
         task_stats, recent_tasks = await self._get_mission_stats(user_id)
         thread_credit_status = await self._get_thread_credit_status(
             user_id,
-            credit_service=credit_service,
+            credit_service=CreditService(dataservice=self._dataservice),
             current_balance=int(user.credits),
+            default_model_id=next(
+                (
+                    model.model_id
+                    for model in pricing.chat_models
+                    if model.is_default
+                ),
+                pricing.chat_models[0].model_id if pricing.chat_models else None,
+            ),
         )
 
         return {
@@ -70,7 +78,7 @@ class UserDashboardService:
                 "balance": int(user.credits),
                 "total_earned": int(user.total_credits_earned),
                 "total_spent": int(user.total_credits_spent),
-                "costs": CreditService.get_public_workflow_costs(),
+                "pricing": pricing.model_dump(mode="json"),
                 "thread": thread_credit_status,
             },
             "workspaces": workspace_stats,
@@ -78,6 +86,11 @@ class UserDashboardService:
             "recent_tasks": recent_tasks,
             "updated_at": datetime.now(UTC).isoformat(),
         }
+
+    async def get_public_pricing(self) -> dict[str, Any]:
+        async with self._client() as client:
+            pricing = await client.get_public_pricing_catalog()
+        return pricing.model_dump(mode="json")
 
     async def _get_workspace_stats(self, user_id: str) -> dict[str, Any]:
         async with self._client() as client:
@@ -133,14 +146,18 @@ class UserDashboardService:
         *,
         credit_service: CreditService,
         current_balance: int,
+        default_model_id: str | None,
     ) -> dict[str, Any]:
         """Build thread-specific credit status for dashboard display."""
-        policy = credit_service.get_thread_billing_policy()
-        consumed_tokens = await credit_service.get_consumed_thread_tokens(user_id)
-        can_start_thread = (not policy.enabled) or consumed_tokens < policy.free_tokens or current_balance > 0
+        if default_model_id is None:
+            raise ValueError("Default chat model pricing is unavailable")
+        can_start_thread = await credit_service.can_start_thread_turn(
+            user_id,
+            model_name=default_model_id,
+        )
 
         return {
-            "enabled": policy.enabled,
+            "enabled": True,
             "can_start_thread": can_start_thread,
             "overdraft_credits": max(-current_balance, 0),
             "billing_unit": "credits",

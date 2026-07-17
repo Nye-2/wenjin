@@ -237,6 +237,7 @@ created | planning | running | waiting | completed | failed | cancelled
 5. active driver 在每个 loop/operation 安全边界读取 `last_applied_command_seq` 之后的命令；Redis/Celery 通知只能降低延迟，不能成为命令可见性的前提。
 6. advisory side question 可以使用独立 ChatTurnRun 回答，但不能隐式改写 active MissionRun。
 7. 终态 MissionRun 不重开。实质性扩展任务创建新的 MissionRun，并以 `parent_mission_id` 关联来源。
+8. 终态复核返工从 reviewed MissionItem 解析唯一来源阶段，创建幂等 child Mission，并按 StageAcceptance 依赖闭包失效受影响阶段；来源缺失时失败闭合，不全量猜测重跑。
 
 ### 4.5 Bounded snapshot、ledger 与事件
 
@@ -356,7 +357,7 @@ pass | revise | ask_user | stop
 6. 上线 MissionRuntime + WorkspaceAgent + subagent/tool/quality runtimes，删除旧 worker 主链。
 7. 上线 MissionReviewItem/MissionCommit，删除 ReviewBatch/ChangeSet/accepted ids/review-packet commit。
 8. 前端一次切换 MissionView/Mission Console，删除 execution fallback、node hydration 和双历史合并。
-9. Sandbox jobs、artifacts 和 credits 只接受 mission provenance；Model Catalog 通过真实 tool/search probes 后，search runtime 才暴露 model-native web search。
+9. Sandbox operations 与 artifacts 只接受 mission provenance；credit reservation 只归属 Mission，工具用量通过 receipts 进入终态结算；Model Catalog 通过真实 tool/search probes 后，search runtime 才暴露 model-native web search。
 10. 通过 anti-compat、contract、recovery、browser E2E 后更新 `docs/current/`。
 
 迁移失败的回退方式是部署与数据库快照恢复，不是在应用运行时保留双读、双写或旧 API fallback。
@@ -528,6 +529,7 @@ redaction_applied
 | Batch | UI 选择 N 个 item，服务端执行 N 个独立幂等 MissionCommit |
 | Partial failure | 成功项保持成功；失败项保留原因并可单独 retry，不伪造 batch 全成功 |
 | Preview retention | 大 diff/旧版本只短期缓存；terminal 后清理内容，保留 decision、hash、target 和 commit audit |
+| Protected write authority | 每个 target transaction 校验同一 `MissionWriteAuthority`：Mission、ReviewItem、Commit、attempt token、expiry 和 workspace 必须一致 |
 
 ---
 
@@ -615,7 +617,7 @@ sequenceDiagram
 ### 11.1 不变量
 
 1. **Run boundary**：ChatTurnRun 过期不能删除或改变 Thread、MissionRun、review、commit 或 room facts。
-2. **Single mission owner**：没有 MissionRun 就不能创建长任务 worker、subagent、sandbox job 或 feature credit reservation。
+2. **Single mission owner**：没有 MissionRun 就不能创建长任务 worker、subagent、sandbox operation 或 credit reservation。
 3. **Single active driver**：同一 mission 的有效状态写入必须携带当前 lease epoch 和 state version。
 4. **Bounded recovery**：普通 mission detail 只读一行 MissionRun 和 bounded summaries；不得扫描全 ledger 才能恢复 Current Mission。
 5. **Immutable ledger**：MissionItem append 后不修改；稳定结果必须有同 operation 的 terminal item。
@@ -639,6 +641,8 @@ sequenceDiagram
 23. **Single dispatch intent**：MissionStore runnable state/command ledger 是 dispatch SSOT；不得同时维护 outbox、通用 operations idempotency truth、Redis job truth 或本地 retry truth。
 24. **Review is not generation**：阶段通过后自动推进；最终预览可等待用户稍后决定，但不得让保存选择反向成为内容质量裁决或 Mission 完成阻塞。
 25. **Target-bound completion**：Mission 只按已钉住的 completion target 完成；所有动态展开阶段通过，且其 terminal output kinds 均由 accepted artifact 支撑并已向用户提供确认入口。
+26. **Exact review continuation**：终态补证/再生成只失效 reviewed source stage 及其传递下游；无来源账本时不创建续作。
+27. **One write authority**：Prism、Source、Asset、Memory、Room 和 Sandbox protected write 不得各自解释 provenance；统一在 DataService target transaction 校验 MissionWriteAuthority。
 
 ### 11.2 Release gates
 

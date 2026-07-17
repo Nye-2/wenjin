@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   authorizedFetchMock,
@@ -41,6 +41,10 @@ vi.mock("@/lib/api/threads", async () => {
 
 import { ChatPanel } from "@/app/(workbench)/workspaces/[id]/components/ChatPanel";
 import { useChatStoreV2 } from "@/stores/chat-store";
+import { useMissionUiStore } from "@/stores/mission-ui-store";
+
+const originalSendMessage = useChatStoreV2.getState().sendMessage;
+const originalStopSending = useChatStoreV2.getState().stopSending;
 
 describe("ChatPanel composer", () => {
   beforeEach(() => {
@@ -50,6 +54,7 @@ describe("ChatPanel composer", () => {
     updateWorkspaceSettingsMock.mockReset();
     uploadThreadFilesMock.mockReset();
     useChatStoreV2.getState().reset();
+    useMissionUiStore.getState().clearWorkspaceFocus();
     authorizedFetchMock.mockResolvedValue(
       new Response(JSON.stringify({ id: "thread-1", messages: [] }), {
         status: 200,
@@ -86,6 +91,23 @@ describe("ChatPanel composer", () => {
       metadata_json: {},
     });
     updateWorkspaceSettingsMock.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    useChatStoreV2.setState({
+      sendMessage: originalSendMessage,
+      stopSending: originalStopSending,
+    });
+  });
+
+  it("shows a stop control that cancels the active server run", async () => {
+    const stopSending = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({ isSending: true, stopSending });
+
+    render(<ChatPanel workspaceId="workspace-1" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "停止生成" }));
+    expect(stopSending).toHaveBeenCalledTimes(1);
   });
 
   it("hydrates and persists the workspace model preference", async () => {
@@ -164,5 +186,84 @@ describe("ChatPanel composer", () => {
       expect(screen.getByTestId("chat-send")).toBeEnabled();
       expect(screen.getByText("problem.pdf")).toBeInTheDocument();
     });
+  });
+
+  it("does not hard-route chat when the user only browses a historical Mission", async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ status: "completed" });
+    useChatStoreV2.setState({ sendMessage });
+    useMissionUiStore.getState().focusMission("mission-history", "artifacts");
+    render(<ChatPanel workspaceId="workspace-1" />);
+    const composer = await screen.findByTestId("chat-composer-input");
+
+    fireEvent.change(composer, { target: { value: "开始一个新的分析" } });
+    fireEvent.click(screen.getByTestId("chat-send"));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(sendMessage.mock.calls[0][3]?.metadata?.focused_mission_id).toBeUndefined();
+  });
+
+  it("sends and consumes an explicit Mission continuation target", async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ status: "completed" });
+    useChatStoreV2.setState({ sendMessage });
+    useMissionUiStore.getState().setContinuationMission("mission-explicit");
+    render(<ChatPanel workspaceId="workspace-1" />);
+    const composer = await screen.findByTestId("chat-composer-input");
+
+    fireEvent.change(composer, { target: { value: "补充这项任务的材料" } });
+    fireEvent.click(screen.getByTestId("chat-send"));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(sendMessage.mock.calls[0][3]).toMatchObject({
+      metadata: { focused_mission_id: "mission-explicit" },
+    });
+    await waitFor(() => {
+      expect(useMissionUiStore.getState().continuationMissionId).toBeNull();
+    });
+  });
+
+  it("retains the Mission continuation target when a result-card action is cancelled", async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ status: "cancelled" });
+    useChatStoreV2.setState({ sendMessage });
+    useMissionUiStore.getState().setContinuationMission("mission-explicit");
+    render(<ChatPanel workspaceId="workspace-1" />);
+    await screen.findByTestId("chat-composer-input");
+
+    act(() => {
+      useChatStoreV2.setState({
+        messagesByWorkspace: {
+          "workspace-1": [
+            {
+              id: "assistant-result",
+              role: "assistant",
+              createdAt: "2026-07-16T00:00:00Z",
+              blocks: [
+                {
+                  kind: "result_card",
+                  run_id: "mission-explicit",
+                  title: "阶段结果",
+                  tldr: "已有结果。",
+                  findings: [],
+                  links: [],
+                  feedback: {
+                    question: "继续吗？",
+                    pills: [{ kind: "primary", label: "继续", intent: "继续完善" }],
+                    allow_free_input: true,
+                  },
+                  stats: { duration_ms: 1, subagents: 0, tokens: 1 },
+                },
+              ],
+            },
+          ],
+        },
+      });
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "继续" }));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(sendMessage.mock.calls[0][3]).toMatchObject({
+      metadata: { focused_mission_id: "mission-explicit" },
+    });
+    expect(useMissionUiStore.getState().continuationMissionId).toBe("mission-explicit");
   });
 });

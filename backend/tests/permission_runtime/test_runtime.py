@@ -5,13 +5,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.permission_runtime import PermissionResolutionService
 from src.permission_runtime.contracts import (
     PermissionContext,
     PermissionDecision,
-    PermissionDisposition,
-    PermissionRequestType,
 )
-from src.permission_runtime.runtime import PermissionRuntime
 
 
 def _context() -> PermissionContext:
@@ -29,9 +27,11 @@ def _membership() -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
-async def test_permission_request_is_durable_and_restart_can_resume() -> None:
+async def test_permission_resolution_resumes_the_durable_request() -> None:
+    resumer = AsyncMock(
+        return_value=SimpleNamespace(status=SimpleNamespace(value="planning"))
+    )
     missions = SimpleNamespace(
-        pause=AsyncMock(),
         list_items=AsyncMock(return_value=[]),
         get=AsyncMock(
             return_value=SimpleNamespace(
@@ -45,20 +45,12 @@ async def test_permission_request_is_durable_and_restart_can_resume() -> None:
                 },
             )
         ),
-        resume=AsyncMock(return_value=SimpleNamespace(mission=SimpleNamespace(status=SimpleNamespace(value="planning")))),
     )
-    first_runtime = PermissionRuntime(missions=missions, membership=_membership())
-    evaluation = await first_runtime.evaluate_or_pause(
-        _context(),
-        request_id="request-1",
-        request_type=PermissionRequestType.EXTERNAL_DATA_ACCESS,
-    )
-    assert evaluation.disposition == PermissionDisposition.ASK
-    pending = missions.pause.await_args.args[1].pending_request
-    assert pending["request_id"] == "request-1"
-
-    restarted_runtime = PermissionRuntime(missions=missions, membership=_membership())
-    result = await restarted_runtime.resolve(
+    result = await PermissionResolutionService(
+        missions=missions,
+        membership=_membership(),
+        resumer=SimpleNamespace(resume=resumer),
+    ).resolve(
         "mission-1",
         request_id="request-1",
         decision=PermissionDecision.ALLOW_FOR_MISSION,
@@ -66,12 +58,13 @@ async def test_permission_request_is_durable_and_restart_can_resume() -> None:
     )
     assert result.resumed is True
     assert result.grant is not None
-    restarted_runtime.validate_network_grant(
-        result.grant,
-        mission_id="mission-1",
-        tool_name="sandbox.run",
-        operation="install_dependencies",
-        network_profile="package_proxy",
+    assert result.grant.mission_id == "mission-1"
+    assert result.grant.tool_name == "sandbox.run"
+    resumer.assert_awaited_once_with(
+        "mission-1",
+        request_id="request-1",
+        input_json=result.input_json,
+        producer="permission_runtime",
     )
 
 
@@ -88,7 +81,11 @@ async def test_permission_resume_rejects_wrong_request_id() -> None:
         ),
     )
     with pytest.raises(ValueError, match="permission_request_mismatch"):
-        await PermissionRuntime(missions=missions, membership=_membership()).resolve(
+        await PermissionResolutionService(
+            missions=missions,
+            membership=_membership(),
+            resumer=SimpleNamespace(resume=AsyncMock()),
+        ).resolve(
             "mission-1",
             request_id="request-2",
             decision=PermissionDecision.REJECT,
@@ -118,9 +115,13 @@ async def test_duplicate_permission_resolution_is_idempotent_after_restart() -> 
                 user_id="user-1", workspace_id="workspace-1"
             )
         ),
-        resume=AsyncMock(),
     )
-    result = await PermissionRuntime(missions=missions, membership=_membership()).resolve(
+    resumer = AsyncMock()
+    result = await PermissionResolutionService(
+        missions=missions,
+        membership=_membership(),
+        resumer=SimpleNamespace(resume=resumer),
+    ).resolve(
         "mission-1",
         request_id="request-1",
         decision=PermissionDecision.ALLOW_ONCE,
@@ -128,4 +129,4 @@ async def test_duplicate_permission_resolution_is_idempotent_after_restart() -> 
     )
     assert result.resumed is True
     missions.get.assert_awaited_once()
-    missions.resume.assert_not_awaited()
+    resumer.assert_not_awaited()

@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from src.agents.harness.stage_acceptance import evaluate_stage_acceptance
+from src.contracts.review_policy import ReviewMode
 from src.contracts.stage_acceptance import StageAcceptanceContract
 from src.dataservice_client.contracts.catalog import MissionPolicyPayload, WorkerSkillPayload
 from src.dataservice_client.contracts.mission import MissionItemPayload
@@ -19,11 +20,14 @@ from src.mission_runtime.production import (
     PinnedStageContractResolver,
     PinnedToolPolicyResolver,
     StrictReviewCandidateBuilder,
+    _academic_visual_artifact_kind,
+    _academic_visual_asset_provenance,
     _resolve_tool_groups,
+    build_production_tool_catalog,
     require_mission_model_profile,
     require_native_search_capability,
 )
-from src.models.capability_profile import WebSearchAPI, gpt56_release_assessment
+from src.models.capability_profile import WebSearchAPI
 from src.services.mission_policy_loader import MissionPolicyLoader
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
@@ -36,6 +40,7 @@ from src.tools.mission.artifact_candidates import (
     artifact_candidate_ref,
 )
 from src.tools.orchestrator import ToolCallerKind
+from tests.models.capability_fixtures import verified_capability_assessment
 
 from .conftest import FakeMissionStore, MutableClock, ScriptedAgent, start_request
 
@@ -454,6 +459,20 @@ class ProductionStartDataService(PolicyDataService):
         )
 
 
+def _pinned_start_context(dataservice) -> PinnedMissionStartContext:
+    catalog = build_production_tool_catalog(
+        SimpleNamespace(
+            dataservice=dataservice,
+            lease_guard=object(),
+            sandbox_receipts=object(),
+        )
+    )
+    return PinnedMissionStartContext(
+        dataservice,
+        tool_catalog=catalog,
+    )
+
+
 def policy_record(policy_id: str) -> MissionPolicyPayload:
     item = next(value for value in MissionPolicyLoader().read_seed_items() if value["data"]["id"] == policy_id)
     data = item["data"]
@@ -465,6 +484,38 @@ def policy_record(policy_id: str) -> MissionPolicyPayload:
         policy_json=data,
         content_hash=data["content_hash"],
         source_path=item["source_path"],
+    )
+
+
+def policy_record_with_review_modes(
+    policy_id: str,
+    *allowed_modes: ReviewMode,
+) -> MissionPolicyPayload:
+    record = policy_record(policy_id)
+    policy = record.to_contract()
+    restricted = policy.model_copy(
+        update={
+            "review_policy": policy.review_policy.model_copy(
+                update={
+                    "default_mode": allowed_modes[0],
+                    "allowed_modes": allowed_modes,
+                }
+            )
+        }
+    )
+    catalog = restricted.to_catalog_data(
+        resolved_stage_contracts=list(
+            record.policy_json["resolved_stage_contracts"]
+        )
+    )
+    return MissionPolicyPayload(
+        id=restricted.id,
+        workspace_type=restricted.workspace_type,
+        schema_version=restricted.schema_version,
+        enabled=restricted.enabled,
+        policy_json=catalog,
+        content_hash=str(catalog["content_hash"]),
+        source_path=record.source_path,
     )
 
 
@@ -493,7 +544,7 @@ def routing_context(policy_id: str) -> dict[str, str]:
 
 
 def verified_runtime_model() -> RuntimeModelConfig:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
         id="gpt-5.6-sol",
         name="GPT-5.6 Sol",
@@ -528,7 +579,7 @@ async def test_start_context_pins_policy_stages_tools_and_profile(monkeypatch) -
         "src.mission_runtime.production.require_native_search_capability",
         lambda _model: SimpleNamespace(available=True),
     )
-    resolver = PinnedMissionStartContext(PolicyDataService([policy_record("sci_research")]))
+    resolver = _pinned_start_context(PolicyDataService([policy_record("sci_research")]))
     pinned = await resolver.pin(
         start_request(
             mission_policy_id="sci_research",
@@ -546,12 +597,64 @@ async def test_start_context_pins_policy_stages_tools_and_profile(monkeypatch) -
     assert "research.search_web" in runtime["tool_policy"]["allowed_tool_ids"]
     assert "academic_visual.render_candidate" in runtime["tool_policy"]["allowed_tool_ids"]
     assert "academic_visual_scoped" in runtime["tool_policy"]["allowed_network_profiles"]
+    assert len(runtime["tool_policy"]["catalog_snapshot_hash"]) == 64
+    execution_limits = {
+        item["tool_id"]: item
+        for item in runtime["tool_policy"]["execution_limits"]
+    }
+    assert set(execution_limits) == set(
+        runtime["tool_policy"]["allowed_tool_ids"]
+    )
+    assert execution_limits["academic_visual.render_candidate"][
+        "timeout_seconds"
+    ] == 150
+    assert execution_limits["academic_visual.render_candidate"][
+        "max_attempts"
+    ] == 1
+    assert all(len(item["descriptor_hash"]) == 64 for item in execution_limits.values())
+    resolved_tool_policy = await PinnedToolPolicyResolver().resolve(
+        SimpleNamespace(runtime_context_json=runtime),
+        caller_kind=ToolCallerKind.WORKSPACE_AGENT,
+        allowed_tools=("academic_visual.render_candidate",),
+    )
+    assert resolved_tool_policy.execution_limits[0].timeout_seconds == 150
+    assert resolved_tool_policy.execution_limits[0].max_attempts == 1
     assert set(runtime["required_stage_ids"]).issubset(runtime["stage_contracts"])
     assert set(runtime["worker_skill_snapshots"]) == set(policy_record("sci_research").to_contract().allowed_worker_skills)
     for skill_id, snapshot in runtime["worker_skill_snapshots"].items():
         assert snapshot["contract"]["id"] == skill_id
         assert len(snapshot["content_hash"]) == 64
         assert set(snapshot["allowed_tool_ids"]).issubset(runtime["tool_policy"]["allowed_tool_ids"])
+
+
+@pytest.mark.asyncio
+async def test_start_context_rejects_review_mode_outside_pinned_policy(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.mission_runtime.production.require_mission_model_profile",
+        lambda _model_id: SimpleNamespace(capability_probe_hash="a" * 64),
+    )
+    record = policy_record_with_review_modes(
+        "sci_research",
+        ReviewMode.BALANCED_DEFAULT,
+    )
+    resolver = _pinned_start_context(PolicyDataService([record]))
+
+    with pytest.raises(
+        MissionProductionConfigurationError,
+        match="not allowed by the pinned MissionPolicy",
+    ):
+        await resolver.pin(
+            start_request(
+                mission_policy_id="sci_research",
+                review_mode=ReviewMode.AUTO_DRAFT,
+                runtime_context_json={
+                    "model_capability_profile_hash": "a" * 64,
+                    "policy_content_hash": record.content_hash,
+                },
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -563,7 +666,7 @@ async def test_pinned_resolver_resolves_math_per_question_stage(
         "src.mission_runtime.production.require_mission_model_profile",
         lambda _model_id: SimpleNamespace(capability_probe_hash="a" * 64),
     )
-    start_context = PinnedMissionStartContext(PolicyDataService([policy_record("math_modeling_solution")]))
+    start_context = _pinned_start_context(PolicyDataService([policy_record("math_modeling_solution")]))
     runtime, deps = runtime_factory(
         agent=ScriptedAgent([]),
         start_context=start_context,
@@ -612,7 +715,7 @@ async def test_stage_adapter_resolves_all_item_count_from_referenced_stage_famil
         "src.mission_runtime.production.require_mission_model_profile",
         lambda _model_id: SimpleNamespace(capability_probe_hash="a" * 64),
     )
-    start_context = PinnedMissionStartContext(PolicyDataService([policy_record("math_modeling_solution")]))
+    start_context = _pinned_start_context(PolicyDataService([policy_record("math_modeling_solution")]))
     runtime, deps = runtime_factory(
         agent=ScriptedAgent([]),
         start_context=start_context,
@@ -647,7 +750,7 @@ async def test_start_context_rejects_routing_policy_hash_drift(monkeypatch) -> N
         "src.mission_runtime.production.require_mission_model_profile",
         lambda _model_id: SimpleNamespace(capability_probe_hash="a" * 64),
     )
-    resolver = PinnedMissionStartContext(PolicyDataService([policy_record("sci_research")]))
+    resolver = _pinned_start_context(PolicyDataService([policy_record("sci_research")]))
 
     with pytest.raises(MissionProductionConfigurationError, match="changed after"):
         await resolver.pin(
@@ -681,7 +784,7 @@ async def test_start_context_rejects_worker_skill_hash_drift(monkeypatch) -> Non
     )
 
     with pytest.raises(MissionProductionConfigurationError, match="hash drift"):
-        await PinnedMissionStartContext(dataservice).pin(
+        await _pinned_start_context(dataservice).pin(
             start_request(
                 mission_policy_id="sci_research",
                 runtime_context_json=routing_context("sci_research"),
@@ -695,7 +798,7 @@ async def test_start_context_fails_closed_without_policy(monkeypatch) -> None:
         "src.mission_runtime.production.require_mission_model_profile",
         lambda _model_id: SimpleNamespace(capability_probe_hash="a" * 64),
     )
-    resolver = PinnedMissionStartContext(PolicyDataService([]))
+    resolver = _pinned_start_context(PolicyDataService([]))
     with pytest.raises(MissionProductionConfigurationError, match="unavailable"):
         await resolver.pin(
             start_request(
@@ -728,7 +831,7 @@ async def test_non_search_policies_start_without_search_capability(
         "src.mission_runtime.production.require_native_search_capability",
         search_requirement,
     )
-    resolver = PinnedMissionStartContext(PolicyDataService([policy_record(policy_id)]))
+    resolver = _pinned_start_context(PolicyDataService([policy_record(policy_id)]))
 
     pinned = await resolver.pin(
         start_request(
@@ -761,7 +864,7 @@ async def test_search_policy_fails_at_start_when_search_probe_is_missing(
         "src.mission_runtime.production.require_native_search_capability",
         Mock(side_effect=MissionProductionConfigurationError("independent search transport is unavailable")),
     )
-    resolver = PinnedMissionStartContext(PolicyDataService([policy_record("sci_research")]))
+    resolver = _pinned_start_context(PolicyDataService([policy_record("sci_research")]))
 
     with pytest.raises(
         MissionProductionConfigurationError,
@@ -959,6 +1062,56 @@ def _review_candidate_reference():
     )
 
 
+def _source_review_candidate_reference():
+    url = "https://example.org/papers/federated-peft"
+    verification_ref = "search-receipt:search-op#source-1"
+    source_import_payload = {
+        "source_kind": "paper",
+        "title": "Federated PEFT",
+        "authors_json": ["Ada Researcher"],
+        "year": 2026,
+        "venue": "Journal of Reliable Research",
+        "doi": "10.1000/fedpeft",
+        "url": url,
+        "abstract": "A verified source candidate.",
+        "ingest_kind": "mission_verified",
+        "ingest_label": verification_ref,
+        "library_status": "candidate",
+        "evidence_level": "external_verified",
+        "citation_key": "Researcher2026FedPEFT",
+    }
+    preview_text = "# Source import candidate\n\nverified"
+    metadata = {
+        "title": source_import_payload["title"],
+        "artifact_kind": "source_import",
+        "source_refs": [verification_ref],
+        "mime_type": "text/markdown",
+        "preview_text": preview_text,
+        "source_import_payload": source_import_payload,
+        "verification_ref": verification_ref,
+        "content_hash": artifact_candidate_content_hash(preview_text),
+        "mission_id": "mission-source",
+        "operation_key": "source-import-op",
+        "materialized": False,
+    }
+    ref = artifact_candidate_ref(metadata)
+    return ref, SimpleNamespace(
+        mission_id="mission-source",
+        item_type="artifact",
+        seq=8,
+        producer="tool_orchestrator",
+        operation_id="source-import-op",
+        payload_json={
+            "reference_id": ref,
+            "kind": "artifact_candidate",
+            "verified": True,
+            "uri": url,
+            "receipt_operation_key": "source-import-op",
+            "metadata": metadata,
+        },
+    )
+
+
 @pytest.mark.asyncio
 async def test_review_builder_compiles_document_from_accepted_candidate() -> None:
     candidate_ref, candidate_item = _review_candidate_reference()
@@ -994,6 +1147,224 @@ async def test_review_builder_compiles_document_from_accepted_candidate() -> Non
     assert item.source_item_seq == 7
     assert item.preview_json["candidate_ref"] == candidate_ref
     assert item.preview_json["source_refs"] == ["prism-file:problem-1"]
+
+
+@pytest.mark.asyncio
+async def test_review_builder_projects_verified_source_candidate_to_library_import() -> None:
+    candidate_ref, candidate_item = _source_review_candidate_reference()
+    request = SimpleNamespace(
+        mission=SimpleNamespace(mission_id="mission-source"),
+        stage_id="literature_positioning",
+        candidate_json={
+            "items": [
+                {
+                    "candidate_ref": candidate_ref,
+                    "output_key": "source.federated_peft",
+                    "target_kind": "source",
+                    "target_room": "library",
+                    "title": "Federated PEFT",
+                    "risk_level": "medium",
+                    "preview_json": {
+                        "materialization": {"operation": "untrusted.write"}
+                    },
+                }
+            ]
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[candidate_item],
+    )
+
+    batch = await StrictReviewCandidateBuilder().build_candidates(request)
+    item = batch.items[0]
+    descriptor = item.preview_json["materialization"]
+
+    assert item.target_kind == "source"
+    assert item.target_room == "library"
+    assert item.source_item_seq == 8
+    assert item.preview_json["artifact_kind"] == "source_import"
+    assert descriptor["operation"] == "library.import_source"
+    assert descriptor["payload"] == candidate_item.payload_json["metadata"][
+        "source_import_payload"
+    ]
+    assert "untrusted.write" not in str(item.preview_json)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("metadata_patch", "target_kind", "target_room"),
+    [
+        ({"verification_ref": "search-receipt:other#source-1"}, "source", "library"),
+        ({}, "document", "documents"),
+        ({}, "source", "documents"),
+    ],
+)
+async def test_review_builder_rejects_invalid_source_candidate_projection(
+    metadata_patch: dict[str, object],
+    target_kind: str,
+    target_room: str,
+) -> None:
+    candidate_ref, candidate_item = _source_review_candidate_reference()
+    if metadata_patch:
+        candidate_item.payload_json["metadata"] = {
+            **candidate_item.payload_json["metadata"],
+            **metadata_patch,
+        }
+    request = SimpleNamespace(
+        mission=SimpleNamespace(mission_id="mission-source"),
+        stage_id="literature_positioning",
+        candidate_json={
+            "items": [
+                {
+                    "candidate_ref": candidate_ref,
+                    "output_key": "source.federated_peft",
+                    "target_kind": target_kind,
+                    "target_room": target_room,
+                    "title": "Federated PEFT",
+                    "risk_level": "medium",
+                }
+            ]
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[candidate_item],
+    )
+
+    with pytest.raises(MissionProductionConfigurationError):
+        await StrictReviewCandidateBuilder().build_candidates(request)
+
+
+@pytest.mark.asyncio
+async def test_review_builder_preserves_complete_academic_visual_provenance() -> None:
+    content_hash = "sha256:" + "a" * 64
+    preview_hash = "b" * 64
+    prompt_hash = "c" * 64
+    context_hash = "d" * 64
+    overlay_hash = "e" * 64
+    candidate_ref = "academic-visual:avc-hybrid"
+    metadata = {
+        "candidate": {
+            "candidate_id": "avc-hybrid",
+            "figure_id": "hybrid-method",
+            "figure_type": "mechanism_illustration",
+            "strategy": "hybrid",
+            "evidence_level": "explanatory",
+            "review_preview_ref": "mpv1_hybrid_preview",
+            "preview_hash": preview_hash,
+            "content_hash": content_hash,
+            "mime_type": "image/png",
+            "width": 1536,
+            "height": 1024,
+            "renderer_id": "gpt-image-2+deterministic-overlay",
+            "renderer_version": "wenjin.academic_visual.prompt.v1",
+            "provider_model": "gpt-image-2",
+            "prompt_contract_version": "wenjin.academic_visual.prompt.v1",
+            "source_prompt_hash": prompt_hash,
+            "context_hash": context_hash,
+            "source_refs": ["source:paper-1"],
+            "dataset_refs": [],
+            "source_content_hashes": {},
+            "dataset_content_hashes": {},
+            "ai_generated": True,
+            "overlay_manifest_hash": overlay_hash,
+            "quality_receipt": {
+                "decoded": True,
+                "nonblank": True,
+                "requested_quality": "high",
+                "preview_expires_at": "2026-07-17T00:00:00+00:00",
+            },
+            "warnings": ["AI-generated explanatory illustration"],
+        },
+        "manifest": {
+            "caption": "Hybrid method overview",
+            "alt_text": "Method nodes connected from left to right",
+            "source_prompt_hash": prompt_hash,
+            "prompt_contract_version": "wenjin.academic_visual.prompt.v1",
+            "context_hash": context_hash,
+            "ai_generated": True,
+            "overlay_manifest_hash": overlay_hash,
+        },
+    }
+    candidate_item = SimpleNamespace(
+        mission_id="mission-visual",
+        item_type="artifact",
+        seq=12,
+        payload_json={
+            "reference_id": candidate_ref,
+            "kind": "academic_visual_candidate",
+            "verified": True,
+            "metadata": metadata,
+        },
+    )
+    request = SimpleNamespace(
+        mission=SimpleNamespace(mission_id="mission-visual"),
+        stage_id="visuals",
+        candidate_json={
+            "items": [
+                {
+                    "candidate_ref": candidate_ref,
+                    "output_key": "visual.hybrid_method",
+                    "target_kind": "workspace_asset",
+                    "target_room": "assets",
+                    "title": "Hybrid method",
+                    "risk_level": "medium",
+                }
+            ]
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[candidate_item],
+    )
+
+    batch = await StrictReviewCandidateBuilder().build_candidates(request)
+    preview = batch.items[0].preview_json
+    asset_metadata = preview["materialization"]["payload"]["metadata_json"]
+
+    for projection in (preview, asset_metadata):
+        assert projection["source_prompt_hash"] == prompt_hash
+        assert projection["prompt_contract_version"] == (
+            "wenjin.academic_visual.prompt.v1"
+        )
+        assert projection["context_hash"] == context_hash
+        assert projection["dimensions"] == {"width": 1536, "height": 1024}
+        assert projection["quality_receipt"]["requested_quality"] == "high"
+        assert projection["ai_generated"] is True
+        assert projection["overlay_manifest_hash"] == overlay_hash
+    assert asset_metadata["mission_id"] == "mission-visual"
+    assert asset_metadata["source_item_seq"] == 12
+    assert asset_metadata["content_hash"] == preview_hash
+    assert asset_metadata["candidate_content_hash"] == content_hash
+
+
+def test_current_figure_projection_does_not_recognize_legacy_chart_taxonomy() -> None:
+    assert _academic_visual_artifact_kind({"figure_type": "data_plot"}) == "chart"
+    assert _academic_visual_artifact_kind({"figure_type": "statistical_chart"}) == "chart"
+    assert _academic_visual_artifact_kind({"figure_type": "line_chart"}) == "figure"
+    assert _academic_visual_artifact_kind({"figure_type": "bar_chart"}) == "figure"
+
+
+def test_deterministic_visual_asset_provenance_preserves_source_code() -> None:
+    provenance = _academic_visual_asset_provenance(
+        item=SimpleNamespace(mission_id="mission-1", seq=8),
+        visual={
+            "content_hash": "sha256:" + "a" * 64,
+            "source_code_hash": "b" * 64,
+            "context_hash": "c" * 64,
+            "width": 1200,
+            "height": 800,
+            "ai_generated": False,
+        },
+        manifest={
+            "source_code_ref": "sandbox-script:sha256:" + "b" * 64,
+            "source_code_hash": "b" * 64,
+            "context_hash": "c" * 64,
+            "ai_generated": False,
+        },
+        quality_receipt={"decoded": True, "nonblank": True},
+    )
+
+    assert provenance["source_code_hash"] == "b" * 64
+    assert provenance["source_code_ref"] == "sandbox-script:sha256:" + "b" * 64
+    assert provenance["context_hash"] == "c" * 64
+    assert provenance["dimensions"] == {"width": 1200, "height": 800}
+    assert provenance["ai_generated"] is False
 
 
 @pytest.mark.asyncio

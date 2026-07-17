@@ -11,14 +11,8 @@ NPM_REGISTRY=https://registry.npmmirror.com
 NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
 ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 
-# TeXLive prebuilt image avoids a long local TeX build.
-TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
-TEXLIVE_BASE_IMAGE=docker.m.daocloud.io/library/ubuntu:22.04
-# TEXLIVE_APT_MIRROR=https://mirrors.ustc.edu.cn/ubuntu/
-
 # Runtime image mirrors.
 BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
-LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
 FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
 POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16
 REDIS_IMAGE=docker.m.daocloud.io/library/redis:8-alpine

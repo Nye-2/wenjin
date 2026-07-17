@@ -263,40 +263,6 @@ class DataServiceLatexService:
         await self.ensure_default_templates()
         return await self.repository.list_templates()
 
-    async def record_compile_history(
-        self,
-        *,
-        project_id: str,
-        engine: str,
-        main_file: str,
-        status: int,
-        log: str | None,
-        pdf_path: str | None,
-    ) -> Any:
-        history = self.repository.create_compile_history(
-            {
-                "project_id": project_id,
-                "engine": engine,
-                "main_file": main_file,
-                "status": status,
-                "log": log,
-                "pdf_path": pdf_path,
-            }
-        )
-        await self._finish(history)
-        return history
-
-    async def get_compile_history(self, history_id: str) -> Any | None:
-        return await self.repository.get_compile_history(history_id)
-
-    async def list_compile_history(self, project_id: str) -> list[Any]:
-        return await self.repository.list_compile_history(project_id)
-
-    async def delete_compile_histories(self, histories: list[Any]) -> None:
-        for history in histories:
-            await self.repository.delete_compile_history(history)
-        await self._finish()
-
     async def _finish(self, record: Any | None = None) -> None:
         if self.autocommit:
             await self.session.commit()

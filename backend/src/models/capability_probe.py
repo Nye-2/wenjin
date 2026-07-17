@@ -20,8 +20,9 @@ from src.models.capability_profile import (
     CapabilityProbeCheck,
     CapabilityProfileAssessment,
     GenerationAPI,
-    GenerationTransportObservation,
     ModelCapabilityProbeEvidence,
+    ModelTransportAPI,
+    ModelTransportObservation,
     ProbeCheckStatus,
     SearchReceiptKind,
     WebSearchAPI,
@@ -179,16 +180,6 @@ async def probe_model_capabilities(
     """Probe the configured generation API and return hashable evidence."""
 
     selected_transport = transport or HttpCapabilityProbeTransport()
-    if target.generation_api is not GenerationAPI.CHAT_COMPLETIONS:
-        evidence = _failed_evidence(
-            target,
-            detail_code="generation_api_not_enabled_in_runtime",
-        )
-        return CapabilityProfileAssessment(
-            profile=build_profile_from_probe(evidence),
-            evidence=evidence,
-        )
-
     headers = {
         "Authorization": f"Bearer {target.api_key}",
         "Content-Type": "application/json",
@@ -253,8 +244,7 @@ async def probe_model_capabilities(
 
     protocol_conformance = strict_ok and stream_ok
     checks.append(_check("response_storage_disabled", protocol_conformance))
-    reasoning_support = {ReasoningEffort.XHIGH: strict_ok}
-    for effort in (ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH):
+    for effort in ReasoningEffort:
         try:
             await selected_transport.post_json(
                 url=url,
@@ -271,14 +261,7 @@ async def probe_model_capabilities(
                 )
             )
         else:
-            reasoning_support[effort] = True
             checks.append(_check(f"reasoning_effort:{effort.value}", protocol_conformance))
-    checks.append(
-        _check(
-            "reasoning_effort:xhigh",
-            protocol_conformance and reasoning_support[ReasoningEffort.XHIGH],
-        )
-    )
     search_endpoint = native_search_endpoint(target.base_url)
     search_endpoint_hash = native_search_endpoint_fingerprint(target.base_url)
     search_transport_conformance = False
@@ -343,8 +326,8 @@ async def probe_model_capabilities(
         web_search_api=web_search_api,
         search_receipts=search_receipts,
         transport_observations=(
-            GenerationTransportObservation(
-                generation_api=target.generation_api,
+            ModelTransportObservation(
+                transport_api=ModelTransportAPI.CHAT_COMPLETIONS,
                 protocol_conformance=protocol_conformance,
                 detail_code=(
                     "clean_done_and_close"
@@ -352,8 +335,8 @@ async def probe_model_capabilities(
                     else "selected_generation_api_probe_failed"
                 ),
             ),
-            GenerationTransportObservation(
-                generation_api=GenerationAPI.RESPONSES,
+            ModelTransportObservation(
+                transport_api=ModelTransportAPI.RESPONSES,
                 protocol_conformance=search_transport_conformance,
                 detail_code=(
                     search_endpoint_hash
@@ -366,38 +349,6 @@ async def probe_model_capabilities(
     return CapabilityProfileAssessment(
         profile=build_profile_from_probe(evidence),
         evidence=evidence,
-    )
-
-
-def _failed_evidence(
-    target: ModelProbeTarget,
-    *,
-    detail_code: str,
-) -> ModelCapabilityProbeEvidence:
-    return ModelCapabilityProbeEvidence(
-        model_id=target.model_id,
-        model_name=target.model_name,
-        generation_api=target.generation_api,
-        endpoint_fingerprint=endpoint_fingerprint(
-            model_name=target.model_name,
-            base_url=target.base_url,
-            generation_api=target.generation_api,
-        ),
-        observed_at=_utc_now(),
-        checks=(
-            CapabilityProbeCheck(
-                name="capability_probe",
-                status=ProbeCheckStatus.FAILED,
-                detail_code=detail_code,
-            ),
-        ),
-        transport_observations=(
-            GenerationTransportObservation(
-                generation_api=target.generation_api,
-                protocol_conformance=False,
-                detail_code=detail_code,
-            ),
-        ),
     )
 
 
@@ -435,7 +386,7 @@ def _strict_tool_payload(model_name: str) -> dict[str, Any]:
             "type": "function",
             "function": {"name": _PROBE_TOOL_NAME},
         },
-        "reasoning_effort": "xhigh",
+        "reasoning_effort": "low",
         "store": False,
         "max_tokens": 128,
     }
@@ -491,9 +442,51 @@ def _utc_now():
 
 
 async def _cli() -> int:
-    parser = argparse.ArgumentParser(description="Probe one env-configured Wenjin model")
-    parser.add_argument("--model-id", required=True)
+    parser = argparse.ArgumentParser(description="Probe Wenjin model protocol capabilities")
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--model-id")
+    target.add_argument(
+        "--all-enabled-language-models",
+        action="store_true",
+        help="Probe every enabled language model returned by the DataService catalog",
+    )
+    parser.add_argument(
+        "--persist",
+        action="store_true",
+        help=(
+            "Probe the DataService-owned runtime configuration and persist the exact "
+            "endpoint-bound assessment in Model Catalog"
+        ),
+    )
+    parser.add_argument(
+        "--require-native-search",
+        action="store_true",
+        help="Return a non-zero status unless verified native-search receipts are present",
+    )
     args = parser.parse_args()
+
+    if args.all_enabled_language_models and not args.persist:
+        parser.error("--all-enabled-language-models requires --persist")
+
+    if args.persist:
+        from src.dataservice_client.provider import dataservice_client
+        from src.services.model_catalog_service import ModelCatalogService
+
+        async with dataservice_client() as dataservice:
+            service = ModelCatalogService(dataservice=dataservice)
+            if args.all_enabled_language_models:
+                catalog = await service.list_models(category="llm", enabled_only=True)
+                model_ids = [record.model_id for record in catalog]
+            else:
+                model_ids = [args.model_id]
+            payloads, ready = await probe_catalog_models(
+                service,
+                model_ids,
+                require_native_search=args.require_native_search,
+            )
+        output: Any = {"models": payloads} if args.all_enabled_language_models else payloads[0]
+        print(json.dumps(output, sort_keys=True))
+        return 0 if ready else 1
 
     from src.config.llm_config import get_model_full_config, reload_models
 
@@ -513,7 +506,45 @@ async def _cli() -> int:
         )
     )
     print(json.dumps(assessment.model_dump(mode="json"), sort_keys=True))
+    if not assessment.profile.protocol_conformance:
+        return 1
+    if args.require_native_search and not assessment.profile.native_web_search:
+        return 1
     return 0
+
+
+async def probe_catalog_models(
+    service: Any,
+    model_ids: list[str],
+    *,
+    require_native_search: bool,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Persist probe evidence for one catalog-selected language-model set."""
+
+    payloads: list[dict[str, Any]] = []
+    ready = bool(model_ids)
+    for model_id in model_ids:
+        record = await service.test_model(model_id)
+        if record is None:
+            payloads.append({"model_id": model_id, "status": "missing"})
+            ready = False
+            continue
+        profile = record.capability_profile
+        payloads.append(
+            {
+                "model_id": record.model_id,
+                "health_status": record.health_status,
+                "capability_profile": profile.model_dump(mode="json"),
+                "capability_probe": record.capability_probe.model_dump(mode="json"),
+                "capability_probe_hash": record.capability_probe_hash,
+                "capability_observed_at": record.capability_observed_at.isoformat(),
+            }
+        )
+        if record.health_status != "healthy" or not profile.protocol_conformance:
+            ready = False
+        if require_native_search and not profile.native_web_search:
+            ready = False
+    return payloads, ready
 
 
 if __name__ == "__main__":
@@ -525,5 +556,6 @@ __all__ = [
     "HttpCapabilityProbeTransport",
     "ModelProbeTarget",
     "StreamProbeResult",
+    "probe_catalog_models",
     "probe_model_capabilities",
 ]

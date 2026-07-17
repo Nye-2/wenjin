@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from src.academic_visual_runtime import (
+    AcademicVisualExecutionContext,
     AcademicVisualRuntime,
+    AcademicVisualRuntimeError,
     ConfiguredGptImage2Provider,
 )
 from src.agents.harness.command_audit import CommandAuditPolicy, SandboxCommandAuditor
@@ -38,10 +40,13 @@ from src.tools.mission.contracts import (
 )
 from src.tools.mission.runtime import MissionToolHandlers
 from src.tools.orchestrator import (
+    MalformedToolArgumentsError,
     SideEffectClass,
     ToolCallerKind,
+    ToolInvocationContext,
     ToolKind,
     ToolRegistration,
+    ToolSemanticIdentityBuilder,
     build_tool_registration,
 )
 
@@ -170,8 +175,60 @@ def build_mission_tool_registrations(
         sandbox=sandbox,  # type: ignore[arg-type]
         academic_visual=academic_visual,
     )
-    read = _registration_factory(ToolKind.READ, SideEffectClass.NONE)
-    mutation = _registration_factory(ToolKind.SANDBOX_MUTATION, SideEffectClass.IDEMPOTENT)
+
+    async def build_academic_visual_identity(
+        raw_args,
+        invocation_context: ToolInvocationContext,
+    ):
+        if not isinstance(raw_args, AcademicVisualRenderInput):
+            raise MalformedToolArgumentsError(
+                "Academic visual arguments did not satisfy the canonical input contract."
+            )
+        if invocation_context.source_item_seq is None:
+            raise MalformedToolArgumentsError(
+                "Academic visual rendering requires a durable source MissionItem."
+            )
+        prism_context_text, prism_context_hash = (
+            await handlers._resolve_visual_prism_context(  # noqa: SLF001
+                invocation_context.workspace_id,
+                raw_args,
+            )
+        )
+        try:
+            return await academic_visual.semantic_identity(
+                raw_args,
+                context=AcademicVisualExecutionContext(
+                    workspace_id=invocation_context.workspace_id,
+                    mission_id=invocation_context.mission_id,
+                    caller_id=invocation_context.caller_id,
+                    caller_kind=invocation_context.caller_kind.value,
+                    lease_epoch=invocation_context.lease_epoch,
+                    policy_version="semantic-identity-preflight",
+                    prism_context_text=prism_context_text,
+                    prism_context_hash=prism_context_hash,
+                ),
+                source_item_seq=invocation_context.source_item_seq,
+                contract_hashes=invocation_context.contract_hashes,
+                content_hash_refs={
+                    item.ref: item.content_hash
+                    for item in invocation_context.content_hash_refs
+                },
+                variant_ordinal=invocation_context.variant_ordinal,
+            )
+        except AcademicVisualRuntimeError as exc:
+            raise MalformedToolArgumentsError(str(exc)) from exc
+    read = _registration_factory(
+        ToolKind.READ,
+        SideEffectClass.NONE,
+        timeout_seconds=45,
+        max_attempts=2,
+    )
+    mutation = _registration_factory(
+        ToolKind.SANDBOX_MUTATION,
+        SideEffectClass.IDEMPOTENT,
+        timeout_seconds=150,
+        max_attempts=1,
+    )
     return (
         read("workspace.list_assets", ListWorkspaceAssetsInput, handlers.list_workspace_assets, "workspace_read"),
         read("workspace.read_asset", ReadWorkspaceAssetInput, handlers.read_workspace_asset, "workspace_read"),
@@ -187,6 +244,8 @@ def build_mission_tool_registrations(
             SideEffectClass.IDEMPOTENT,
             "source_import",
             provenance=("workspace_scope", "verification_ref", "mission_receipt"),
+            timeout_seconds=60,
+            max_attempts=1,
         ),
         read("source_code.list_files", ListSourceCodeFilesInput, handlers.list_source_code_files, "source_code_read"),
         read("source_code.read_file", ReadSourceCodeFileInput, handlers.read_source_code_file, "source_code_read"),
@@ -202,7 +261,8 @@ def build_mission_tool_registrations(
             "sandbox_compute",
             network_profile="package_index_only",
             provenance=("mission_permission", "sandbox_receipt"),
-            timeout=1800,
+            timeout_seconds=150,
+            max_attempts=1,
         ),
         mutation("sandbox.register_dataset", RegisterDatasetToolInput, handlers.sandbox_register_dataset, "sandbox_compute"),
         mutation("sandbox.register_artifact", RegisterArtifactToolInput, handlers.sandbox_register_artifact, "sandbox_compute"),
@@ -217,6 +277,8 @@ def build_mission_tool_registrations(
             SideEffectClass.IDEMPOTENT,
             "artifact_render",
             provenance=("mission_receipt",),
+            timeout_seconds=60,
+            max_attempts=1,
             payload_limit_bytes=262_144,
         ),
         read(
@@ -230,19 +292,36 @@ def build_mission_tool_registrations(
             ToolKind.WRITE_CANDIDATE,
             AcademicVisualRenderInput,
             handlers.render_academic_visual_candidate,
-            SideEffectClass.IDEMPOTENT,
+            SideEffectClass.NON_IDEMPOTENT,
             "academic_visual_render",
             network_profile="academic_visual_scoped",
             provenance=("workspace_scope", "mission_receipt", "visual_manifest"),
-            timeout=300,
+            semantic_identity_builder=build_academic_visual_identity,
+            timeout_seconds=150,
+            max_attempts=1,
             payload_limit_bytes=524_288,
         ),
     )
 
 
-def _registration_factory(kind: ToolKind, side_effect: SideEffectClass):
+def _registration_factory(
+    kind: ToolKind,
+    side_effect: SideEffectClass,
+    *,
+    timeout_seconds: float,
+    max_attempts: int,
+):
     def factory(tool_id, input_model, handler, permission):
-        return _build(tool_id, kind, input_model, handler, side_effect, permission)
+        return _build(
+            tool_id,
+            kind,
+            input_model,
+            handler,
+            side_effect,
+            permission,
+            timeout_seconds=timeout_seconds,
+            max_attempts=max_attempts,
+        )
 
     return factory
 
@@ -257,8 +336,10 @@ def _build(
     *,
     network_profile: str = "none",
     provenance: tuple[str, ...] = ("workspace_scope", "mission_receipt"),
-    timeout: float = 120,
+    timeout_seconds: float,
+    max_attempts: int,
     payload_limit_bytes: int = 131_072,
+    semantic_identity_builder: ToolSemanticIdentityBuilder | None = None,
 ) -> ToolRegistration:
     return build_tool_registration(
         tool_id=tool_id,
@@ -271,9 +352,11 @@ def _build(
         required_permissions=(permission,),
         network_profile=network_profile,
         budget_class="mission_standard",
-        default_timeout_seconds=timeout,
+        timeout_seconds=timeout_seconds,
+        max_attempts=max_attempts,
         payload_limit_bytes=payload_limit_bytes,
         provenance_requirements=provenance,
+        semantic_identity_builder=semantic_identity_builder,
     )
 
 

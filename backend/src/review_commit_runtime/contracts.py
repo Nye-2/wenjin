@@ -42,6 +42,8 @@ class ReviewDecisionOutcome(_StrictModel):
 
 class ReviewDecisionBatchOutcome(_StrictModel):
     outcomes: list[ReviewDecisionOutcome]
+    continuation_mission_id: str | None = None
+    continuation_error_code: str | None = None
 
     @property
     def partial(self) -> bool:
@@ -90,6 +92,8 @@ class CommitOutcome(_StrictModel):
 
 class CommitBatchOutcome(_StrictModel):
     outcomes: list[CommitOutcome]
+    continuation_mission_id: str | None = None
+    continuation_error_code: str | None = None
 
     @property
     def partial(self) -> bool:
@@ -112,6 +116,7 @@ class MissionTargetWriter(Protocol):
         *,
         workspace_id: str,
         mission_commit_id: str,
+        mission_commit_attempt_token: str,
         actor_user_id: str,
     ) -> MaterializationReceipt: ...
 

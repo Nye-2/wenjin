@@ -6,36 +6,42 @@ export type MissionPanelMode = "closed" | "peek" | "expanded";
 
 interface MissionUiState {
   focusedMissionId: string | null;
+  continuationMissionId: string | null;
   highlightedMissionId: string | null;
-  focusedPreviewItemId: string | null;
   panelMode: MissionPanelMode;
   surface: MissionConsoleSurface;
-  badgeCount: number;
   evidenceQuery: string;
   selectedReviewItemIds: Set<string>;
-  selectionRevision: number | null;
+  selectionMissionId: string | null;
+  selectionRevision: string | null;
+  submittingReviewMissionIds: Set<string>;
   focusMission(missionId: string, surface?: MissionConsoleSurface): void;
   peekMission(missionId: string): void;
   expandMission(surface?: MissionConsoleSurface): void;
   closePanel(): void;
   setSurface(surface: MissionConsoleSurface): void;
-  setBadgeCount(count: number): void;
   setEvidenceQuery(query: string): void;
-  setReviewSelection(ids: string[], revision: number): void;
-  toggleReviewItem(id: string): void;
+  setContinuationMission(missionId: string | null): void;
+  consumeContinuationMission(missionId: string): void;
+  ensureReviewSelection(missionId: string, revision: string, ids: string[]): void;
+  setReviewSelection(missionId: string, revision: string, ids: string[]): void;
+  toggleReviewItem(missionId: string, revision: string, id: string): void;
+  beginReviewSubmission(missionId: string): boolean;
+  endReviewSubmission(missionId: string): void;
   clearWorkspaceFocus(): void;
 }
 
-export const useMissionUiStore = create<MissionUiState>((set) => ({
+export const useMissionUiStore = create<MissionUiState>((set, get) => ({
   focusedMissionId: null,
+  continuationMissionId: null,
   highlightedMissionId: null,
-  focusedPreviewItemId: null,
   panelMode: "closed",
   surface: "progress",
-  badgeCount: 0,
   evidenceQuery: "",
   selectedReviewItemIds: new Set<string>(),
+  selectionMissionId: null,
   selectionRevision: null,
+  submittingReviewMissionIds: new Set<string>(),
   focusMission: (missionId, surface) =>
     set((state) => ({
       focusedMissionId: missionId,
@@ -57,32 +63,69 @@ export const useMissionUiStore = create<MissionUiState>((set) => ({
   closePanel: () =>
     set({
       focusedMissionId: null,
-      focusedPreviewItemId: null,
       panelMode: "closed",
-      selectedReviewItemIds: new Set<string>(),
-      selectionRevision: null,
     }),
   setSurface: (surface) => set({ surface, panelMode: "expanded" }),
-  setBadgeCount: (badgeCount) => set({ badgeCount: Math.max(0, badgeCount) }),
   setEvidenceQuery: (evidenceQuery) => set({ evidenceQuery }),
-  setReviewSelection: (ids, selectionRevision) =>
-    set({ selectedReviewItemIds: new Set(ids), selectionRevision }),
-  toggleReviewItem: (id) =>
+  setContinuationMission: (continuationMissionId) => set({ continuationMissionId }),
+  consumeContinuationMission: (missionId) =>
+    set((state) => state.continuationMissionId === missionId
+      ? { continuationMissionId: null }
+      : state),
+  ensureReviewSelection: (selectionMissionId, selectionRevision, ids) =>
     set((state) => {
-      const selectedReviewItemIds = new Set(state.selectedReviewItemIds);
+      if (
+        state.selectionMissionId === selectionMissionId &&
+        state.selectionRevision === selectionRevision
+      ) {
+        return state;
+      }
+      return {
+        selectionMissionId,
+        selectionRevision,
+        selectedReviewItemIds: new Set(ids),
+      };
+    }),
+  setReviewSelection: (selectionMissionId, selectionRevision, ids) =>
+    set({
+      selectionMissionId,
+      selectionRevision,
+      selectedReviewItemIds: new Set(ids),
+    }),
+  toggleReviewItem: (selectionMissionId, selectionRevision, id) =>
+    set((state) => {
+      const selectedReviewItemIds =
+        state.selectionMissionId === selectionMissionId &&
+        state.selectionRevision === selectionRevision
+          ? new Set(state.selectedReviewItemIds)
+          : new Set<string>();
       if (selectedReviewItemIds.has(id)) selectedReviewItemIds.delete(id);
       else selectedReviewItemIds.add(id);
-      return { selectedReviewItemIds };
+      return { selectionMissionId, selectionRevision, selectedReviewItemIds };
+    }),
+  beginReviewSubmission: (missionId) => {
+    const current = get().submittingReviewMissionIds;
+    if (current.has(missionId)) return false;
+    set({ submittingReviewMissionIds: new Set(current).add(missionId) });
+    return true;
+  },
+  endReviewSubmission: (missionId) =>
+    set((state) => {
+      if (!state.submittingReviewMissionIds.has(missionId)) return state;
+      const submittingReviewMissionIds = new Set(state.submittingReviewMissionIds);
+      submittingReviewMissionIds.delete(missionId);
+      return { submittingReviewMissionIds };
     }),
   clearWorkspaceFocus: () =>
     set({
       focusedMissionId: null,
+      continuationMissionId: null,
       highlightedMissionId: null,
-      focusedPreviewItemId: null,
       panelMode: "closed",
-      badgeCount: 0,
       evidenceQuery: "",
       selectedReviewItemIds: new Set<string>(),
+      selectionMissionId: null,
       selectionRevision: null,
+      submittingReviewMissionIds: new Set<string>(),
     }),
 }));

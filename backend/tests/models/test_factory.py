@@ -6,17 +6,17 @@ from unittest.mock import patch
 
 import pytest
 
-from src.models.capability_profile import gpt56_release_assessment
 from src.models.factory import create_chat_model
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
     install_model_catalog_snapshot,
     reset_model_catalog_cache,
 )
+from tests.models.capability_fixtures import verified_capability_assessment
 
 
 def _runtime_model(*, base_url: str = "https://api.nainai.love/v1") -> RuntimeModelConfig:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
         id="gpt-5.6-sol",
         name="GPT-5.6 Sol",

@@ -1,7 +1,7 @@
 # 08 Mission Console Frontend Spec
 
 Status: Implemented
-Updated: 2026-07-11
+Updated: 2026-07-16
 
 Implementation outcome: MissionView is the sole task projection; console peek/closed/expanded states, history, roster, evidence, artifacts, review, partial save, SSE refetch, model/effort menu, and mobile tests are implemented. A deployed real-backend visual pass remains part of spec 13 acceptance.
 Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `11_mission_trace_run_history.md`
@@ -160,6 +160,7 @@ GET /api/workspaces/{workspace_id}/missions
 GET /api/missions/{mission_id}
 GET /api/missions/{mission_id}/items
 POST /api/missions/{mission_id}/review-decisions
+POST /api/missions/{mission_id}/commits
 POST /api/missions/{mission_id}/actions
 ```
 
@@ -185,6 +186,8 @@ mission.terminal
 
 Frontend must treat SSE as a hint to refresh/patch MissionView, not as a second truth.
 
+Review and commit mutation responses may return `continuation_mission_id` plus a stable `continuation_error_code`. When present, the frontend fetches and focuses that child MissionView immediately. It must not keep displaying the terminal parent as if rework had not started, and it must show product-language guidance for a continuation that could not be created.
+
 ## Migration
 
 1. Add MissionView types in the cutover branch; do not ship a runtime "MissionView else RunView" fallback.
@@ -205,5 +208,6 @@ Frontend must treat SSE as a hint to refresh/patch MissionView, not as a second 
 - Refresh restores MissionView from backend.
 - Frontend does not compute stage status from local timers.
 - High-risk review item disables batch accept in UI.
+- Terminal request-more-evidence follows the returned child Mission; missing source-stage lineage remains on the parent with actionable guidance.
 - Trace tab lazy-loads semantic items; raw trace refs are separate, redacted, and fetched only in developer detail.
 - ChatTurnRun stream state never appears as a Mission Console item.

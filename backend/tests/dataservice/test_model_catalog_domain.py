@@ -24,9 +24,9 @@ from src.dataservice.domains.model_catalog.security import (
 from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
 from src.models.capability_profile import (
     GenerationAPI,
-    gpt56_release_assessment,
     unverified_capability_assessment,
 )
+from tests.models.capability_fixtures import verified_capability_assessment
 
 
 class _FakeSession:
@@ -94,10 +94,10 @@ class _FakePricingPolicyRepository:
                 policy_kind=PricingPolicyKind.MODEL_USAGE,
                 enabled=False,
             ),
-            "sandbox-standard": SimpleNamespace(
+            "tool-standard": SimpleNamespace(
                 id="policy-row-3",
-                policy_key="sandbox-standard",
-                policy_kind=PricingPolicyKind.SANDBOX,
+                policy_key="tool-standard",
+                policy_kind=PricingPolicyKind.TOOL,
                 enabled=True,
             ),
         }
@@ -289,7 +289,7 @@ async def test_probe_assessment_must_match_exact_current_endpoint() -> None:
             base_url="https://api.nainai.love/v1",
         )
     )
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
 
     record = await service.update_capability_assessment(
         "gpt-5.6-sol",
@@ -325,7 +325,7 @@ async def test_probe_assessment_rejects_profile_from_different_evidence() -> Non
             base_url="https://api.nainai.love/v1",
         )
     )
-    verified = gpt56_release_assessment("gpt-5.6-sol")
+    verified = verified_capability_assessment("gpt-5.6-sol")
     unverified = unverified_capability_assessment(
         model_id="gpt-5.6-sol",
         model_name="gpt-5.6-sol",
@@ -349,7 +349,7 @@ async def test_enabled_model_requires_enabled_model_usage_pricing_policy() -> No
         await service.create_model(_model_payload(pricing_policy_id=None))
 
     with pytest.raises(DataServiceValidationError, match="enabled model requires enabled model_usage pricing policy"):
-        await service.create_model(_model_payload(model_id="bad-kind", pricing_policy_id="sandbox-standard"))
+        await service.create_model(_model_payload(model_id="bad-kind", pricing_policy_id="tool-standard"))
 
     with pytest.raises(DataServiceValidationError, match="enabled model requires enabled model_usage pricing policy"):
         await service.create_model(_model_payload(model_id="disabled-policy", pricing_policy_id="model-disabled"))

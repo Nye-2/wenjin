@@ -4,14 +4,16 @@ import {
   use,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { PanelRightOpen } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
+import type { MissionView, PrismContextRef } from "@/lib/api/mission-types";
 import { getWorkspace } from "@/lib/api/workspace";
 import { defaultMissionSurface } from "@/lib/mission-view";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-type-config";
@@ -27,11 +29,13 @@ import {
   type MissionChatAction,
 } from "./components/mission-console/MissionConsole";
 import { useMissionWorkspace } from "./components/mission-console/useMissionWorkspace";
+import { useMissionDemandPeek } from "./components/mission-console/useMissionDemandPeek";
 import { LibraryDrawer } from "./components/rooms/LibraryDrawer";
 import { MissionHistoryDrawer } from "./components/rooms/RunsDrawer";
 import { SettingsPage } from "./components/rooms/SettingsPage";
 import { TasksDrawer } from "./components/rooms/TasksDrawer";
 import { WorkspaceChrome } from "./components/shell/WorkspaceChrome";
+import { useWorkspaceChromeCounts } from "./components/shell/useWorkspaceChromeCounts";
 import {
   WorkspaceHubDrawer,
   type WorkspaceHubRoomKey,
@@ -47,8 +51,14 @@ type MobileSurface = "chat" | "mission";
 
 export default function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const roomSeed = readRoomRouteSeed(searchParams);
+  const missionSeed = readMissionRouteSeed(searchParams);
+  const prismContextRef = useMemo(
+    () => readPrismContextRef(id, searchParams),
+    [id, searchParams],
+  );
   const [activeRoom, setActiveRoom] = useState<RoomKey | null>(roomSeed.room);
   const [compactToastVisible, setCompactToastVisible] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
@@ -66,22 +76,27 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const isFullscreen = useWorkbenchLayoutStore((state) => state.isWorkbenchFullscreen);
   const panelMode = useMissionUiStore((state) => state.panelMode);
   const focusedMissionId = useMissionUiStore((state) => state.focusedMissionId);
-  const peekMission = useMissionUiStore((state) => state.peekMission);
   const focusMission = useMissionUiStore((state) => state.focusMission);
   const closePanel = useMissionUiStore((state) => state.closePanel);
   const clearWorkspaceFocus = useMissionUiStore((state) => state.clearWorkspaceFocus);
-  const setBadgeCount = useMissionUiStore((state) => state.setBadgeCount);
-  const { view, loading: missionLoading, refresh, setView } = useMissionWorkspace(
-    id,
-    focusedMissionId,
-  );
-  const missionIsGenerating = Boolean(
-    view && ["created", "planning", "running"].includes(view.executionStatus),
-  );
-  const visibleReviewCount =
-    view && !missionIsGenerating
-      ? view.reviewSummary.pending + view.reviewSummary.needsMoreEvidence
-      : 0;
+  const setContinuationMission = useMissionUiStore((state) => state.setContinuationMission);
+  const {
+    view,
+    loading: missionLoading,
+    switchingMissionId,
+    refresh,
+    switchMission,
+  } = useMissionWorkspace(id);
+  const chromeRefreshKey = view
+    ? `${view.missionId}:${view.stateVersion}`
+    : "no-mission-view";
+  const { pendingReviewCount, missionStatus, completedRunCount, summaryState } =
+    useWorkspaceChromeCounts(id, chromeRefreshKey);
+  const { acknowledgeCurrentDemand } = useMissionDemandPeek({
+    workspaceId: id,
+    view,
+    loading: missionLoading,
+  });
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -94,17 +109,35 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   useEffect(() => {
     clearWorkspaceFocus();
     setMobileSurface("chat");
-  }, [clearWorkspaceFocus, id]);
-
-  useEffect(() => {
-    setBadgeCount(visibleReviewCount);
-  }, [setBadgeCount, visibleReviewCount]);
+    if (missionSeed.missionId) {
+      focusMission(missionSeed.missionId, missionSeed.surface);
+      setMobileSurface("mission");
+    }
+  }, [clearWorkspaceFocus, focusMission, id, missionSeed.missionId, missionSeed.surface]);
 
   useEffect(() => {
     if (focusedMissionId && focusedMissionId !== view?.missionId) {
-      void refresh(focusedMissionId);
+      const previousMissionId = view?.missionId ?? null;
+      let active = true;
+      void switchMission(focusedMissionId).then((accepted) => {
+        if (
+          !active ||
+          accepted ||
+          useMissionUiStore.getState().focusedMissionId !== focusedMissionId
+        ) {
+          return;
+        }
+        if (previousMissionId) {
+          focusMission(previousMissionId, useMissionUiStore.getState().surface);
+        } else {
+          closePanel();
+        }
+      });
+      return () => {
+        active = false;
+      };
     }
-  }, [focusedMissionId, refresh, view?.missionId]);
+  }, [closePanel, focusMission, focusedMissionId, switchMission, view?.missionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,7 +155,11 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const typeConfig = workspace
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
     : undefined;
-  const panelOpen = Boolean(view && panelMode !== "closed");
+  const focusedView =
+    !focusedMissionId || focusedMissionId === view?.missionId ? view : null;
+  const panelOpen = Boolean(
+    panelMode !== "closed" && (focusedMissionId || focusedView),
+  );
   const settingsOpen = activeRoom != null && SETTINGS_ROOMS.has(activeRoom);
   const settingsTab: SettingsTab = settingsOpen ? (activeRoom as SettingsTab) : "decisions";
 
@@ -136,14 +173,50 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   }, [focusMission, view]);
 
   const closeMission = useCallback(() => {
+    acknowledgeCurrentDemand();
     closePanel();
     setMobileSurface("chat");
-  }, [closePanel]);
+  }, [acknowledgeCurrentDemand, closePanel]);
 
   const handleMissionChatAction = useCallback((action: MissionChatAction) => {
+    if (view) setContinuationMission(view.missionId);
     setPendingChatAction(action);
     setMobileSurface("chat");
-  }, []);
+  }, [setContinuationMission, view]);
+
+  const focusAcceptedMission = useCallback((acceptedView: MissionView) => {
+    focusMission(
+      acceptedView.missionId,
+      acceptedView.attentionRequest
+        ? "progress"
+        : defaultMissionSurface(acceptedView),
+    );
+    setMobileSurface("mission");
+  }, [focusMission]);
+
+  const handleMissionCreated = useCallback((missionId: string) => {
+    const revealAfterSwitch = useMissionUiStore.getState().panelMode !== "closed";
+    void switchMission(missionId, {
+      retainOnFailure: true,
+      onAccepted(acceptedView) {
+        if (revealAfterSwitch) focusAcceptedMission(acceptedView);
+      },
+    });
+  }, [focusAcceptedMission, switchMission]);
+
+  const handleMissionTarget = useCallback(async (missionId: string) => {
+    if (missionId === view?.missionId) {
+      return Boolean(await refresh(missionId));
+    }
+    return Boolean(await switchMission(missionId, {
+      retainOnFailure: true,
+      onAccepted: focusAcceptedMission,
+    }));
+  }, [focusAcceptedMission, refresh, switchMission, view?.missionId]);
+
+  const clearPrismContext = useCallback(() => {
+    router.replace(`/workspaces/${encodeURIComponent(id)}`);
+  }, [id, router]);
 
   useEffect(() => {
     if (mobileSurface !== "chat" || pendingChatAction === null) return;
@@ -201,15 +274,16 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         workspaceName={workspace?.name}
         workspaceTypeLabel={typeConfig?.title}
         activeSurface="workbench"
-        pendingReviewCount={visibleReviewCount}
-        missionStatus={view?.executionStatus === "waiting" ? "waiting" : view && ["created", "planning", "running"].includes(view.executionStatus) ? "running" : null}
+        pendingReviewCount={pendingReviewCount}
+        missionStatus={missionStatus}
+        missionSummaryState={summaryState}
         onOpenHub={() => setHubOpen(true)}
       />
       <WorkspaceHubDrawer
         open={hubOpen}
         activeRoom={activeRoom}
-        pendingReviewCount={visibleReviewCount}
-        completedRunCount={view?.executionStatus === "completed" ? 1 : 0}
+        pendingReviewCount={pendingReviewCount}
+        completedRunCount={completedRunCount}
         onClose={() => setHubOpen(false)}
         onRoomSelect={setActiveRoom}
       />
@@ -217,7 +291,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       {isNarrow && panelOpen ? (
         <div className="flex h-10 shrink-0 border-b border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-1" role="tablist" aria-label="工作区视图">
           <MobileTab active={mobileSurface === "chat"} label="对话" onClick={() => setMobileSurface("chat")} />
-          <MobileTab active={mobileSurface === "mission"} label="研究任务" badge={visibleReviewCount} onClick={() => setMobileSurface("mission")} />
+          <MobileTab active={mobileSurface === "mission"} label="研究任务" badge={pendingReviewCount} onClick={() => setMobileSurface("mission")} />
         </div>
       ) : null}
 
@@ -229,13 +303,11 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
               workspaceId={id}
               workspaceName={workspace?.name}
               typeConfig={typeConfig}
+              prismContextRef={prismContextRef}
+              onPrismContextConsumed={clearPrismContext}
               className="h-full"
               data-testid="chat-panel"
-              onMissionCreated={(missionId) =>
-                void refresh(missionId).then((next) => {
-                  if (next) peekMission(next.missionId);
-                })
-              }
+              onMissionCreated={handleMissionCreated}
             />
           </div>
         ) : null}
@@ -253,15 +325,21 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
           />
         ) : null}
 
-        {view && panelOpen && (!isNarrow || mobileSurface === "mission" || isFullscreen) ? (
+        {panelOpen && (!isNarrow || mobileSurface === "mission" || isFullscreen) ? (
           <div className="min-w-0 flex-1" data-testid="mission-region">
-            <MissionConsole
-              view={view}
-              compact={isNarrow}
-              onClose={closeMission}
-              onViewChange={setView}
-              onChatAction={handleMissionChatAction}
-            />
+            {focusedView ? (
+              <MissionConsole
+                view={focusedView}
+                compact={isNarrow}
+                onClose={closeMission}
+                onMissionTarget={handleMissionTarget}
+                onChatAction={handleMissionChatAction}
+              />
+            ) : (
+              <MissionSwitchPlaceholder
+                loading={missionLoading || switchingMissionId === focusedMissionId}
+              />
+            )}
           </div>
         ) : null}
 
@@ -287,6 +365,29 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   );
 }
 
+function MissionSwitchPlaceholder({ loading }: { loading: boolean }) {
+  return (
+    <aside
+      className="flex h-full min-w-0 flex-col border-l border-[var(--wjn-line)] bg-[var(--wjn-surface)]"
+      aria-label="研究任务"
+      aria-busy={loading}
+      data-testid="mission-switch-placeholder"
+    >
+      <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+        <div>
+          <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-[var(--wjn-line)] border-t-[var(--wjn-accent)] motion-reduce:animate-none" />
+          <p className="mt-3 text-sm font-medium text-[var(--wjn-text)]" role="status">
+            正在打开研究任务
+          </p>
+          <p className="mt-1 text-xs text-[var(--wjn-text-secondary)]">
+            获取到对应任务后会一次性切换内容。
+          </p>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 function MobileTab({ active, label, badge, onClick }: { active: boolean; label: string; badge?: number; onClick(): void }) {
   return (
     <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`flex flex-1 items-center justify-center gap-1.5 rounded-[var(--wjn-radius)] text-xs font-medium ${active ? "bg-[var(--wjn-accent-soft)] text-[var(--wjn-accent-strong)]" : "text-[var(--wjn-text-secondary)]"}`}>
@@ -299,4 +400,52 @@ function readRoomRouteSeed(searchParams: ReturnType<typeof useSearchParams>): { 
   const value = searchParams.get("room");
   const valid: RoomKey[] = ["library", "decisions", "missions", "tasks", "settings"];
   return { room: valid.includes(value as RoomKey) ? (value as RoomKey) : null };
+}
+
+function readMissionRouteSeed(
+  searchParams: ReturnType<typeof useSearchParams>,
+): { missionId: string | null; surface: "progress" | "review" | "evidence" | "artifacts" | "trace" } {
+  const missionId = searchParams.get("mission_id")?.trim() || null;
+  const rawSurface = searchParams.get("mission_surface");
+  const validSurfaces = ["progress", "review", "evidence", "artifacts", "trace"] as const;
+  const surface = validSurfaces.includes(rawSurface as (typeof validSurfaces)[number])
+    ? rawSurface as (typeof validSurfaces)[number]
+    : "progress";
+  return { missionId, surface };
+}
+
+function readPrismContextRef(
+  workspaceId: string,
+  searchParams: ReturnType<typeof useSearchParams>,
+): PrismContextRef | null {
+  const projectId = searchParams.get("prism_project_id")?.trim() ?? "";
+  const fileId = searchParams.get("prism_file_id")?.trim() ?? "";
+  const revisionRef = searchParams.get("prism_revision_ref")?.trim() ?? "";
+  const selectionHash = searchParams.get("prism_selection_hash")?.trim() ?? "";
+  const startValue = searchParams.get("prism_selection_byte_start")?.trim() ?? "";
+  const endValue = searchParams.get("prism_selection_byte_end")?.trim() ?? "";
+  const start = Number(startValue);
+  const end = Number(endValue);
+  if (
+    !projectId ||
+    !fileId ||
+    !revisionRef ||
+    !/^sha256:[0-9a-f]{64}$/.test(selectionHash) ||
+    !/^\d+$/.test(startValue) ||
+    !/^\d+$/.test(endValue) ||
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end <= start
+  ) {
+    return null;
+  }
+  return {
+    workspace_id: workspaceId,
+    prism_project_id: projectId,
+    file_id: fileId,
+    base_revision_ref: revisionRef,
+    selection_hash: selectionHash,
+    selection_byte_range: [start, end],
+  };
 }

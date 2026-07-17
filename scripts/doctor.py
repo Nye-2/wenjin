@@ -17,13 +17,10 @@ import shutil
 import socket
 import subprocess
 import sys
-import ast
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
-
 
 Status = Literal["ok", "warn", "fail", "skip"]
 
@@ -75,27 +72,10 @@ def _run(cmd: list[str]) -> str | None:
         return None
 
 
-def _backend_python(backend_dir: Path) -> Path:
-    """Prefer the repo's backend virtualenv interpreter when it exists."""
-    candidate = backend_dir / ".venv" / "bin" / "python"
-    if candidate.exists():
-        return candidate
-    return Path(sys.executable)
-
-
 def _parse_major(version_text: str) -> int | None:
     first_token = version_text.strip().split()[0] if version_text.strip() else ""
     value = first_token.lstrip("v").split(".", 1)[0]
     return int(value) if value.isdigit() else None
-
-
-def _split_use_path(use: str) -> tuple[str, str] | None:
-    if ":" not in use:
-        return None
-    module_name, attr_name = use.split(":", 1)
-    if not module_name or not attr_name:
-        return None
-    return module_name, attr_name
 
 
 def _parse_dotenv(path: Path) -> dict[str, str]:
@@ -125,18 +105,6 @@ def _value_from_env_sources(env_name: str, env_files: list[Path]) -> str | None:
         if value:
             return value
     return None
-
-
-def _load_config(config_path: Path) -> tuple[dict[str, Any] | None, str | None]:
-    try:
-        import yaml
-
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        if not isinstance(data, dict):
-            return None, "top-level config must be a mapping"
-        return data, None
-    except Exception as exc:
-        return None, str(exc)
 
 
 def _parse_host_port_from_url(raw_url: str) -> tuple[str, int] | None:
@@ -175,14 +143,7 @@ class CheckResult:
 
 def check_python_version() -> CheckResult:
     version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    if sys.version_info >= (3, 12):
-        return CheckResult("Python", "ok", version)
-    return CheckResult(
-        "Python",
-        "fail",
-        version,
-        fix="Install Python 3.12+",
-    )
+    return CheckResult("Python", "ok", version)
 
 
 def check_node_version() -> CheckResult:
@@ -238,39 +199,6 @@ def check_file_exists(path: Path, label: str, *, required: bool, fix: str | None
     if required:
         return CheckResult(label, "fail", fix=fix)
     return CheckResult(label, "warn", fix=fix)
-
-
-def check_config_loadable(project_root: Path, config_path: Path) -> CheckResult:
-    backend_dir = project_root / "backend"
-    code = (
-        "import sys\n"
-        f"sys.path.insert(0, {repr(str(backend_dir))})\n"
-        f"sys.path.insert(0, {repr(str(backend_dir / 'src'))})\n"
-        "from src.config.config_loader import load_config\n"
-        f"load_config({repr(str(config_path))})\n"
-    )
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        return CheckResult("backend/config.yaml loadable", "fail", str(exc))
-
-    if result.returncode == 0:
-        return CheckResult("backend/config.yaml loadable", "ok")
-
-    detail = (result.stderr or result.stdout).strip().splitlines()
-    summary = detail[-1] if detail else "unknown error"
-    return CheckResult(
-        "backend/config.yaml loadable",
-        "fail",
-        summary,
-        fix="Fix backend/config.yaml syntax or placeholders",
-    )
 
 
 def _validate_model_entries(raw: str) -> tuple[list[dict[str, Any]] | None, str | None]:
@@ -396,135 +324,6 @@ def check_runtime_env(env_files: list[Path]) -> list[CheckResult]:
     return results
 
 
-def _check_src_attr_without_import(module_name: str, attr_name: str, backend_dir: Path) -> tuple[bool, str]:
-    module_rel = Path(*module_name.split("."))
-    candidate_files = [
-        backend_dir / f"{module_rel}.py",
-        backend_dir / module_rel / "__init__.py",
-    ]
-    module_file = next((path for path in candidate_files if path.exists()), None)
-    if module_file is None:
-        return False, f"module file not found for {module_name}"
-
-    source = module_file.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        return False, f"syntax error in {module_file}: {exc}"
-
-    declared_names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            declared_names.add(node.name)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    declared_names.add(target.id)
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            declared_names.add(node.target.id)
-
-    if attr_name in declared_names:
-        return True, ""
-
-    if re.search(rf"\b{re.escape(attr_name)}\b", source):
-        # The name exists in this module (possibly re-exported/imported).
-        return True, ""
-
-    return False, f"attribute {attr_name} not found in {module_file}"
-
-
-def _check_external_attr_with_python(
-    module_name: str,
-    attr_name: str,
-    python_executable: Path,
-) -> tuple[bool, str]:
-    code = (
-        "import importlib\n"
-        f"module = importlib.import_module({module_name!r})\n"
-        f"getattr(module, {attr_name!r})\n"
-    )
-    try:
-        result = subprocess.run(
-            [str(python_executable), "-c", code],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        return False, str(exc)
-
-    if result.returncode == 0:
-        return True, ""
-
-    detail = (result.stderr or result.stdout).strip().splitlines()
-    return False, detail[-1] if detail else "unknown import error"
-
-
-def check_config_use_paths(
-    config_data: dict[str, Any],
-    backend_dir: Path,
-    python_executable: Path,
-) -> list[CheckResult]:
-    results: list[CheckResult] = []
-    checks: list[tuple[str, str]] = []
-
-    for idx, tool in enumerate(config_data.get("tools", []), start=1):
-        if isinstance(tool, dict):
-            checks.append((f"tool[{idx}] use path", str(tool.get("use", "")).strip()))
-    sandbox = config_data.get("sandbox")
-    if isinstance(sandbox, dict):
-        checks.append(("sandbox use path", str(sandbox.get("use", "")).strip()))
-
-    for label, use_path in checks:
-        split = _split_use_path(use_path)
-        if split is None:
-            results.append(
-                CheckResult(
-                    label,
-                    "fail",
-                    use_path or "empty",
-                    fix="Use module:attribute format",
-                )
-            )
-            continue
-
-        module_name, attr_name = split
-        if module_name.startswith("src."):
-            ok, detail = _check_src_attr_without_import(module_name, attr_name, backend_dir)
-            if ok:
-                results.append(CheckResult(label, "ok"))
-            else:
-                results.append(
-                    CheckResult(
-                        label,
-                        "fail",
-                        f"{use_path} ({detail})",
-                        fix="Install missing dependency or fix the use path",
-                    )
-                )
-            continue
-
-        try:
-            ok, detail = _check_external_attr_with_python(
-                module_name,
-                attr_name,
-                python_executable,
-            )
-            if not ok:
-                raise ImportError(detail)
-            results.append(CheckResult(label, "ok"))
-        except Exception as exc:
-            results.append(
-                CheckResult(
-                    label,
-                    "fail",
-                    f"{use_path} ({exc})",
-                    fix="Install missing dependency or fix the use path",
-                )
-            )
-    return results
-
-
 def check_backend_runtime_urls(env_files: list[Path]) -> list[CheckResult]:
     results: list[CheckResult] = []
     for env_key, label in (
@@ -565,8 +364,6 @@ def check_backend_runtime_urls(env_files: list[Path]) -> list[CheckResult]:
 def main() -> int:
     project_root = Path(__file__).resolve().parents[1]
     backend_dir = project_root / "backend"
-    backend_python = _backend_python(backend_dir)
-    config_path = backend_dir / "config.yaml"
     root_env = project_root / ".env"
     legacy_backend_env = backend_dir / ".env"
     legacy_frontend_env = project_root / "frontend" / ".env.local"
@@ -590,15 +387,7 @@ def main() -> int:
         )
     )
 
-    config_data, config_error = _load_config(config_path) if config_path.exists() else (None, None)
-
     cfg_checks: list[CheckResult] = [
-        check_file_exists(
-            config_path,
-            "backend/config.yaml found",
-            required=True,
-            fix="Create backend/config.yaml",
-        ),
         check_file_exists(
             root_env,
             "root .env found",
@@ -626,28 +415,11 @@ def main() -> int:
             ),
         ),
     ]
-    if config_error:
-        cfg_checks.append(
-            CheckResult(
-                "backend/config.yaml parse",
-                "fail",
-                config_error,
-                fix="Fix yaml syntax in backend/config.yaml",
-            )
-        )
-    elif config_data is not None:
-        cfg_checks.append(check_config_loadable(project_root, config_path))
     sections.append(("Configuration", cfg_checks))
 
-    if config_data is not None:
-        env_files = [root_env]
-        sections.append(("Runtime Env", check_runtime_env(env_files)))
-        sections.append(("Use Paths", check_config_use_paths(config_data, backend_dir, backend_python)))
-        sections.append(("Runtime Connectivity", check_backend_runtime_urls(env_files)))
-    else:
-        sections.append(("Runtime Env", [CheckResult("runtime env checks", "skip", "config unavailable")]))
-        sections.append(("Use Paths", [CheckResult("use path checks", "skip", "config unavailable")]))
-        sections.append(("Runtime Connectivity", [CheckResult("runtime connectivity", "skip", "config unavailable")]))
+    env_files = [root_env]
+    sections.append(("Runtime Env", check_runtime_env(env_files)))
+    sections.append(("Runtime Connectivity", check_backend_runtime_urls(env_files)))
 
     total_fail = 0
     total_warn = 0

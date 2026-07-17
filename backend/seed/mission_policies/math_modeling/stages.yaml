@@ -123,5 +123,6 @@ max_revision_attempts: 5
 no_progress_limit: 2
 recommended_model_effort: xhigh
 all_item_prerequisite_templates: ["question_{index}_solution_validation"]
+all_item_source_context_key: problem_questions
 advance_condition: All question instances pass and integrate consistently with reproducible figures and disclosure.
 stop_condition: Any parsed question remains unvalidated or the paper contains unsupported results.

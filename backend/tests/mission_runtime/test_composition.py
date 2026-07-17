@@ -17,17 +17,17 @@ from src.mission_runtime.composition import (
     build_production_mission_runtime,
     compose_mission_runtime,
 )
-from src.models.capability_profile import gpt56_release_assessment
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
     install_model_catalog_snapshot,
     reset_model_catalog_cache,
 )
-from src.subagent_runtime.contracts import SubagentAction
+from src.subagent_runtime.contracts import SubagentAction, SubagentModelTurn
 from src.tools.orchestrator import (
     SideEffectClass,
     ToolCallerKind,
     ToolCatalog,
+    ToolExecutionLimit,
     ToolGuardDecision,
     ToolHandlerResult,
     ToolKind,
@@ -35,9 +35,10 @@ from src.tools.orchestrator import (
     ToolPolicy,
     build_tool_registration,
 )
+from src.tools.orchestrator.catalog import schema_hash
+from tests.models.capability_fixtures import verified_capability_assessment
 
 from .conftest import (
-    FakeBilling,
     FakeEvents,
     FakeMissionStore,
     FakeReviewCandidates,
@@ -59,11 +60,46 @@ class _Guard:
         return ToolGuardDecision(allowed=True)
 
 
+def _research_read_registration():
+    async def handler(_operation, _arguments):
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary="read completed",
+        )
+
+    return build_tool_registration(
+        tool_id="research.read",
+        tool_version="1",
+        kind=ToolKind.READ,
+        input_model=_Input,
+        handler=handler,
+        side_effect_class=SideEffectClass.NONE,
+        allowed_callers=(
+            ToolCallerKind.WORKSPACE_AGENT,
+            ToolCallerKind.SUBAGENT,
+        ),
+        timeout_seconds=60,
+        max_attempts=1,
+    )
+
+
 class _Policy:
     async def resolve(self, mission, *, caller_kind, allowed_tools=None):
+        descriptor = _research_read_registration().descriptor
         return ToolPolicy(
             policy_ref="policy:1",
             allowed_tool_ids=allowed_tools or ("research.read",),
+            execution_limits=(
+                ToolExecutionLimit(
+                    tool_id="research.read",
+                    descriptor_schema_hash=descriptor.schema_hash,
+                    descriptor_hash=schema_hash(
+                        descriptor.model_dump(mode="json")
+                    ),
+                    timeout_seconds=60,
+                    max_attempts=1,
+                ),
+            ),
         )
 
 
@@ -79,34 +115,14 @@ class _UnusedAssessments:
 
 class _Model:
     async def next_action(self, job, steps, tool_results):
-        return SubagentAction(kind="complete", summary="done", result_json={})
+        return SubagentModelTurn(
+            action=SubagentAction(kind="complete", summary="done", result_json={})
+        )
 
 
 def _catalog(effect_context) -> ToolCatalog:
     assert isinstance(effect_context.sandbox_receipts, MissionSandboxReceiptStore)
-
-    async def handler(_operation, _arguments):
-        return ToolHandlerResult(
-            status=ToolOutcomeStatus.SUCCESS,
-            summary="read completed",
-        )
-
-    return ToolCatalog(
-        [
-            build_tool_registration(
-                tool_id="research.read",
-                tool_version="1",
-                kind=ToolKind.READ,
-                input_model=_Input,
-                handler=handler,
-                side_effect_class=SideEffectClass.NONE,
-                allowed_callers=(
-                    ToolCallerKind.WORKSPACE_AGENT,
-                    ToolCallerKind.SUBAGENT,
-                ),
-            )
-        ]
-    ).freeze()
+    return ToolCatalog([_research_read_registration()]).freeze()
 
 
 def test_composition_builds_every_runtime_port_from_one_store_bound_graph() -> None:
@@ -116,14 +132,13 @@ def test_composition_builds_every_runtime_port_from_one_store_bound_graph() -> N
         dataservice,  # type: ignore[arg-type]
         MissionCompositionDependencies(
             agent=ScriptedAgent([]),
-            start_context=FakeStartContext(),
+            start_context_factory=lambda _catalog: FakeStartContext(),
             tool_catalog_factory=_catalog,
             tool_guard=_Guard(),
             tool_policy_resolver=_Policy(),
             stage_contract_resolver=_UnusedContracts(),
             stage_assessment_builder=_UnusedAssessments(),
             review_candidates=FakeReviewCandidates(),
-            billing=FakeBilling(),
             events=FakeEvents(),
             wakeups=FakeWakeups(),
             subagent_model=_Model(),
@@ -136,8 +151,55 @@ def test_composition_builds_every_runtime_port_from_one_store_bound_graph() -> N
     assert isinstance(runtime.quality, StageAcceptanceAdapter)
 
 
+def test_composition_rejects_catalog_budget_larger_than_mission_slice() -> None:
+    def oversized_catalog(_effect_context) -> ToolCatalog:
+        async def handler(_operation, _arguments):
+            return ToolHandlerResult(
+                status=ToolOutcomeStatus.SUCCESS,
+                summary="read completed",
+            )
+
+        return ToolCatalog(
+            [
+                build_tool_registration(
+                    tool_id="research.read",
+                    tool_version="1",
+                    kind=ToolKind.READ,
+                    input_model=_Input,
+                    handler=handler,
+                    side_effect_class=SideEffectClass.NONE,
+                    allowed_callers=(ToolCallerKind.WORKSPACE_AGENT,),
+                    timeout_seconds=171,
+                    max_attempts=1,
+                )
+            ]
+        ).freeze()
+
+    store = FakeMissionStore(MutableClock())
+    with pytest.raises(
+        MissionCompositionConfigurationError,
+        match="exceeds the durable Mission slice",
+    ):
+        compose_mission_runtime(
+            SimpleNamespace(missions=store),  # type: ignore[arg-type]
+            MissionCompositionDependencies(
+                agent=ScriptedAgent([]),
+                start_context_factory=lambda _catalog: FakeStartContext(),
+                tool_catalog_factory=oversized_catalog,
+                tool_guard=_Guard(),
+                tool_policy_resolver=_Policy(),
+                stage_contract_resolver=_UnusedContracts(),
+                stage_assessment_builder=_UnusedAssessments(),
+                review_candidates=FakeReviewCandidates(),
+                events=FakeEvents(),
+                wakeups=FakeWakeups(),
+                subagent_model=_Model(),
+            ),
+        )
+
+
 def _verified_model() -> RuntimeModelConfig:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
         id="gpt-5.6-sol",
         name="GPT-5.6 Sol",

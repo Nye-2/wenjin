@@ -29,62 +29,14 @@ def _current_profile(model: ModelConfig) -> ModelCapabilityProfile | None:
     return profile if freshness.current else None
 
 
-def _supports_vision(model: ModelConfig) -> bool:
+def _has_vision_capability(model: ModelConfig) -> bool:
     profile = _current_profile(model)
     return bool(profile and profile.vision)
 
 
-def _supports_thinking(model: ModelConfig) -> bool:
-    profile = _current_profile(model)
-    return bool(profile and profile.reasoning_efforts)
-
-
-def _supports_reasoning_effort(model: ModelConfig) -> bool:
-    return _supports_thinking(model)
-
-
-def _supports_strict_tools(model: ModelConfig) -> bool:
+def _has_strict_tool_capability(model: ModelConfig) -> bool:
     profile = _current_profile(model)
     return bool(profile and profile.has_strict_tools())
-
-
-def model_supports_vision(model_id_or_name: str | None) -> bool:
-    """Return whether a model supports vision inputs."""
-    normalized = (model_id_or_name or "").strip()
-    if not normalized:
-        return False
-
-    model = get_model_config(normalized)
-    if model is not None:
-        return _supports_vision(model)
-
-    return False
-
-
-def model_supports_thinking(model_id_or_name: str | None) -> bool:
-    """Return whether a model supports visible thinking/reasoning traces."""
-    normalized = (model_id_or_name or "").strip()
-    if not normalized:
-        return False
-
-    model = get_model_config(normalized)
-    if model is not None:
-        return _supports_thinking(model)
-
-    return False
-
-
-def model_supports_reasoning_effort(model_id_or_name: str | None) -> bool:
-    """Return whether a model supports reasoning_effort."""
-    normalized = (model_id_or_name or "").strip()
-    if not normalized:
-        return False
-
-    model = get_model_config(normalized)
-    if model is not None:
-        return _supports_reasoning_effort(model)
-
-    return False
 
 
 def _grouped_models() -> dict[str, list[ModelConfig]]:
@@ -159,12 +111,12 @@ def validate_requested_model(
             f"Model '{requested}' is category '{category}' but this request allows: {expected}"
         )
 
-    if require_tools and not _supports_strict_tools(model):
+    if require_tools and not _has_strict_tool_capability(model):
         raise InvalidRequestedModelError(
             f"Model '{requested}' has no current strict-tool capability probe"
         )
 
-    if require_vision and not _supports_vision(model):
+    if require_vision and not _has_vision_capability(model):
         raise InvalidRequestedModelError(
             f"Model '{requested}' does not support required vision inputs"
         )
@@ -264,9 +216,9 @@ def route_model(
     # Pick the first model from allowed categories that satisfies constraints
     for category in ordered_allowed:
         for model in grouped.get(category, []):
-            if require_tools and not _supports_strict_tools(model):
+            if require_tools and not _has_strict_tool_capability(model):
                 continue
-            if require_vision and not _supports_vision(model):
+            if require_vision and not _has_vision_capability(model):
                 continue
             return model.id
 
@@ -277,8 +229,8 @@ def route_model(
     if (
         fallback_category in allowed
         and fallback_model is not None
-        and (not require_tools or _supports_strict_tools(fallback_model))
-        and (not require_vision or _supports_vision(fallback_model))
+        and (not require_tools or _has_strict_tool_capability(fallback_model))
+        and (not require_vision or _has_vision_capability(fallback_model))
     ):
         return fallback
 
@@ -311,11 +263,11 @@ def _require_verified_capabilities(
     model = get_model_config(model_id)
     if model is None:
         raise InvalidRequestedModelError(f"Unknown model id: {model_id}")
-    if require_tools and not _supports_strict_tools(model):
+    if require_tools and not _has_strict_tool_capability(model):
         raise InvalidRequestedModelError(
             f"Model '{model_id}' has no current strict-tool capability probe"
         )
-    if require_vision and not _supports_vision(model):
+    if require_vision and not _has_vision_capability(model):
         raise InvalidRequestedModelError(
             f"Model '{model_id}' has no current vision capability probe"
         )

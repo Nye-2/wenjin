@@ -34,97 +34,6 @@ export interface WorkspaceSettingsUpdate {
   metadata_json?: Record<string, unknown>;
 }
 
-export interface LatexProject {
-  id: string;
-  user_id: string;
-  name: string;
-  template_id?: string | null;
-  main_file: string;
-  tags: string[];
-  archived: boolean;
-  trashed: boolean;
-  trashed_at?: string | null;
-  file_order: Record<string, string[]>;
-  llm_config?: Record<string, unknown> | null;
-  workspace_id?: string | null;
-  surface_role?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface LatexProjectCreate {
-  name: string;
-  template_id?: string | null;
-}
-
-export interface LatexFileItem {
-  path: string;
-  type: "file" | "dir";
-}
-
-export interface LatexTemplate {
-  id: string;
-  label: string;
-  main_file: string;
-  category: string;
-  description?: string | null;
-  description_en?: string | null;
-  tags: string[];
-  author?: string | null;
-  featured: boolean;
-  template_path?: string | null;
-}
-
-export type LatexCompileEngine =
-  | "xelatex"
-  | "pdflatex";
-
-export interface LatexCompileResult {
-  ok: boolean;
-  status: number;
-  engine: LatexCompileEngine;
-  main_file: string;
-  pdf_path?: string | null;
-  pdf_endpoint?: string | null;
-  log?: string | null;
-  error?: string | null;
-  history_id: string;
-  page_count?: number | null;
-}
-
-export interface LatexFileChange {
-  id?: string | null;
-  logical_key: string;
-  path: string;
-  reason: string;
-  status?: string | null;
-  title?: string | null;
-  source_type?: string | null;
-  source_mission_id?: string | null;
-  source_task_id?: string | null;
-  target_kind?: string | null;
-  applied_at?: string | null;
-  pending_content?: string | null;
-  current_hash?: string | null;
-  pending_hash?: string | null;
-}
-
-export interface LatexAppliedFileChange {
-  id?: string | null;
-  logical_key: string;
-  path: string;
-  reason?: string | null;
-  status?: string | null;
-  title?: string | null;
-  source_type?: string | null;
-  source_mission_id?: string | null;
-  source_task_id?: string | null;
-  previous_hash: string;
-  applied_hash: string;
-  revert_signature: string;
-  applied_at?: string | null;
-}
-
 export interface WorkspacePrismSourceLink {
   id: string;
   workspace_id: string;
@@ -244,209 +153,6 @@ export interface WorkspacePrismContextSummary {
   recent_activity_count?: number;
 }
 
-export interface LatexFeedbackAnchor {
-  selected_text: string;
-  prefix: string;
-  suffix: string;
-  heading_title: string;
-  heading_level: string;
-  line_hint: number;
-}
-
-export interface LatexPdfAnchorRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface LatexPdfAnchor {
-  page: number;
-  text: string;
-  rects: LatexPdfAnchorRect[];
-}
-
-export interface LatexFeedbackItem {
-  id: string;
-  file_path: string;
-  start: number;
-  end: number;
-  selected_text: string;
-  comment: string;
-  created_at?: string | null;
-  anchor?: LatexFeedbackAnchor | null;
-  source?: "tex" | "pdf";
-  pdf_anchor?: LatexPdfAnchor | null;
-  last_status?: "idle" | "pending" | "done" | "error" | null;
-  last_error?: string | null;
-}
-
-export interface LatexDiffStats {
-  chars_added: number;
-  chars_deleted: number;
-  tokens_changed: number;
-  citation_changed: number;
-  label_changed: number;
-  math_changed: number;
-}
-
-export interface LatexDiffOp {
-  op: "equal" | "insert" | "delete" | "replace";
-  token_kind: "text" | "latex_cmd" | "citation" | "label" | "math" | "env";
-  old_text: string;
-  new_text: string;
-  old_start: number;
-  old_end: number;
-  new_start: number;
-  new_end: number;
-}
-
-export interface LatexDiffHunk {
-  old_start: number;
-  old_end: number;
-  new_start: number;
-  new_end: number;
-  ops: LatexDiffOp[];
-  stats: LatexDiffStats;
-  risk_flags: string[];
-}
-
-export interface LatexRewriteDiffPayload {
-  hunks: LatexDiffHunk[];
-  stats: LatexDiffStats;
-  risk_flags: string[];
-}
-
-export interface LatexFileChangePreviewResponse {
-  ok: boolean;
-  logical_key: string;
-  path: string;
-  reason: string;
-  current_hash: string;
-  pending_hash: string;
-  change_signature: string;
-  diff: LatexRewriteDiffPayload;
-}
-
-export interface LatexFileChangeUndoPayload {
-  logical_key: string;
-  path: string;
-  previous_hash: string;
-  applied_hash: string;
-  revert_signature: string;
-}
-
-export interface LatexFileChangeApplyResponse {
-  ok: boolean;
-  applied: boolean;
-  logical_key: string;
-  path: string;
-  file_hash: string;
-  undo: LatexFileChangeUndoPayload;
-}
-
-export interface LatexFileChangeDiscardResponse {
-  ok: boolean;
-  discarded: boolean;
-  logical_key: string;
-  path: string;
-}
-
-export interface LatexFileChangeRevertResponse {
-  ok: boolean;
-  reverted: boolean;
-  logical_key: string;
-  path: string;
-  file_hash: string;
-}
-
-export interface LatexProtectedSectionResponse {
-  ok: boolean;
-  protected: boolean;
-  path: string;
-  section_key: string;
-  scope: "file" | "section";
-  reason?: string | null;
-}
-
-export interface LatexFeedbackRewriteCandidate {
-  candidate_id: string;
-  candidate_signature: string;
-  profile: "balanced" | "conservative" | "aggressive";
-  risk_level: "low" | "medium" | "high";
-  model_id: string;
-  scope: "selection" | "section" | "document";
-  section_title: string;
-  section_level: string;
-  target_start: number;
-  target_end: number;
-  rewritten_text: string;
-  changes_summary: string;
-  proposed_content: string;
-  updated_anchor: LatexFeedbackAnchor;
-  base_file_hash: string;
-  base_range_hash: string;
-  diff: LatexRewriteDiffPayload;
-}
-
-export interface LatexFeedbackRewritePreviewResponse {
-  ok: boolean;
-  file_path: string;
-  resolved_selection_start: number;
-  resolved_selection_end: number;
-  candidates: LatexFeedbackRewriteCandidate[];
-}
-
-export interface LatexFeedbackRewriteApplyResponse {
-  ok: boolean;
-  applied: boolean;
-  file_path: string;
-  candidate_id: string;
-  target_start: number;
-  target_end: number;
-  rewritten_text: string;
-  applied_content: string;
-  updated_anchor: LatexFeedbackAnchor;
-  file_hash: string;
-  undo: LatexFeedbackRewriteUndoPayload;
-}
-
-export interface LatexFeedbackRewriteUndoPayload {
-  candidate_id: string;
-  revert_start: number;
-  revert_end: number;
-  rewritten_text: string;
-  previous_text: string;
-  applied_file_hash: string;
-  revert_signature: string;
-}
-
-export interface LatexFeedbackRewriteRevertResponse {
-  ok: boolean;
-  reverted: boolean;
-  file_path: string;
-  candidate_id: string;
-  revert_start: number;
-  revert_end: number;
-  restored_text: string;
-  reverted_content: string;
-  updated_anchor: LatexFeedbackAnchor;
-  file_hash: string;
-}
-
-export interface LatexFeedbackMapResponse {
-  ok: boolean;
-  file_path: string;
-  resolved_selection_start: number;
-  resolved_selection_end: number;
-  selected_text: string;
-  updated_anchor: LatexFeedbackAnchor;
-  section_title: string;
-  section_level: string;
-  mapping_method: "synctex" | "text_fallback";
-  pdf_anchor?: LatexPdfAnchor | null;
-}
-
 export interface WorkspaceCreate {
   name: string;
   type: string;
@@ -534,8 +240,8 @@ export interface ReferencePreprocessSummary {
 export interface ReferenceSourceHistoryItem {
   source_type?: string | null;
   source_label?: string | null;
-  source_run_id?: string | null;
-  source_artifact_id?: string | null;
+  ingest_mission_id?: string | null;
+  ingest_mission_commit_id?: string | null;
   external_id?: string | null;
   url?: string | null;
   verified_at?: string | null;
@@ -563,8 +269,8 @@ export interface WorkspaceReference {
   citation_count?: number | null;
   source_type: string;
   source_label?: string | null;
-  source_run_id?: string | null;
-  source_artifact_id?: string | null;
+  ingest_mission_id?: string | null;
+  ingest_mission_commit_id?: string | null;
   verified_at?: string | null;
   library_status: string;
   evidence_level: string;
@@ -828,43 +534,13 @@ export interface RunWaitResponse {
   values?: Record<string, unknown>;
 }
 
-export interface PlatformThreadSummary {
-  thread_id: string;
-  status: "idle" | "busy" | "interrupted" | "error" | string;
-  created_at: string;
-  updated_at: string;
-  metadata: Record<string, unknown>;
-  values: Record<string, unknown>;
-  interrupts: Record<string, unknown>;
-}
-
-export interface PlatformThreadState {
-  values: Record<string, unknown>;
-  next: string[];
-  metadata: Record<string, unknown>;
-  checkpoint: Record<string, unknown>;
-  checkpoint_id?: string | null;
-  parent_checkpoint_id?: string | null;
-  created_at?: string | null;
-  tasks: Array<Record<string, unknown>>;
-}
-
-export interface PlatformThreadHistoryEntry {
-  checkpoint_id: string;
-  parent_checkpoint_id?: string | null;
-  metadata: Record<string, unknown>;
-  values: Record<string, unknown>;
-  created_at?: string | null;
-  next: string[];
-}
-
 export interface Model {
   name: string;
   display_name: string;
   category?: string;
   provider: string;
   max_tokens: number;
-  generation_api: string | null;
+  generation_api: ModelGenerationApi | null;
   capability_profile_version: string;
   capability_profile: {
     strict_tool_calls: boolean;
@@ -878,11 +554,60 @@ export interface Model {
 
 export type ModelPurpose = "chat" | "writing" | "image" | "all";
 
+export type ModelGenerationApi = "chat_completions";
+export type ModelTransportApi = "chat_completions" | "responses";
+
+export interface ModelCapabilityProbeCheck {
+  name: string;
+  status: "passed" | "failed" | "skipped";
+  detail_code?: string | null;
+}
+
+export interface ModelTransportObservation {
+  transport_api: ModelTransportApi;
+  protocol_conformance: boolean;
+  detail_code?: string | null;
+}
+
+export interface ModelCapabilityProbe {
+  probe_version: string;
+  model_id: string;
+  model_name: string;
+  generation_api: ModelGenerationApi | null;
+  endpoint_fingerprint: string;
+  observed_at: string;
+  checks: ModelCapabilityProbeCheck[];
+  web_search_api: "responses_web_search" | "none";
+  search_receipts: Array<"web_search_call" | "annotations_sources">;
+  transport_observations: ModelTransportObservation[];
+}
+
+export interface AdminModelCapabilityProfile {
+  profile_version: string;
+  model_id: string;
+  generation_api: ModelGenerationApi | null;
+  structured_tool_calls: boolean;
+  strict_tool_arguments: boolean;
+  streaming: boolean;
+  reasoning_efforts: ReasoningEffort[];
+  native_web_search: boolean;
+  web_search_api: "responses_web_search" | "none";
+  search_receipts: Array<"web_search_call" | "annotations_sources">;
+  structured_outputs: boolean;
+  vision: boolean;
+  response_storage_disabled: boolean;
+  protocol_conformance: boolean;
+  transport_observations: ModelTransportObservation[];
+  observed_at: string;
+  probe_hash: string;
+  endpoint_fingerprint: string;
+}
+
 export interface AdminModelCatalogItem {
   id?: string | null;
   model_id: string;
   display_name: string;
-  provider_protocol: string;
+  generation_api: ModelGenerationApi | null;
   provider_name: string;
   category: string;
   model_name: string;
@@ -890,12 +615,10 @@ export interface AdminModelCatalogItem {
   api_key_redacted?: string | null;
   enabled: boolean;
   is_default: boolean;
-  supports_streaming: boolean;
-  supports_tools: boolean;
-  supports_json_mode: boolean;
-  supports_json_schema: boolean;
-  supports_vision: boolean;
-  supports_reasoning_effort: boolean;
+  capability_profile: AdminModelCapabilityProfile;
+  capability_probe: ModelCapabilityProbe;
+  capability_probe_hash: string;
+  capability_observed_at: string;
   max_tokens: number;
   temperature: number;
   timeout_seconds?: number | null;
@@ -1003,8 +726,6 @@ export interface WorkspacePrismSurfaceResponse {
   compile_status?: string | null;
   has_pending_changes: boolean;
   target_files: string[];
-  file_changes?: LatexFileChange[];
-  applied_file_changes?: LatexAppliedFileChange[];
   review_items?: WorkspacePrismReviewItem[];
   source_links?: WorkspacePrismSourceLink[];
   protected_sections?: WorkspacePrismProtectedSection[];
@@ -1103,7 +824,33 @@ export interface CreditTransactionItem {
   created_at: string;
 }
 
-export type CreditCostValue = number | Record<string, number | boolean | string>;
+export interface PublicModelPricing {
+  model_id: string;
+  display_name: string;
+  is_default: boolean;
+  policy_id: string;
+  policy_key: string;
+  policy_version: number;
+  minimum_credits: number;
+}
+
+export interface PublicMissionPricing {
+  policy_id: string;
+  policy_key: string;
+  policy_version: number;
+  workspace_type: string | null;
+  mission_policy_id: string | null;
+  base_fee_credits: number;
+  estimate_min_credits: number;
+  estimate_max_credits: number;
+  max_charge_credits: number;
+}
+
+export interface PublicPricingCatalog {
+  unit: "credits";
+  chat_models: PublicModelPricing[];
+  missions: PublicMissionPricing[];
+}
 
 export interface ThreadCreditStatus {
   enabled: boolean;
@@ -1135,7 +882,7 @@ export interface UserDashboardData {
     balance: number;
     total_earned: number;
     total_spent: number;
-    costs: Record<string, CreditCostValue>;
+    pricing: PublicPricingCatalog;
     thread?: ThreadCreditStatus;
   };
   workspaces: {
@@ -1277,40 +1024,6 @@ export interface AdminReleaseGateReport {
     backend_root?: string;
     timeout_seconds?: number;
   };
-}
-
-export interface McpOAuthConfigInput {
-  enabled?: boolean;
-  token_url?: string;
-  grant_type?: "client_credentials" | "refresh_token";
-  client_id?: string | null;
-  client_secret?: string | null;
-  refresh_token?: string | null;
-  scope?: string | null;
-  audience?: string | null;
-  token_field?: string;
-  token_type_field?: string;
-  expires_in_field?: string;
-  default_token_type?: string;
-  refresh_skew_seconds?: number;
-  extra_token_params?: Record<string, string>;
-}
-
-export interface McpServerConfigInput {
-  enabled?: boolean;
-  type?: "stdio" | "sse" | "http";
-  command?: string | null;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string | null;
-  headers?: Record<string, string>;
-  oauth?: McpOAuthConfigInput | null;
-  timeout?: number;
-  description?: string;
-}
-
-export interface McpConfigResponse {
-  mcp_servers: Record<string, McpServerConfigInput>;
 }
 
 export interface ReferenceListResponse {

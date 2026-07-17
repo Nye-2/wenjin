@@ -206,24 +206,6 @@ class _RunHistory(_Base):
     deleted_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
-class _Sandbox(_Base):
-    """SQLite-compatible mirror of Sandbox."""
-
-    __tablename__ = "sandboxes"
-
-    workspace_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True,
-    )
-    sandbox_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    provider: Mapped[str] = mapped_column(String(50), nullable=False)
-    state: Mapped[str] = mapped_column(String(20), nullable=False)
-    workspace_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    last_active_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    created_at: Mapped[str] = mapped_column(
-        String(30), nullable=False, server_default=func.now(),
-    )
-
-
 class _WorkspaceTask(_Base):
     """SQLite-compatible mirror of WorkspaceTask."""
 
@@ -322,6 +304,5 @@ DbLibraryItem = _LibraryItem
 DbDocumentV2 = _DocumentV2
 DbDecision = _Decision
 DbRunHistory = _RunHistory
-DbSandbox = _Sandbox
 DbWorkspaceTask = _WorkspaceTask
 DbAuditLog = _AuditLog

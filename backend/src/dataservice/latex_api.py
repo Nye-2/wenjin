@@ -84,31 +84,3 @@ class LatexDataService:
 
     async def list_templates(self) -> list[Any]:
         return await self._domain.list_templates()
-
-    async def record_compile_history(
-        self,
-        *,
-        project_id: str,
-        engine: str,
-        main_file: str,
-        status: int,
-        log: str | None,
-        pdf_path: str | None,
-    ) -> Any:
-        return await self._domain.record_compile_history(
-            project_id=project_id,
-            engine=engine,
-            main_file=main_file,
-            status=status,
-            log=log,
-            pdf_path=pdf_path,
-        )
-
-    async def get_compile_history(self, history_id: str) -> Any | None:
-        return await self._domain.get_compile_history(history_id)
-
-    async def list_compile_history(self, project_id: str) -> list[Any]:
-        return await self._domain.list_compile_history(project_id)
-
-    async def delete_compile_histories(self, histories: list[Any]) -> None:
-        await self._domain.delete_compile_histories(histories)

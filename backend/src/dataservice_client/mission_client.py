@@ -13,19 +13,22 @@ from src.dataservice_client.contracts.mission import (
     MissionAppendResultPayload,
     MissionApplyCommandsPayload,
     MissionArtifactPagePayload,
-    MissionCancelPayload,
     MissionCheckpointPayload,
     MissionCommitCreatePayload,
     MissionCommitCreateResultPayload,
     MissionCommitFinishPayload,
+    MissionCommitPagePayload,
     MissionCommitResultPayload,
     MissionCommitStartPayload,
     MissionCreatePayload,
     MissionCreateResultPayload,
+    MissionDerivedReviewItemCreatePayload,
     MissionDispatchReleasePayload,
     MissionEvidencePagePayload,
     MissionHistoryPagePayload,
+    MissionItemPagePayload,
     MissionItemPayload,
+    MissionItemSeqsPayload,
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
     MissionLeaseReleasePayload,
@@ -37,11 +40,14 @@ from src.dataservice_client.contracts.mission import (
     MissionPausePayload,
     MissionPreviewCleanupPayload,
     MissionPreviewCleanupResultPayload,
+    MissionReservationReconcilePayload,
+    MissionReservationReconcileResultPayload,
     MissionResumePayload,
     MissionReviewDecisionsPayload,
     MissionReviewItemPayload,
     MissionReviewItemsCreatePayload,
     MissionReviewItemsResultPayload,
+    MissionReviewPagePayload,
     MissionRunnableBatchClaimPayload,
     MissionRunPayload,
     MissionStatsPayload,
@@ -72,8 +78,22 @@ class MissionDataServiceClient:
         response = await self._request("POST", path, json=command.model_dump(mode="json"))
         return response_type.model_validate(response["data"])
 
-    async def create(self, command: MissionCreatePayload) -> MissionCreateResultPayload:
-        return await self._post("/internal/v1/missions", command, MissionCreateResultPayload)
+    async def admit(self, command: MissionCreatePayload) -> MissionCreateResultPayload:
+        return await self._post(
+            "/internal/v1/mission-admissions",
+            command,
+            MissionCreateResultPayload,
+        )
+
+    async def reconcile_expired_reservations(
+        self,
+        command: MissionReservationReconcilePayload,
+    ) -> MissionReservationReconcileResultPayload:
+        return await self._post(
+            "/internal/v1/mission-reservation-reconciliation",
+            command,
+            MissionReservationReconcileResultPayload,
+        )
 
     async def get(self, mission_id: str) -> MissionRunPayload | None:
         response = await self._request("GET", f"/internal/v1/missions/{mission_id}")
@@ -82,6 +102,21 @@ class MissionDataServiceClient:
     async def get_view(self, mission_id: str) -> MissionViewPayload | None:
         response = await self._request("GET", f"/internal/v1/missions/{mission_id}/view")
         return MissionViewPayload.model_validate(response["data"]) if response.get("data") else None
+
+    async def get_commit_for_review_item(
+        self,
+        mission_id: str,
+        review_item_id: str,
+    ) -> MissionCommitResultPayload | None:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/missions/{mission_id}/review-items/{review_item_id}/commit",
+        )
+        return (
+            MissionCommitResultPayload.model_validate(response["data"])
+            if response.get("data")
+            else None
+        )
 
     async def list_evidence_projection(
         self,
@@ -106,12 +141,17 @@ class MissionDataServiceClient:
         mission_id: str,
         *,
         after_seq: int = 0,
+        after_review_item_id: str = "",
         limit: int = 50,
     ) -> MissionArtifactPagePayload | None:
         response = await self._request(
             "GET",
             f"/internal/v1/missions/{mission_id}/artifacts",
-            params={"after_seq": after_seq, "limit": limit},
+            params={
+                "after_seq": after_seq,
+                "after_review_item_id": after_review_item_id,
+                "limit": limit,
+            },
         )
         return (
             MissionArtifactPagePayload.model_validate(response["data"])
@@ -377,6 +417,24 @@ class MissionDataServiceClient:
         item_type: str | None = None,
         operation_id: str | None = None,
     ) -> list[MissionItemPayload]:
+        page = await self.list_items_page(
+            mission_id,
+            after_seq=after_seq,
+            limit=limit,
+            item_type=item_type,
+            operation_id=operation_id,
+        )
+        return page.items
+
+    async def list_items_page(
+        self,
+        mission_id: str,
+        *,
+        after_seq: int = 0,
+        limit: int = 100,
+        item_type: str | None = None,
+        operation_id: str | None = None,
+    ) -> MissionItemPagePayload:
         response = await self._request(
             "GET",
             f"/internal/v1/missions/{mission_id}/items",
@@ -386,6 +444,19 @@ class MissionDataServiceClient:
                 "item_type": item_type,
                 "operation_id": operation_id,
             },
+        )
+        return MissionItemPagePayload.model_validate(response["data"])
+
+    async def list_items_by_seqs(
+        self,
+        mission_id: str,
+        *,
+        seqs: tuple[int, ...],
+    ) -> list[MissionItemPayload]:
+        response = await self._request(
+            "POST",
+            f"/internal/v1/missions/{mission_id}/items/by-seqs",
+            json=MissionItemSeqsPayload(seqs=seqs).model_dump(mode="json"),
         )
         return [MissionItemPayload.model_validate(item) for item in response["data"]]
 
@@ -425,13 +496,6 @@ class MissionDataServiceClient:
             MissionAppendResultPayload,
         )
 
-    async def cancel(self, mission_id: str, command: MissionCancelPayload) -> MissionAppendResultPayload:
-        return await self._post(
-            f"/internal/v1/missions/{mission_id}/cancel",
-            command,
-            MissionAppendResultPayload,
-        )
-
     async def create_review_items(self, mission_id: str, command: MissionReviewItemsCreatePayload) -> MissionReviewItemsResultPayload:
         return await self._post(
             f"/internal/v1/missions/{mission_id}/review-items",
@@ -439,13 +503,61 @@ class MissionDataServiceClient:
             MissionReviewItemsResultPayload,
         )
 
-    async def list_review_items(self, mission_id: str, *, status: list[str] | None = None) -> list[MissionReviewItemPayload]:
+    async def create_derived_review_item(
+        self,
+        mission_id: str,
+        command: MissionDerivedReviewItemCreatePayload,
+    ) -> MissionReviewItemsResultPayload:
+        return await self._post(
+            f"/internal/v1/missions/{mission_id}/derived-review-item",
+            command,
+            MissionReviewItemsResultPayload,
+        )
+
+    async def list_review_items(
+        self,
+        mission_id: str,
+        *,
+        status: list[str] | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> list[MissionReviewItemPayload]:
+        page = await self.list_review_items_page(
+            mission_id,
+            status=status,
+            limit=limit,
+            cursor=cursor,
+        )
+        return page.items
+
+    async def list_review_items_page(
+        self,
+        mission_id: str,
+        *,
+        status: list[str] | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> MissionReviewPagePayload:
         response = await self._request(
             "GET",
             f"/internal/v1/missions/{mission_id}/review-items",
-            params={"status": status},
+            params={"status": status, "limit": limit, "cursor": cursor},
         )
-        return [MissionReviewItemPayload.model_validate(item) for item in response["data"]]
+        return MissionReviewPagePayload.model_validate(response["data"])
+
+    async def list_commits_page(
+        self,
+        mission_id: str,
+        *,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> MissionCommitPagePayload:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/missions/{mission_id}/commits",
+            params={"limit": limit, "cursor": cursor},
+        )
+        return MissionCommitPagePayload.model_validate(response["data"])
 
     async def apply_review_decisions(self, mission_id: str, command: MissionReviewDecisionsPayload) -> MissionReviewItemsResultPayload:
         return await self._post(

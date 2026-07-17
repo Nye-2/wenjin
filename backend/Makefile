@@ -1,6 +1,6 @@
 # Wenjin Backend Makefile
 
-.PHONY: install dev gateway worker dev-all debug-langgraph test test-file test-cov lint format typecheck typecheck-incremental clean db-migrate db-revision db-upgrade db-downgrade
+.PHONY: install dev gateway worker dev-all test test-file test-cov lint format typecheck typecheck-incremental clean db-migrate db-revision db-upgrade db-downgrade
 
 all: install
 
@@ -20,10 +20,6 @@ dev-all:
 	@echo "Start the gateway and worker in separate terminals:"
 	@echo "  make gateway"
 	@echo "  make worker"
-
-# Optional debug entry for inspecting the lead-agent graph directly.
-debug-langgraph:
-	uv run langgraph dev --port 2024 --config langgraph.json
 
 test:
 	PYTHONPATH=. uv run pytest tests/ -v

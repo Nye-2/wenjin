@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class WorkspaceAssetCreatePayload(BaseModel):
     workspace_id: str
@@ -22,6 +24,7 @@ class WorkspaceAssetCreatePayload(BaseModel):
     created_by: str = "system"
     source_kind: str | None = None
     source_id: str | None = None
+    mission_write_authority: MissionWriteAuthority | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 

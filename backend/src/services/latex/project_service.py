@@ -131,9 +131,6 @@ class LatexProjectService:
         root = project_root(project.id)
         if root.exists():
             shutil.rmtree(root, ignore_errors=True)
-        compile_root = root.parent / "_compile_runs" / str(project.id)
-        if compile_root.exists():
-            shutil.rmtree(compile_root, ignore_errors=True)
         async with self._client() as client:
             await client.delete_latex_project(str(project.id))
 
@@ -159,7 +156,7 @@ class LatexProjectService:
             return []
 
         items: list[dict[str, str]] = []
-        skip_roots = {".compile", ".git", "__pycache__", "project.json"}
+        skip_roots = {".git", "__pycache__", "project.json"}
         file_order = dict(project.file_order or {})
 
         def emit_dir(directory: Path, folder: str) -> None:

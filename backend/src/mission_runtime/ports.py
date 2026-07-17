@@ -10,7 +10,6 @@ from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionAppendResultPayload,
     MissionApplyCommandsPayload,
-    MissionCancelPayload,
     MissionCreatePayload,
     MissionCreateResultPayload,
     MissionDispatchReleasePayload,
@@ -29,9 +28,9 @@ from src.dataservice_client.contracts.mission import (
     MissionReviewItemsResultPayload,
     MissionRunnableBatchClaimPayload,
     MissionRunPayload,
+    MissionUserCommandPayload,
 )
 from src.mission_runtime.contracts import (
-    BillingOutcome,
     MissionAgentDecision,
     MissionEventEnvelope,
     MissionLoopContext,
@@ -47,7 +46,7 @@ from src.mission_runtime.contracts import (
 
 
 class MissionStorePort(Protocol):
-    async def create(self, command: MissionCreatePayload) -> MissionCreateResultPayload: ...
+    async def admit(self, command: MissionCreatePayload) -> MissionCreateResultPayload: ...
 
     async def get(self, mission_id: str) -> MissionRunPayload | None: ...
 
@@ -69,6 +68,8 @@ class MissionStorePort(Protocol):
 
     async def append_items(self, mission_id: str, command: MissionAppendPayload) -> MissionAppendResultPayload: ...
 
+    async def append_command(self, mission_id: str, command: MissionUserCommandPayload) -> MissionAppendResultPayload: ...
+
     async def list_items(self, mission_id: str, *, after_seq: int = 0, limit: int = 100, item_type: str | None = None, operation_id: str | None = None) -> list[MissionItemPayload]: ...
 
     async def list_unapplied_commands(self, mission_id: str, *, limit: int = 100) -> list[MissionItemPayload]: ...
@@ -76,8 +77,6 @@ class MissionStorePort(Protocol):
     async def apply_commands(self, mission_id: str, command: MissionApplyCommandsPayload) -> MissionAppendResultPayload: ...
 
     async def resume(self, mission_id: str, command: MissionResumePayload) -> MissionAppendResultPayload: ...
-
-    async def cancel(self, mission_id: str, command: MissionCancelPayload) -> MissionAppendResultPayload: ...
 
     async def create_review_items(self, mission_id: str, command: MissionReviewItemsCreatePayload) -> MissionReviewItemsResultPayload: ...
 
@@ -119,14 +118,6 @@ class ReviewCandidatePort(Protocol):
     async def build_candidates(self, request: ReviewCandidateRequest) -> ReviewCandidateBatch: ...
 
 
-class BillingPort(Protocol):
-    async def preflight(self, request: MissionStartRequest) -> BillingOutcome: ...
-
-    async def ensure_reservation(self, mission: MissionRunPayload) -> BillingOutcome: ...
-
-    async def settle(self, mission: MissionRunPayload) -> None: ...
-
-
 class MissionEventPublisherPort(Protocol):
     async def publish(self, event: MissionEventEnvelope) -> None: ...
 
@@ -156,7 +147,6 @@ class SystemMissionClock:
 
 
 __all__ = [
-    "BillingPort",
     "MissionAgentPort",
     "MissionClockPort",
     "MissionEventPublisherPort",

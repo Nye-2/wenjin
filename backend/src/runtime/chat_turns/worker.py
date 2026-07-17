@@ -127,12 +127,12 @@ async def run_chat_turn(
 
     run_id = record.run_id
     stream_run = None
-    wait_completed_raised = False
     prepared = None
+    execution_task: asyncio.Task[Any] | None = None
+    abort_task: asyncio.Task[str] | None = None
 
-    try:
-        await run_manager.set_status(run_id, ChatTurnRunStatus.running)
-
+    async def execute() -> Any:
+        nonlocal prepared, stream_run
         prepared = await handler.prepare_turn(request, actor_id=actor_id)
         resolved_thread_id = str(prepared.thread.id)
         await run_manager.bind_thread(run_id, resolved_thread_id)
@@ -157,89 +157,89 @@ async def run_chat_turn(
 
         stream_run = handler.stream_turn(prepared, actor_id=actor_id)
         async for delta in stream_run:
-            if await run_manager.is_abort_requested(run_id):
-                break
-            if delta.kind == "reasoning":
-                await bridge.publish(
-                    run_id,
-                    "reasoning",
-                    {"type": "reasoning", "content": delta.text},
-                )
-            elif delta.kind == "content":
-                await bridge.publish(
-                    run_id,
-                    "content",
-                    {"type": "content", "content": delta.text},
-                )
-            elif delta.kind == "tool_invocation":
-                await bridge.publish(
-                    run_id,
-                    "tool_invocation",
-                    {
-                        "type": "tool_invocation",
-                        "data": delta.data or {},
-                    },
-                )
-            elif delta.kind == "tool_result":
-                await bridge.publish(
-                    run_id,
-                    "tool_result",
-                    {
-                        "type": "tool_result",
-                        "data": delta.data or {},
-                    },
-                )
+            await bridge.publish(
+                run_id,
+                "content",
+                {"type": "content", "content": delta.text},
+            )
+        return await stream_run.wait_completed()
 
-        if await run_manager.is_abort_requested(run_id):
-            await _maybe_close_stream_run(stream_run)
-            abort_action = await run_manager.get_abort_action(run_id)
-            if prepared is not None:
-                await handler.handle_run_interruption(
-                    prepared,
-                    rollback=abort_action == "rollback",
-                )
-            await run_manager.set_status(run_id, ChatTurnRunStatus.interrupted)
-            if prepared is not None:
-                await _set_idle_status_if_no_other_active_chat_turns(
-                    run_manager=run_manager,
-                    run_id=run_id,
-                    prepared=prepared,
-                )
-            return
-
-        completed = await stream_run.wait_completed()
-        await _emit_assistant_blocks(bridge, run_id=run_id, message=completed.assistant_message)
-        await bridge.publish(run_id, "done", {"type": "done"})
-        await run_manager.set_status(run_id, ChatTurnRunStatus.success)
-    except asyncio.CancelledError:
-        logger.warning("Run %s cancelled; marking interrupted", run_id)
-        wait_completed_raised = True
+    async def interrupt(abort_action: str) -> None:
+        if execution_task is not None and not execution_task.done():
+            execution_task.cancel()
+            try:
+                await execution_task
+            except BaseException:
+                pass
         await _maybe_close_stream_run(stream_run)
-        abort_action = await run_manager.get_abort_action(run_id)
         if prepared is not None:
             await handler.handle_run_interruption(
                 prepared,
                 rollback=abort_action == "rollback",
             )
-        await run_manager.set_status(run_id, ChatTurnRunStatus.interrupted)
+        await run_manager.transition_status(
+            run_id,
+            ChatTurnRunStatus.interrupted,
+            expected=(ChatTurnRunStatus.pending, ChatTurnRunStatus.running),
+        )
         if prepared is not None:
             await _set_idle_status_if_no_other_active_chat_turns(
                 run_manager=run_manager,
                 run_id=run_id,
                 prepared=prepared,
             )
-        await bridge.publish(
+
+    try:
+        started = await run_manager.transition_status(
             run_id,
-            "error",
-            {"type": "error", "error": "Run interrupted"},
+            ChatTurnRunStatus.running,
+            expected=(ChatTurnRunStatus.pending,),
         )
+        if not started:
+            return
+
+        execution_task = asyncio.create_task(execute())
+        abort_task = asyncio.create_task(run_manager.wait_for_abort(run_id))
+        done, _ = await asyncio.wait(
+            (execution_task, abort_task),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if abort_task in done:
+            await interrupt(abort_task.result())
+            return
+
+        abort_task.cancel()
+        try:
+            await abort_task
+        except asyncio.CancelledError:
+            pass
+        completed = execution_task.result()
+        completed_transition = await run_manager.transition_status(
+            run_id,
+            ChatTurnRunStatus.success,
+            expected=(ChatTurnRunStatus.running,),
+        )
+        if not completed_transition:
+            return
+        await _emit_assistant_blocks(bridge, run_id=run_id, message=completed.assistant_message)
+        await bridge.publish(run_id, "done", {"type": "done"})
+    except asyncio.CancelledError:
+        logger.warning("Run %s cancelled; marking interrupted", run_id)
+        abort_action = await run_manager.get_abort_action(run_id)
+        await interrupt(abort_action)
     except ApplicationError as exc:
-        await run_manager.set_status(run_id, ChatTurnRunStatus.error, error=exc.message)
-        await bridge.publish(
+        changed = await run_manager.transition_status(
             run_id,
-            "error",
-            {"type": "error", "error": exc.message},
+            ChatTurnRunStatus.error,
+            expected=(ChatTurnRunStatus.running,),
+            error=exc.message,
         )
+        if changed:
+            await bridge.publish(
+                run_id,
+                "error",
+                {"type": "error", "error": exc.message},
+            )
     except Exception as exc:
         logger.exception("Run %s failed", run_id)
         message = (
@@ -247,18 +247,24 @@ async def run_chat_turn(
             if _is_timeout_exception(exc)
             else "AI 服务内部错误，请稍后重试。"
         )
-        await run_manager.set_status(run_id, ChatTurnRunStatus.error, error=str(exc))
-        await bridge.publish(
+        changed = await run_manager.transition_status(
             run_id,
-            "error",
-            {"type": "error", "error": message},
+            ChatTurnRunStatus.error,
+            expected=(ChatTurnRunStatus.running,),
+            error=str(exc),
         )
+        if changed:
+            await bridge.publish(
+                run_id,
+                "error",
+                {"type": "error", "error": message},
+            )
     finally:
-        if stream_run is not None:
+        if abort_task is not None and not abort_task.done():
+            abort_task.cancel()
             try:
-                if not wait_completed_raised:
-                    await stream_run.wait_completed()
-            except BaseException:
+                await abort_task
+            except asyncio.CancelledError:
                 pass
         await bridge.publish_end(run_id)
         asyncio.create_task(bridge.cleanup(run_id, delay=120))

@@ -1,7 +1,7 @@
 # 02 MissionRuntime Spec
 
 Status: Implemented
-Updated: 2026-07-11
+Updated: 2026-07-16
 
 Implementation outcome: bounded drive slices, leases/epochs, ordered commands, wakeups, reconciliation, billing, events, production composition, and the dedicated `long_running` worker are implemented. No runtime compatibility path remains.
 Depends on: `03_dataservice_mission_schema.md`, `06_subagent_runtime.md`, `07_review_commit_runtime.md`, `09_permission_pause.md`
@@ -75,6 +75,12 @@ failure_reason: repeated_failure | missing_required_source | policy_forbidden | 
 
 `paused`, `needs_input`, `degraded`, `blocked`, `awaiting_user_review`, and `committing` are not MissionRun statuses after cutover. They are represented by `waiting`/`failed`, review/commit summaries, reason fields, and MissionItems.
 
+## Child Mission Continuation
+
+A terminal Mission is immutable. A materially new chat continuation or terminal review rework creates a child `MissionRun(parent_mission_id=...)`; it never reacquires the parent lease. Workspace, thread, user, workspace type, MissionPolicy id, policy content hash, model, effort, and review mode remain server-pinned.
+
+Ordinary continuation inherits passed stage receipts and their canonical accepted lineage. Review-driven continuation additionally carries a server-authored `MissionContinuationDirective` with the source review item ids and exact reset stage ids. MissionRuntime resolves pinned stage instances, invalidates the reset stages plus their transitive downstream dependency closure, and copies only unaffected passes. Dynamic all-item dependencies use the explicit contract count source. A missing, unpassed, or unresolvable source stage rejects creation; the runtime never falls back to replaying every stage.
+
 ## MissionStore Transaction
 
 Every state-changing operation must use one MissionStore transaction:
@@ -125,7 +131,7 @@ best-effort enqueue continuation
 Rules:
 
 - Slice wall-time is strictly below the Celery soft/hard limit and Redis broker visibility timeout, with measured shutdown margin.
-- A dedicated mission-worker consumes the `long_running` queue with late ack, reject-on-worker-lost, and prefetch multiplier `1`; do not impose its scheduling profile on short chat/memory jobs. Task/result backend state is operational telemetry only.
+- A dedicated mission-worker consumes the `long_running` queue with late ack, reject-on-worker-lost, and prefetch multiplier `1`; do not impose its scheduling profile on short chat and preprocessing jobs. Task/result backend state is operational telemetry only.
 - A clean yield cannot leave untracked in-process model calls or subagent tasks alive. In-process children finish/cancel first; external sandbox/provider jobs must already have a stable operation id and durable receipt reference that a later slice can adopt.
 - Only the current lease holder writes MissionRun/MissionItems. External workers/providers never callback directly into mission state; a current driver collects and normalizes their receipt.
 - Reconciler claims batches with `FOR UPDATE SKIP LOCKED`; direct queue consumers claim one mission by id. Lease expiry uses database time to avoid worker clock skew.
@@ -145,7 +151,8 @@ settle or release on terminal status
 Rules:
 
 - No billable mission starts without a MissionRun-bound reservation or explicit free policy.
-- Sandbox jobs and expensive tool calls attach to the parent mission reservation or create child reservations keyed by `mission_id + item_seq`.
+- Sandbox and tool usage is accounted through receipt-backed Mission settlement; there are no standalone sandbox or item-level credit reservations.
+- Model charges resolve through `MissionRun.model_id -> ModelCatalogEntry.pricing_policy_id`; Mission reserve policy resolution and the public pricing catalog share the same DataService resolver.
 - ChatTurnRun never owns feature-task credits.
 - Billing failure pauses the mission with `status=waiting` and `waiting_reason=budget`; it does not create an ExecutionRecord fallback.
 
@@ -319,6 +326,7 @@ The task returns after one drive slice with `completed | yielded | waiting | ter
 - Duplicate queue/command delivery does not duplicate tool, sandbox, subagent, or commit side effects.
 - A publish-after-commit crash is recovered from `next_wakeup_at` without an outbox row.
 - A long mission completes through multiple bounded drive slices without hitting Celery hard limits.
+- Review-driven child continuation invalidates only the source-stage dependency closure and preserves unaffected passed stages.
 - `prefetch=1`, broker visibility margin, safe-yield, DB-time lease, and `SKIP LOCKED` reconciler behavior are covered by integration tests.
 - A command appended while a valid driver is running is observed at the next safe boundary even when its queue/event hint is dropped.
 - Completed MissionRun can expose pending MissionReviewItems without changing execution status.

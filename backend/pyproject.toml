@@ -7,12 +7,9 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Wenjin Team" }]
 dependencies = [
-    "langgraph>=0.2.60",
-    "langchain>=0.3.0",
     "langchain-core>=0.3.0,<1.0.0",
     "langchain-openai>=0.3.0,<0.4.0",
     "langchain-anthropic>=0.3.0,<0.4.0",
-    "langchain-mcp-adapters==0.1.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "pydantic>=2.10.0",
@@ -26,7 +23,6 @@ dependencies = [
     "pyyaml>=6.0.0",
     "python-multipart>=0.0.17",
     "httpx[socks]>=0.28.0",
-    "httpx-sse>=0.4.0",
     "tenacity>=9.0.0",
     # Task queue
     "celery[redis]>=5.4.0",
@@ -39,7 +35,6 @@ dependencies = [
     "python-jose[cryptography]>=3.5.0",
     "bcrypt>=4.0.0,<5.0.0",
     "aiosmtplib>=3.0.0",  # Async SMTP for email verification
-    "langgraph-cli[inmem]>=0.4.14",
     "docker>=7.0.0",
     "sentry-sdk[fastapi]>=2.0.0",
     "prometheus-client>=0.21.0",

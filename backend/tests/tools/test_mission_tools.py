@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime
+from time import monotonic
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -21,12 +22,14 @@ from src.tools.mission import MISSION_TOOL_GROUPS, MissionToolHandlers, build_mi
 from src.tools.mission.artifact_candidates import (
     artifact_candidate_content_hash,
     artifact_candidate_ref,
+    valid_artifact_candidate_receipt,
 )
 from src.tools.mission.contracts import (
     MISSION_TOOL_INPUT_MODELS,
     AcademicVisualRenderInput,
     CreateArtifactCandidateInput,
     ImportSourceCandidateInput,
+    InstallDependenciesToolInput,
     ListSourceCodeFilesInput,
     ReadArtifactCandidateInput,
     ReadMissionInputInput,
@@ -41,6 +44,7 @@ from src.tools.mission.contracts import (
 )
 from src.tools.orchestrator import (
     ResearchToolOutcome,
+    SideEffectClass,
     SourceReference,
     ToolCallerKind,
     ToolCatalog,
@@ -70,6 +74,12 @@ def test_run_python_schema_states_full_replacement_semantics() -> None:
     assert "before execution" in schema["properties"]["script"]["description"].lower()
     assert "base_content_hash" not in schema["properties"]
     assert "output_base_hashes" not in schema["properties"]
+
+
+def test_install_dependencies_schema_contains_no_permission_authority() -> None:
+    schema = InstallDependenciesToolInput.model_json_schema(mode="validation")
+
+    assert set(schema["properties"]) == {"packages"}
 
 
 def _operation(*, lease_epoch: int = 4) -> ToolOperation:
@@ -115,9 +125,13 @@ def _academic_visual_receipt_metadata(
             "height": 900,
             "renderer_id": "wenjin-matplotlib",
             "renderer_version": "1",
+            "source_code_hash": "c" * 64,
             "context_hash": content_hash,
             "source_refs": [],
             "dataset_refs": [],
+            "source_content_hashes": {},
+            "dataset_content_hashes": {},
+            "ai_generated": False,
             "quality_receipt": {},
         },
         "manifest": {
@@ -136,8 +150,14 @@ def _academic_visual_receipt_metadata(
             ],
             "renderer_id": "wenjin-matplotlib",
             "renderer_version": "1",
+            "source_code_ref": "sandbox-script:sha256:" + "c" * 64,
+            "source_code_hash": "c" * 64,
+            "context_hash": content_hash,
             "dataset_refs": [],
             "source_refs": [],
+            "dataset_content_hashes": {},
+            "source_content_hashes": {},
+            "ai_generated": False,
         },
     }
 
@@ -298,6 +318,15 @@ def test_every_policy_group_has_canonical_registrations_and_narrow_permissions()
         receipt_store=object(),
         sandbox_runtime=_Sandbox(),  # type: ignore[arg-type]
     )
+    visual_descriptor = next(
+        registration.descriptor
+        for registration in registrations
+        if registration.descriptor.tool_id
+        == "academic_visual.render_candidate"
+    )
+    assert visual_descriptor.side_effect_class is SideEffectClass.NON_IDEMPOTENT
+    assert visual_descriptor.timeout_seconds == 150
+    assert visual_descriptor.max_attempts == 1
     by_id = {item.descriptor.tool_id: item.descriptor for item in registrations}
 
     assert all(tool_ids for tool_ids in MISSION_TOOL_GROUPS.values())
@@ -469,7 +498,7 @@ async def test_academic_visual_prism_context_is_revision_and_hash_bound() -> Non
                     "file_id": "file-1",
                     "base_revision_ref": "revision-3",
                     "selection_hash": selection_hash,
-                    "selection_range": [8, 34],
+                    "selection_byte_range": [8, 34],
                 },
             },
             "render": {"kind": "generative", "size": "1536x1024"},
@@ -724,10 +753,6 @@ async def test_source_url_import_requires_current_mission_search_receipt() -> No
     dataservice = _DataService(
         mission_operations={outcome.operation_key: receipt},
     )
-    dataservice.import_source.return_value = SimpleNamespace(
-        source=SimpleNamespace(id="source-1", title="Paper", url=url, citation_key="Paper2026"),
-        created=True,
-    )
     handlers = MissionToolHandlers(
         dataservice=dataservice,  # type: ignore[arg-type]
         sandbox=_Sandbox(),  # type: ignore[arg-type]
@@ -740,9 +765,62 @@ async def test_source_url_import_requires_current_mission_search_receipt() -> No
     )
 
     result = await handlers.import_source_candidate(_operation(), args)
+    replay = await handlers.import_source_candidate(_operation(), args)
 
-    assert result.payload_ref == "source:source-1"
-    dataservice.import_source.assert_awaited_once()
+    [candidate] = result.artifact_refs
+    assert result.payload_ref == candidate.ref_id
+    assert candidate.ref_id.startswith("artifact-candidate:")
+    assert replay.payload_ref == candidate.ref_id
+    assert candidate.kind == "artifact_candidate"
+    assert candidate.metadata["artifact_kind"] == "source_import"
+    assert candidate.metadata["materialized"] is False
+    assert candidate.metadata["verification_ref"] == args.verification_ref
+    assert candidate.metadata["source_import_payload"] == {
+        "source_kind": "paper",
+        "title": "Paper",
+        "authors_json": [],
+        "year": None,
+        "venue": None,
+        "doi": None,
+        "url": url,
+        "abstract": None,
+        "ingest_kind": "mission_verified",
+        "ingest_label": args.verification_ref,
+        "library_status": "candidate",
+        "evidence_level": "external_verified",
+        "citation_key": "Paper2026",
+    }
+    assert valid_artifact_candidate_receipt(candidate.ref_id, candidate.metadata)
+    dataservice.import_source.assert_not_awaited()
+
+    tampered = {
+        **candidate.metadata,
+        "source_import_payload": {
+            **candidate.metadata["source_import_payload"],
+            "title": "Tampered title",
+        },
+    }
+    assert not valid_artifact_candidate_receipt(candidate.ref_id, tampered)
+
+    dataservice.missions.items.append(
+        SimpleNamespace(
+            seq=1,
+            item_type="artifact",
+            payload_json={
+                "reference_id": candidate.ref_id,
+                "kind": candidate.kind,
+                "title": candidate.title,
+                "verified": True,
+                "metadata": candidate.metadata,
+            },
+        )
+    )
+    read = await handlers.read_artifact_candidate(
+        _operation(),
+        ReadArtifactCandidateInput(candidate_ref=candidate.ref_id),
+    )
+    assert read.payload_ref == candidate.ref_id
+    assert read.evidence_refs[0].metadata == candidate.metadata
 
     missing_handlers = MissionToolHandlers(
         dataservice=_DataService(),  # type: ignore[arg-type]
@@ -750,6 +828,7 @@ async def test_source_url_import_requires_current_mission_search_receipt() -> No
     )
     with pytest.raises(ToolDispatchError, match="search receipt"):
         await missing_handlers.import_source_candidate(_operation(), args)
+    missing_handlers.dataservice.import_source.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1247,9 +1326,10 @@ class _Journal:
         return self.terminal
 
     async def claim_started(self, _operation):
-        return True
+        return "claim-token"
 
-    async def record_terminal(self, _operation, outcome):
+    async def record_terminal(self, _operation, outcome, *, claim_token):
+        assert claim_token == "claim-token"
         self.terminal = outcome
         return True
 
@@ -1267,8 +1347,9 @@ async def test_pinned_group_permission_passes_catalog_preflight_end_to_end() -> 
         receipt_store=object(),
         sandbox_runtime=_Sandbox(),  # type: ignore[arg-type]
     )
+    catalog = ToolCatalog(registrations).freeze()
     orchestrator = ToolOrchestrator(
-        catalog=ToolCatalog(registrations).freeze(),
+        catalog=catalog,
         journal=_Journal(),
         lease_fence=_Fence(),
         guard=StrictToolExecutionGuard(),
@@ -1281,11 +1362,15 @@ async def test_pinned_group_permission_passes_catalog_preflight_end_to_end() -> 
         caller_id="workspace-agent",
         caller_kind=ToolCallerKind.WORKSPACE_AGENT,
         lease_epoch=4,
+        deadline_monotonic=monotonic() + 180,
     )
     policy = ToolPolicy(
         policy_ref="policy@hash",
         allowed_tool_ids=("artifact.create_candidate",),
         granted_permissions=("artifact_render",),
+        execution_limits=catalog.execution_limits(
+            ("artifact.create_candidate",)
+        ),
     )
 
     outcome = await orchestrator.invoke(

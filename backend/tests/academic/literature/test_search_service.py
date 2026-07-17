@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from time import monotonic
 
 import pytest
 
 from src.academic.literature.search_service import LiteratureSearchService
+from src.services.search.model_native import ModelNativeSearchInput, model_native_search_registration
 from src.tools.orchestrator import (
     ResearchToolOutcome,
     SourceReference,
     ToolCallerKind,
+    ToolExecutionLimit,
     ToolInvocationContext,
     ToolOutcomeStatus,
     ToolPolicy,
     VerificationStatus,
 )
+from src.tools.orchestrator.catalog import schema_hash
 
 
 class _FakeOrchestrator:
@@ -45,15 +49,30 @@ def _context() -> ToolInvocationContext:
         caller_kind=ToolCallerKind.WORKSPACE_AGENT,
         lease_epoch=1,
         model_id="gpt-5.6-sol",
+        deadline_monotonic=monotonic() + 180,
     )
 
 
 def _policy() -> ToolPolicy:
+    descriptor = model_native_search_registration().descriptor
     return ToolPolicy(
         policy_ref="mission-policy:1",
         allowed_tool_ids=("research.search_web",),
         granted_permissions=("external_research",),
         allowed_network_profiles=("model_provider_native_search",),
+        execution_limits=(
+            ToolExecutionLimit(
+                tool_id="research.search_web",
+                descriptor_schema_hash=schema_hash(
+                    ModelNativeSearchInput.model_json_schema()
+                ),
+                descriptor_hash=schema_hash(
+                    descriptor.model_dump(mode="json")
+                ),
+                timeout_seconds=90,
+                max_attempts=1,
+            ),
+        ),
     )
 
 

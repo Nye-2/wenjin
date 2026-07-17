@@ -6,7 +6,6 @@ import {
 } from "@/lib/api/client";
 import type { AgentBlock } from "@/lib/api/blocks";
 import type {
-  ThreadMessage,
   RunRequest,
   WorkspaceEvent,
 } from "@/lib/api/types";
@@ -48,19 +47,27 @@ function extractRunIdFromStreamUrl(url: string): string | null {
   }
 }
 
+export type ThreadStreamOutcome =
+  | { status: "completed" }
+  | { status: "failed"; error: string }
+  | { status: "cancelled" };
+
+export type ThreadStreamHandlers = {
+  onContent(content: string): void;
+  onThreadId?(threadId: string): void;
+  onBlock?(event: { messageId: string; block: AgentBlock }): void;
+};
+
+export type ThreadStreamHandle = {
+  completion: Promise<ThreadStreamOutcome>;
+  stop(): Promise<void>;
+  abort(): void;
+};
+
 export function streamThread(
   data: RunRequest,
-  onMessage: (content: string) => void,
-  onReasoning?: (content: string) => void,
-  onThreadId?: (threadId: string) => void,
-  onAssistantMessage?: (message: ThreadMessage) => void,
-  onError?: (error: string) => void,
-  onDone?: () => void,
-  // Plan 1 T7 — backend now emits per-block events instead of a single
-  // `assistant_message`. This callback fires once per block; consumers
-  // assemble them into a Message keyed by `messageId`.
-  onBlock?: (event: { messageId: string; block: AgentBlock }) => void,
-): () => void {
+  handlers: ThreadStreamHandlers,
+): ThreadStreamHandle {
   const controller = new AbortController();
   const requestPayload: RunRequest = {
     on_disconnect: "continue",
@@ -78,12 +85,35 @@ export function streamThread(
   let resumeUrl: string | null = null;
   let lastEventId: string | null = null;
   let activeRunId: string | null = null;
+  let stopRequested = false;
+  let settled = false;
+  let resolveCompletion!: (outcome: ThreadStreamOutcome) => void;
+  let resolveRunId!: (runId: string) => void;
+  const completion = new Promise<ThreadStreamOutcome>((resolve) => {
+    resolveCompletion = resolve;
+  });
+  const runIdReady = new Promise<string>((resolve) => {
+    resolveRunId = resolve;
+  });
+
+  const settle = (outcome: ThreadStreamOutcome) => {
+    if (settled) return;
+    settled = true;
+    resolveCompletion(outcome);
+  };
+
+  const setActiveRunId = (runId: string | null) => {
+    const normalized = runId?.trim() ?? "";
+    if (!normalized || activeRunId) return;
+    activeRunId = normalized;
+    resolveRunId(normalized);
+  };
 
   const processPayload = (payload: string, eventName: string | null) => {
     if (eventName === "end") {
       if (!finished) {
         finished = true;
-        onDone?.();
+        settle(stopRequested ? { status: "cancelled" } : { status: "completed" });
       }
       return;
     }
@@ -99,12 +129,12 @@ export function streamThread(
           typeof json.run_id === "string" &&
           json.run_id.trim()
         ) {
-          activeRunId = json.run_id.trim();
+          setActiveRunId(json.run_id);
         } else if (
           typeof json.run_id === "string" &&
           json.run_id.trim()
         ) {
-          activeRunId = json.run_id.trim();
+          setActiveRunId(json.run_id);
         }
         if (activeRunId && !resumeUrl) {
           const threadId = requestPayload.thread_id?.trim();
@@ -115,36 +145,32 @@ export function streamThread(
       }
       switch (json.type) {
         case "thread_id":
-          onThreadId?.(json.thread_id);
+          handlers.onThreadId?.(json.thread_id);
           break;
         case "content":
-          onMessage(json.content);
-          break;
-        case "reasoning":
-          onReasoning?.(json.content);
-          break;
-        case "assistant_message":
-          onAssistantMessage?.(json.message as ThreadMessage);
+          handlers.onContent(json.content);
           break;
         case "block": {
-          // Plan 1 T7 — per-block SSE event. Frontend can assemble blocks
-          // into a Message via the shared `messageId`. Until a thread-store
-          // consumer exists, this just forwards the payload.
           const messageId =
             typeof json.message_id === "string" ? json.message_id : "";
           const block = json.block as AgentBlock | undefined;
           if (messageId && block) {
-            onBlock?.({ messageId, block });
+            handlers.onBlock?.({ messageId, block });
           }
           break;
         }
-        case "error":
-          onError?.(json.error);
+        case "error": {
+          const error = typeof json.error === "string" && json.error.trim()
+            ? json.error.trim()
+            : "对话流中断";
+          failed = true;
+          settle(stopRequested ? { status: "cancelled" } : { status: "failed", error });
           break;
+        }
         case "done":
           if (!finished) {
             finished = true;
-            onDone?.();
+            settle({ status: "completed" });
           }
           break;
       }
@@ -157,7 +183,7 @@ export function streamThread(
     const contentLocation = response.headers.get("Content-Location");
     if (contentLocation && contentLocation.trim()) {
       resumeUrl = toRunStreamUrl(contentLocation);
-      activeRunId = extractRunIdFromStreamUrl(resumeUrl);
+      setActiveRunId(extractRunIdFromStreamUrl(resumeUrl));
     }
 
     const reader = response.body?.getReader();
@@ -275,7 +301,7 @@ export function streamThread(
 
       if (!resumeUrl || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         failed = true;
-        onError?.("Thread stream disconnected");
+        settle({ status: "failed", error: "Thread stream disconnected" });
         break;
       }
 
@@ -296,26 +322,41 @@ export function streamThread(
     }
 
     if (!finished && !failed && !controller.signal.aborted) {
-      onDone?.();
+      finished = true;
+      settle({ status: "completed" });
     }
   })();
 
-  return () => {
-    if (!controller.signal.aborted && !finished && activeRunId) {
-      const threadId = requestPayload.thread_id?.trim();
-      if (!threadId) {
-        controller.abort();
-        return;
-      }
-      void authorizedFetch(
-        `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(activeRunId)}/cancel?action=interrupt`,
-        { method: "POST", keepalive: true }
-      ).catch(() => {
-        // Best effort: UI abort should not fail if cancel request errors.
-      });
-    }
+  const abort = () => {
+    if (controller.signal.aborted) return;
     controller.abort();
+    settle({ status: "cancelled" });
   };
+
+  const stop = async () => {
+    if (settled || stopRequested) return;
+    stopRequested = true;
+    try {
+      const runId = activeRunId ?? await Promise.race([
+        runIdReady,
+        completion.then(() => null),
+      ]);
+      const threadId = requestPayload.thread_id?.trim();
+      if (threadId && runId) {
+        await authorizedFetch(
+          `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(runId)}/cancel?action=interrupt`,
+          { method: "POST", keepalive: true },
+        );
+      }
+    } catch {
+      // The local reader still closes if the cancellation request cannot return.
+    } finally {
+      controller.abort();
+      settle({ status: "cancelled" });
+    }
+  };
+
+  return { completion, stop, abort };
 }
 
 export function subscribeWorkspaceEvents(

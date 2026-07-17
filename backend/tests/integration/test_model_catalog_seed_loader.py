@@ -15,6 +15,7 @@ class _FakeModelCatalogService:
     def __init__(self, existing: list[Any] | None = None) -> None:
         self.existing = list(existing or [])
         self.created: list[tuple[dict[str, Any], str | None]] = []
+        self.assessments: list[str] = []
 
     async def list_models(self):
         return [*self.existing, *[SimpleNamespace(**data) for data, _admin_id in self.created]]
@@ -24,6 +25,7 @@ class _FakeModelCatalogService:
         return SimpleNamespace(**data)
 
     async def update_capability_assessment(self, model_id: str, *, profile, evidence):
+        self.assessments.append(model_id)
         return SimpleNamespace(model_id=model_id, profile=profile, evidence=evidence)
 
 
@@ -82,6 +84,7 @@ async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None
     assert image_seed["category"] == "image"
     assert image_seed["is_default"] is False
     assert image_seed["api_key"] == "sk-shared-123456"
+    assert service.assessments == []
 
 
 @pytest.mark.asyncio

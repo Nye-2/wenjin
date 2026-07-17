@@ -1,7 +1,7 @@
 # Frontend Mission Contract
 
 > Status: Current source of truth
-> Updated: 2026-07-15
+> Updated: 2026-07-16
 
 ## Purpose
 
@@ -44,7 +44,7 @@ The frontend may derive presentation-only labels, counts, grouping, and panel fo
 
 ## SSE contract
 
-`GET /api/workspaces/{workspace_id}/missions/events` accepts `Last-Event-ID` as a non-negative Mission item sequence. Events signal that canonical state changed. The client refetches; it does not replay events into a second state machine. A sequence gap, reconnect, visibility restore, or malformed hint triggers a full refresh.
+`GET /api/workspaces/{workspace_id}/missions/events` accepts an opaque constant-size cursor over the indexed Mission update watermark. Events signal that canonical state changed. The client refetches; it does not replay events into a second state machine. Reconnect, visibility restore, or a malformed hint triggers a full refresh.
 
 ## Chat blocks
 
@@ -73,6 +73,8 @@ When execution is `waiting`, `MissionView.attention_request` is the only UI cont
 ## Review interaction
 
 Protected outputs are presented as user confirmations, not automated reviewer verdicts. The UI explains why confirmation is useful in domain language and supports per-item selection, accept, skip, request more evidence, undo decision, and partial save. Content quality has already been handled inside generation; an optional audit is started only when the user asks or identifies a concrete concern. Commit buttons are enabled from server-projected eligibility.
+
+A review or commit mutation can return `continuation_mission_id`. The client immediately fetches and focuses that child MissionView, so terminal feedback visibly resumes work instead of leaving the parent frozen on screen. A stable `continuation_error_code` is translated into actionable product language and never into raw schema/runtime wording.
 
 Review modes are presented as user choices, but their semantics come from backend policy:
 

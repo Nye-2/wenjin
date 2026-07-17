@@ -36,8 +36,6 @@ type MockOptions = {
     logicalKey?: string;
     path?: string;
     reason?: string;
-    initialContent?: string;
-    pendingContent?: string;
   };
   thread?: {
     id: string;
@@ -111,15 +109,6 @@ export async function installWorkspaceRouteMocks(
   const prismLogicalKey = prismReview?.logicalKey ?? "section:introduction";
   const prismPath = prismReview?.path ?? "main.tex";
   const prismReason = prismReview?.reason ?? "feature_proposal";
-  const prismInitialContent =
-    prismReview?.initialContent ??
-    "\\documentclass{article}\\begin{document}Workspace manuscript\\end{document}";
-  const prismPendingContent =
-    prismReview?.pendingContent ??
-    "\\documentclass{article}\\begin{document}Generated workspace manuscript\\end{document}";
-  let prismContent = prismInitialContent;
-  let prismApplied = false;
-  let prismProtected = false;
 
   const savedPrismFiles = [
     {
@@ -158,59 +147,29 @@ export async function installWorkspaceRouteMocks(
     };
   }
 
-  function prismFileChanges() {
-    if (!prismReview || prismApplied) {
+  function prismReviewItems() {
+    if (!prismReview) {
       return [];
     }
     return [
       {
+        id: prismLogicalKey,
+        kind: "prism_file_change",
         logical_key: prismLogicalKey,
-        path: prismPath,
-        reason: prismReason,
-        pending_content: prismPendingContent,
-        current_hash: "current-hash",
-        pending_hash: "pending-hash",
+        status: "pending",
+        title: prismPath,
+        summary: prismReason,
+        target: {
+          kind: "prism_file_change",
+          file_path: prismPath,
+        },
+        actions: [
+          { action: "preview_prism_change", label: "预览 diff" },
+          { action: "apply_prism_change", label: "应用到 Prism" },
+          { action: "reject_prism_change", label: "忽略并保护" },
+        ],
       },
     ];
-  }
-
-  function prismAppliedFileChanges() {
-    if (!prismReview || !prismApplied) {
-      return {};
-    }
-    return {
-      [prismLogicalKey]: {
-        logical_key: prismLogicalKey,
-        path: prismPath,
-        previous_hash: "current-hash",
-        applied_hash: "pending-hash",
-        revert_signature: "b".repeat(64),
-      },
-    };
-  }
-
-  function latexProjectPayload() {
-    return {
-      id: prismProjectId,
-      user_id: "user-1",
-      name: "Workspace Manuscript",
-      template_id: null,
-      main_file: "main.tex",
-      tags: [],
-      archived: false,
-      trashed: false,
-      trashed_at: null,
-      file_order: {},
-      workspace_id: workspaceId,
-      surface_role: "primary_manuscript",
-      llm_config: {
-        workspace_id: workspaceId,
-        bridge: "workspace_latex_project",
-        metadata: {},
-      },
-      created_at: "2026-05-18T00:00:00Z",
-      updated_at: "2026-05-18T00:00:00Z",
-    };
   }
 
   await page.addInitScript(
@@ -366,7 +325,13 @@ export async function installWorkspaceRouteMocks(
         : [];
       for (const item of reviewItems) {
         const action = decisions.get(String(item.review_item_id));
-        if (action) item.status = action === "accept" ? "accepted" : action;
+        if (action) {
+          item.status = action === "accept" ? "accepted" : action;
+          item.commit_eligible = action === "accept";
+          item.commit_block_reason = action === "accept"
+            ? null
+            : "review_item_not_accepted";
+        }
       }
       const reviewSummary = (current.review_summary ?? {}) as Record<string, unknown>;
       reviewSummary.pending = reviewItems.filter((item) => item.status === "pending").length;
@@ -374,7 +339,12 @@ export async function installWorkspaceRouteMocks(
       reviewSummary.needs_more_evidence = reviewItems.filter(
         (item) => item.status === "needs_more_evidence",
       ).length;
-      await route.fulfill(json({ ok: true }));
+      await route.fulfill(json({
+        outcomes: [...decisions].map(([reviewItemId]) => ({
+          review_item_id: reviewItemId,
+          applied: true,
+        })),
+      }));
       return;
     }
 
@@ -394,18 +364,24 @@ export async function installWorkspaceRouteMocks(
         ? (current.review_items as Array<Record<string, unknown>>)
         : [];
       for (const item of reviewItems) {
-        if (selected.has(String(item.review_item_id))) item.status = "committed";
+        if (selected.has(String(item.review_item_id))) {
+          item.status = "committed";
+          item.commit_status = "committed";
+          item.commit_eligible = false;
+          item.commit_block_reason = "already_committed";
+        }
       }
-      current.commits = [...selected].map((reviewItemId) => ({
-        review_item_id: reviewItemId,
-        status: "committed",
-      }));
       const reviewSummary = (current.review_summary ?? {}) as Record<string, unknown>;
       reviewSummary.accepted = reviewItems.filter((item) => item.status === "accepted").length;
       reviewSummary.committed = reviewItems.filter((item) => item.status === "committed").length;
       const commitSummary = (current.commit_summary ?? {}) as Record<string, unknown>;
       commitSummary.committed = selected.size;
-      await route.fulfill(json({ ok: true }));
+      await route.fulfill(json({
+        outcomes: [...selected].map((reviewItemId) => ({
+          review_item_id: reviewItemId,
+          committed: true,
+        })),
+      }));
       return;
     }
 
@@ -445,93 +421,24 @@ export async function installWorkspaceRouteMocks(
           url: `/workspaces/${workspaceId}/prism`,
           main_file: "main.tex",
           compile_status: null,
-          has_pending_changes: prismFileChanges().length > 0,
+          has_pending_changes: prismReviewItems().length > 0,
           target_files: ["main.tex"],
-          file_changes: prismFileChanges(),
-          applied_file_changes: Object.values(prismAppliedFileChanges()),
-          review_items: prismFileChanges().map((change) => ({
-            id: change.logical_key,
-            kind: "prism_file_change",
-            logical_key: change.logical_key,
-            status: "pending",
-            title: change.path,
-            summary: change.reason ?? null,
-            target: {
-              kind: "prism_file_change",
-              file_path: change.path,
-            },
-            actions: [
-              { action: "preview_prism_change", label: "预览 diff" },
-              { action: "apply_prism_change", label: "应用到 Prism" },
-              { action: "reject_prism_change", label: "忽略并保护" },
-            ],
-          })),
+          review_items: prismReviewItems(),
           source_links: [],
-          protected_sections: prismProtected
-            ? [
-                {
-                  id: "protected-current-file",
-                  workspace_id: workspaceId,
-                  latex_project_id: prismProjectId,
-                  file_path: prismPath,
-                  section_key: "",
-                  scope: "file",
-                  reason: "user_manual_protect",
-                  source: "manual_edit",
-                  updated_at: "2026-05-18T00:04:00Z",
-                },
-              ]
-            : [],
+          protected_sections: [],
           decisions: [],
           memory_preferences: [],
-          recent_activity: [
-            ...(prismApplied
-              ? [
-                  {
-                    id: `prism_review:${prismLogicalKey}`,
-                    kind: "prism_review",
-                    workspace_id: workspaceId,
-                    title: `已写入稿件修改: ${prismPath}`,
-                    summary: prismReason,
-                    status: "applied",
-                    occurred_at: "2026-05-18T00:03:00Z",
-                    metadata: {
-                      latex_project_id: prismProjectId,
-                      review_item_id: prismLogicalKey,
-                      logical_key: prismLogicalKey,
-                      target_file_path: prismPath,
-                    },
-                  },
-                ]
-              : []),
-            ...(prismProtected
-              ? [
-                  {
-                    id: "prism_review:manual-protect",
-                    kind: "prism_review",
-                    workspace_id: workspaceId,
-                    title: `已保护稿件文件: ${prismPath}`,
-                    summary: "user_manual_protect",
-                    status: "protected",
-                    occurred_at: "2026-05-18T00:04:00Z",
-                    metadata: {
-                      latex_project_id: prismProjectId,
-                      target_file_path: prismPath,
-                    },
-                  },
-                ]
-              : []),
-          ],
+          recent_activity: [],
           review_summary: {
-            pending_count: prismFileChanges().length,
-            applied_count: Object.values(prismAppliedFileChanges()).length,
+            pending_count: prismReviewItems().length,
+            applied_count: 0,
             source_link_count: 0,
-            protected_section_count: prismProtected ? 1 : 0,
+            protected_section_count: 0,
           },
           context_summary: {
             decision_count: 0,
             memory_preference_count: 0,
-            recent_activity_count: (prismApplied ? 1 : 0) + (prismProtected ? 1 : 0),
+            recent_activity_count: 0,
           },
         }),
       );
@@ -610,132 +517,6 @@ export async function installWorkspaceRouteMocks(
         contentType: "text/event-stream",
         body: runStreamBody,
       });
-      return;
-    }
-
-    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}`) {
-      await route.fulfill(json(latexProjectPayload()));
-      return;
-    }
-
-    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/tree`) {
-      await route.fulfill(
-        json({
-          items: [{ path: prismPath, type: "file" }],
-          file_order: {},
-        }),
-      );
-      return;
-    }
-
-    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/file`) {
-      await route.fulfill(
-        json({
-          content: prismContent,
-        }),
-      );
-      return;
-    }
-
-    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/feedback`) {
-      await route.fulfill(json({ items: [] }));
-      return;
-    }
-
-    if (
-      pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/file-changes/preview` &&
-      request.method() === "POST"
-    ) {
-      await route.fulfill(
-        json({
-          ok: true,
-          logical_key: prismLogicalKey,
-          path: prismPath,
-          reason: prismReason,
-          current_hash: "current-hash",
-          pending_hash: "pending-hash",
-          change_signature: "a".repeat(64),
-          diff: {
-            hunks: [
-              {
-                old_start: 0,
-                old_end: prismInitialContent.length,
-                new_start: 0,
-                new_end: prismPendingContent.length,
-                ops: [
-                  {
-                    op: "replace",
-                    old_text: prismInitialContent,
-                    new_text: prismPendingContent,
-                    old_start: 0,
-                    old_end: prismInitialContent.length,
-                    new_start: 0,
-                    new_end: prismPendingContent.length,
-                    token_kind: "text",
-                  },
-                ],
-              },
-            ],
-            stats: {
-              chars_added: Math.max(
-                prismPendingContent.length - prismInitialContent.length,
-                0,
-              ),
-              chars_deleted: Math.max(
-                prismInitialContent.length - prismPendingContent.length,
-                0,
-              ),
-              tokens_changed: 1,
-              citation_changed: 0,
-              label_changed: 0,
-            },
-            risk_flags: [],
-          },
-        }),
-      );
-      return;
-    }
-
-    if (
-      pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/file-changes/apply` &&
-      request.method() === "POST"
-    ) {
-      prismContent = prismPendingContent;
-      prismApplied = true;
-      await route.fulfill(
-        json({
-          ok: true,
-          applied: true,
-          logical_key: prismLogicalKey,
-          path: prismPath,
-          file_hash: "pending-hash",
-          undo: {
-            logical_key: prismLogicalKey,
-            path: prismPath,
-            previous_hash: "current-hash",
-            applied_hash: "pending-hash",
-            revert_signature: "b".repeat(64),
-          },
-        }),
-      );
-      return;
-    }
-
-    if (
-      pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/protected-sections` &&
-      request.method() === "POST"
-    ) {
-      prismProtected = true;
-      await route.fulfill(
-        json({
-          ok: true,
-          protected: true,
-          path: prismPath,
-          section_key: "",
-          scope: "file",
-          reason: "user_manual_protect",
-        }),
-      );
       return;
     }
 

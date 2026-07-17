@@ -230,12 +230,26 @@ export default function AdminModelsPage() {
 }
 
 function summarizeCapabilities(model: AdminModelCatalogItem): string {
+  if (model.category === "image") {
+    return "图像生成";
+  }
+  const profile = model.capability_profile;
+  if (!profile.protocol_conformance) {
+    return "尚未通过能力探测";
+  }
   const items = [
-    model.supports_streaming ? "stream" : null,
-    model.supports_tools ? "tools" : null,
-    model.supports_json_schema ? "schema" : model.supports_json_mode ? "json" : null,
-    model.supports_vision ? "vision" : null,
-    model.supports_reasoning_effort ? "reasoning" : null,
+    profile.structured_tool_calls && profile.strict_tool_arguments
+      ? "strict tools"
+      : profile.structured_tool_calls
+        ? "tools"
+        : null,
+    profile.streaming ? "stream" : null,
+    profile.structured_outputs ? "structured output" : null,
+    profile.vision ? "vision" : null,
+    profile.native_web_search ? "web search" : null,
+    profile.reasoning_efforts.length
+      ? `reasoning ${profile.reasoning_efforts.join("/")}`
+      : null,
   ].filter(Boolean);
-  return items.length ? items.join(" · ") : "basic";
+  return items.length ? items.join(" · ") : "已探测基础生成";
 }

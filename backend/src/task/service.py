@@ -303,9 +303,6 @@ class TaskService:
             message="Cancelled by user",
             metadata=runtime_metadata,
         )
-        # Attempt credit refund if credits were consumed for this task
-        await self._refund_cancelled_task(user_id, record)
-
         payload = record.payload if isinstance(record.payload, dict) else {}
         workspace_id = self._workspace_id_from_payload(payload)
         await publish_workspace_event(
@@ -333,32 +330,3 @@ class TaskService:
         logger.info(f"Task cancelled: {task_id}")
 
         return True
-
-    async def _refund_cancelled_task(self, user_id: str, record: Any) -> None:
-        """Refund credits consumed for a cancelled task."""
-        payload = record.payload if isinstance(record.payload, dict) else {}
-        credit_transaction_id = payload.get("credit_transaction_id")
-        if not credit_transaction_id:
-            return
-
-        try:
-            from src.services.credit_service import CreditService
-
-            credit_service = CreditService()
-            await credit_service.refund_consumption(
-                user_id=user_id,
-                original_transaction_id=str(credit_transaction_id),
-                reason="任务取消退款",
-                task_id=record.id,
-            )
-            logger.info(
-                "Refunded credits for cancelled task %s (tx %s)",
-                record.id,
-                credit_transaction_id,
-            )
-        except Exception:
-            logger.warning(
-                "Failed to refund credits for cancelled task %s",
-                record.id,
-                exc_info=True,
-            )

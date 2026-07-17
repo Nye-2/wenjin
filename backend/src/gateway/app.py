@@ -100,27 +100,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await reconcile_interrupted_tasks()
 
-    try:
-        from src.config import get_extensions_config
-        from src.mcp import activate_mcp_runtime
-
-        await activate_mcp_runtime(
-            extensions_config=get_extensions_config(),
-            warmup=True,
-        )
-    except Exception as exc:
-        logger.warning("MCP runtime warmup skipped: %s", exc, exc_info=True)
-
     yield
 
     # Shutdown
     logger.info("Wenjin Gateway shutting down...")
-    try:
-        from src.mcp import shutdown_mcp_runtime
-
-        await shutdown_mcp_runtime()
-    except Exception as exc:
-        logger.warning("MCP runtime shutdown skipped: %s", exc, exc_info=True)
     stream_bridge = getattr(app.state, "chat_turn_stream_bridge", None)
     if stream_bridge is not None:
         try:
@@ -208,7 +191,6 @@ from .routers import (  # noqa: E402
     credits_redeem,
     dashboard,
     latex,
-    mcp,
     missions,
     models,
     references,
@@ -232,7 +214,6 @@ app.include_router(latex.router, prefix="/api", tags=["latex"])
 app.include_router(templates.router, prefix="/api", tags=["templates"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(references.router, prefix="/api", tags=["references"])
-app.include_router(mcp.router, prefix="/api", tags=["mcp"])
 app.include_router(workspace_rooms.router, prefix="/api", tags=["workspace_rooms"])
 app.include_router(admin_models.router, prefix="/api", tags=["admin", "models"])
 app.include_router(admin_pricing.router, prefix="/api", tags=["admin", "pricing"])

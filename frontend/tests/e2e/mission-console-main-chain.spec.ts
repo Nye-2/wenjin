@@ -11,16 +11,6 @@ const summary = {
   status: "running",
   review_mode: "balanced_default",
   active_stage_id: "literature",
-  snapshot_json: {
-    required_stage_ids: ["scope", "literature", "position"],
-    stage_acceptance: {
-      scope: { title: "收敛研究问题", status: "passed" },
-      literature: { title: "查找与核验证据", status: "active", summary: "正在交叉核验方法与评测文献" },
-      position: { title: "形成贡献定位", status: "pending" },
-    },
-    team_summary: "从方法、评测和隐私三个侧面推进",
-    subagent_summary: { latest: [{ job_id: "member-1", display_name: "严谨派阿澈", role_label: "方法与实验审校", status: "running", result_brief: "核验 Non-IID 实验设定" }] },
-  },
   pending_review_count: 2,
   evidence_count: 2,
   artifact_count: 1,
@@ -45,10 +35,9 @@ const view = {
   review_summary: { pending: 2, accepted: 0, needs_more_evidence: 0, committed: 0 },
   commit_summary: { pending: 0, applying: 0, committed: 0, failed: 0 },
   review_items: [
-    { review_item_id: "review-1", mission_id: MISSION_ID, title: "核心创新点", summary: "将异构性与自适应秩聚合联系起来", target_kind: "claim", risk_level: "high", status: "pending", review_required_reason: "涉及论文核心论断，需要逐项确认", preview_json: { claim: "异构性与自适应秩聚合存在可验证关联" }, preview_ref: null, requires_explicit_review: true, batch_acceptable: false, suggested_selected: false },
-    { review_item_id: "review-2", mission_id: MISSION_ID, title: "文献脉络草稿", summary: "整理方法演进与主要基线", target_kind: "document", risk_level: "medium", status: "pending", review_required_reason: "保存前建议确认", preview_json: {}, preview_url: null, requires_explicit_review: false, batch_acceptable: true, suggested_selected: true },
+    { review_item_id: "review-1", mission_id: MISSION_ID, title: "核心创新点", summary: "将异构性与自适应秩聚合联系起来", target_kind: "claim", risk_level: "high", status: "pending", review_required_reason: "涉及论文核心论断，需要逐项确认", preview_json: { claim: "异构性与自适应秩聚合存在可验证关联" }, preview_ref: null, requires_explicit_review: true, batch_acceptable: false, suggested_selected: false, commit_status: null, commit_eligible: false, commit_block_reason: "review_item_not_accepted" },
+    { review_item_id: "review-2", mission_id: MISSION_ID, title: "文献脉络草稿", summary: "整理方法演进与主要基线", target_kind: "document", risk_level: "medium", status: "pending", review_required_reason: "保存前建议确认", preview_json: {}, preview_url: null, requires_explicit_review: false, batch_acceptable: true, suggested_selected: true, commit_status: null, commit_eligible: false, commit_block_reason: "review_item_not_accepted" },
   ],
-  commits: [],
   required_stage_ids: ["scope", "literature", "position"],
   stage_summaries: [
     { stage_id: "scope", title: "收敛研究问题", status: "passed" },
@@ -93,7 +82,7 @@ test("MissionView opens on demand, reviews changes, and lazy-loads semantic trac
   await expect(page.getByTestId("mission-console")).toBeVisible();
   await page.getByRole("tab", { name: "进展" }).click();
   await expect(page.getByText("严谨派阿澈")).toBeVisible();
-  await page.getByRole("tab", { name: /确认/ }).click();
+  await page.getByTestId("mission-console").getByRole("tab", { name: /^确认/ }).click();
   await expect(page.getByText("需逐项确认")).toBeVisible();
   await page.getByText("查看内容预览").first().click();
   await expect(page.getByText(/异构性与自适应秩聚合存在可验证关联/)).toBeVisible();
@@ -229,7 +218,7 @@ test("academic visual review loads authenticated preview bytes and supports zoom
 
   await page.goto("/workspaces/ws-mission-visual");
   await page.getByRole("button", { name: "打开研究任务" }).click();
-  await page.getByRole("tab", { name: /确认/ }).click();
+  await page.getByTestId("mission-console").getByRole("tab", { name: /^确认/ }).click();
   const preview = page.getByRole("img", { name: "三个客户端连接到中央聚合节点" });
   await expect(preview).toBeVisible();
   await expect(page.getByText("联邦客户端向全局模型提交参数更新。")).toBeVisible();

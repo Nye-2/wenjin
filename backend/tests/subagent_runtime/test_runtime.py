@@ -5,16 +5,22 @@ from typing import Any
 
 import pytest
 
+from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
 from src.subagent_runtime.contracts import (
     SubagentAction,
     SubagentBudget,
     SubagentContextRead,
     SubagentJobSpec,
     SubagentModelOutputError,
+    SubagentModelTurn,
     SubagentStopReason,
     SubagentToolResult,
 )
 from src.subagent_runtime.runtime import SubagentRuntime
+
+
+def _model_turn(**values: Any) -> SubagentModelTurn:
+    return SubagentModelTurn(action=SubagentAction.model_validate(values))
 
 
 def _job(job_id: str = "sj_one", **overrides: Any) -> SubagentJobSpec:
@@ -51,9 +57,13 @@ def _job(job_id: str = "sj_one", **overrides: Any) -> SubagentJobSpec:
 class _Ledger:
     def __init__(self) -> None:
         self.events: list[tuple[str, str]] = []
+        self.usage_events: list[tuple[str, int, SubagentModelTurn]] = []
 
     async def record_progress(self, job, *, phase, summary, payload_json=None) -> None:
         self.events.append((job.job_id, phase))
+
+    async def record_model_usage(self, job, *, turn, model_turn) -> None:
+        self.usage_events.append((job.job_id, turn, model_turn))
 
 
 class _NoTools:
@@ -82,7 +92,7 @@ async def test_parallel_jobs_are_bounded_and_keep_isolated_context() -> None:
             self.max_active = max(self.max_active, self.active)
             await asyncio.sleep(0.01)
             self.active -= 1
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary=f"completed {job.job_id}",
                 result_json={"summary": job.task_summary},
@@ -116,6 +126,45 @@ async def test_parallel_jobs_are_bounded_and_keep_isolated_context() -> None:
 
 
 @pytest.mark.asyncio
+async def test_each_successful_model_turn_records_its_measured_usage_before_action() -> None:
+    class Model:
+        async def next_action(self, job, steps, tool_results):
+            return SubagentModelTurn(
+                action=SubagentAction(
+                    kind="complete",
+                    summary="done",
+                    result_json={"summary": "measured result"},
+                ),
+                usage_receipt=ModelUsageReceipt(
+                    model_id=job.model_id,
+                    provider_response_id="response-1",
+                    usage=ModelUsage(
+                        input_tokens=120,
+                        cached_input_tokens=40,
+                        output_tokens=30,
+                        reasoning_tokens=10,
+                        total_tokens=150,
+                    ),
+                ),
+            )
+
+    ledger = _Ledger()
+    runtime = SubagentRuntime(model=Model(), tools=_NoTools(), ledger=ledger)
+
+    result = await runtime.run_batch(
+        (_job(),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    assert result.results[0].status.value == "completed"
+    assert len(ledger.usage_events) == 1
+    job_id, turn, model_turn = ledger.usage_events[0]
+    assert (job_id, turn) == ("sj_one", 1)
+    assert model_turn.usage_receipt is not None
+    assert model_turn.usage_receipt.usage.total_tokens == 150
+
+
+@pytest.mark.asyncio
 async def test_duplicate_job_shares_one_inflight_effect_and_terminal_result() -> None:
     class Model:
         calls = 0
@@ -123,7 +172,7 @@ async def test_duplicate_job_shares_one_inflight_effect_and_terminal_result() ->
         async def next_action(self, job, steps, tool_results):
             self.calls += 1
             await asyncio.sleep(0.01)
-            return SubagentAction(kind="complete", summary="done", result_json={"value": 1})
+            return _model_turn(kind="complete", summary="done", result_json={"value": 1})
 
     model = Model()
     runtime = SubagentRuntime(model=model, tools=_NoTools(), ledger=_Ledger())
@@ -157,7 +206,7 @@ async def test_transient_model_failure_retries_without_losing_worker_context() -
             self.calls += 1
             if self.calls == 1:
                 raise RateLimitError("provider busy")
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary="done",
                 result_json={"summary": "Audit completed from retained context."},
@@ -225,7 +274,7 @@ async def test_cancelling_parent_batch_reaps_inflight_subagent_task() -> None:
 async def test_completed_result_uses_structured_summary_as_user_facing_brief() -> None:
     class Model:
         async def next_action(self, job, steps, tool_results):
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary="review complete } garbage provider residue",
                 result_json={"summary": "The independent review passed."},
@@ -250,7 +299,7 @@ async def test_malformed_structured_model_output_retries_within_turn_budget() ->
             if self.calls == 1:
                 raise SubagentModelOutputError("invalid provider frame")
             assert any("Structured worker response" in step.summary for step in steps)
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary="recovered",
                 result_json={"summary": "recovered result"},
@@ -280,7 +329,7 @@ async def test_selected_context_is_hydrated_before_the_first_model_turn() -> Non
             assert len(tool_results) == 1
             assert tool_results[0].payload_json == {"body": "pinned source"}
             assert any("Load selected context" in step.summary for step in steps)
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary="review complete",
                 result_json={"summary": "review complete"},
@@ -334,7 +383,7 @@ async def test_completed_result_retries_unverified_references() -> None:
         async def next_action(self, job, steps, tool_results):
             self.calls += 1
             if self.calls == 1:
-                return SubagentAction(
+                return _model_turn(
                     kind="complete",
                     summary="review complete",
                     result_json={
@@ -343,7 +392,7 @@ async def test_completed_result_retries_unverified_references() -> None:
                     },
                 )
             assert any("not returned by its tools" in step.summary for step in steps)
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary="review repaired",
                 result_json={
@@ -391,7 +440,7 @@ async def test_completed_result_keeps_evidence_and_artifact_receipts_typed() -> 
         async def next_action(self, job, steps, tool_results):
             self.calls += 1
             field = "evidence_refs" if self.calls == 1 else "artifact_refs"
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary="candidate inspected",
                 result_json={
@@ -441,7 +490,7 @@ async def test_invalid_partial_result_is_not_marked_usable() -> None:
         async def next_action(self, job, steps, tool_results):
             self.calls += 1
             if self.calls == 1:
-                return SubagentAction(
+                return _model_turn(
                     kind="tool",
                     tool_name="research.search",
                     arguments={"query": "federated PEFT"},
@@ -482,14 +531,14 @@ async def test_tool_failure_is_typed_and_model_can_return_safe_partial_output() 
     class Model:
         async def next_action(self, job, steps, tool_results):
             if not tool_results:
-                return SubagentAction(
+                return _model_turn(
                     kind="tool",
                     tool_name="research.search",
                     arguments={"bad": object()},
                     summary="search evidence",
                     partial_result_json={"draft": "safe partial"},
                 )
-            return SubagentAction(
+            return _model_turn(
                 kind="stop",
                 summary="Search arguments need repair",
                 stop_reason=SubagentStopReason.MALFORMED_TOOL_ARGUMENTS,
@@ -528,14 +577,14 @@ async def test_duplicate_successful_tool_request_is_skipped_without_spending_bud
         async def next_action(self, job, steps, tool_results):
             self.calls += 1
             if self.calls <= 2:
-                return SubagentAction(
+                return _model_turn(
                     kind="tool",
                     tool_name="research.search",
                     arguments={"query": "federated PEFT"},
                     summary="read the same evidence",
                 )
             assert any(step.kind == "progress" and "Duplicate" in step.summary for step in steps)
-            return SubagentAction(
+            return _model_turn(
                 kind="complete",
                 summary="review complete",
                 result_json={"summary": "one reviewed result"},

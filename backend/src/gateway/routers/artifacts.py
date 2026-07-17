@@ -18,7 +18,6 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from src.academic.services import ArtifactService, WorkspaceService
-from src.agents.middlewares.thread_data import get_thread_data_root
 from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user, get_current_user_optional
 from src.gateway.contracts.artifact import (
@@ -39,6 +38,7 @@ from src.gateway.validators.artifact import (
 )
 from src.services import ThreadService
 from src.services.asset_url_signing import get_asset_url_signer
+from src.services.thread_data_paths import get_thread_data_root
 from src.services.workspace_uploads import resolve_workspace_upload_relative_path
 
 router = APIRouter(tags=["artifacts"])

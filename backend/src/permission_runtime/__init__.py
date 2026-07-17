@@ -1,5 +1,5 @@
-"""Mission-native permission and pause runtime."""
+"""Mission-native permission authority and user resolution."""
 
-from .runtime import PermissionRuntime
+from .resolution import PermissionResolutionService
 
-__all__ = ["PermissionRuntime"]
+__all__ = ["PermissionResolutionService"]

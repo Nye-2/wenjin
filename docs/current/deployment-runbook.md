@@ -3,7 +3,7 @@
 > Status: Current
 > Updated: 2026-07-11
 
-Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable truth; Redis carries Celery and event hints; separate workers handle chat/short jobs, long Mission slices, and memory jobs.
+Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable truth; Redis carries Celery and event hints; separate workers handle chat/short jobs and long Mission slices.
 
 ## 1. Prerequisites
 
@@ -25,10 +25,9 @@ Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable 
 | `bootstrap-admin` | one-shot admin/catalog bootstrap |
 | `worker` | `default,priority` queues |
 | `mission-worker` | `long_running`, concurrency 1, prefetch 1 |
-| `memory-worker` | `memory` queue |
+| `celery-beat` | single scheduler for Mission reconciliation and preview cleanup |
 | `gateway` | HTTP, chat streams, Mission API/SSE |
 | `frontend` | Next.js UI |
-| `texlive` | one-shot LaTeX runtime check |
 
 ## 3. Configure
 
@@ -62,7 +61,7 @@ cd backend && .venv/bin/python -m alembic heads
 cd backend && .venv/bin/python -m src.quality.mission_cutover_gate --project-root ..
 ```
 
-Alembic must report one head: `101_workspace_reasoning_effort_cutover` until a later migration intentionally advances it. The cutover gate must report zero findings.
+Alembic must report one head: `106_remove_sandbox_pricing_policy`. The cutover gate must report zero findings.
 
 ## 5. Start
 
@@ -97,22 +96,44 @@ Check that:
 - the model response contains GPT-5.6 Sol, Terra, and Luna only;
 - readiness reports DataService, Redis, task backend, and sandbox preflight correctly.
 
+### Mission preview lifecycle
+
+`celery-beat` publishes `src.task.tasks.cleanup_mission_previews` every five minutes to the
+`default` queue. Each bounded delivery uses one UTC cutoff and makes at most five DataService
+calls of 200 review projections each. Filesystem cleanup starts only when one of those calls
+returns an empty batch, proving that no database row remains expired at that cutoff. If all five
+calls return work, the delivery leaves every preview file intact and the next beat continues the
+backlog. Once drained, the worker removes expired filesystem refs and unreferenced
+content-addressed objects with the same cutoff. Repeated delivery is idempotent. A filesystem
+error fails and retries the task; it never rolls back the already-correct DataService transaction
+or reports a successful cleanup.
+
+Gateway, Mission workers, and default workers must resolve `MISSION_PREVIEW_ROOT` to the same
+private shared volume. Alert on repeated `cleanup_mission_previews` failures and on sustained
+growth under that root; do not delete preview files with an external cron job because it can
+violate the projection-first ordering.
+
 ## 7. Model probes
 
 Generation and native search are separate capability probes.
 
 ```bash
 cd backend
-.venv/bin/python -m src.models.capability_probe --model-id gpt-5.6-sol
+.venv/bin/python -m src.models.capability_probe \
+  --all-enabled-language-models \
+  --persist \
+  --require-native-search
 ```
 
 Generation readiness requires strict structured tool arguments, clean Chat Completions streaming termination, xhigh effort support, and response storage disabled.
+
+Docker Compose runs the same persisted probe as the one-shot `model-probe` service after catalog bootstrap. The service reads all enabled language models from the DataService catalog; no model list is duplicated in deployment configuration. `mission-worker` starts only after every enabled language model passes. Existing deployments reuse the completed one-shot container; a clean reseed or rebuilt backend image reruns the provider-bound probes.
 
 Native search uses an independent Responses SSE request. It is usable only when the completed payload includes a `web_search_call`, source receipts, URL citations, and an accepted completion boundary. HTTP success or generated prose alone is not readiness. Search-required Mission policies fail closed while the probe is unavailable.
 
 ## 8. Migration policy
 
-Migrations 086-101 are an irreversible development cutover. Do not recreate removed tables or add dual-read/dual-write code. For a development database containing pre-cutover runtime data:
+Migrations 086-103 are an irreversible development cutover. Do not recreate removed tables or add dual-read/dual-write code. For a development database containing pre-cutover runtime data:
 
 1. stop all services;
 2. drop the development database/volume;
@@ -143,4 +164,4 @@ Use a real browser and complete a multi-turn scenario:
 docker compose down
 ```
 
-Do not use `down -v` unless intentionally reseeding development data. Runtime code rollback across 086-101 is unsupported; restore a matching database snapshot with the matching application version.
+Do not use `down -v` unless intentionally reseeding development data. Runtime code rollback across 086-103 is unsupported; restore a matching database snapshot with the matching application version.

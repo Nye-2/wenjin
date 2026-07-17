@@ -8,9 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.contracts.research_evidence import (
     NON_BYPASSABLE_REVIEW_RISKS,
-    ReviewMode,
     ReviewRiskCategory,
 )
+from src.contracts.review_policy import ReviewMode
 from src.contracts.stage_acceptance import WorkspaceType
 from src.contracts.versioned import ImmutableContractRef, contract_sha256
 
@@ -99,6 +99,16 @@ class ReviewPolicy(BaseModel):
         if missing:
             raise ValueError("review policy cannot bypass academic trust risks: " + ", ".join(sorted(missing)))
         return self
+
+    def require_allowed_mode(self, mode: ReviewMode) -> ReviewMode:
+        """Return a normalized mode only when this pinned policy permits it."""
+
+        normalized = ReviewMode(mode)
+        if normalized not in self.allowed_modes:
+            raise ValueError(
+                f"Review mode {normalized.value!r} is not allowed by the pinned MissionPolicy"
+            )
+        return normalized
 
 
 class VersionedPolicyRef(BaseModel):

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 
 import pytest
@@ -14,8 +16,10 @@ from src.tools.orchestrator import (
     SourceReference,
     ToolCallerKind,
     ToolCatalog,
+    ToolContentHashRef,
     ToolDispatchError,
     ToolErrorType,
+    ToolExecutionLimit,
     ToolGuardDecision,
     ToolHandlerResult,
     ToolInvocationContext,
@@ -30,6 +34,7 @@ from src.tools.orchestrator import (
     VerificationStatus,
     build_tool_registration,
 )
+from src.tools.orchestrator.catalog import schema_hash
 
 
 class _Input(BaseModel):
@@ -59,18 +64,21 @@ class _Journal:
     async def load_terminal(self, operation: ToolOperation):
         return self.terminals.get(operation.operation_key)
 
-    async def claim_started(self, operation: ToolOperation) -> bool:
+    async def claim_started(self, operation: ToolOperation) -> str | None:
         if operation.operation_key in self.started_keys:
-            return False
+            return None
         self.started_keys.add(operation.operation_key)
         self.started.append(operation)
-        return True
+        return f"claim-token-{'a' * 32}"
 
     async def record_terminal(
         self,
         operation: ToolOperation,
         outcome: ResearchToolOutcome,
+        *,
+        claim_token: str,
     ) -> bool:
+        assert claim_token == f"claim-token-{'a' * 32}"
         self.terminals.setdefault(operation.operation_key, outcome)
         return True
 
@@ -96,15 +104,36 @@ def _context() -> ToolInvocationContext:
         lease_epoch=7,
         model_id="gpt-5.6-sol",
         input_refs=("mission-item:source-1",),
+        deadline_monotonic=monotonic() + 300,
     )
 
 
-def _policy(tool_id: str) -> ToolPolicy:
+def _policy(
+    orchestrator: ToolOrchestrator,
+    tool_id: str,
+) -> ToolPolicy:
+    descriptor_ids = {
+        descriptor.tool_id for descriptor in orchestrator.catalog.descriptors()
+    }
+    pinned_descriptor_id = (
+        tool_id if tool_id in descriptor_ids else next(iter(descriptor_ids))
+    )
+    descriptor = orchestrator.catalog.require(pinned_descriptor_id).descriptor
     return ToolPolicy(
         policy_ref="policy:1",
         allowed_tool_ids=(tool_id,),
         allowed_network_profiles=("none",),
-        max_attempts=2,
+        execution_limits=(
+            ToolExecutionLimit(
+                tool_id=tool_id,
+                descriptor_schema_hash=descriptor.schema_hash,
+                descriptor_hash=schema_hash(
+                    descriptor.model_dump(mode="json")
+                ),
+                timeout_seconds=descriptor.timeout_seconds,
+                max_attempts=descriptor.max_attempts,
+            ),
+        ),
     )
 
 
@@ -112,9 +141,11 @@ def _orchestrator(
     handler,
     *,
     side_effect=SideEffectClass.NONE,
-    default_timeout_seconds: float = 60,
+    timeout_seconds: float = 60,
+    max_attempts: int = 2,
     payload_limit_bytes: int = 262_144,
     provenance_requirements: tuple[str, ...] = (),
+    semantic_identity_builder=None,
     guard=None,
 ):
     registration = build_tool_registration(
@@ -125,9 +156,11 @@ def _orchestrator(
         handler=handler,
         side_effect_class=side_effect,
         allowed_callers=(ToolCallerKind.WORKSPACE_AGENT,),
-        default_timeout_seconds=default_timeout_seconds,
+        timeout_seconds=timeout_seconds,
+        max_attempts=max_attempts,
         payload_limit_bytes=payload_limit_bytes,
         provenance_requirements=provenance_requirements,
+        semantic_identity_builder=semantic_identity_builder,
     )
     journal = _Journal()
     catalog = ToolCatalog([registration]).freeze()
@@ -159,7 +192,7 @@ async def test_unknown_tool_fails_explicitly() -> None:
             "missing.tool",
             {"value": 1},
             context=_context(),
-            policy=_policy("missing.tool"),
+            policy=_policy(orchestrator, "missing.tool"),
         )
 
 
@@ -178,7 +211,7 @@ async def test_malformed_arguments_never_reach_handler() -> None:
             "test.read",
             {"value": 0, "private-client-key": True},
             context=_context(),
-            policy=_policy("test.read"),
+            policy=_policy(orchestrator, "test.read"),
         )
     assert "private-client-key" not in str(captured.value)
     assert journal.started == []
@@ -198,6 +231,8 @@ async def test_malformed_arguments_report_safe_nested_schema_path() -> None:
         side_effect_class=SideEffectClass.NONE,
         allowed_callers=(ToolCallerKind.WORKSPACE_AGENT,),
         required_permissions=("read",),
+        timeout_seconds=60,
+        max_attempts=2,
     )
     journal = _Journal()
     orchestrator = ToolOrchestrator(
@@ -216,7 +251,7 @@ async def test_malformed_arguments_report_safe_nested_schema_path() -> None:
             "test.nested",
             {"brief": {"figure_spec": {"value": 0}}},
             context=_context(),
-            policy=_policy("test.nested"),
+            policy=_policy(orchestrator, "test.nested"),
         )
 
 
@@ -238,13 +273,13 @@ async def test_duplicate_delivery_reuses_stable_terminal_receipt() -> None:
         "test.read",
         {"value": 4},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
     second = await orchestrator.invoke(
         "test.read",
         {"value": 4},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert calls == 1
@@ -278,7 +313,7 @@ async def test_retryable_read_failure_reuses_operation_identity() -> None:
         "test.read",
         {"value": 9},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.status is ToolOutcomeStatus.SUCCESS
@@ -305,9 +340,8 @@ async def test_long_retry_after_returns_control_without_inline_retry() -> None:
         "test.read",
         {"value": 9},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
-
     assert calls == 1
     assert outcome.error_type is ToolErrorType.RATE_LIMITED
     assert outcome.retry_after_seconds == 30
@@ -328,7 +362,7 @@ async def test_concurrent_duplicate_without_terminal_does_not_dispatch_twice() -
 
     orchestrator, journal = _orchestrator(handler)
     context = _context()
-    policy = _policy("test.read")
+    policy = _policy(orchestrator, "test.read")
     first = await orchestrator.invoke(
         "test.read",
         {"value": 3},
@@ -363,17 +397,97 @@ async def test_model_selection_is_part_of_operation_identity() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
     second_context = _context().model_copy(update={"model_id": "gpt-5.6-sol-review"})
     second = await orchestrator.invoke(
         "test.read",
         {"value": 1},
         context=second_context,
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert first.operation_key != second.operation_key
+
+
+@pytest.mark.asyncio
+async def test_semantic_identity_ignores_command_and_model_but_binds_content_hashes() -> None:
+    calls = 0
+
+    async def handler(_operation, _arguments):
+        nonlocal calls
+        calls += 1
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary="ok",
+            verification_status=VerificationStatus.VERIFIED,
+        )
+
+    async def semantic_identity(_arguments, context):
+        return {
+            "source_item_seq": context.source_item_seq,
+            "contract_hashes": context.contract_hashes,
+            "renderer": "matplotlib@3.10",
+            "prompt_hash": "b" * 64,
+            "content_hash_refs": [
+                item.model_dump(mode="json") for item in context.content_hash_refs
+            ],
+        }
+
+    orchestrator, journal = _orchestrator(
+        handler,
+        semantic_identity_builder=semantic_identity,
+    )
+    base_context = _context().model_copy(
+        update={
+            "source_item_seq": 17,
+            "contract_hashes": ("c" * 64,),
+            "content_hash_refs": (
+                ToolContentHashRef(
+                    ref="/workspace/datasets/results.csv",
+                    content_hash="sha256:" + "d" * 64,
+                ),
+            ),
+        }
+    )
+    first = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=base_context,
+        policy=_policy(orchestrator, "test.read"),
+    )
+    second = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=base_context.model_copy(
+            update={
+                "command_id": "different-model-command",
+                "model_id": "gpt-5.6-luna",
+                "caller_id": "different-agent",
+            }
+        ),
+        policy=_policy(orchestrator, "test.read"),
+    )
+    changed = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=base_context.model_copy(
+            update={
+                "content_hash_refs": (
+                    ToolContentHashRef(
+                        ref="/workspace/datasets/results.csv",
+                        content_hash="sha256:" + "e" * 64,
+                    ),
+                )
+            }
+        ),
+        policy=_policy(orchestrator, "test.read"),
+    )
+
+    assert first.operation_key == second.operation_key
+    assert first.operation_key != changed.operation_key
+    assert journal.started[0].semantic_identity_hash is not None
+    assert calls == 2
 
 
 @pytest.mark.asyncio
@@ -388,7 +502,7 @@ async def test_assistant_prose_is_not_parsed_as_a_tool_call() -> None:
         await orchestrator.invoke_provider_response(
             response,
             context=_context(),
-            policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
         )
 
 
@@ -437,7 +551,7 @@ async def test_provider_batch_is_fully_validated_before_any_dispatch() -> None:
         await orchestrator.invoke_provider_response(
             response,
             context=_context(),
-            policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
         )
 
     assert calls == 0
@@ -458,19 +572,61 @@ async def test_non_idempotent_timeout_is_receipt_unknown_and_not_retried() -> No
     orchestrator, _journal = _orchestrator(
         handler,
         side_effect=SideEffectClass.NON_IDEMPOTENT,
-        default_timeout_seconds=0.001,
+        timeout_seconds=0.001,
+        max_attempts=1,
     )
     outcome = await orchestrator.invoke(
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
+    )
+    replayed = await orchestrator.invoke(
+        "test.read",
+        {"value": 1},
+        context=_context(),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert calls == 1
+    assert replayed == outcome
     assert outcome.status is ToolOutcomeStatus.ERROR
     assert outcome.error_type is ToolErrorType.RECEIPT_UNKNOWN
     assert outcome.recoverable_by_model is False
+
+
+@pytest.mark.asyncio
+async def test_external_cancellation_writes_typed_terminal_receipt() -> None:
+    entered = asyncio.Event()
+
+    async def handler(_operation, _arguments):
+        entered.set()
+        await asyncio.Event().wait()
+        raise AssertionError("cancelled handler must not resume")
+
+    orchestrator, journal = _orchestrator(
+        handler,
+        timeout_seconds=60,
+        max_attempts=1,
+    )
+    task = asyncio.create_task(
+        orchestrator.invoke(
+            "test.read",
+            {"value": 1},
+            context=_context(),
+            policy=_policy(orchestrator, "test.read"),
+        )
+    )
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    terminal = next(iter(journal.terminals.values()))
+    assert terminal.status is ToolOutcomeStatus.ERROR
+    assert terminal.error_type is ToolErrorType.CANCELLED
+    assert terminal.recoverable_by_model is False
 
 
 @pytest.mark.asyncio
@@ -487,11 +643,62 @@ async def test_policy_can_only_narrow_catalog_availability() -> None:
             policy_ref="policy:deny",
             allowed_tool_ids=(),
             allowed_network_profiles=("none",),
+            execution_limits=(),
         ),
     )
 
     assert outcome.error_type is ToolErrorType.POLICY_FORBIDDEN
     assert len(journal.started) == 1
+
+
+@pytest.mark.asyncio
+async def test_pinned_descriptor_drift_fails_before_operation_claim() -> None:
+    async def handler(_operation, _arguments):
+        raise AssertionError("handler must not run")
+
+    orchestrator, journal = _orchestrator(handler)
+    policy = _policy(orchestrator, "test.read")
+    drifted_limit = policy.execution_limits[0].model_copy(
+        update={"descriptor_hash": "f" * 64}
+    )
+
+    with pytest.raises(
+        ToolDispatchError,
+        match="no longer matches the frozen catalog descriptor",
+    ):
+        await orchestrator.invoke(
+            "test.read",
+            {"value": 1},
+            context=_context(),
+            policy=policy.model_copy(
+                update={"execution_limits": (drifted_limit,)}
+            ),
+        )
+
+    assert journal.started == []
+
+
+@pytest.mark.asyncio
+async def test_attempt_budget_must_fit_before_operation_claim() -> None:
+    async def handler(_operation, _arguments):
+        raise AssertionError("handler must not run")
+
+    orchestrator, journal = _orchestrator(handler)
+
+    with pytest.raises(
+        ToolDispatchError,
+        match="cannot cover this tool's pinned attempt boundary",
+    ):
+        await orchestrator.invoke(
+            "test.read",
+            {"value": 1},
+            context=_context().model_copy(
+                update={"deadline_monotonic": monotonic() + 30}
+            ),
+            policy=_policy(orchestrator, "test.read"),
+        )
+
+    assert journal.started == []
 
 
 @pytest.mark.asyncio
@@ -508,7 +715,7 @@ async def test_guard_failure_is_terminal_and_never_reaches_handler() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.error_type is ToolErrorType.INTERNAL_ERROR
@@ -526,7 +733,7 @@ async def test_handler_value_error_is_not_mislabeled_as_unsafe_output() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.error_type is ToolErrorType.INTERNAL_ERROR
@@ -548,7 +755,7 @@ async def test_outcome_redacts_secrets_before_journaling() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert "sk-super-secret-value" not in outcome.summary
@@ -572,7 +779,7 @@ async def test_oversized_result_must_be_externalized() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.status is ToolOutcomeStatus.ERROR
@@ -632,7 +839,7 @@ async def test_payload_limit_uses_actual_utf8_wire_size() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.status is ToolOutcomeStatus.SUCCESS
@@ -665,7 +872,7 @@ async def test_redaction_preserves_bounded_reference_content_and_truncation_cont
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     metadata = outcome.evidence_refs[0].metadata
@@ -697,7 +904,7 @@ async def test_receipted_source_result_is_json_normalized_before_journaling() ->
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.status is ToolOutcomeStatus.SUCCESS
@@ -721,7 +928,7 @@ async def test_verified_result_missing_descriptor_provenance_is_typed_failure() 
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.status is ToolOutcomeStatus.ERROR
@@ -750,7 +957,7 @@ async def test_verified_result_satisfying_descriptor_provenance_remains_verified
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.status is ToolOutcomeStatus.SUCCESS
@@ -787,7 +994,7 @@ async def test_verified_academic_visual_requires_typed_v2_manifest() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.status is ToolOutcomeStatus.SUCCESS
@@ -811,7 +1018,7 @@ async def test_unknown_provenance_requirement_fails_closed() -> None:
         "test.read",
         {"value": 1},
         context=_context(),
-        policy=_policy("test.read"),
+        policy=_policy(orchestrator, "test.read"),
     )
 
     assert outcome.error_type is ToolErrorType.PROVENANCE_MISSING

@@ -14,15 +14,16 @@ from typing import Any, TypeVar
 
 from src.agents.harness.stage_acceptance import resolve_stage_instance
 from src.contracts.mission_input import merge_mission_input_manifests
+from src.contracts.prism_context import PrismContextRef
 from src.contracts.reasoning import ReasoningEffort
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     stage_id_matches_contract,
+    stage_instance_index,
 )
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionApplyCommandsPayload,
-    MissionCancelPayload,
     MissionCreatePayload,
     MissionItemDraftPayload,
     MissionItemPayload,
@@ -38,11 +39,11 @@ from src.dataservice_client.contracts.mission import (
     MissionRunPatchPayload,
     MissionRunPayload,
     MissionStatus,
+    MissionUserCommandPayload,
     validate_mission_snapshot,
 )
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
-    BillingOutcome,
     MissionAgentDecision,
     MissionAgentProtocolError,
     MissionDecisionKind,
@@ -64,7 +65,6 @@ from src.mission_runtime.contracts import (
 )
 from src.mission_runtime.events import publish_after_commit
 from src.mission_runtime.ports import (
-    BillingPort,
     MissionAgentPort,
     MissionClockPort,
     MissionEventPublisherPort,
@@ -92,7 +92,6 @@ ResultT = TypeVar("ResultT")
 class MissionStartRejectionCode(StrEnum):
     """Stable reasons why a Mission was rejected before persistence."""
 
-    BILLING_PREFLIGHT_REJECTED = "billing_preflight_rejected"
     INVALID_START_STATE = "invalid_start_state"
     CONTINUATION_PARENT_NOT_FOUND = "continuation_parent_not_found"
     CONTINUATION_PARENT_NOT_TERMINAL = "continuation_parent_not_terminal"
@@ -154,14 +153,7 @@ def _stage_item_counts(snapshot: dict[str, Any]) -> dict[str, int]:
     raw = snapshot.get("stage_item_counts")
     if not isinstance(raw, dict):
         return {}
-    return {
-        str(key): value
-        for key, value in raw.items()
-        if isinstance(key, str)
-        and not isinstance(value, bool)
-        and isinstance(value, int)
-        and 1 <= value <= 100
-    }
+    return {str(key): value for key, value in raw.items() if isinstance(key, str) and not isinstance(value, bool) and isinstance(value, int) and 1 <= value <= 100}
 
 
 class MissionRuntime:
@@ -177,7 +169,6 @@ class MissionRuntime:
         subagents: SubagentRuntimePort,
         quality: StageQualityPort,
         review_candidates: ReviewCandidatePort,
-        billing: BillingPort,
         events: MissionEventPublisherPort,
         wakeups: MissionWakeupPublisherPort,
         limits: MissionSliceLimits | None = None,
@@ -190,7 +181,6 @@ class MissionRuntime:
         self.subagents = subagents
         self.quality = quality
         self.review_candidates = review_candidates
-        self.billing = billing
         self.events = events
         self.wakeups = wakeups
         self.limits = limits or MissionSliceLimits()
@@ -198,20 +188,15 @@ class MissionRuntime:
 
     async def start(self, request: MissionStartRequest) -> MissionStartReceipt:
         request = await self.start_context.pin(request)
-        preflight = await self.billing.preflight(request)
-        if not preflight.allowed:
-            raise MissionStartRejectedError(
-                preflight.summary or "Mission budget preflight was not approved",
-                code=MissionStartRejectionCode.BILLING_PREFLIGHT_REJECTED,
-            )
-
         snapshot = dict(request.snapshot_json)
-        if any(
-            key in snapshot
-            for key in ("stage_acceptance", "stage_item_counts", "mission_lineage")
-        ):
+        if any(key in snapshot for key in ("stage_acceptance", "stage_item_counts", "mission_lineage")):
             raise MissionStartRejectedError(
                 "Mission start cannot provide server-owned acceptance or lineage state",
+                code=MissionStartRejectionCode.INVALID_START_STATE,
+            )
+        if request.continuation is not None and request.parent_mission_id is None:
+            raise MissionStartRejectedError(
+                "Mission continuation feedback requires a parent MissionRun",
                 code=MissionStartRejectionCode.INVALID_START_STATE,
             )
         if request.parent_mission_id is not None:
@@ -221,8 +206,7 @@ class MissionRuntime:
                     parent_mission_id=request.parent_mission_id,
                 )
             )
-        snapshot["billing"] = self._billing_snapshot(preflight, state="preflight")
-        created = await self.store.create(
+        created = await self.store.admit(
             MissionCreatePayload(
                 parent_mission_id=request.parent_mission_id,
                 workspace_id=request.workspace_id,
@@ -247,7 +231,7 @@ class MissionRuntime:
             created=created.created,
         )
         wakeup_published = False
-        if created.created:
+        if created.created and created.mission.status is not MissionStatus.WAITING:
             wakeup_published = await self._publish_wakeup(created.mission.mission_id)
         return MissionStartReceipt(
             mission_id=created.mission.mission_id,
@@ -294,8 +278,15 @@ class MissionRuntime:
                 code=MissionStartRejectionCode.CONTINUATION_POLICY_CHANGED,
             )
 
-        raw_acceptance = parent.snapshot_json.get("stage_acceptance")
-        passed = {str(stage_id): deepcopy(result) for stage_id, result in (raw_acceptance.items() if isinstance(raw_acceptance, dict) else ()) if isinstance(result, dict) and result.get("result") == "pass"}
+        passed = self._passed_stage_acceptance(parent)
+        invalidated_stage_ids: set[str] = set()
+        if request.continuation is not None:
+            invalidated_stage_ids = self._stage_invalidation_closure(
+                parent,
+                passed_stage_ids=set(passed),
+                reset_stage_ids=set(request.continuation.reset_stage_ids),
+            )
+            passed = {stage_id: result for stage_id, result in passed.items() if stage_id not in invalidated_stage_ids}
         upstream_refs = await self._continuation_upstream_refs(
             parent.mission_id,
             passed,
@@ -315,13 +306,130 @@ class MissionRuntime:
                 "source_status": parent.status.value,
                 "policy_content_hash": parent_policy_hash,
                 "inherited_stage_ids": sorted(passed),
+                **(
+                    {
+                        "continuation_reason": request.continuation.reason,
+                        "source_review_item_ids": list(request.continuation.review_item_ids),
+                        "reset_stage_ids": list(request.continuation.reset_stage_ids),
+                        "invalidated_stage_ids": sorted(invalidated_stage_ids),
+                        "rationale": request.continuation.rationale,
+                    }
+                    if request.continuation is not None
+                    else {}
+                ),
                 "upstream_refs": upstream_refs,
             },
         }
-        raw_item_counts = parent.snapshot_json.get("stage_item_counts")
-        if isinstance(raw_item_counts, dict) and raw_item_counts:
-            continuation_snapshot["stage_item_counts"] = deepcopy(raw_item_counts)
+        inherited_item_counts = self._inheritable_stage_item_counts(
+            parent,
+            passed_stage_ids=set(passed),
+            invalidated_stage_ids=invalidated_stage_ids,
+        )
+        if inherited_item_counts:
+            continuation_snapshot["stage_item_counts"] = inherited_item_counts
         return continuation_snapshot
+
+    @staticmethod
+    def _passed_stage_acceptance(
+        run: MissionRunPayload,
+    ) -> dict[str, dict[str, Any]]:
+        raw_acceptance = run.snapshot_json.get("stage_acceptance")
+        return {str(stage_id): deepcopy(result) for stage_id, result in (raw_acceptance.items() if isinstance(raw_acceptance, dict) else ()) if isinstance(result, dict) and result.get("result") == "pass"}
+
+    @staticmethod
+    def _stage_invalidation_closure(
+        parent: MissionRunPayload,
+        *,
+        passed_stage_ids: set[str],
+        reset_stage_ids: set[str],
+    ) -> set[str]:
+        if not reset_stage_ids or not reset_stage_ids <= passed_stage_ids:
+            raise MissionStartRejectedError(
+                "Continuation reset stages must reference passed parent stages",
+                code=MissionStartRejectionCode.INVALID_START_STATE,
+            )
+        raw_contracts = parent.runtime_context_json.get("stage_contracts")
+        if not isinstance(raw_contracts, dict):
+            raise MissionStartRejectedError(
+                "Parent MissionRun has no pinned stage contracts",
+                code=MissionStartRejectionCode.INVALID_START_STATE,
+            )
+        contracts = [StageAcceptanceContract.model_validate(value) for value in raw_contracts.values() if isinstance(value, dict)]
+        counts = _stage_item_counts(parent.snapshot_json)
+
+        prerequisites: dict[str, set[str]] = {}
+        for stage_id in passed_stage_ids:
+            contract = next(
+                (candidate for candidate in contracts if stage_id_matches_contract(candidate, stage_id)),
+                None,
+            )
+            if contract is None:
+                raise MissionStartRejectedError(
+                    f"Parent stage contract is unavailable: {stage_id}",
+                    code=MissionStartRejectionCode.INVALID_START_STATE,
+                )
+            sequence_index = (
+                stage_instance_index(
+                    contract.instantiation.instance_id_template,
+                    stage_id,
+                )
+                if contract.instantiation.mode == "per_item"
+                else None
+            )
+            source_key = str(contract.item_count_source_key() or "")
+            total_items = counts.get(source_key)
+            instance = resolve_stage_instance(
+                contract,
+                sequence_index=sequence_index,
+                total_items=total_items,
+            )
+            prerequisites[stage_id] = set(instance.prerequisite_stage_ids)
+
+        invalidated = set(reset_stage_ids)
+        changed = True
+        while changed:
+            changed = False
+            for stage_id, required in prerequisites.items():
+                if stage_id not in invalidated and required.intersection(invalidated):
+                    invalidated.add(stage_id)
+                    changed = True
+        return invalidated
+
+    @staticmethod
+    def _inheritable_stage_item_counts(
+        run: MissionRunPayload,
+        *,
+        passed_stage_ids: set[str],
+        invalidated_stage_ids: set[str],
+    ) -> dict[str, int]:
+        """Keep dynamic counts only while their accepted source stages remain valid."""
+
+        item_counts = _stage_item_counts(run.snapshot_json)
+        if not item_counts:
+            return {}
+        contracts = _pinned_stage_contracts(run)
+        retained: dict[str, int] = {}
+        for source_key, item_count in item_counts.items():
+            source_stage_ids = MissionRuntime._item_count_source_stage_ids(
+                contracts,
+                source_key,
+            )
+            if source_stage_ids and source_stage_ids <= passed_stage_ids and source_stage_ids.isdisjoint(invalidated_stage_ids):
+                retained[source_key] = item_count
+        return retained
+
+    @staticmethod
+    def _item_count_source_stage_ids(
+        contracts: dict[str, StageAcceptanceContract],
+        source_key: str,
+    ) -> set[str]:
+        return {
+            prerequisite
+            for contract in contracts.values()
+            if contract.item_count_source_key() == source_key
+            for prerequisite in contract.prerequisite_stage_ids
+            if prerequisite in contracts and contracts[prerequisite].instantiation.mode == "single"
+        }
 
     async def _continuation_upstream_refs(
         self,
@@ -355,11 +463,7 @@ class MissionRuntime:
                     if not source_ref:
                         continue
                     target_kind = next(
-                        (
-                            kind
-                            for prefix, kind in canonical_target_kinds.items()
-                            if source_ref.startswith(prefix)
-                        ),
+                        (kind for prefix, kind in canonical_target_kinds.items() if source_ref.startswith(prefix)),
                         "",
                     )
                     target_ref = source_ref if target_kind else None
@@ -394,14 +498,7 @@ class MissionRuntime:
                 continue
             stage_id = str(raw.get("stage_id") or "").strip()
             target_ref = str(raw.get("target_ref") or "").strip()
-            if (
-                stage_id not in passed
-                or not any(
-                    target_ref.startswith(prefix)
-                    for prefix in canonical_target_kinds
-                )
-                or target_ref in seen_targets
-            ):
+            if stage_id not in passed or not any(target_ref.startswith(prefix) for prefix in canonical_target_kinds) or target_ref in seen_targets:
                 continue
             seen_targets.add(target_ref)
             inherited.append(
@@ -451,16 +548,23 @@ class MissionRuntime:
         reason: str | None = None,
         producer: str = "workspace_agent",
     ) -> MissionRunPayload:
-        result = await self.store.cancel(
+        current = await self.store.get(mission_id)
+        if current is None:
+            raise LookupError("MissionRun was not found")
+        if _status_value(current) in _TERMINAL_STATUSES:
+            return current
+        result = await self.store.append_command(
             mission_id,
-            MissionCancelPayload(
-                request_id=request_id,
-                reason=reason,
+            MissionUserCommandPayload(
+                command_id=request_id,
+                command_type="cancel",
+                summary=reason or "Mission cancellation requested",
                 producer=producer,
+                payload_json={"reason": reason},
             ),
         )
         await publish_after_commit(self.events, self.clock, result.mission)
-        await self._settle_best_effort(result.mission)
+        await self._publish_wakeup(mission_id, command_hint=request_id)
         return result.mission
 
     async def run_slice(
@@ -562,16 +666,6 @@ class MissionRuntime:
         *,
         command_hint: str | None,
     ) -> MissionSliceTelemetry:
-        billing_outcome = await self._ensure_billing(state)
-        if billing_outcome is not None:
-            return self._telemetry(
-                state.run,
-                MissionSliceOutcome.WAITING,
-                "budget_confirmation_required",
-                state=state,
-                command_hint=command_hint,
-            )
-
         if _status_value(state.run) == "created":
             await self._append(
                 state,
@@ -642,7 +736,15 @@ class MissionRuntime:
                     command_hint=command_hint,
                 )
 
-            recovered = await self._recover_inflight_operation(state)
+            recovered, recovery_outcome = await self._recover_inflight_operation(state)
+            if recovery_outcome is not None:
+                return self._telemetry(
+                    state.run,
+                    recovery_outcome,
+                    "inflight_operation_recovered",
+                    state=state,
+                    command_hint=command_hint,
+                )
             if recovered:
                 continue
 
@@ -664,7 +766,6 @@ class MissionRuntime:
                 transient_failure = is_transient_model_error(exc)
                 terminal = await self._record_loop_failure(state, exc)
                 if terminal:
-                    await self._settle_best_effort(state.run)
                     return self._telemetry(
                         state.run,
                         MissionSliceOutcome.TERMINAL,
@@ -681,10 +782,36 @@ class MissionRuntime:
 
             protocol_retry_count = 0
             protocol_feedback = None
+            command_result = await self._apply_commands_at_boundary(state)
+            if command_result is not None:
+                return self._telemetry(
+                    state.run,
+                    command_result,
+                    "durable_command_applied_after_agent_step",
+                    state=state,
+                    command_hint=command_hint,
+                )
+            usage = decision.snapshot_patch.get("last_model_usage")
+            if isinstance(usage, dict) and int(usage.get("total_tokens") or 0) > 0:
+                await self._append(
+                    state,
+                    items=[
+                        MissionItemDraftPayload(
+                            item_type="usage_receipt",
+                            operation_id=decision.operation_id,
+                            phase=MissionItemPhase.COMPLETED,
+                            stage_id=decision.stage_id,
+                            producer="workspace_agent",
+                            summary="Workspace Agent model usage recorded",
+                            payload_json={
+                                "model_id": state.run.model_id,
+                                "usage": dict(usage),
+                            },
+                        )
+                    ],
+                )
             outcome = await self._handle_decision(state, decision)
             if outcome is not None:
-                if outcome in {MissionSliceOutcome.COMPLETED, MissionSliceOutcome.TERMINAL}:
-                    await self._settle_best_effort(state.run)
                 return self._telemetry(
                     state.run,
                     outcome,
@@ -692,37 +819,6 @@ class MissionRuntime:
                     state=state,
                     command_hint=command_hint,
                 )
-
-    async def _ensure_billing(self, state: _SliceState) -> BillingOutcome | None:
-        billing = state.run.snapshot_json.get("billing")
-        if isinstance(billing, dict) and billing.get("state") == "ready":
-            return None
-        outcome = await self._invoke_with_deadline(
-            self.billing.ensure_reservation(state.run),
-            state,
-        )
-        if not outcome.allowed:
-            assert outcome.pause_request is not None
-            await self._pause_under_fence(state, outcome.pause_request)
-            return outcome
-        snapshot = self._merge_snapshot(
-            state.run.snapshot_json,
-            {"billing": self._billing_snapshot(outcome, state="ready")},
-        )
-        await self._append(
-            state,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="status_update",
-                    phase=MissionItemPhase.COMPLETED,
-                    producer="billing",
-                    summary=outcome.summary or "Mission budget reserved",
-                    payload_json={"free_policy": outcome.free_policy},
-                )
-            ],
-            snapshot=snapshot,
-        )
-        return None
 
     async def _apply_commands_at_boundary(
         self,
@@ -756,6 +852,12 @@ class MissionRuntime:
                 workspace_id=state.run.workspace_id,
                 thread_id=state.run.thread_id,
             )
+        incoming_prism_refs = [value for command in commands if isinstance((value := command.payload_json.get("prism_context_ref")), dict)]
+        if incoming_prism_refs:
+            prism_ref = PrismContextRef.model_validate(incoming_prism_refs[-1])
+            if prism_ref.workspace_id != state.run.workspace_id:
+                raise ValueError("Prism context does not belong to the Mission workspace")
+            snapshot_patch["prism_context_ref"] = prism_ref.model_dump(mode="json")
         items = [
             MissionItemDraftPayload(
                 item_type="status_update",
@@ -772,6 +874,25 @@ class MissionRuntime:
         ]
 
         command_types = {str(command.payload_json.get("command_type") or "steer") for command in commands}
+        review_modes = [str(command.payload_json.get("review_mode") or "") for command in commands if command.payload_json.get("command_type") == "set_review_mode"]
+        review_feedback_commands = [command for command in commands if command.payload_json.get("command_type") == "review_feedback"]
+        reset_stage_ids = tuple(dict.fromkeys(stage_id for command in review_feedback_commands for stage_id in self._review_feedback_reset_stage_ids(command)))
+        invalidated_stage_ids: set[str] = set()
+        if reset_stage_ids:
+            passed = self._passed_stage_acceptance(state.run)
+            invalidated_stage_ids = self._stage_invalidation_closure(
+                state.run,
+                passed_stage_ids=set(passed),
+                reset_stage_ids=set(reset_stage_ids),
+            )
+            retained = {stage_id: result for stage_id, result in passed.items() if stage_id not in invalidated_stage_ids}
+            retained_item_counts = self._inheritable_stage_item_counts(
+                state.run,
+                passed_stage_ids=set(retained),
+                invalidated_stage_ids=invalidated_stage_ids,
+            )
+            snapshot_patch["stage_acceptance"] = retained
+            snapshot_patch["stage_item_counts"] = retained_item_counts or None
         target_status: MissionStatus | None = None
         result: MissionSliceOutcome | None = None
         if "cancel" in command_types:
@@ -788,25 +909,46 @@ class MissionRuntime:
                 )
             )
         elif "pause" in command_types:
+            pause_command = next(command for command in reversed(commands) if command.payload_json.get("command_type") == "pause")
             target_status = MissionStatus.WAITING
             result = MissionSliceOutcome.WAITING
             snapshot_patch["waiting_reason"] = "user_input"
             snapshot_patch["pending_request"] = {
-                "request_id": commands[-1].operation_id,
+                "request_id": pause_command.operation_id,
                 "type": "user_pause",
+                "summary": "任务已暂停；在对话中说明继续或补充要求后，问津会从当前进度恢复。",
             }
             items.append(
                 MissionItemDraftPayload(
                     item_type="pause_request",
-                    operation_id=commands[-1].operation_id,
+                    operation_id=pause_command.operation_id,
                     phase=MissionItemPhase.COMPLETED,
                     producer="mission_runtime",
                     summary="Mission paused by user",
                     payload_json={"reason": "user_input"},
                 )
             )
-        elif _status_value(state.run) in {"running", "waiting"}:
+        elif _status_value(state.run) == "running":
             target_status = MissionStatus.PLANNING
+        elif (
+            _status_value(state.run) == "waiting"
+            and command_types - {"set_review_mode"}
+        ):
+            target_status = MissionStatus.PLANNING
+        elif _status_value(state.run) == "waiting":
+            target_status = MissionStatus.WAITING
+            result = MissionSliceOutcome.WAITING
+
+        if target_status is MissionStatus.PLANNING:
+            snapshot_patch["waiting_reason"] = None
+            snapshot_patch["pending_request"] = None
+
+        scalar_patch: dict[str, Any] = {
+            "status": target_status,
+            **({"review_mode": review_modes[-1]} if review_modes else {}),
+        }
+        if target_status is MissionStatus.PLANNING and reset_stage_ids:
+            scalar_patch["active_stage_id"] = reset_stage_ids[0]
 
         result_payload = await self.store.apply_commands(
             state.run.mission_id,
@@ -820,14 +962,24 @@ class MissionRuntime:
                     state.run.snapshot_json,
                     snapshot_patch,
                 ),
-                patch=MissionRunPatchPayload(status=target_status),
+                patch=MissionRunPatchPayload(**scalar_patch),
             ),
         )
         state.run = result_payload.mission
         await publish_after_commit(self.events, self.clock, state.run)
-        if result == MissionSliceOutcome.TERMINAL:
-            await self._settle_best_effort(state.run)
         return result
+
+    @staticmethod
+    def _review_feedback_reset_stage_ids(
+        command: MissionItemPayload,
+    ) -> tuple[str, ...]:
+        raw = command.payload_json.get("reset_stage_ids")
+        if not isinstance(raw, list) or not raw:
+            raise ValueError("review_feedback requires reset_stage_ids")
+        normalized = tuple(str(stage_id).strip() for stage_id in raw if isinstance(stage_id, str) and str(stage_id).strip())
+        if len(normalized) != len(raw) or len(normalized) != len(set(normalized)):
+            raise ValueError("review_feedback reset_stage_ids must be unique stage ids")
+        return normalized
 
     async def _handle_decision(
         self,
@@ -839,14 +991,11 @@ class MissionRuntime:
                 await self._record_invalid_decision(
                     state,
                     decision,
-                    "plan item_counts are not valid; declare quality_item_counts "
-                    "atomically with the passing understanding-stage quality decision",
+                    "plan item_counts are not valid; declare quality_item_counts atomically with the passing understanding-stage quality decision",
                 )
                 return None
             snapshot = self._decision_snapshot(state.run.snapshot_json, decision)
-            projected_run = state.run.model_copy(
-                update={"snapshot_json": snapshot}
-            )
+            projected_run = state.run.model_copy(update={"snapshot_json": snapshot})
             if not await self._ensure_stage_start_allowed(
                 state,
                 decision,
@@ -876,12 +1025,7 @@ class MissionRuntime:
 
         if decision.kind == MissionDecisionKind.PAUSE:
             assert decision.pause_request is not None
-            if (
-                state.run.pending_review_count > 0
-                and self._is_terminal_review_pause(decision.pause_request)
-                and not self._missing_required_stage_acceptance(state.run)
-                and not await self._unexposed_terminal_candidates(state.run)
-            ):
+            if state.run.pending_review_count > 0 and self._is_terminal_review_pause(decision.pause_request) and not self._missing_required_stage_acceptance(state.run) and not await self._unexposed_terminal_candidates(state.run):
                 return await self._complete_under_fence(
                     state,
                     decision,
@@ -1099,18 +1243,13 @@ class MissionRuntime:
             if missing_sources or unexpected_sources:
                 details = []
                 if missing_sources:
-                    details.append(
-                        "missing=" + ",".join(missing_sources)
-                    )
+                    details.append("missing=" + ",".join(missing_sources))
                 if unexpected_sources:
-                    details.append(
-                        "not_unlocked_by_stage=" + ",".join(unexpected_sources)
-                    )
+                    details.append("not_unlocked_by_stage=" + ",".join(unexpected_sources))
                 await self._record_invalid_decision(
                     state,
                     decision,
-                    "quality_item_counts must exactly match dynamic workloads unlocked "
-                    f"by {stage_id}: {'; '.join(details)}",
+                    f"quality_item_counts must exactly match dynamic workloads unlocked by {stage_id}: {'; '.join(details)}",
                 )
                 return None
             if raw_item_counts:
@@ -1164,19 +1303,11 @@ class MissionRuntime:
         *,
         stage_id: str,
     ) -> bool:
-        quality_items = [
-            item
-            for item in recent_items
-            if item.item_type == "quality_check" and item.stage_id == stage_id
-        ]
+        quality_items = [item for item in recent_items if item.item_type == "quality_check" and item.stage_id == stage_id]
         if not quality_items:
             return True
         last_quality = max(quality_items, key=lambda item: item.seq)
-        previous_refs = {
-            str(ref)
-            for ref in last_quality.payload_json.get("artifact_refs") or ()
-            if isinstance(ref, str) and ref.strip()
-        }
+        previous_refs = {str(ref) for ref in last_quality.payload_json.get("artifact_refs") or () if isinstance(ref, str) and ref.strip()}
         return any(
             item.seq > last_quality.seq
             and item.stage_id == stage_id
@@ -1237,36 +1368,32 @@ class MissionRuntime:
                 exc=exc,
             )
             return None
+        snapshot = self._decision_snapshot(state.run.snapshot_json, decision)
         result = await self.store.create_review_items(
             state.run.mission_id,
             MissionReviewItemsCreatePayload(
                 expected_state_version=state.run.state_version,
                 lease_owner=state.worker_id,
                 lease_epoch=state.run.lease_epoch,
-                items=batch.items,
+                review_items=batch.items,
+                items=[
+                    MissionItemDraftPayload(
+                        item_type="status_update",
+                        operation_id=decision.operation_id,
+                        phase=MissionItemPhase.COMPLETED,
+                        producer="review_candidate",
+                        summary=batch.summary,
+                        payload_json={
+                            "review_item_ids": [item.review_item_id for item in batch.items],
+                        },
+                    )
+                ],
+                snapshot_json=snapshot,
+                patch=self._stage_patch(stage_id),
             ),
         )
         state.run = result.mission
         await publish_after_commit(self.events, self.clock, state.run)
-        snapshot = self._decision_snapshot(state.run.snapshot_json, decision)
-        await self._append(
-            state,
-            items=[
-                MissionItemDraftPayload(
-                    item_type="status_update",
-                    operation_id=decision.operation_id,
-                    phase=MissionItemPhase.COMPLETED,
-                    producer="review_candidate",
-                    summary=batch.summary,
-                    payload_json={
-                        "review_item_ids": [item.review_item_id for item in batch.items],
-                        "superseded_review_item_ids": result.superseded_review_item_ids,
-                    },
-                )
-            ],
-            snapshot=snapshot,
-            patch=self._stage_patch(stage_id),
-        )
         return None
 
     async def _ensure_stage_start_allowed(
@@ -1351,47 +1478,50 @@ class MissionRuntime:
             ),
         )
 
-    async def _recover_inflight_operation(self, state: _SliceState) -> bool:
+    async def _recover_inflight_operation(
+        self,
+        state: _SliceState,
+    ) -> tuple[bool, MissionSliceOutcome | None]:
         inflight = state.run.snapshot_json.get("inflight_operation")
         if not isinstance(inflight, dict):
-            return False
+            return False, None
         if state.tool_steps >= self.limits.max_tool_steps:
-            return False
+            return False, None
         operation_id = str(inflight.get("operation_id") or "")
         kind = str(inflight.get("kind") or "")
         item_seq = int(inflight.get("call_item_seq") or 0)
         call_item = await self._load_item(state.run.mission_id, item_seq)
         if call_item is None or call_item.operation_id != operation_id:
             await self._clear_invalid_inflight(state, operation_id)
-            return True
+            return True, None
         state.tool_steps += 1
         if kind == "tool":
             tool_name = str(call_item.payload_json.get("tool_name") or "")
             arguments = call_item.payload_json.get("arguments") or {}
             if not tool_name or not isinstance(arguments, dict):
                 await self._clear_invalid_inflight(state, operation_id)
-                return True
-            await self._execute_tool_operation(
+                return True, None
+            outcome = await self._execute_tool_operation(
                 state,
                 operation_id=operation_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 stage_id=call_item.stage_id,
             )
-            return True
+            return True, outcome
         if kind == "subagent":
             task_summary = str(call_item.payload_json.get("task_summary") or "")
             input_scope = call_item.payload_json.get("input_scope") or {}
             raw_frozen_context = call_item.payload_json.get("frozen_context")
             if not task_summary or not isinstance(input_scope, dict) or not isinstance(raw_frozen_context, dict):
                 await self._clear_invalid_inflight(state, operation_id)
-                return True
+                return True, None
             try:
                 frozen_context = SubagentFrozenContext.model_validate(raw_frozen_context)
             except ValueError:
                 await self._clear_invalid_inflight(state, operation_id)
-                return True
-            await self._execute_subagent_operation(
+                return True, None
+            outcome = await self._execute_subagent_operation(
                 state,
                 operation_id=operation_id,
                 task_summary=task_summary,
@@ -1399,9 +1529,9 @@ class MissionRuntime:
                 stage_id=call_item.stage_id,
                 frozen_context=frozen_context,
             )
-            return True
+            return True, outcome
         await self._clear_invalid_inflight(state, operation_id)
-        return True
+        return True, None
 
     async def _execute_tool_operation(
         self,
@@ -1691,8 +1821,7 @@ class MissionRuntime:
             await self._record_invalid_decision(
                 state,
                 decision,
-                "completion requires passed StageAcceptance results: "
-                + ", ".join(missing_stages),
+                "completion requires passed StageAcceptance results: " + ", ".join(missing_stages),
             )
             return None
         unexposed_candidates = await self._unexposed_terminal_candidates(state.run)
@@ -1700,15 +1829,10 @@ class MissionRuntime:
             await self._record_invalid_decision(
                 state,
                 decision,
-                "completion requires user-reviewable terminal outputs for the selected target: "
-                + ", ".join(unexposed_candidates),
+                "completion requires user-reviewable terminal outputs for the selected target: " + ", ".join(unexposed_candidates),
             )
             return None
-        summary = (
-            "最终成果已准备好，等待你的确认"
-            if review_pending
-            else decision.summary
-        )
+        summary = "最终成果已准备好，等待你的确认" if review_pending else decision.summary
         snapshot_extra = None
         if review_pending:
             snapshot_extra = {
@@ -1732,11 +1856,7 @@ class MissionRuntime:
                     phase=MissionItemPhase.COMPLETED,
                     producer=("mission_runtime" if review_pending else "workspace_agent"),
                     summary=summary,
-                    payload_json=(
-                        {"review_pending": True}
-                        if review_pending
-                        else decision.payload_json
-                    ),
+                    payload_json=({"review_pending": True} if review_pending else decision.payload_json),
                 )
             ],
             snapshot=snapshot,
@@ -1748,9 +1868,7 @@ class MissionRuntime:
     def _is_terminal_review_pause(request: MissionPauseRequest) -> bool:
         if request.reason == "review":
             return True
-        return request.reason == "approval" and bool(
-            str(request.pending_request.get("review_item_id") or "").strip()
-        )
+        return request.reason == "approval" and bool(str(request.pending_request.get("review_item_id") or "").strip())
 
     @staticmethod
     def _missing_required_stage_acceptance(run: MissionRunPayload) -> list[str]:
@@ -1796,22 +1914,12 @@ class MissionRuntime:
         run: MissionRunPayload,
     ) -> list[str]:
         raw_output_kinds = run.runtime_context_json.get("terminal_output_kinds")
-        terminal_output_kinds = {
-            str(value)
-            for value in raw_output_kinds or ()
-            if isinstance(value, str) and value.strip()
-        }
+        terminal_output_kinds = {str(value) for value in raw_output_kinds or () if isinstance(value, str) and value.strip()}
         if not terminal_output_kinds:
             return []
         acceptance = run.snapshot_json.get("stage_acceptance")
         stage_results = acceptance if isinstance(acceptance, dict) else {}
-        accepted_refs = {
-            str(ref)
-            for result in stage_results.values()
-            if isinstance(result, dict) and result.get("result") == "pass"
-            for ref in result.get("artifact_refs") or ()
-            if isinstance(ref, str) and ref.strip()
-        }
+        accepted_refs = {str(ref) for result in stage_results.values() if isinstance(result, dict) and result.get("result") == "pass" for ref in result.get("artifact_refs") or () if isinstance(ref, str) and ref.strip()}
         reference_items = await self._reference_items(
             run.mission_id,
             maximum=1000,
@@ -1822,18 +1930,10 @@ class MissionRuntime:
                 continue
             candidate_ref = str(item.payload_json.get("reference_id") or "")
             metadata = item.payload_json.get("metadata")
-            artifact_kind = (
-                str(metadata.get("artifact_kind") or "")
-                if isinstance(metadata, dict)
-                else ""
-            )
+            artifact_kind = str(metadata.get("artifact_kind") or "") if isinstance(metadata, dict) else ""
             if candidate_ref in accepted_refs and artifact_kind:
                 candidate_kinds[candidate_ref] = artifact_kind
-        required_refs = {
-            ref
-            for ref, artifact_kind in candidate_kinds.items()
-            if artifact_kind in terminal_output_kinds
-        }
+        required_refs = {ref for ref, artifact_kind in candidate_kinds.items() if artifact_kind in terminal_output_kinds}
         present_kinds = {candidate_kinds[ref] for ref in required_refs}
         missing_kinds = sorted(terminal_output_kinds - present_kinds)
         review_items = await self.store.list_review_items(run.mission_id)
@@ -1853,27 +1953,17 @@ class MissionRuntime:
         existing_counts = _stage_item_counts(run.snapshot_json)
         contracts = _pinned_stage_contracts(run)
         unlocked: set[str] = set()
-        for contract in contracts.values():
-            source_key = contract.instantiation.source_context_key
-            if (
-                contract.instantiation.mode != "per_item"
-                or not source_key
-                or source_key in existing_counts
-            ):
+        source_keys = {str(contract.instantiation.source_context_key) for contract in contracts.values() if contract.instantiation.mode == "per_item" and contract.instantiation.source_context_key}
+        for source_key in source_keys:
+            if source_key in existing_counts:
                 continue
-            prerequisite_ids = {
-                prerequisite
-                for prerequisite in contract.prerequisite_stage_ids
-                if prerequisite in contracts
-                and contracts[prerequisite].instantiation.mode == "single"
-            }
+            prerequisite_ids = MissionRuntime._item_count_source_stage_ids(
+                contracts,
+                source_key,
+            )
             if stage_id not in prerequisite_ids:
                 continue
-            if all(
-                isinstance(projected_stage_results.get(prerequisite), dict)
-                and projected_stage_results[prerequisite].get("result") == "pass"
-                for prerequisite in prerequisite_ids
-            ):
+            if all(isinstance(projected_stage_results.get(prerequisite), dict) and projected_stage_results[prerequisite].get("result") == "pass" for prerequisite in prerequisite_ids):
                 unlocked.add(source_key)
         return unlocked
 
@@ -1897,45 +1987,22 @@ class MissionRuntime:
             source_key = str(raw_key).strip()
             related = contracts_by_source.get(source_key)
             if not related:
-                raise ValueError(
-                    f"item_counts contains unknown stage source: {source_key or '<blank>'}"
-                )
+                raise ValueError(f"item_counts contains unknown stage source: {source_key or '<blank>'}")
             if isinstance(raw_value, bool) or not isinstance(raw_value, int) or not 1 <= raw_value <= 100:
-                raise ValueError(
-                    f"item_counts.{source_key} must be an integer from 1 to 100"
-                )
+                raise ValueError(f"item_counts.{source_key} must be an integer from 1 to 100")
             existing = next_counts.get(source_key)
             if existing is not None and existing != raw_value:
-                raise ValueError(
-                    f"item_counts.{source_key} is immutable after it is pinned"
-                )
-            observed_instance = any(
-                stage_id_matches_contract(contract, stage_id)
-                for contract in related
-                for stage_id in projected_stage_results
-            )
+                raise ValueError(f"item_counts.{source_key} is immutable after it is pinned")
+            observed_instance = any(stage_id_matches_contract(contract, stage_id) for contract in related for stage_id in projected_stage_results)
             if existing is None and observed_instance:
-                raise ValueError(
-                    f"item_counts.{source_key} must be pinned before per-item work begins"
-                )
-            prerequisite_ids = {
-                prerequisite
-                for contract in related
-                for prerequisite in contract.prerequisite_stage_ids
-                if prerequisite in contracts
-                and contracts[prerequisite].instantiation.mode == "single"
-            }
-            missing_prerequisites = sorted(
-                stage_id
-                for stage_id in prerequisite_ids
-                if not isinstance(projected_stage_results.get(stage_id), dict)
-                or projected_stage_results[stage_id].get("result") != "pass"
+                raise ValueError(f"item_counts.{source_key} must be pinned before per-item work begins")
+            prerequisite_ids = MissionRuntime._item_count_source_stage_ids(
+                contracts,
+                source_key,
             )
+            missing_prerequisites = sorted(stage_id for stage_id in prerequisite_ids if not isinstance(projected_stage_results.get(stage_id), dict) or projected_stage_results[stage_id].get("result") != "pass")
             if missing_prerequisites:
-                raise ValueError(
-                    f"item_counts.{source_key} requires passed stages: "
-                    + ", ".join(missing_prerequisites)
-                )
+                raise ValueError(f"item_counts.{source_key} requires passed stages: " + ", ".join(missing_prerequisites))
             next_counts[source_key] = raw_value
         return next_counts
 
@@ -2235,9 +2302,7 @@ class MissionRuntime:
                     if len(page) < 100:
                         break
                     after_seq = page[-1].seq
-        references.sort(
-            key=lambda item: (item.created_at, item.mission_id, item.seq)
-        )
+        references.sort(key=lambda item: (item.created_at, item.mission_id, item.seq))
         return references[-maximum:]
 
     async def _load_item(self, mission_id: str, seq: int) -> MissionItemPayload | None:
@@ -2324,16 +2389,6 @@ class MissionRuntime:
         """Publish a best-effort delivery hint for durable runnable Mission state."""
         return await self._publish_wakeup(mission_id, command_hint=command_hint)
 
-    async def _settle_best_effort(self, mission: MissionRunPayload) -> None:
-        try:
-            await self.billing.settle(mission)
-        except Exception:
-            logger.warning(
-                "Mission billing settlement deferred for %s",
-                mission.mission_id,
-                exc_info=True,
-            )
-
     def _slice_budget_exhausted(self, state: _SliceState) -> bool:
         remaining = state.deadline_monotonic - self.clock.monotonic()
         next_step_reserve = min(
@@ -2387,14 +2442,6 @@ class MissionRuntime:
         return MissionRunPatchPayload(**fields)
 
     @staticmethod
-    def _billing_snapshot(outcome: BillingOutcome, *, state: str) -> dict[str, Any]:
-        return {
-            "state": state,
-            "free_policy": outcome.free_policy,
-            "reservation_id": outcome.reservation_id,
-        }
-
-    @staticmethod
     def _pause_item(request: MissionPauseRequest) -> MissionItemDraftPayload:
         return MissionItemDraftPayload(
             item_type="pause_request",
@@ -2413,6 +2460,8 @@ class MissionRuntime:
         run: MissionRunPayload,
         request: MissionPauseRequest,
     ) -> MissionPauseRequest:
+        if request.reason == "permission":
+            return request
         digest = hashlib.sha256(f"{run.mission_id}:{run.state_version}:{run.last_item_seq}:{request.request_id}".encode()).hexdigest()[:24]
         semantic_id = request.request_id
         return request.model_copy(
@@ -2436,6 +2485,7 @@ class MissionRuntime:
                 "waiting_reason": request.reason,
                 "pending_request": {
                     "request_id": request.request_id,
+                    "summary": request.summary,
                     **request.pending_request,
                 },
                 "next_actions": ["wait_for_user_input"],

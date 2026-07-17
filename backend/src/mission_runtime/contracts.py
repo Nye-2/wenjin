@@ -9,10 +9,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.contracts.reasoning import ReasoningEffort
+from src.contracts.review_policy import ReviewMode
 from src.dataservice_client.contracts.mission import (
     MissionItemPayload,
     MissionReviewItemDraftPayload,
-    MissionReviewMode,
     MissionRunPayload,
 )
 
@@ -29,6 +29,13 @@ MISSION_WORKER_PREFETCH_MULTIPLIER = 1
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class MissionContinuationDirective(_StrictModel):
+    reason: Literal["needs_more_evidence", "regenerate"]
+    review_item_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
+    reset_stage_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
+    rationale: str | None = Field(default=None, max_length=4000)
 
 
 class MissionDecisionKind(StrEnum):
@@ -107,7 +114,8 @@ class MissionStartRequest(_StrictModel):
     mission_idempotency_key: str = Field(min_length=1, max_length=160)
     mission_policy_id: str | None = Field(default=None, max_length=120)
     parent_mission_id: str | None = Field(default=None, max_length=36)
-    review_mode: MissionReviewMode = MissionReviewMode.BALANCED_DEFAULT
+    continuation: MissionContinuationDirective | None = None
+    review_mode: ReviewMode = ReviewMode.BALANCED_DEFAULT
     model_id: str = Field(min_length=1, max_length=120)
     reasoning_effort: ReasoningEffort
     snapshot_json: dict[str, Any] = Field(default_factory=dict)
@@ -135,22 +143,6 @@ class MissionPauseRequest(_StrictModel):
     ]
     summary: str = Field(min_length=1, max_length=4000)
     pending_request: dict[str, Any] = Field(default_factory=dict)
-
-
-class BillingOutcome(_StrictModel):
-    allowed: bool
-    free_policy: bool = False
-    reservation_id: str | None = Field(default=None, max_length=160)
-    summary: str | None = Field(default=None, max_length=4000)
-    pause_request: MissionPauseRequest | None = None
-
-    @model_validator(mode="after")
-    def validate_allowed_reservation(self) -> BillingOutcome:
-        if self.allowed and not self.free_policy and not self.reservation_id:
-            raise ValueError("billable mission requires a reservation_id")
-        if not self.allowed and self.pause_request is None:
-            raise ValueError("denied billing outcome requires a pause_request")
-        return self
 
 
 class MissionAgentDecision(_StrictModel):

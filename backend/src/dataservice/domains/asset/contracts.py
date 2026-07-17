@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class WorkspaceAssetCreateCommand(BaseModel):
     """Register one managed workspace asset."""
@@ -24,6 +26,7 @@ class WorkspaceAssetCreateCommand(BaseModel):
     created_by: str = Field(default="system", min_length=1, max_length=100)
     source_kind: str | None = Field(default=None, max_length=50)
     source_id: str | None = Field(default=None, max_length=100)
+    mission_write_authority: MissionWriteAuthority | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 

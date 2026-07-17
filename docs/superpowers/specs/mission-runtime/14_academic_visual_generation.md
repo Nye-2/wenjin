@@ -1,8 +1,10 @@
 # 14 Academic Visual Generation Spec
 
-Status: Proposed
-Updated: 2026-07-12
+Status: Implemented; production-environment acceptance pending
+Updated: 2026-07-16
 Depends on: `01_workspace_agent.md`, `02_mission_runtime.md`, `04_stage_acceptance_contract.md`, `05_capability_skill_lite.md`, `06_subagent_runtime.md`, `07_review_commit_runtime.md`, `08_mission_console_frontend.md`, `10_sandbox_vnext.md`, `12_tool_orchestrator.md`
+
+Implementation outcome: Wenjin now has one Mission-native academic visual path covering deterministic chart/diagram rendering, `gpt-image-2`, exact-label overlays, immutable candidate receipts, authenticated previews, reviewed WorkspaceAsset materialization, separate reviewed Prism insertion, and bounded preview cleanup. No visual-specific persistence table or alternate frontend lifecycle was added. Remaining acceptance is the real-provider/real-Docker browser matrix in this spec.
 
 ## Goal
 

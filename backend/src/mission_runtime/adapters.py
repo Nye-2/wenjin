@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
+from contextvars import ContextVar
 from copy import deepcopy
 from time import monotonic
 from typing import Any, Literal, Protocol, cast
@@ -18,6 +19,7 @@ from src.agents.harness.stage_acceptance import (
     can_start_stage,
     evaluate_stage_acceptance,
 )
+from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     StageAcceptanceResult,
@@ -27,6 +29,7 @@ from src.contracts.stage_acceptance import (
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionItemDraftPayload,
+    MissionItemPayload,
     MissionItemPhase,
     MissionLeaseHeartbeatPayload,
     MissionOperationClaimPayload,
@@ -54,6 +57,13 @@ from src.mission_runtime.ports import MissionStorePort
 from src.mission_runtime.reference_authority import canonical_reference_read
 from src.models import create_chat_model
 from src.models.provider_schema import parse_json_object, strict_provider_schema
+from src.permission_runtime.authority import (
+    PermissionAuthorizationStatus,
+    permission_operation,
+    permission_request_id,
+    resolve_permission_authorization,
+)
+from src.permission_runtime.contracts import PermissionContext
 from src.sandbox.base import (
     MissionLeaseGuard,
     SandboxReceiptClaim,
@@ -76,6 +86,7 @@ from src.subagent_runtime.contracts import (
     SubagentJobResult,
     SubagentJobSpec,
     SubagentModelOutputError,
+    SubagentModelTurn,
     SubagentStatus,
     SubagentStep,
     SubagentStopReason,
@@ -94,6 +105,8 @@ from src.tools.orchestrator import (
     ResearchToolOutcome,
     StaleToolLeaseError,
     ToolCallerKind,
+    ToolContentHashRef,
+    ToolDispatchError,
     ToolErrorType,
     ToolInvocationContext,
     ToolLeaseFence,
@@ -103,6 +116,11 @@ from src.tools.orchestrator import (
     ToolPolicy,
     UnknownToolError,
     VerificationStatus,
+)
+
+_ACTIVE_SUBAGENT_DEADLINE: ContextVar[float | None] = ContextVar(
+    "mission_subagent_tool_deadline",
+    default=None,
 )
 
 
@@ -154,6 +172,143 @@ async def _append_under_current_lease(
 
 def _operation_request_hash(kind: MissionOperationKind, operation_key: str) -> str:
     return hashlib.sha256(f"{kind.value}:{operation_key}".encode()).hexdigest()
+
+
+_CONTENT_HASH_RE = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+_REFERENCE_KEYS = (
+    "ref_id",
+    "reference_id",
+    "path",
+    "uri",
+    "payload_ref",
+    "sandbox_artifact_ref",
+    "source_ref",
+)
+
+
+def _tool_source_item_seq(
+    items: list[MissionItemPayload],
+    *,
+    operation_id: str,
+    item_type: str,
+) -> int | None:
+    candidates = [
+        item.seq
+        for item in items
+        if item.operation_id == operation_id and item.item_type == item_type
+    ]
+    return max(candidates, default=None)
+
+
+def _semantic_contract_hashes(
+    mission: MissionRunPayload,
+    *,
+    stage_id: str,
+) -> tuple[str, ...]:
+    runtime = mission.runtime_context_json
+    values: list[object] = [
+        {
+            "mission_policy_id": mission.mission_policy_id,
+            "policy_ref": runtime.get("policy_ref"),
+            "policy_content_hash": runtime.get("policy_content_hash"),
+        }
+    ]
+    for key in ("mission_policy_snapshot", "tool_policy"):
+        value = runtime.get(key)
+        if isinstance(value, dict):
+            values.append(value)
+    raw_contracts = runtime.get("stage_contracts")
+    if isinstance(raw_contracts, dict):
+        values.append(raw_contracts.get(stage_id, raw_contracts))
+    return tuple(sorted({_canonical_json_hash(value) for value in values}))
+
+
+def _canonical_json_hash(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _tool_content_hash_refs(
+    items: list[MissionItemPayload],
+) -> tuple[ToolContentHashRef, ...]:
+    refs: dict[str, str] = {}
+
+    def bind(ref: object, content_hash: object) -> None:
+        if not isinstance(ref, str) or not ref.strip():
+            return
+        normalized_hash = _normalized_content_hash(content_hash)
+        if normalized_hash is not None:
+            refs[ref.strip()] = normalized_hash
+
+    def visit(value: object) -> None:
+        if isinstance(value, list | tuple):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        for key in ("dataset_content_hashes", "source_content_hashes"):
+            hash_map = value.get(key)
+            if isinstance(hash_map, dict):
+                for ref, content_hash in hash_map.items():
+                    bind(ref, content_hash)
+        direct_hash = next(
+            (
+                value.get(key)
+                for key in ("content_hash", "sandbox_content_hash")
+                if value.get(key) is not None
+            ),
+            None,
+        )
+        if direct_hash is not None:
+            for key in _REFERENCE_KEYS:
+                bind(value.get(key), direct_hash)
+        metadata = value.get("metadata")
+        reference_id = value.get("ref_id") or value.get("reference_id")
+        if isinstance(metadata, dict) and reference_id is not None:
+            bind(reference_id, _first_content_hash(metadata))
+        for nested in value.values():
+            visit(nested)
+
+    for item in sorted(items, key=lambda candidate: candidate.seq):
+        visit(item.payload_json)
+        bind(item.payload_ref, item.payload_json.get("content_hash"))
+    return tuple(
+        ToolContentHashRef(ref=ref, content_hash=content_hash)
+        for ref, content_hash in sorted(refs.items())
+    )
+
+
+def _first_content_hash(value: object) -> str | None:
+    if isinstance(value, dict):
+        for key in ("content_hash", "sandbox_content_hash"):
+            normalized = _normalized_content_hash(value.get(key))
+            if normalized is not None:
+                return normalized
+        for nested in value.values():
+            found = _first_content_hash(nested)
+            if found is not None:
+                return found
+    elif isinstance(value, list | tuple):
+        for nested in value:
+            found = _first_content_hash(nested)
+            if found is not None:
+                return found
+    return None
+
+
+def _normalized_content_hash(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if not _CONTENT_HASH_RE.fullmatch(normalized):
+        return None
+    return f"sha256:{normalized.removeprefix('sha256:')}"
 
 
 class MissionLeaseFenceAdapter(ToolLeaseFence, MissionLeaseGuard):
@@ -209,7 +364,7 @@ class MissionItemOperationJournal(OperationJournal):
             raise RuntimeError("terminal tool receipt is unknown or unavailable")
         return ResearchToolOutcome.model_validate(outcome)
 
-    async def claim_started(self, operation: ToolOperation) -> bool:
+    async def claim_started(self, operation: ToolOperation) -> str | None:
         result = await self.store.claim_operation(
             operation.mission_id,
             MissionOperationClaimPayload(
@@ -221,26 +376,60 @@ class MissionItemOperationJournal(OperationJournal):
                 ttl_seconds=self.operation_ttl_seconds,
             ),
         )
-        return result.acquired
+        return result.receipt.claim_token if result.acquired else None
 
-    async def record_terminal(self, operation: ToolOperation, outcome: ResearchToolOutcome) -> bool:
-        await self.store.finish_operation(
-            operation.mission_id,
-            MissionOperationFinishPayload(
-                operation_key=operation.operation_key,
-                kind=MissionOperationKind.TOOL,
-                request_hash=_operation_request_hash(MissionOperationKind.TOOL, operation.operation_key),
-                claimant=operation.operation_id,
-                lease_epoch=operation.lease_epoch,
-                stage_id=operation.stage_id,
-                producer=outcome.producer,
-                status=(MissionOperationStatus.FAILED if outcome.status is ToolOutcomeStatus.ERROR else MissionOperationStatus.SUCCEEDED),
-                receipt_json={"outcome": outcome.model_dump(mode="json")},
-                payload_ref=outcome.payload_ref,
-                references=list(_tool_semantic_references(outcome)),
-            ),
-        )
-        return True
+    async def record_terminal(
+        self,
+        operation: ToolOperation,
+        outcome: ResearchToolOutcome,
+        *,
+        claim_token: str,
+    ) -> bool:
+        try:
+            result = await self.store.finish_operation(
+                operation.mission_id,
+                MissionOperationFinishPayload(
+                    operation_key=operation.operation_key,
+                    kind=MissionOperationKind.TOOL,
+                    request_hash=_operation_request_hash(
+                        MissionOperationKind.TOOL,
+                        operation.operation_key,
+                    ),
+                    claimant=operation.operation_id,
+                    lease_epoch=operation.lease_epoch,
+                    claim_token=claim_token,
+                    stage_id=operation.stage_id,
+                    producer=outcome.producer,
+                    status=(
+                        MissionOperationStatus.FAILED
+                        if outcome.status is ToolOutcomeStatus.ERROR
+                        else MissionOperationStatus.SUCCEEDED
+                    ),
+                    receipt_json={"outcome": outcome.model_dump(mode="json")},
+                    payload_ref=outcome.payload_ref,
+                    references=list(_tool_semantic_references(outcome)),
+                ),
+            )
+        except DataServiceClientError as exc:
+            if _is_conflict(exc):
+                return False
+            raise
+        receipt = result.receipt
+        if result.finalized:
+            return True
+        if (
+            receipt.claim_token != claim_token
+            or receipt.claimant != operation.operation_id
+        ):
+            return False
+        raw_outcome = receipt.receipt_json.get("outcome")
+        if not isinstance(raw_outcome, dict):
+            return False
+        try:
+            durable_outcome = ResearchToolOutcome.model_validate(raw_outcome)
+        except ValueError:
+            return False
+        return durable_outcome == outcome
 
 
 class ToolPolicyResolver(Protocol):
@@ -351,15 +540,65 @@ class MissionToolOrchestratorAdapter:
     def __init__(
         self,
         *,
+        store: MissionStorePort,
         orchestrator: ToolOrchestrator,
         policy_resolver: ToolPolicyResolver,
     ) -> None:
+        self.store = store
         self.orchestrator = orchestrator
         self.policy_resolver = policy_resolver
 
     async def execute(self, request: ToolExecutionRequest) -> MissionPortOutcome:
         try:
             policy = await self.policy_resolver.resolve(request.mission, caller_kind=ToolCallerKind.WORKSPACE_AGENT)
+            permission_grant_ref = None
+            descriptor = self.orchestrator.catalog.require(request.tool_name).descriptor
+            if "mission_permission" in descriptor.provenance_requirements:
+                permission_context = PermissionContext(
+                    mission_id=request.mission.mission_id,
+                    tool_name=request.tool_name,
+                    operation=permission_operation(
+                        request.operation_id,
+                        request.arguments,
+                    ),
+                    risk_level="medium",
+                    network_profile=descriptor.network_profile,
+                )
+                authorization = await resolve_permission_authorization(
+                    self.store,
+                    permission_context,
+                )
+                if authorization.status is PermissionAuthorizationStatus.MISSING:
+                    return MissionPortOutcome(
+                        status=MissionPortOutcomeStatus.WAITING,
+                        summary="This network operation needs your confirmation.",
+                        pause_request=MissionPauseRequest(
+                            request_id=permission_request_id(permission_context),
+                            reason="permission",
+                            summary="Confirm package-index network access to continue.",
+                            pending_request={
+                                "request_id": permission_request_id(permission_context),
+                                "request_type": "permission",
+                                "permission_context": permission_context.model_dump(mode="json"),
+                            },
+                        ),
+                    )
+                if authorization.status is PermissionAuthorizationStatus.DENIED:
+                    return MissionPortOutcome(
+                        status=MissionPortOutcomeStatus.FAILED,
+                        summary="The requested network operation was not approved.",
+                        payload_json={
+                            "error_type": ToolErrorType.POLICY_FORBIDDEN.value,
+                            "tool_name": request.tool_name,
+                            "recoverable": True,
+                        },
+                    )
+                permission_grant_ref = authorization.receipt_ref
+            source_item_seq = _tool_source_item_seq(
+                request.recent_items,
+                operation_id=request.operation_id,
+                item_type="tool_call",
+            )
             outcome = await self.orchestrator.invoke(
                 request.tool_name,
                 request.arguments,
@@ -372,8 +611,31 @@ class MissionToolOrchestratorAdapter:
                     caller_kind=ToolCallerKind.WORKSPACE_AGENT,
                     lease_epoch=request.mission.lease_epoch,
                     model_id=request.mission.model_id,
+                    input_refs=(
+                        (f"mission-item:{source_item_seq}",)
+                        if source_item_seq is not None
+                        else ()
+                    ),
+                    source_item_seq=source_item_seq,
+                    contract_hashes=_semantic_contract_hashes(
+                        request.mission,
+                        stage_id=request.stage_id or "mission",
+                    ),
+                    content_hash_refs=_tool_content_hash_refs(request.recent_items),
+                    permission_grant_ref=permission_grant_ref,
+                    deadline_monotonic=request.deadline_monotonic,
                 ),
                 policy=policy,
+            )
+        except ToolDispatchError as exc:
+            return MissionPortOutcome(
+                status=MissionPortOutcomeStatus.FAILED,
+                summary=exc.user_safe_summary,
+                payload_json={
+                    "error_type": exc.error_type.value,
+                    "tool_name": request.tool_name,
+                    "recoverable": exc.recoverable_by_model,
+                },
             )
         except (UnknownToolError, MalformedToolArgumentsError) as exc:
             return MissionPortOutcome(
@@ -395,6 +657,11 @@ class MissionSubagentToolAdapter(SubagentToolPort):
         return {tool_id: self.orchestrator.catalog.require(tool_id).input_model.model_json_schema(mode="validation") for tool_id in tool_ids}
 
     async def execute(self, request: SubagentToolRequest) -> SubagentToolResult:
+        deadline_monotonic = _ACTIVE_SUBAGENT_DEADLINE.get()
+        if deadline_monotonic is None:
+            raise RuntimeError(
+                "subagent tool invocation is outside its durable Mission deadline scope"
+            )
         mission = await self.store.get(request.mission_id)
         if mission is None:
             raise StaleToolLeaseError("mission no longer exists")
@@ -403,6 +670,41 @@ class MissionSubagentToolAdapter(SubagentToolPort):
             caller_kind=ToolCallerKind.SUBAGENT,
             allowed_tools=(request.tool_name,),
         )
+        operation_items = await self.store.list_items(
+            request.mission_id,
+            limit=100,
+            operation_id=request.operation_id,
+        )
+        source_item_seq = _tool_source_item_seq(
+            operation_items,
+            operation_id=request.operation_id,
+            item_type="subagent_spawned",
+        )
+        descriptor = self.orchestrator.catalog.require(request.tool_name).descriptor
+        permission_grant_ref = None
+        if "mission_permission" in descriptor.provenance_requirements:
+            permission_context = PermissionContext(
+                mission_id=request.mission_id,
+                tool_name=request.tool_name,
+                operation=permission_operation(
+                    f"{request.operation_id}:{request.job_id}",
+                    request.arguments,
+                ),
+                risk_level="medium",
+                network_profile=descriptor.network_profile,
+            )
+            authorization = await resolve_permission_authorization(
+                self.store,
+                permission_context,
+            )
+            if authorization.status is not PermissionAuthorizationStatus.ALLOWED:
+                return SubagentToolResult(
+                    status="failed",
+                    summary="This network operation must be approved through the main research task.",
+                    recoverable=True,
+                    error_type=ToolErrorType.POLICY_FORBIDDEN.value,
+                )
+            permission_grant_ref = authorization.receipt_ref
         try:
             outcome = await self.orchestrator.invoke(
                 request.tool_name,
@@ -416,8 +718,28 @@ class MissionSubagentToolAdapter(SubagentToolPort):
                     caller_kind=ToolCallerKind.SUBAGENT,
                     lease_epoch=request.lease_epoch,
                     model_id=mission.model_id,
+                    input_refs=(
+                        (f"mission-item:{source_item_seq}",)
+                        if source_item_seq is not None
+                        else ()
+                    ),
+                    source_item_seq=source_item_seq,
+                    contract_hashes=_semantic_contract_hashes(
+                        mission,
+                        stage_id=request.stage_id or "mission",
+                    ),
+                    content_hash_refs=_tool_content_hash_refs(operation_items),
+                    permission_grant_ref=permission_grant_ref,
+                    deadline_monotonic=deadline_monotonic,
                 ),
                 policy=policy,
+            )
+        except ToolDispatchError as exc:
+            return SubagentToolResult(
+                status="failed",
+                summary=exc.user_safe_summary,
+                recoverable=exc.recoverable_by_model,
+                error_type=exc.error_type.value,
             )
         except (MalformedToolArgumentsError, UnknownToolError) as exc:
             return SubagentToolResult(
@@ -473,6 +795,38 @@ class MissionSubagentLedger(SubagentLedgerPort):
             ],
         )
 
+    async def record_model_usage(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        model_turn: SubagentModelTurn,
+    ) -> None:
+        receipt = model_turn.usage_receipt
+        if receipt is None:
+            return
+        await _append_under_current_lease(
+            self.store,
+            mission_id=job.mission_id,
+            lease_owner=job.lease_owner,
+            lease_epoch=job.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="usage_receipt",
+                    operation_id=job.operation_id,
+                    phase=MissionItemPhase.COMPLETED,
+                    stage_id=job.stage_id,
+                    producer=job.job_id,
+                    summary="Subagent model usage recorded",
+                    payload_json={
+                        **receipt.model_dump(mode="json"),
+                        "job_id": job.job_id,
+                        "turn": turn,
+                    },
+                )
+            ],
+        )
+
 
 class LangChainSubagentModel(SubagentModelPort):
     """Strict structured-action model; tool execution remains outside LangChain."""
@@ -482,7 +836,7 @@ class LangChainSubagentModel(SubagentModelPort):
         job: SubagentJobSpec,
         steps: tuple[SubagentStep, ...],
         tool_results: tuple[SubagentToolResult, ...],
-    ) -> SubagentAction:
+    ) -> SubagentModelTurn:
         model = create_chat_model(
             job.model_id,
             reasoning_effort=job.reasoning_effort,
@@ -557,9 +911,22 @@ class LangChainSubagentModel(SubagentModelPort):
             ]
         )
         try:
-            return _parse_subagent_action(result)
+            action = _parse_subagent_action(result)
         except ValueError as exc:
             raise SubagentModelOutputError(_subagent_output_diagnostic(exc)) from exc
+        usage = ModelUsage.from_provider_metadata(result.usage_metadata)
+        return SubagentModelTurn(
+            action=action,
+            usage_receipt=(
+                ModelUsageReceipt(
+                    model_id=job.model_id,
+                    usage=usage,
+                    provider_response_id=(str(result.id) if result.id else None),
+                )
+                if usage is not None
+                else None
+            ),
+        )
 
 
 def _selected_ref_context_reads(
@@ -806,10 +1173,14 @@ class MissionSubagentRuntimeAdapter:
         recovered = await self._recovered_results(request, jobs)
         missing = tuple(job for job in jobs if job.job_id not in recovered)
         if missing:
-            fresh = await self.runtime.run_batch(
-                missing,
-                deadline_monotonic=request.deadline_monotonic,
-            )
+            token = _ACTIVE_SUBAGENT_DEADLINE.set(request.deadline_monotonic)
+            try:
+                fresh = await self.runtime.run_batch(
+                    missing,
+                    deadline_monotonic=request.deadline_monotonic,
+                )
+            finally:
+                _ACTIVE_SUBAGENT_DEADLINE.reset(token)
             recovered.update({item.job_id: item for item in fresh.results})
         result = SubagentBatchResult(
             operation_id=request.operation_id,
@@ -853,6 +1224,10 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
 
     def __init__(self, store: MissionStorePort) -> None:
         self.store = store
+        self._active_claim: ContextVar[tuple[str, str, str, str] | None] = ContextVar(
+            f"mission_sandbox_claim_{id(self)}",
+            default=None,
+        )
 
     async def claim(self, request: SandboxOperationRequest, *, sandbox_job_id: str) -> SandboxReceiptClaim:
         result = await self.store.claim_operation(
@@ -867,6 +1242,16 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
             ),
         )
         receipt = result.receipt
+        self._active_claim.set(
+            (
+                request.provenance.mission_id,
+                request.operation_key,
+                sandbox_job_id,
+                receipt.claim_token,
+            )
+            if result.acquired
+            else None
+        )
         if receipt.status is not MissionOperationStatus.CLAIMED:
             existing = self._sandbox_result(receipt.receipt_json)
             if existing is None:
@@ -893,22 +1278,40 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
         )
 
     async def finalize(self, result: SandboxOperationResult) -> None:
-        receipt = await self.store.get_operation(result.provenance.mission_id, result.operation_key)
-        if receipt is None:
-            raise RuntimeError("sandbox operation was not atomically claimed")
-        await self.store.finish_operation(
+        claim = self._active_claim.get()
+        expected_identity = (
             result.provenance.mission_id,
-            MissionOperationFinishPayload(
-                operation_key=result.operation_key,
-                kind=MissionOperationKind.SANDBOX,
-                request_hash=_operation_request_hash(MissionOperationKind.SANDBOX, result.operation_key),
-                claimant=receipt.claimant,
-                lease_epoch=result.provenance.lease_epoch,
-                producer=result.provenance.subagent_id or "workspace_agent",
-                status=(MissionOperationStatus.SUCCEEDED if result.status.value == "succeeded" else MissionOperationStatus.FAILED),
-                receipt_json={"result": result.model_dump(mode="json")},
-            ),
+            result.operation_key,
+            result.sandbox_job_id,
         )
+        if claim is None or claim[:3] != expected_identity:
+            raise RuntimeError(
+                "sandbox operation was not atomically claimed in this execution context"
+            )
+        try:
+            await self.store.finish_operation(
+                result.provenance.mission_id,
+                MissionOperationFinishPayload(
+                    operation_key=result.operation_key,
+                    kind=MissionOperationKind.SANDBOX,
+                    request_hash=_operation_request_hash(
+                        MissionOperationKind.SANDBOX,
+                        result.operation_key,
+                    ),
+                    claimant=result.sandbox_job_id,
+                    lease_epoch=result.provenance.lease_epoch,
+                    claim_token=claim[3],
+                    producer=result.provenance.subagent_id or "workspace_agent",
+                    status=(
+                        MissionOperationStatus.SUCCEEDED
+                        if result.status.value == "succeeded"
+                        else MissionOperationStatus.FAILED
+                    ),
+                    receipt_json={"result": result.model_dump(mode="json")},
+                ),
+            )
+        finally:
+            self._active_claim.set(None)
 
     async def get(
         self,
@@ -1098,31 +1501,7 @@ def _stage_total_items(
     mission: MissionRunPayload,
     contract: StageAcceptanceContract,
 ) -> int | None:
-    source_keys: set[str] = set()
-    if contract.instantiation.source_context_key:
-        source_keys.add(contract.instantiation.source_context_key)
-    if contract.all_item_prerequisite_templates:
-        raw_contracts = mission.runtime_context_json.get("stage_contracts")
-        if not isinstance(raw_contracts, dict):
-            raise ValueError("all-item prerequisites require pinned stage contracts")
-        for template in contract.all_item_prerequisite_templates:
-            matching_keys = {
-                str(instantiation.get("source_context_key"))
-                for raw_contract in raw_contracts.values()
-                if isinstance(raw_contract, dict)
-                and isinstance((instantiation := raw_contract.get("instantiation")), dict)
-                and instantiation.get("mode") == "per_item"
-                and instantiation.get("instance_id_template") == template
-                and instantiation.get("source_context_key")
-            }
-            if len(matching_keys) != 1:
-                raise ValueError(
-                    f"all-item prerequisite template {template} must resolve to one item-count source"
-                )
-            source_keys.update(matching_keys)
-    if len(source_keys) > 1:
-        raise ValueError("stage prerequisite families use different item-count sources")
-    source_key = next(iter(source_keys), None)
+    source_key = contract.item_count_source_key()
     if not source_key:
         return None
     raw_counts = mission.snapshot_json.get("stage_item_counts")
@@ -1243,8 +1622,12 @@ def _durable_reference_metadata(value: dict[str, Any]) -> dict[str, Any]:
     return cast(dict[str, Any], compact(value))
 
 
-def _evidence_source_type(reference_kind: str) -> Literal["paper", "web_page", "dataset", "upload"]:
+def _evidence_source_type(
+    reference_kind: str,
+) -> Literal["paper", "web_page", "dataset", "upload", "artifact"]:
     normalized = reference_kind.lower()
+    if "artifact" in normalized or "candidate" in normalized:
+        return "artifact"
     if "dataset" in normalized or "sandbox" in normalized:
         return "dataset"
     if "web" in normalized or "search" in normalized:

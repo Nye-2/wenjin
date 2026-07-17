@@ -12,6 +12,7 @@ from src.dataservice.domains.prism.contracts import (
     PrismFileVersionCreateCommand,
     PrismPrimaryProjectCommand,
     PrismProtectedScopeUpsertCommand,
+    PrismVisualInsertionCommand,
     PrismWorkspaceFileUpsertCommand,
 )
 from src.dataservice.domains.prism.service import PrismDataDomainService
@@ -71,14 +72,34 @@ async def upsert_workspace_file(
     return envelope_ok(record.model_dump(mode="json"))
 
 
+@router.post("/workspaces/{workspace_id}/visual-insertions")
+async def insert_visual_asset(
+    workspace_id: str,
+    command: PrismVisualInsertionCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = PrismDataDomainService(uow.required_session, autocommit=False)
+    record = await service.insert_visual_asset(
+        workspace_id=workspace_id,
+        command=command,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
 @router.get("/workspaces/{workspace_id}/files/{file_id}")
 async def get_workspace_file(
     workspace_id: str,
     file_id: str,
+    prism_project_id: str | None = None,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = PrismDataDomainService(uow.required_session, autocommit=False)
-    record = await service.get_workspace_file_content(workspace_id=workspace_id, file_id=file_id)
+    record = await service.get_workspace_file_content(
+        workspace_id=workspace_id,
+        file_id=file_id,
+        prism_project_id=prism_project_id,
+    )
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 

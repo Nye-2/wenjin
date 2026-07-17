@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -19,8 +20,14 @@ from src.academic_visual_runtime import (
 )
 from src.config import get_settings
 from src.contracts.mission_input import MissionInputManifest
+from src.contracts.prism_context import prism_selection_hash, split_utf8_selection
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.source import SourceImportPayload
+from src.permission_runtime.authority import (
+    PermissionAuthorizationStatus,
+    permission_operation,
+    resolve_permission_authorization,
+)
+from src.permission_runtime.contracts import PermissionContext, PermissionDecision
 from src.sandbox import (
     SandboxMissionProvenance,
     SandboxNetworkGrant,
@@ -383,34 +390,63 @@ class MissionToolHandlers:
     async def import_source_candidate(self, operation: ToolOperation, args: ImportSourceCandidateInput) -> ToolHandlerResult:
         workspace_id = await self._workspace_id(operation)
         await self._verify_source_origin(operation, workspace_id, args)
-        result = await self.dataservice.import_source(
-            SourceImportPayload(
-                workspace_id=workspace_id,
-                source_kind=args.source_kind,
-                title=args.title,
-                authors_json=list(args.authors),
-                year=args.year,
-                venue=args.venue,
-                doi=args.doi,
-                url=args.url,
-                abstract=args.abstract,
-                ingest_kind="mission_verified",
-                ingest_label=args.verification_ref,
-                ingest_mission_id=operation.mission_id,
-                verified_at=_utc_now(),
-                library_status="candidate",
-                evidence_level=("uploaded_fulltext" if args.verification_ref.startswith("asset:") else "external_verified"),
-                citation_key=args.citation_key,
+        source_import_payload = {
+            "source_kind": args.source_kind,
+            "title": args.title,
+            "authors_json": list(args.authors),
+            "year": args.year,
+            "venue": args.venue,
+            "doi": args.doi,
+            "url": args.url,
+            "abstract": args.abstract,
+            "ingest_kind": "mission_verified",
+            "ingest_label": args.verification_ref,
+            "library_status": "candidate",
+            "evidence_level": ("uploaded_fulltext" if args.verification_ref.startswith("asset:") else "external_verified"),
+            "citation_key": args.citation_key,
+        }
+        preview_text = (
+            "# Source import candidate\n\n```json\n"
+            + json.dumps(
+                {
+                    "source_import_payload": source_import_payload,
+                    "verification_ref": args.verification_ref,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
             )
+            + "\n```"
         )
+        metadata = {
+            "title": args.title,
+            "artifact_kind": "source_import",
+            "source_refs": [args.verification_ref],
+            "mime_type": "text/markdown",
+            "preview_text": preview_text,
+            "source_import_payload": source_import_payload,
+            "verification_ref": args.verification_ref,
+            "content_hash": artifact_candidate_content_hash(preview_text),
+            "mission_id": operation.mission_id,
+            "operation_key": operation.operation_key,
+            "materialized": False,
+        }
+        candidate_ref = artifact_candidate_ref(metadata)
         ref = ToolReference(
-            ref_id=f"source:{result.source.id}",
-            kind="source_candidate",
-            title=result.source.title,
-            uri=result.source.url,
-            metadata={"created": result.created, "verification_ref": args.verification_ref, "citation_key": result.source.citation_key},
+            ref_id=candidate_ref,
+            kind="artifact_candidate",
+            title=args.title,
+            uri=args.url,
+            metadata=metadata,
         )
-        return _success("Registered a verified source candidate for review.", refs=(ref,), payload_ref=ref.ref_id, risk="medium")
+        return ToolHandlerResult(
+            status=ToolOutcomeStatus.SUCCESS,
+            summary="Prepared a verified source import candidate for review; the Library was not changed.",
+            artifact_refs=(ref,),
+            verification_status=VerificationStatus.VERIFIED,
+            risk_level="medium",
+            payload_ref=ref.ref_id,
+        )
 
     async def list_source_code_files(self, operation: ToolOperation, args: ListSourceCodeFilesInput) -> ToolHandlerResult:
         root, asset, single_file = await self._source_root(operation, args.asset_ref.removeprefix("asset:"))
@@ -478,11 +514,35 @@ class MissionToolHandlers:
         return await self._sandbox(operation, SmokeCheckInput())
 
     async def sandbox_install_dependencies(self, operation: ToolOperation, args: InstallDependenciesToolInput) -> ToolHandlerResult:
+        permission_context = PermissionContext(
+            mission_id=operation.mission_id,
+            tool_name=operation.tool_id,
+            operation=permission_operation(operation.command_id, args.model_dump()),
+            risk_level="medium",
+            network_profile=SandboxNetworkProfile.PACKAGE_INDEX_ONLY.value,
+        )
+        authorization = await resolve_permission_authorization(
+            self.dataservice.missions,
+            permission_context,
+        )
+        if (
+            authorization.status is not PermissionAuthorizationStatus.ALLOWED
+            or authorization.grant is None
+            or authorization.receipt_ref != operation.permission_grant_ref
+        ):
+            raise ToolDispatchError(
+                ToolErrorType.POLICY_FORBIDDEN,
+                "Package installation requires a current Mission permission receipt.",
+            )
         grant = SandboxNetworkGrant(
-            permission_request_id=args.permission_request_id,
-            approved_scope="mission",
+            permission_request_id=authorization.grant.request_id,
+            approved_scope=(
+                "mission"
+                if authorization.grant.decision is PermissionDecision.ALLOW_FOR_MISSION
+                else "operation"
+            ),
             allowed_hosts=("pypi.org", "files.pythonhosted.org"),
-            expires_at=args.permission_expires_at,
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
         )
         return await self._sandbox(
             operation,
@@ -876,14 +936,23 @@ class MissionToolHandlers:
                 ToolErrorType.NO_RESULTS,
                 "The selected Prism content is not available inline.",
             )
-        start, end = context_ref.selection_range
-        if end > len(version.content_inline) or end - start > 16_000:
+        start, end = context_ref.selection_byte_range
+        if end - start > 16_000:
             raise ToolDispatchError(
                 ToolErrorType.INVALID_INPUT,
                 "The Prism selection is outside the current file or exceeds the visual context limit.",
             )
-        selection = version.content_inline[start:end]
-        selection_hash = f"sha256:{hashlib.sha256(selection.encode()).hexdigest()}"
+        try:
+            _, selection, _ = split_utf8_selection(
+                version.content_inline,
+                context_ref.selection_byte_range,
+            )
+        except ValueError as exc:
+            raise ToolDispatchError(
+                ToolErrorType.INVALID_INPUT,
+                "The Prism selection is outside the current file or does not align to UTF-8 text boundaries.",
+            ) from exc
+        selection_hash = prism_selection_hash(selection)
         if selection_hash != context_ref.selection_hash:
             raise ToolDispatchError(
                 ToolErrorType.PROVENANCE_MISSING,
@@ -1251,12 +1320,6 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(64 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _utc_now():
-    from datetime import UTC, datetime
-
-    return datetime.now(UTC)
 
 
 __all__ = ["MissionToolHandlers"]

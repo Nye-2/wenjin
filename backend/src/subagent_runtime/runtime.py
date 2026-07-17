@@ -16,6 +16,7 @@ from src.subagent_runtime.contracts import (
     SubagentJobResult,
     SubagentJobSpec,
     SubagentModelOutputError,
+    SubagentModelTurn,
     SubagentStatus,
     SubagentStep,
     SubagentStopReason,
@@ -30,7 +31,7 @@ class SubagentModelPort(Protocol):
         job: SubagentJobSpec,
         steps: tuple[SubagentStep, ...],
         tool_results: tuple[SubagentToolResult, ...],
-    ) -> SubagentAction: ...
+    ) -> SubagentModelTurn: ...
 
 
 class SubagentToolPort(Protocol):
@@ -45,6 +46,14 @@ class SubagentLedgerPort(Protocol):
         phase: str,
         summary: str,
         payload_json: dict[str, object] | None = None,
+    ) -> None: ...
+
+    async def record_model_usage(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        model_turn: SubagentModelTurn,
     ) -> None: ...
 
 
@@ -239,12 +248,18 @@ class SubagentRuntime:
                     tool_results=tuple(tool_results),
                 )
             try:
-                action = await self._next_model_action_with_retry(
+                model_turn = await self._next_model_action_with_retry(
                     job,
                     steps=tuple(steps),
                     tool_results=tuple(tool_results),
                     deadline_monotonic=deadline_monotonic,
                 )
+                await self.ledger.record_model_usage(
+                    job,
+                    turn=turn,
+                    model_turn=model_turn,
+                )
+                action = model_turn.action
             except SubagentModelOutputError as exc:
                 retry_summary = f"Structured worker response was invalid; retrying within the bounded turn budget. Repair requirement: {exc}"
                 steps.append(
@@ -469,7 +484,7 @@ class SubagentRuntime:
         steps: tuple[SubagentStep, ...],
         tool_results: tuple[SubagentToolResult, ...],
         deadline_monotonic: float,
-    ) -> SubagentAction:
+    ) -> SubagentModelTurn:
         transient_attempt = 0
         while True:
             try:

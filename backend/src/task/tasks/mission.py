@@ -7,11 +7,15 @@ from typing import Any, cast
 
 from celery import shared_task
 
+from src.dataservice_client.contracts.mission import (
+    MissionReservationReconcilePayload,
+)
 from src.mission_runtime import MissionReconciler, MissionRuntime
 from src.mission_runtime.contracts import (
     MISSION_TASK_HARD_TIME_LIMIT_SECONDS,
     MISSION_TASK_SOFT_TIME_LIMIT_SECONDS,
 )
+from src.review_commit_runtime.runtime import ReviewCommitRuntime
 
 
 def mission_worker_id(task_self: Any, mission_id: str) -> str:
@@ -28,26 +32,47 @@ async def drive_mission_slice_async(
     worker_id: str,
     command_hint: str | None = None,
     runtime: MissionRuntime | None = None,
+    review_commit: ReviewCommitRuntime | None = None,
 ) -> dict[str, Any]:
     if runtime is not None:
+        before = (
+            await review_commit.reconcile_auto_drafts(mission_id)
+            if review_commit is not None
+            else None
+        )
         result = await runtime.run_slice(
             mission_id,
             worker_id=worker_id,
             command_hint=command_hint,
         )
-        return result.model_dump(mode="json")
+        after = (
+            await review_commit.reconcile_auto_drafts(mission_id)
+            if review_commit is not None
+            else None
+        )
+        payload = result.model_dump(mode="json")
+        if before is not None or after is not None:
+            payload["auto_draft_commits"] = [
+                item.model_dump(mode="json")
+                for batch in (before, after)
+                if batch is not None
+                for item in batch.outcomes
+            ]
+        return payload
 
     from src.dataservice_client.provider import dataservice_client
     from src.mission_runtime.composition import build_production_mission_runtime
+    from src.review_commit_runtime.composition import build_review_commit_runtime
 
     async with dataservice_client() as dataservice:
         configured_runtime = await build_production_mission_runtime(dataservice)
-        result = await configured_runtime.run_slice(
+        return await drive_mission_slice_async(
             mission_id,
             worker_id=worker_id,
             command_hint=command_hint,
+            runtime=configured_runtime,
+            review_commit=build_review_commit_runtime(dataservice),
         )
-        return result.model_dump(mode="json")
 
 
 async def reconcile_missions_async(
@@ -61,12 +86,24 @@ async def reconcile_missions_async(
         from src.mission_runtime.composition import build_production_mission_runtime
 
         async with dataservice_client() as dataservice:
+            reservation_result = (
+                await dataservice.missions.reconcile_expired_reservations(
+                    MissionReservationReconcilePayload(limit=max(limit, 100))
+                )
+            )
             configured_runtime = await build_production_mission_runtime(dataservice)
-            return await reconcile_missions_async(
+            result = await reconcile_missions_async(
                 worker_id=worker_id,
                 limit=limit,
                 runtime=configured_runtime,
             )
+            result["expired_reservation_missions"] = (
+                reservation_result.expired_mission_ids
+            )
+            result["settled_reservation_missions"] = (
+                reservation_result.settled_mission_ids
+            )
+            return result
 
     reconciler = MissionReconciler(
         store=runtime.store,

@@ -37,6 +37,7 @@ describe("admin model api wrappers", () => {
     await createAdminModel({
       model_id: "m1",
       display_name: "Model 1",
+      generation_api: "chat_completions",
       model_name: "gpt-4.1",
       base_url: "https://api.example.com/v1",
       api_key: "sk-test",
@@ -50,6 +51,7 @@ describe("admin model api wrappers", () => {
     expect(mockPost).toHaveBeenNthCalledWith(1, "/admin/models", {
       model_id: "m1",
       display_name: "Model 1",
+      generation_api: "chat_completions",
       model_name: "gpt-4.1",
       base_url: "https://api.example.com/v1",
       api_key: "sk-test",

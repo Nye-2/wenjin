@@ -138,18 +138,56 @@ class PrismRepository:
         result = await self.session.execute(select(PrismFileRecord).where(PrismFileRecord.id == file_id))
         return result.scalar_one_or_none()
 
-    async def get_file_for_workspace(self, *, workspace_id: str, file_id: str) -> PrismFileRecord | None:
-        result = await self.session.execute(
-            select(PrismFileRecord).where(
+    async def get_file_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        file_id: str,
+        project_id: str | None = None,
+        for_update: bool = False,
+    ) -> PrismFileRecord | None:
+        statement = (
+            select(PrismFileRecord)
+            .join(
+                PrismDocumentRecord,
+                PrismDocumentRecord.id == PrismFileRecord.document_id,
+            )
+            .join(
+                PrismProjectRecord,
+                PrismProjectRecord.id == PrismDocumentRecord.project_id,
+            )
+            .where(
                 PrismFileRecord.id == file_id,
                 PrismFileRecord.workspace_id == workspace_id,
                 PrismFileRecord.deleted_at.is_(None),
+                PrismDocumentRecord.workspace_id == workspace_id,
+                PrismDocumentRecord.status == "active",
+                PrismProjectRecord.workspace_id == workspace_id,
+                PrismProjectRecord.role == "primary_manuscript",
+                PrismProjectRecord.status == "active",
+                PrismProjectRecord.trashed_at.is_(None),
             )
         )
+        if project_id is not None:
+            statement = statement.where(PrismProjectRecord.id == project_id)
+        if for_update:
+            statement = statement.with_for_update(of=PrismFileRecord)
+        result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
     async def get_file_version(self, version_id: str) -> PrismFileVersionRecord | None:
         result = await self.session.execute(select(PrismFileVersionRecord).where(PrismFileVersionRecord.id == version_id))
+        return result.scalar_one_or_none()
+
+    async def get_file_version_by_mission_commit(
+        self,
+        mission_commit_id: str,
+    ) -> PrismFileVersionRecord | None:
+        result = await self.session.execute(
+            select(PrismFileVersionRecord).where(
+                PrismFileVersionRecord.mission_commit_id == mission_commit_id
+            )
+        )
         return result.scalar_one_or_none()
 
     async def get_current_file_version(self, file_record: PrismFileRecord) -> PrismFileVersionRecord | None:

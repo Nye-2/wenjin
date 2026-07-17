@@ -10,9 +10,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from src.contracts.reasoning import ReasoningEffort
+from src.contracts.review_policy import ReviewMode
 from src.dataservice_client.contracts.mission import (
     MissionHistoryPagePayload,
-    MissionReviewMode,
     MissionRunPayload,
     MissionStatus,
     MissionViewRunPayload,
@@ -98,7 +98,7 @@ def _run(
         title="Research mission",
         objective="Find a defensible research gap",
         status=MissionStatus.RUNNING,
-        review_mode=MissionReviewMode.BALANCED_DEFAULT,
+        review_mode=ReviewMode.BALANCED_DEFAULT,
         model_id="gpt-5.6-sol",
         reasoning_effort=ReasoningEffort.XHIGH,
         pending_review_count=0,
@@ -116,9 +116,7 @@ def _run(
 
 
 def _dataservice(run: MissionRunPayload) -> SimpleNamespace:
-    view_run = MissionViewRunPayload.model_validate(
-        {field: getattr(run, field) for field in MissionViewRunPayload.model_fields}
-    )
+    view_run = MissionViewRunPayload.model_validate({field: getattr(run, field) for field in MissionViewRunPayload.model_fields})
     return SimpleNamespace(
         missions=SimpleNamespace(
             get=AsyncMock(return_value=run),
@@ -209,9 +207,7 @@ async def test_mission_event_stream_projects_constant_size_invalidation_hint() -
 
 @pytest.mark.asyncio
 async def test_mission_event_cursor_is_independent_of_mission_history_size() -> None:
-    second = _run(last_item_seq=2).model_copy(
-        update={"mission_id": "mission-2", "updated_at": datetime(2026, 7, 11, 0, 0, 1, tzinfo=UTC)}
-    )
+    second = _run(last_item_seq=2).model_copy(update={"mission_id": "mission-2", "updated_at": datetime(2026, 7, 11, 0, 0, 1, tzinfo=UTC)})
     dataservice = _dataservice(second)
     request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
     stream = missions._mission_event_stream(
@@ -319,8 +315,28 @@ def test_review_mode_action_is_a_durable_mission_command() -> None:
         "mission-1",
         command_id="mode-1",
         actor_user_id="user-1",
-        review_mode=MissionReviewMode.REVIEW_ALL,
+        review_mode=ReviewMode.REVIEW_ALL,
     )
+
+
+@pytest.mark.parametrize("action", ["review", "commit"])
+def test_review_and_commit_are_not_accepted_by_generic_actions_route(
+    action: str,
+) -> None:
+    run = _run()
+    runtime = SimpleNamespace()
+    client = _client(run=run, runtime=runtime)
+
+    response = client.post(
+        "/missions/mission-1/actions",
+        json={
+            "action": action,
+            "review_item_ids": ["review-1"],
+            "decision": "accept",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_pause_action_enters_durable_waiting_state_through_runtime_service() -> None:

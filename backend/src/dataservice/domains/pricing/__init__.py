@@ -6,7 +6,6 @@ from .contracts import (
     ModelUsagePolicyConfig,
     PricingSimulationRequest,
     PricingSimulationResult,
-    SandboxPricingPolicyConfig,
     ToolPricingPolicyConfig,
 )
 from .seed_loader import (
@@ -24,6 +23,5 @@ __all__ = [
     "ModelUsagePolicyConfig",
     "PricingSimulationRequest",
     "PricingSimulationResult",
-    "SandboxPricingPolicyConfig",
     "ToolPricingPolicyConfig",
 ]

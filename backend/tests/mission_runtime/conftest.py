@@ -3,21 +3,23 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
+from src.contracts.review_policy import project_review_policy
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionAppendResultPayload,
     MissionApplyCommandsPayload,
-    MissionCancelPayload,
     MissionCreatePayload,
     MissionCreateResultPayload,
     MissionDispatchReleasePayload,
     MissionItemPayload,
+    MissionItemPhase,
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
     MissionLeaseReleasePayload,
@@ -34,10 +36,10 @@ from src.dataservice_client.contracts.mission import (
     MissionRunnableBatchClaimPayload,
     MissionRunPayload,
     MissionStatus,
+    MissionUserCommandPayload,
 )
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
-    BillingOutcome,
     MissionAgentDecision,
     MissionEventEnvelope,
     MissionLoopContext,
@@ -49,7 +51,6 @@ from src.mission_runtime.contracts import (
     StageQualityVerdict,
 )
 from src.mission_runtime.runtime import MissionRuntime
-from src.review_commit_runtime.policy import project_review_policy
 
 
 def conflict(message: str = "conflict") -> DataServiceClientError:
@@ -86,6 +87,7 @@ class FakeMissionStore:
         self._mission_counter = 0
         self._item_counter = 0
         self.claim_runnable_calls = 0
+        self.admission_status = MissionStatus.PLANNING
 
     @staticmethod
     def _copy_run(run: MissionRunPayload) -> MissionRunPayload:
@@ -155,6 +157,8 @@ class FakeMissionStore:
                 run.next_wakeup_at = None
         if "active_stage_id" in fields:
             run.active_stage_id = patch.active_stage_id
+        if patch.review_mode is not None:
+            run.review_mode = patch.review_mode
         if "context_checkpoint_ref" in fields:
             run.context_checkpoint_ref = patch.context_checkpoint_ref
         if "next_wakeup_at" in fields and run.status.value not in {
@@ -189,7 +193,7 @@ class FakeMissionStore:
         self._touch(run)
         return [item.model_copy(deep=True) for item in appended]
 
-    async def create(self, command: MissionCreatePayload) -> MissionCreateResultPayload:
+    async def admit(self, command: MissionCreatePayload) -> MissionCreateResultPayload:
         key = (
             command.workspace_id,
             command.mission_idempotency_key or "",
@@ -205,6 +209,22 @@ class FakeMissionStore:
         self._mission_counter += 1
         mission_id = f"mission-{self._mission_counter}"
         now = self.clock.now()
+        admission_status = self.admission_status
+        snapshot = dict(command.snapshot_json)
+        if admission_status is MissionStatus.WAITING:
+            snapshot.update(
+                {
+                    "billing": {"state": "waiting", "estimated_credits": 10},
+                    "waiting_reason": "budget",
+                    "pending_request": {
+                        "request_id": f"billing:{mission_id}",
+                        "request_type": "budget_confirmation",
+                        "required_credits": 10,
+                    },
+                }
+            )
+        else:
+            snapshot["billing"] = {"state": "ready", "free_policy": True}
         run = MissionRunPayload(
             mission_id=mission_id,
             parent_mission_id=command.parent_mission_id,
@@ -215,12 +235,12 @@ class FakeMissionStore:
             mission_policy_id=command.mission_policy_id,
             title=command.title,
             objective=command.objective,
-            status="created",
+            status=admission_status,
             review_mode=command.review_mode,
             active_stage_id=None,
             model_id=command.model_id,
             reasoning_effort=command.reasoning_effort,
-            snapshot_json=dict(command.snapshot_json),
+            snapshot_json=snapshot,
             runtime_context_json=dict(command.runtime_context_json),
             context_checkpoint_ref=None,
             pending_review_count=0,
@@ -230,19 +250,35 @@ class FakeMissionStore:
             mission_idempotency_key=command.mission_idempotency_key,
             last_command_seq=0,
             last_applied_command_seq=0,
-            next_wakeup_at=now,
+            next_wakeup_at=(now if admission_status is MissionStatus.PLANNING else None),
             lease_owner=None,
             lease_epoch=0,
             lease_expires_at=None,
-            state_version=0,
-            last_item_seq=0,
+            state_version=1,
+            last_item_seq=1,
             created_at=now,
             updated_at=now,
-            started_at=None,
+            started_at=(now if admission_status is MissionStatus.PLANNING else None),
             completed_at=None,
         )
         self.runs[mission_id] = run
-        self.items[mission_id] = []
+        self.items[mission_id] = [
+            MissionItemPayload(
+                id=f"admission-{mission_id}",
+                mission_id=mission_id,
+                seq=1,
+                item_type="status_update",
+                operation_id=None,
+                phase=MissionItemPhase.COMPLETED,
+                stage_id=None,
+                producer="mission_admission",
+                summary="Mission admission resolved",
+                risk_level=None,
+                payload_json={"status": admission_status.value},
+                payload_ref=None,
+                created_at=now,
+            )
+        ]
         self.review_items[mission_id] = {}
         if command.mission_idempotency_key:
             self.idempotency[key] = mission_id
@@ -346,6 +382,7 @@ class FakeMissionStore:
             operation_key=command.operation_key, kind=command.kind,
             request_hash=command.request_hash, status=MissionOperationStatus.CLAIMED,
             claimant=command.claimant, lease_epoch=command.lease_epoch,
+            claim_token=secrets.token_urlsafe(32),
             lease_expires_at=now + timedelta(seconds=command.ttl_seconds), attempt=1,
             claimed_at=now, updated_at=now,
         )
@@ -358,6 +395,8 @@ class FakeMissionStore:
 
     async def finish_operation(self, mission_id: str, command: MissionOperationFinishPayload) -> MissionOperationFinishResultPayload:
         receipt = self.operations[(mission_id, command.operation_key)]
+        if receipt.claim_token != command.claim_token:
+            raise conflict("operation claim fence")
         if receipt.status is not MissionOperationStatus.CLAIMED:
             return MissionOperationFinishResultPayload(receipt=receipt.model_copy(deep=True), finalized=False)
         receipt.status = command.status
@@ -422,29 +461,28 @@ class FakeMissionStore:
     async def append_command(
         self,
         mission_id: str,
-        *,
-        command_id: str,
-        command_type: str,
-        summary: str,
-        payload_json: dict[str, Any] | None = None,
-    ) -> MissionItemPayload:
+        command: MissionUserCommandPayload,
+    ) -> MissionAppendResultPayload:
         run = self._require_run(mission_id)
         for item in self.items[mission_id]:
-            if item.item_type == "command_received" and item.operation_id == command_id:
-                return item.model_copy(deep=True)
+            if item.item_type == "command_received" and item.operation_id == command.command_id:
+                return MissionAppendResultPayload(
+                    mission=self._copy_run(run),
+                    items=[item.model_copy(deep=True)],
+                )
         from src.dataservice_client.contracts.mission import MissionItemDraftPayload
 
-        payload = dict(payload_json or {})
-        payload["command_type"] = command_type
+        payload = dict(command.payload_json)
+        payload["command_type"] = command.command_type
         item = self._append_drafts(
             run,
             [
                 MissionItemDraftPayload(
                     item_type="command_received",
-                    operation_id=command_id,
+                    operation_id=command.command_id,
                     phase="completed",
-                    producer="workspace_agent",
-                    summary=summary,
+                    producer=command.producer,
+                    summary=command.summary,
                     payload_json=payload,
                 )
             ],
@@ -452,7 +490,10 @@ class FakeMissionStore:
         run.last_command_seq = item.seq
         run.next_wakeup_at = self.clock.now()
         self._touch(run)
-        return item.model_copy(deep=True)
+        return MissionAppendResultPayload(
+            mission=self._copy_run(run),
+            items=[item.model_copy(deep=True)],
+        )
 
     async def list_unapplied_commands(
         self,
@@ -528,48 +569,6 @@ class FakeMissionStore:
             items=[item.model_copy(deep=True)],
         )
 
-    async def cancel(
-        self,
-        mission_id: str,
-        command: MissionCancelPayload,
-    ) -> MissionAppendResultPayload:
-        run = self._require_run(mission_id)
-        for item in self.items[mission_id]:
-            if item.item_type == "command_received" and item.operation_id == command.request_id:
-                return MissionAppendResultPayload(
-                    mission=self._copy_run(run),
-                    items=[item.model_copy(deep=True)],
-                )
-        if run.status.value in {"completed", "failed", "cancelled"}:
-            raise conflict("terminal")
-        from src.dataservice_client.contracts.mission import MissionItemDraftPayload
-
-        item = self._append_drafts(
-            run,
-            [
-                MissionItemDraftPayload(
-                    item_type="command_received",
-                    operation_id=command.request_id,
-                    phase="completed",
-                    producer=command.producer,
-                    summary=command.reason,
-                    payload_json={"command_type": "cancel", "reason": command.reason},
-                )
-            ],
-        )[0]
-        run.last_command_seq = item.seq
-        run.last_applied_command_seq = item.seq
-        run.status = MissionStatus.CANCELLED
-        run.lease_owner = None
-        run.lease_expires_at = None
-        run.next_wakeup_at = None
-        run.completed_at = self.clock.now()
-        self._touch(run)
-        return MissionAppendResultPayload(
-            mission=self._copy_run(run),
-            items=[item.model_copy(deep=True)],
-        )
-
     async def create_review_items(
         self,
         mission_id: str,
@@ -577,10 +576,16 @@ class FakeMissionStore:
     ) -> MissionReviewItemsResultPayload:
         run = self._require_run(mission_id)
         existing = self.review_items[mission_id]
-        if all(item.review_item_id in existing for item in command.items):
+        if all(
+            item.review_item_id in existing
+            for item in command.review_items
+        ):
             return MissionReviewItemsResultPayload(
                 mission=self._copy_run(run),
-                items=[existing[item.review_item_id].model_copy(deep=True) for item in command.items],
+                items=[
+                    existing[item.review_item_id].model_copy(deep=True)
+                    for item in command.review_items
+                ],
             )
         self._require_fence(
             run,
@@ -592,7 +597,7 @@ class FakeMissionStore:
         created: list[MissionReviewItemPayload] = []
         from src.dataservice_client.contracts.mission import MissionItemDraftPayload
 
-        for draft in command.items:
+        for draft in command.review_items:
             encoded_preview = json.dumps(
                 draft.preview_json,
                 ensure_ascii=False,
@@ -603,6 +608,7 @@ class FakeMissionStore:
                 review_mode=run.review_mode,
                 target_kind=draft.target_kind,
                 target_room=draft.target_room,
+                target_ref=draft.target_ref,
                 risk_level=draft.risk_level.value,
             )
             payload = MissionReviewItemPayload(
@@ -650,6 +656,8 @@ class FakeMissionStore:
                 ],
             )
         run.pending_review_count += len(created)
+        self._append_drafts(run, command.items)
+        self._apply_patch(run, command)
         self._touch(run)
         return MissionReviewItemsResultPayload(
             mission=self._copy_run(run),
@@ -773,22 +781,6 @@ class FakeReviewCandidates:
         )
 
 
-class FakeBilling:
-    def __init__(self) -> None:
-        self.preflight_outcome = BillingOutcome(allowed=True, free_policy=True)
-        self.reservation_outcome = BillingOutcome(allowed=True, free_policy=True)
-        self.settled: list[str] = []
-
-    async def preflight(self, _request: MissionStartRequest) -> BillingOutcome:
-        return self.preflight_outcome
-
-    async def ensure_reservation(self, _mission: MissionRunPayload) -> BillingOutcome:
-        return self.reservation_outcome
-
-    async def settle(self, mission: MissionRunPayload) -> None:
-        self.settled.append(mission.mission_id)
-
-
 class FakeEvents:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
@@ -847,7 +839,6 @@ def runtime_factory():
         subagents: FakeSubagents | None = None,
         quality: FakeQuality | None = None,
         review: FakeReviewCandidates | None = None,
-        billing: FakeBilling | None = None,
         events: FakeEvents | None = None,
         wakeups: FakeWakeups | None = None,
         limits: Any = None,
@@ -863,7 +854,6 @@ def runtime_factory():
             "subagents": subagents or FakeSubagents(),
             "quality": quality or FakeQuality(),
             "review": review or FakeReviewCandidates(),
-            "billing": billing or FakeBilling(),
             "events": events or FakeEvents(),
             "wakeups": wakeups or FakeWakeups(),
         }
@@ -875,7 +865,6 @@ def runtime_factory():
             subagents=deps["subagents"],
             quality=deps["quality"],
             review_candidates=deps["review"],
-            billing=deps["billing"],
             events=deps["events"],
             wakeups=deps["wakeups"],
             limits=limits,

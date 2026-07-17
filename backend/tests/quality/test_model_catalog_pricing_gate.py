@@ -45,11 +45,9 @@ def test_model_catalog_pricing_gate_passes_for_ready_catalog() -> None:
             _policy("global_credit", "global-credit"),
             _policy("model_usage", "deepseek-chat-policy"),
             _policy("mission", "thesis-default", config={"workspace_type": "thesis"}),
-            _policy("sandbox", "sandbox-default"),
         ],
         mission_policies=[SimpleNamespace(id="thesis_research_pack", workspace_type="thesis", enabled=True, tier="primary")],
-        sandbox_enabled=True,
-        env={"MODEL_SECRET_KEY": "x" * 32, "WENJIN_SANDBOX_ENABLED": "true"},
+        env={"MODEL_SECRET_KEY": "x" * 32},
     )
 
     assert report == {"status": "passed", "errors": []}
@@ -67,6 +65,25 @@ def test_model_catalog_pricing_gate_fails_without_enabled_default_llm_model() ->
 
     assert report["status"] == "failed"
     assert "enabled_default_llm_model_missing" in {error["code"] for error in report["errors"]}
+
+
+def test_model_catalog_pricing_gate_rejects_ambiguous_pricing_selectors() -> None:
+    report = evaluate_model_catalog_pricing_gate(
+        models=[_model()],
+        pricing_policies=[
+            _policy("global_credit", "global-a"),
+            _policy("global_credit", "global-b"),
+            _policy("model_usage", "deepseek-chat-policy"),
+            _policy("mission", "sci-a", config={"workspace_type": "sci"}),
+            _policy("mission", "sci-b", config={"workspace_type": "sci"}),
+        ],
+        env={"MODEL_SECRET_KEY": "x" * 32},
+    )
+
+    assert {error["code"] for error in report["errors"]} >= {
+        "global_credit_policy_ambiguous",
+        "mission_pricing_policy_ambiguous",
+    }
 
 
 def test_model_catalog_pricing_gate_rejects_all_zero_model_secret_placeholder() -> None:

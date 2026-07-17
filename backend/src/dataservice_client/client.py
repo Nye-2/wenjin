@@ -38,8 +38,6 @@ from src.dataservice_client.contracts.conversation import (
     ConversationThreadUpdatePayload,
 )
 from src.dataservice_client.contracts.latex import (
-    LatexCompileHistoryCreatePayload,
-    LatexCompileHistoryPayload,
     LatexProjectAttachWorkspacePayload,
     LatexProjectCreatePayload,
     LatexProjectPayload,
@@ -59,6 +57,8 @@ from src.dataservice_client.contracts.prism import (
     PrismProtectedScopePayload,
     PrismProtectedScopeUpsertPayload,
     PrismSurfacePayload,
+    PrismVisualInsertionPayload,
+    PrismVisualInsertionResultPayload,
     PrismWorkspaceFileUpsertPayload,
 )
 from src.dataservice_client.contracts.task import (
@@ -82,7 +82,6 @@ from src.dataservice_client.errors import DataServiceClientError
 from src.dataservice_client.mission_client import MissionDataServiceClient
 from src.dataservice_client.model_catalog_client import ModelCatalogDataServiceClientMixin
 from src.dataservice_client.pricing_client import PricingDataServiceClientMixin
-from src.dataservice_client.sandbox_client import SandboxDataServiceClientMixin
 from src.dataservice_client.source_client import SourceDataServiceClientMixin
 from src.dataservice_client.workspace_client import WorkspaceDataServiceClientMixin
 
@@ -118,7 +117,6 @@ class AsyncDataServiceClient(
     WorkspaceDataServiceClientMixin,
     ModelCatalogDataServiceClientMixin,
     PricingDataServiceClientMixin,
-    SandboxDataServiceClientMixin,
 ):
     """Small typed client used by gateway, worker, and agent runtime code."""
 
@@ -323,41 +321,6 @@ class AsyncDataServiceClient(
     async def list_latex_templates(self) -> list[LatexTemplatePayload]:
         payload = await self._request("GET", "/internal/v1/latex/templates")
         return [LatexTemplatePayload.model_validate(item) for item in payload["data"]]
-
-    async def record_latex_compile_history(
-        self,
-        command: LatexCompileHistoryCreatePayload,
-    ) -> LatexCompileHistoryPayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/latex/compile-history",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return LatexCompileHistoryPayload.model_validate(data) if data is not None else None
-
-    async def get_latex_compile_history(
-        self,
-        history_id: str,
-    ) -> LatexCompileHistoryPayload | None:
-        payload = await self._request("GET", f"/internal/v1/latex/compile-history/{history_id}")
-        data = payload.get("data")
-        return LatexCompileHistoryPayload.model_validate(data) if data is not None else None
-
-    async def list_latex_compile_history(
-        self,
-        project_id: str,
-    ) -> list[LatexCompileHistoryPayload]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/latex/projects/{project_id}/compile-history",
-        )
-        return [LatexCompileHistoryPayload.model_validate(item) for item in payload["data"]]
-
-    async def delete_latex_compile_history(self, history_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/latex/compile-history/{history_id}")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
 
     async def create_task_record(
         self,
@@ -946,13 +909,32 @@ class AsyncDataServiceClient(
         self,
         workspace_id: str,
         file_id: str,
+        *,
+        prism_project_id: str | None = None,
     ) -> PrismFileContentPayload | None:
         payload = await self._request(
             "GET",
             f"/internal/v1/prism/workspaces/{workspace_id}/files/{file_id}",
+            params=(
+                {"prism_project_id": prism_project_id}
+                if prism_project_id is not None
+                else None
+            ),
         )
         data = payload.get("data")
         return PrismFileContentPayload.model_validate(data) if data is not None else None
+
+    async def insert_prism_visual_asset(
+        self,
+        workspace_id: str,
+        command: PrismVisualInsertionPayload,
+    ) -> PrismVisualInsertionResultPayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/prism/workspaces/{workspace_id}/visual-insertions",
+            json=command.model_dump(mode="json"),
+        )
+        return PrismVisualInsertionResultPayload.model_validate(payload["data"])
 
     async def update_prism_workspace_file(
         self,

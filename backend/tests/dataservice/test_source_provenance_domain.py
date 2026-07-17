@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
 from src.database.base import Base
 from src.dataservice.common.errors import DataServiceValidationError
 from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCommand
@@ -726,16 +728,28 @@ async def test_source_import_replays_by_mission_commit_without_duplicate_write()
         workspace_id="ws-1",
         citation_key="commit2026",
         ingest_kind="model_web_search",
+        ingest_mission_id="mission-1",
         ingest_mission_commit_id="commit-1",
+        mission_write_authority=MissionWriteAuthority(
+            mission_id="mission-1",
+            mission_review_item_id="review-1",
+            mission_commit_id="commit-1",
+            attempt_token="attempt-token-source-1",
+        ),
     )
 
-    first = await service.import_source(SourceImportCommand(title="Original", **base))
-    replay = await service.import_source(SourceImportCommand(title="Tampered retry", **base))
+    with patch(
+        "src.dataservice.domains.source.import_service.assert_active_mission_write",
+        new_callable=AsyncMock,
+    ) as authority_guard:
+        first = await service.import_source(SourceImportCommand(title="Original", **base))
+        replay = await service.import_source(SourceImportCommand(title="Tampered retry", **base))
 
     assert replay.created is False
     assert replay.source.id == first.source.id
     assert replay.source.title == "Original"
     assert len(repository.sources) == 1
+    assert authority_guard.await_count == 2
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.contracts.mission_write_authority import MissionWriteAuthority
 
 
 class PrismPrimaryProjectPayload(BaseModel):
@@ -39,8 +41,7 @@ class PrismWorkspaceFileUpsertPayload(BaseModel):
     content_asset_id: str | None = None
     content_hash: str | None = None
     created_by: str = "system"
-    mission_review_item_id: str | None = None
-    mission_commit_id: str | None = None
+    mission_write_authority: MissionWriteAuthority | None = None
 
 
 class PrismFileContentUpdatePayload(BaseModel):
@@ -48,9 +49,24 @@ class PrismFileContentUpdatePayload(BaseModel):
     content_asset_id: str | None = None
     content_hash: str
     created_by: str = "user"
-    mission_review_item_id: str | None = None
-    mission_commit_id: str | None = None
+    mission_write_authority: MissionWriteAuthority | None = None
     expected_current_hash: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class PrismVisualInsertionPayload(BaseModel):
+    target_file_id: str
+    prism_project_id: str
+    expected_current_version_id: str
+    expected_current_hash: str
+    selection_byte_range: tuple[int, int]
+    selection_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    insertion: str = Field(min_length=1, max_length=32_000)
+    expected_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    asset_id: str
+    created_by: str
+    mission_write_authority: MissionWriteAuthority
+    source_mission_commit_id: str
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -117,11 +133,14 @@ class PrismFilePayload(BaseModel):
 
 
 class PrismFileVersionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     workspace_id: str
     file_id: str
     version_no: int
     mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
     content_inline: str | None = None
     content_asset_id: str | None = None
     content_hash: str
@@ -140,6 +159,11 @@ class PrismFileWritePayload(BaseModel):
     version: PrismFileVersionPayload | None = None
     changed: bool = False
     skipped_reason: str | None = None
+
+
+class PrismVisualInsertionResultPayload(BaseModel):
+    manuscript: PrismFileWritePayload
+    asset_file: PrismFileWritePayload
 
 
 class PrismProtectedScopePayload(BaseModel):

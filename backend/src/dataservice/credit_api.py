@@ -80,21 +80,6 @@ class CreditDataService:
     async def record_consumption(self, **kwargs: Any) -> tuple[Any, int]:
         return await self._domain.record_consumption(**kwargs)
 
-    async def create_reservation(self, **kwargs: Any) -> Any:
-        return await self._domain.create_reservation(**kwargs)
-
-    async def settle_reservation(self, **kwargs: Any) -> tuple[Any, Any | None]:
-        return await self._domain.settle_reservation(**kwargs)
-
-    async def release_reservation(self, reservation_id: str, **kwargs: Any) -> Any:
-        return await self._domain.release_reservation(reservation_id, **kwargs)
-
-    async def release_expired_reservations(self, **kwargs: Any) -> list[Any]:
-        return await self._domain.release_expired_reservations(**kwargs)
-
-    async def refund_consumption(self, **kwargs: Any) -> Any | None:
-        return await self._domain.refund_consumption(**kwargs)
-
     async def admin_adjust(self, **kwargs: Any) -> Any:
         return await self._domain.admin_adjust(**kwargs)
 

@@ -13,8 +13,9 @@ from src.contracts.mission_input import (
     MissionInputContext,
     MissionInputManifest,
 )
+from src.contracts.prism_context import PrismContextRef
 from src.contracts.reasoning import ReasoningEffort
-from src.dataservice_client.contracts.mission import MissionReviewMode
+from src.contracts.review_policy import ReviewMode
 
 
 class StrictContract(BaseModel):
@@ -163,13 +164,14 @@ class WorkspaceAgentContext(StrictContract):
     model_id: str = Field(min_length=1, max_length=160)
     reasoning_effort: ReasoningEffort
     model_capability_profile_hash: str = Field(min_length=8, max_length=160)
-    review_mode: MissionReviewMode
+    review_mode: ReviewMode
     conversation: tuple[dict[str, Any], ...] = Field(default=(), max_length=80)
     mission_inputs: tuple[MissionInputManifest, ...] = Field(default=(), max_length=32)
     attachment_contexts: tuple[MissionInputContext, ...] = Field(default=(), max_length=32)
     policy_hints: tuple[MissionPolicyHint, ...] = Field(default=(), max_length=24)
     active_mission: ActiveMissionContext | None = None
     continuation_target: ContinuationMissionContext | None = None
+    prism_context_ref: PrismContextRef | None = None
 
     def policy_hint(self, policy_id: str) -> MissionPolicyHint | None:
         return next((hint for hint in self.policy_hints if hint.policy_id == policy_id), None)

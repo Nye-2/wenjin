@@ -7,12 +7,18 @@ import binascii
 import hashlib
 import json
 import re
+import secrets
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.billing.policies import calculate_model_usage_credits
 from src.contracts.mission_input import merge_mission_input_manifests
+from src.contracts.prism_context import PrismContextRef
+from src.contracts.review_policy import project_review_policy
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     format_stage_instance_id,
@@ -20,6 +26,7 @@ from src.contracts.stage_acceptance import (
     stage_instance_index,
 )
 from src.database.models.mission import (
+    MissionCommitRecord,
     MissionItemRecord,
     MissionReviewItemRecord,
     MissionRunRecord,
@@ -37,6 +44,8 @@ from src.dataservice.domains.mission.projection import (
     mission_run_to_view_payload,
 )
 from src.dataservice.domains.mission.repository import MissionRepository
+from src.dataservice.domains.pricing.repository import PricingPolicyRepository
+from src.dataservice.domains.pricing.resolver import CanonicalPricingResolver
 from src.dataservice_client.contracts.mission import (
     MissionActivityPayload,
     MissionAppendPayload,
@@ -47,22 +56,25 @@ from src.dataservice_client.contracts.mission import (
     MissionAttentionActionPayload,
     MissionAttentionInputPayload,
     MissionAttentionRequestPayload,
-    MissionCancelPayload,
     MissionCheckpointPayload,
     MissionCommitCreatePayload,
     MissionCommitCreateResultPayload,
     MissionCommitFinishPayload,
+    MissionCommitPagePayload,
     MissionCommitResultPayload,
     MissionCommitStartPayload,
     MissionCommitStatus,
     MissionCommitSummaryPayload,
     MissionCreatePayload,
     MissionCreateResultPayload,
+    MissionCursorPagePayload,
+    MissionDerivedReviewItemCreatePayload,
     MissionDispatchReleasePayload,
     MissionEvidencePagePayload,
     MissionEvidenceSummaryPayload,
     MissionHistoryPagePayload,
     MissionItemDraftPayload,
+    MissionItemPagePayload,
     MissionItemPayload,
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
@@ -78,11 +90,14 @@ from src.dataservice_client.contracts.mission import (
     MissionProjectionPagePayload,
     MissionResumePayload,
     MissionReviewDecisionsPayload,
+    MissionReviewItemDraftPayload,
     MissionReviewItemPayload,
     MissionReviewItemsCreatePayload,
     MissionReviewItemsResultPayload,
+    MissionReviewPagePayload,
     MissionReviewPolicyPayload,
     MissionReviewSummaryPayload,
+    MissionReviewViewItemPayload,
     MissionRunnableBatchClaimPayload,
     MissionRunPatchPayload,
     MissionRunPayload,
@@ -95,11 +110,12 @@ from src.dataservice_client.contracts.mission import (
     MissionWorkspaceSummaryPayload,
     validate_mission_snapshot,
 )
-from src.review_commit_runtime.policy import project_review_policy
 
 TERMINAL_MISSION_STATUSES = frozenset({"completed", "failed", "cancelled"})
 NONTERMINAL_MISSION_STATUSES = frozenset({"created", "planning", "running", "waiting"})
 _HISTORY_CURSOR_VERSION = 1
+_MISSION_RECORD_CURSOR_VERSION = 1
+_MISSION_VIEW_READ_ATTEMPTS = 3
 
 
 def _encode_history_cursor(*, updated_at: datetime, mission_id: str) -> str:
@@ -144,6 +160,68 @@ def _decode_history_cursor(cursor: str) -> tuple[datetime, str]:
     return updated_at, mission_id
 
 
+def _encode_record_cursor(
+    *,
+    kind: str,
+    created_at: datetime,
+    record_id: str,
+) -> str:
+    normalized_created_at = (
+        created_at
+        if created_at.tzinfo is not None
+        else created_at.replace(tzinfo=UTC)
+    )
+    payload = json.dumps(
+        {
+            "created_at": normalized_created_at.isoformat(),
+            "kind": kind,
+            "record_id": record_id,
+            "version": _MISSION_RECORD_CURSOR_VERSION,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_record_cursor(cursor: str, *, kind: str) -> tuple[datetime, str]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        decoded = base64.b64decode(
+            cursor + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+        payload = json.loads(decoded)
+        if not isinstance(payload, dict) or set(payload) != {
+            "created_at",
+            "kind",
+            "record_id",
+            "version",
+        }:
+            raise ValueError("invalid cursor shape")
+        if payload["version"] != _MISSION_RECORD_CURSOR_VERSION:
+            raise ValueError("unsupported cursor version")
+        if payload["kind"] != kind:
+            raise ValueError("cursor kind mismatch")
+        created_at = _aware(datetime.fromisoformat(str(payload["created_at"])))
+        record_id = str(payload["record_id"])
+        if not record_id:
+            raise ValueError("missing record id")
+    except (ValueError, TypeError, json.JSONDecodeError, binascii.Error) as exc:
+        raise DataServiceValidationError(
+            "Invalid Mission projection cursor",
+            detail={"kind": kind},
+        ) from exc
+    return created_at, record_id
+
+
+class MissionProjectionStaleError(DataServiceConflictError):
+    """A coherent MissionView could not be observed within the read budget."""
+
+    code = "MISSION_PROJECTION_STALE"
+
+
 def _create_request_matches(run: MissionRunRecord, command: MissionCreatePayload) -> bool:
     """Bind an idempotency key to the complete immutable Mission contract."""
 
@@ -166,7 +244,7 @@ def _create_request_matches(run: MissionRunRecord, command: MissionCreatePayload
 
 
 _ALLOWED_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
-    "created": frozenset({"planning", "failed", "cancelled"}),
+    "created": frozenset({"planning", "waiting", "failed", "cancelled"}),
     "planning": frozenset({"running", "waiting", "failed", "cancelled"}),
     "running": frozenset({"planning", "waiting", "completed", "failed", "cancelled"}),
     "waiting": frozenset({"planning", "running", "failed", "cancelled"}),
@@ -218,6 +296,7 @@ def _operation_receipt_from_items(
         status=status,
         claimant=str(terminal_payload.get("claimant") or claim_payload["claimant"]),
         lease_epoch=int(terminal_payload.get("lease_epoch") or claim_payload["lease_epoch"]),
+        claim_token=str(claim_payload["claim_token"]),
         lease_expires_at=lease_expires_at,
         receipt_json=dict(terminal_payload.get("receipt") or {}),
         payload_ref=terminal.payload_ref if terminal is not None else None,
@@ -235,11 +314,152 @@ class MissionStore:
         self.session = session
         self.repository = MissionRepository(session)
         self.autocommit = autocommit
+        self._terminalized_mission_ids: set[str] = set()
 
     async def _finish(self) -> None:
+        await self._settle_terminal_missions()
         await self.session.flush()
         if self.autocommit:
             await self.session.commit()
+
+    async def _settle_terminal_missions(self) -> None:
+        if not self._terminalized_mission_ids:
+            return
+        from src.dataservice.domains.credit.service import DataServiceCreditService
+
+        mission_ids = tuple(self._terminalized_mission_ids)
+        self._terminalized_mission_ids.clear()
+        credits = DataServiceCreditService(self.session, autocommit=False)
+        for mission_id in mission_ids:
+            run = await self._locked_run(mission_id)
+            billing = dict((run.snapshot_json or {}).get("billing") or {})
+            reservation = await credits.repository.get_mission_reservation_for_update(
+                mission_id
+            )
+            usage_summary: dict[str, Any] = {}
+            if reservation is None:
+                billing["state"] = "settled"
+                billing["free_policy"] = True
+                billing["settled_credits"] = 0
+            else:
+                settled_credits, usage_summary = await self._calculate_settlement(
+                    run,
+                    reservation,
+                )
+                reservation, transaction = await credits.settle_reservation(
+                    reservation_id=str(reservation.id),
+                    settled_credits=settled_credits,
+                    description=f"Mission {run.title[:120]} settlement",
+                    mission_policy_id=run.mission_policy_id,
+                    mission_id=mission_id,
+                    metadata={
+                        "mission_id": mission_id,
+                        "status": run.status,
+                        "pricing_policy_id": dict(
+                            reservation.metadata_json or {}
+                        ).get("pricing_policy_id"),
+                        "usage": usage_summary,
+                    },
+                )
+                billing.update(
+                    {
+                        "state": "settled",
+                        "free_policy": False,
+                        "reservation_id": str(reservation.id),
+                        "estimated_credits": int(
+                            reservation.reserved_credits or 0
+                        ),
+                        "settled_credits": int(reservation.settled_credits or 0),
+                        "transaction_id": (
+                            str(transaction.id) if transaction is not None else None
+                        ),
+                    }
+                )
+            snapshot = dict(run.snapshot_json or {})
+            snapshot["billing"] = billing
+            run.snapshot_json = validate_mission_snapshot(snapshot)
+            now = await self.repository.database_now()
+            self._append_drafts(
+                run,
+                [
+                    MissionItemDraftPayload(
+                        item_type="billing_settled",
+                        phase="completed",
+                        producer="mission_store",
+                        summary="Mission billing settled with terminal state",
+                        payload_json={
+                            "status": run.status,
+                            "settled_credits": billing.get("settled_credits", 0),
+                            "transaction_id": billing.get("transaction_id"),
+                            "usage": usage_summary if reservation is not None else {},
+                        },
+                    )
+                ],
+                now=now,
+            )
+            self._touch(run, now)
+
+    async def _calculate_settlement(
+        self,
+        run: MissionRunRecord,
+        reservation: Any,
+    ) -> tuple[int, dict[str, Any]]:
+        usage_items = await self.repository.list_items(
+            mission_id=str(run.mission_id),
+            item_type="usage_receipt",
+            limit=10_000,
+        )
+        usage = {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0,
+        }
+        for item in usage_items:
+            raw_usage = dict((item.payload_json or {}).get("usage") or {})
+            for key in usage:
+                usage[key] += max(int(raw_usage.get(key) or 0), 0)
+        if run.status == MissionStatus.FAILED.value or usage["total_tokens"] <= 0:
+            return 0, usage
+
+        pricing = PricingPolicyRepository(self.session)
+        resolver = CanonicalPricingResolver(self.session)
+        model_policy = await resolver.resolve_model_usage(run.model_id)
+        global_policy = await resolver.resolve_global_credit()
+        charge = calculate_model_usage_credits(
+            model_policy=dict(model_policy.config_json or {}),
+            global_policy=(
+                dict(global_policy.config_json or {})
+                if global_policy is not None
+                else None
+            ),
+            token_usage=usage,
+            surface="mission",
+        )
+        credits = charge.credits_to_charge
+        if run.status == MissionStatus.COMPLETED.value:
+            pricing_policy_id = str(
+                dict(reservation.metadata_json or {}).get("pricing_policy_id") or ""
+            )
+            mission_policy = (
+                await pricing.get_policy(pricing_policy_id)
+                if pricing_policy_id
+                else None
+            )
+            if mission_policy is not None:
+                credits = max(
+                    credits,
+                    int(
+                        dict(mission_policy.config_json or {}).get(
+                            "base_fee_credits",
+                            0,
+                        )
+                        or 0
+                    ),
+                )
+        usage["calculated_credits"] = credits
+        return min(credits, max(int(reservation.reserved_credits or 0), 0)), usage
 
     @staticmethod
     def _version_conflict(run: MissionRunRecord, expected: int) -> DataServiceConflictError:
@@ -318,8 +538,8 @@ class MissionStore:
         run.state_version += 1
         run.updated_at = now
 
-    @staticmethod
     def _transition_status(
+        self,
         run: MissionRunRecord,
         status: MissionStatus,
         *,
@@ -327,6 +547,10 @@ class MissionStore:
     ) -> None:
         target = status.value
         if target == run.status:
+            if target == "waiting" or target in TERMINAL_MISSION_STATUSES:
+                run.lease_owner = None
+                run.lease_expires_at = None
+                run.next_wakeup_at = None
             return
         if target not in _ALLOWED_STATUS_TRANSITIONS[run.status]:
             raise DataServiceConflictError(
@@ -339,15 +563,16 @@ class MissionStore:
         if target == "waiting" or target in TERMINAL_MISSION_STATUSES:
             run.lease_owner = None
             run.lease_expires_at = None
+            run.next_wakeup_at = None
         if target in TERMINAL_MISSION_STATUSES:
             run.next_wakeup_at = None
             run.dispatch_owner = None
             run.dispatch_expires_at = None
             run.completed_at = now
+            self._terminalized_mission_ids.add(str(run.mission_id))
 
-    @classmethod
     def _resolve_review_wait(
-        cls,
+        self,
         run: MissionRunRecord,
         *,
         review_item_id: str,
@@ -366,11 +591,11 @@ class MissionStore:
         snapshot.pop("pending_request", None)
         snapshot["next_actions"] = [next_action]
         run.snapshot_json = validate_mission_snapshot(snapshot)
-        cls._transition_status(run, MissionStatus.PLANNING, now=now)
+        self._transition_status(run, MissionStatus.PLANNING, now=now)
         return True
 
-    @staticmethod
     def _apply_patch(
+        self,
         run: MissionRunRecord,
         patch: MissionRunPatchPayload,
         *,
@@ -378,7 +603,9 @@ class MissionStore:
     ) -> None:
         fields = patch.model_fields_set
         if patch.status is not None:
-            MissionStore._transition_status(run, patch.status, now=now)
+            self._transition_status(run, patch.status, now=now)
+        if patch.review_mode is not None:
+            run.review_mode = patch.review_mode.value
         if "active_stage_id" in fields:
             run.active_stage_id = patch.active_stage_id
         if "context_checkpoint_ref" in fields:
@@ -482,9 +709,95 @@ class MissionStore:
             ) from exc
         return MissionCreateResultPayload(mission=mission_run_to_payload(record), created=True)
 
+    async def apply_initial_admission(
+        self,
+        mission_id: str,
+        *,
+        status: MissionStatus,
+        snapshot_json: dict[str, Any],
+        item: MissionItemDraftPayload,
+    ) -> MissionRunPayload:
+        if status not in {MissionStatus.PLANNING, MissionStatus.WAITING}:
+            raise DataServiceValidationError(
+                "Mission admission must resolve to planning or waiting"
+            )
+        run = await self._locked_run(mission_id)
+        if run.status != MissionStatus.CREATED.value:
+            raise DataServiceConflictError(
+                "Mission admission can only resolve a newly created MissionRun",
+                detail={"mission_id": mission_id, "status": run.status},
+            )
+        now = await self.repository.database_now()
+        run.snapshot_json = validate_mission_snapshot(snapshot_json)
+        self._transition_status(run, status, now=now)
+        run.next_wakeup_at = now if status is MissionStatus.PLANNING else None
+        self._append_drafts(run, [item], now=now)
+        self._touch(run, now)
+        await self._finish()
+        return mission_run_to_payload(run)
+
     async def load_run_snapshot(self, mission_id: str) -> MissionRunPayload | None:
         record = await self.repository.get_run(mission_id)
         return mission_run_to_payload(record) if record is not None else None
+
+    async def load_commit_for_review_item(
+        self,
+        mission_id: str,
+        review_item_id: str,
+    ) -> MissionCommitResultPayload | None:
+        run = await self.repository.get_run(mission_id)
+        if run is None:
+            return None
+        commit = await self.repository.find_commit_by_review_item(
+            mission_id=mission_id,
+            review_item_id=review_item_id,
+        )
+        if commit is None:
+            return None
+        return MissionCommitResultPayload(
+            mission=mission_run_to_payload(run),
+            commit=mission_commit_to_payload(commit),
+        )
+
+    async def list_commits_page(
+        self,
+        mission_id: str,
+        *,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> MissionCommitPagePayload:
+        if await self.repository.get_run(mission_id) is None:
+            raise DataServiceNotFoundError("MissionRun not found")
+        after_created_at: datetime | None = None
+        after_commit_id: str | None = None
+        if cursor is not None:
+            after_created_at, after_commit_id = _decode_record_cursor(
+                cursor,
+                kind="commit",
+            )
+        records = await self.repository.list_commits(
+            mission_id=mission_id,
+            after_created_at=after_created_at,
+            after_commit_id=after_commit_id,
+            limit=limit + 1,
+        )
+        page_records = records[:limit]
+        next_cursor = None
+        if len(records) > limit and page_records:
+            last = page_records[-1]
+            next_cursor = _encode_record_cursor(
+                kind="commit",
+                created_at=last.created_at,
+                record_id=str(last.commit_id),
+            )
+        return MissionCommitPagePayload(
+            items=[mission_commit_to_payload(record) for record in page_records],
+            page=MissionCursorPagePayload(
+                total=await self.repository.count_commits(mission_id=mission_id),
+                returned=len(page_records),
+                next_cursor=next_cursor,
+            ),
+        )
 
     async def foreground_for_thread(
         self,
@@ -796,6 +1109,7 @@ class MissionStore:
         if receipt is not None and expires_at is not None and expires_at > now:
             return MissionOperationClaimResultPayload(receipt=receipt, acquired=False)
         attempt = (receipt.attempt + 1) if receipt is not None else 1
+        claim_token = secrets.token_urlsafe(32)
         expires_at = now + timedelta(seconds=command.ttl_seconds)
         claim = self._append_drafts(
             run,
@@ -812,6 +1126,7 @@ class MissionStore:
                         "status": "claimed",
                         "claimant": command.claimant,
                         "lease_epoch": command.lease_epoch,
+                        "claim_token": claim_token,
                         "lease_expires_at": expires_at.isoformat(),
                         "attempt": attempt,
                     },
@@ -860,6 +1175,8 @@ class MissionStore:
             raise DataServiceConflictError("Operation must be claimed before it can finish")
         if receipt.kind != command.kind or receipt.request_hash != command.request_hash:
             raise DataServiceConflictError("Operation finish does not match the claimed request")
+        if receipt.claim_token != command.claim_token:
+            raise DataServiceConflictError("Operation terminal claim fence was lost")
         desired = command.model_dump(mode="json")["receipt_json"]
         reference_projection = [item.model_dump(mode="json") for item in command.references]
         reference_projection_hash = hashlib.sha256(
@@ -905,6 +1222,7 @@ class MissionStore:
                         "status": command.status.value,
                         "claimant": command.claimant,
                         "lease_epoch": command.lease_epoch,
+                        "claim_token": command.claim_token,
                         "attempt": receipt.attempt,
                         "receipt": desired,
                         "reference_projection_hash": reference_projection_hash,
@@ -989,6 +1307,14 @@ class MissionStore:
         command: MissionUserCommandPayload,
     ) -> MissionAppendResultPayload:
         run = await self._locked_run(mission_id)
+        raw_prism_ref = command.payload_json.get("prism_context_ref")
+        if raw_prism_ref is not None:
+            prism_ref = PrismContextRef.model_validate(raw_prism_ref)
+            if prism_ref.workspace_id != run.workspace_id:
+                raise DataServiceValidationError(
+                    "Prism context does not belong to the Mission workspace",
+                    detail={"mission_id": mission_id},
+                )
         existing = await self.repository.find_item_by_operation(
             mission_id=mission_id,
             operation_id=command.command_id,
@@ -1006,7 +1332,17 @@ class MissionStore:
                 mission=mission_run_to_payload(run),
                 items=[mission_item_to_payload(existing)],
             )
-        self._require_nonterminal(run)
+        terminal_mode_change = (
+            run.status in TERMINAL_MISSION_STATUSES
+            and command.command_type == "set_review_mode"
+        )
+        if run.status in TERMINAL_MISSION_STATUSES and not terminal_mode_change:
+            self._require_nonterminal(run)
+        if terminal_mode_change and run.last_applied_command_seq != run.last_command_seq:
+            raise DataServiceConflictError(
+                "Terminal MissionRun has unapplied commands",
+                detail={"mission_id": mission_id},
+            )
         now = await self.repository.database_now()
         payload_json = dict(command.payload_json)
         payload_json["command_type"] = command.command_type
@@ -1022,11 +1358,8 @@ class MissionStore:
         ]
         records = self._append_drafts(run, drafts, now=now)
         run.last_command_seq = records[0].seq
-        if command.command_type == "set_review_mode":
-            review_mode = command.payload_json.get("review_mode")
-            if review_mode not in {"review_all", "balanced_default", "auto_draft"}:
-                raise DataServiceValidationError("set_review_mode requires a valid review_mode")
-            run.review_mode = str(review_mode)
+        if terminal_mode_change:
+            run.review_mode = str(command.payload_json["review_mode"])
             run.last_applied_command_seq = records[0].seq
         else:
             run.next_wakeup_at = now
@@ -1092,15 +1425,24 @@ class MissionStore:
         self,
         mission_id: str,
         command: MissionPausePayload,
+        *,
+        snapshot_patch: dict[str, Any] | None = None,
     ) -> MissionAppendResultPayload:
         run = await self._locked_run(mission_id)
+        pending_request = dict(command.pending_request)
+        supplied_request_id = _text(pending_request.get("request_id"))
+        if supplied_request_id and supplied_request_id != command.request_id:
+            raise DataServiceValidationError(
+                "pending_request.request_id must match request_id"
+            )
+        pending_request["request_id"] = command.request_id
         existing = await self.repository.find_item_by_operation(
             mission_id=mission_id,
             operation_id=command.request_id,
             item_type="pause_request",
         )
         if existing is not None:
-            if existing.summary != command.reason or existing.producer != command.producer or dict(existing.payload_json or {}).get("pending_request") != command.pending_request:
+            if existing.summary != command.reason or existing.producer != command.producer or dict(existing.payload_json or {}).get("pending_request") != pending_request:
                 raise DataServiceConflictError("pause request_id was reused with different content")
             return MissionAppendResultPayload(mission=mission_run_to_payload(run), items=[mission_item_to_payload(existing)])
         self._require_nonterminal(run)
@@ -1108,8 +1450,9 @@ class MissionStore:
             raise DataServiceConflictError("MissionRun is not pausable")
         now = await self.repository.database_now()
         snapshot = dict(run.snapshot_json or {})
+        snapshot.update(snapshot_patch or {})
         snapshot["waiting_reason"] = command.reason
-        snapshot["pending_request"] = dict(command.pending_request)
+        snapshot["pending_request"] = pending_request
         run.snapshot_json = validate_mission_snapshot(snapshot)
         records = self._append_drafts(
             run,
@@ -1120,7 +1463,7 @@ class MissionStore:
                     phase="completed",
                     producer=command.producer,
                     summary=command.reason,
-                    payload_json={"pending_request": command.pending_request},
+                    payload_json={"pending_request": pending_request},
                 )
             ],
             now=now,
@@ -1135,10 +1478,23 @@ class MissionStore:
             items=[mission_item_to_payload(records[0])],
         )
 
+    async def settle_terminal_mission(self, mission_id: str) -> MissionRunPayload:
+        run = await self._locked_run(mission_id)
+        if run.status not in TERMINAL_MISSION_STATUSES:
+            raise DataServiceConflictError(
+                "Only a terminal MissionRun can be settled",
+                detail={"mission_id": mission_id, "status": run.status},
+            )
+        self._terminalized_mission_ids.add(mission_id)
+        await self._finish()
+        return mission_run_to_payload(run)
+
     async def resume_run(
         self,
         mission_id: str,
         command: MissionResumePayload,
+        *,
+        snapshot_patch: dict[str, Any] | None = None,
     ) -> MissionAppendResultPayload:
         run = await self._locked_run(mission_id)
         existing = await self.repository.find_item_by_operation(
@@ -1167,6 +1523,7 @@ class MissionStore:
             )
         now = await self.repository.database_now()
         snapshot = dict(run.snapshot_json or {})
+        snapshot.update(snapshot_patch or {})
         snapshot.pop("waiting_reason", None)
         snapshot.pop("pending_request", None)
         incoming_inputs = command.input_json.get("mission_inputs")
@@ -1200,58 +1557,130 @@ class MissionStore:
             items=[mission_item_to_payload(records[0])],
         )
 
-    async def cancel_run(
-        self,
-        mission_id: str,
-        command: MissionCancelPayload,
-    ) -> MissionAppendResultPayload:
-        run = await self._locked_run(mission_id)
-        existing = await self.repository.find_item_by_operation(
-            mission_id=mission_id,
-            operation_id=command.request_id,
-            item_type="command_received",
-        )
-        if existing is not None:
-            expected_payload = {"command_type": "cancel", "reason": command.reason}
-            if existing.summary != command.reason or existing.producer != command.producer or dict(existing.payload_json or {}) != expected_payload:
-                raise DataServiceConflictError("cancel request_id was reused with different content")
-            return MissionAppendResultPayload(mission=mission_run_to_payload(run), items=[mission_item_to_payload(existing)])
-        self._require_nonterminal(run)
-        now = await self.repository.database_now()
-        records = self._append_drafts(
-            run,
-            [
-                MissionItemDraftPayload(
-                    item_type="command_received",
-                    operation_id=command.request_id,
-                    phase="completed",
-                    producer=command.producer,
-                    summary=command.reason,
-                    payload_json={"command_type": "cancel", "reason": command.reason},
-                )
-            ],
-            now=now,
-        )
-        run.last_command_seq = records[0].seq
-        run.last_applied_command_seq = records[0].seq
-        self._transition_status(run, MissionStatus.CANCELLED, now=now)
-        self._touch(run, now)
-        await self._finish()
-        return MissionAppendResultPayload(
-            mission=mission_run_to_payload(run),
-            items=[mission_item_to_payload(records[0])],
-        )
-
     async def create_review_items(
         self,
         mission_id: str,
         command: MissionReviewItemsCreatePayload,
     ) -> MissionReviewItemsResultPayload:
         run = await self._locked_run(mission_id)
-        requested_ids = [item.review_item_id for item in command.items]
+        replay = await self._review_item_replay(
+            run,
+            mission_id=mission_id,
+            drafts=command.review_items,
+        )
+        if replay is not None:
+            return replay
+        now = await self.repository.database_now()
+        self._require_driver_fence(
+            run,
+            expected_state_version=command.expected_state_version,
+            lease_owner=command.lease_owner,
+            lease_epoch=command.lease_epoch,
+            now=now,
+        )
+        return await self._create_new_review_items_locked(
+            run,
+            mission_id=mission_id,
+            drafts=command.review_items,
+            now=now,
+            producer="mission_runtime",
+            ledger_items=command.items,
+            snapshot_json=command.snapshot_json,
+            patch=command.patch,
+        )
+
+    async def create_derived_review_item(
+        self,
+        mission_id: str,
+        command: MissionDerivedReviewItemCreatePayload,
+    ) -> MissionReviewItemsResultPayload:
+        """Stage one review item derived from a committed Mission output."""
+
+        run = await self._locked_run(mission_id)
+        source = await self.repository.get_review_item(
+            command.source_review_item_id,
+            for_update=True,
+        )
+        if (
+            source is None
+            or source.mission_id != mission_id
+            or source.status != "committed"
+            or source.target_kind != "workspace_asset"
+        ):
+            raise DataServiceConflictError(
+                "Derived review items require a committed source review item"
+            )
+        source_commit = await self.repository.find_commit_by_review_item(
+            mission_id=mission_id,
+            review_item_id=source.review_item_id,
+        )
+        if source_commit is None or source_commit.status != "committed":
+            raise DataServiceConflictError(
+                "Derived review source has no committed materialization receipt"
+            )
+        commit_items = await self.repository.list_items_by_operation(
+            mission_id=mission_id,
+            operation_id=source_commit.commit_key,
+            item_type="commit_completed",
+        )
+        if not commit_items:
+            raise DataServiceConflictError(
+                "Derived review source has no immutable commit receipt"
+            )
+        draft = command.item.model_copy(
+            update={"source_item_seq": commit_items[-1].seq}
+        )
+        materialization = draft.preview_json.get("materialization")
+        materialization_payload = (
+            materialization.get("payload")
+            if isinstance(materialization, dict)
+            else None
+        )
+        committed_target_ref = str(
+            dict(source_commit.targets_json or {}).get("target_ref") or ""
+        )
+        if (
+            draft.target_kind != "prism_visual_insertion"
+            or draft.target_room != "documents"
+            or not draft.target_ref
+            or not isinstance(materialization, dict)
+            or materialization.get("operation") != "documents.insert_visual_asset"
+            or not isinstance(materialization_payload, dict)
+            or materialization_payload.get("asset_id") != committed_target_ref
+            or materialization_payload.get("source_mission_commit_id")
+            != source_commit.commit_id
+        ):
+            raise DataServiceValidationError(
+                "Derived visual review items require one canonical Prism insertion target"
+            )
+        replay = await self._review_item_replay(
+            run,
+            mission_id=mission_id,
+            drafts=(draft,),
+        )
+        if replay is not None:
+            return replay
+        self._require_state_version(run, command.expected_state_version)
+        now = await self.repository.database_now()
+        return await self._create_new_review_items_locked(
+            run,
+            mission_id=mission_id,
+            drafts=(draft,),
+            now=now,
+            producer=command.actor_user_id,
+        )
+
+    async def _review_item_replay(
+        self,
+        run: MissionRunRecord,
+        *,
+        mission_id: str,
+        drafts: Sequence[MissionReviewItemDraftPayload],
+    ) -> MissionReviewItemsResultPayload | None:
+        requested_ids = [item.review_item_id for item in drafts]
         if len(requested_ids) != len(set(requested_ids)):
             raise DataServiceValidationError("review_item_id values must be unique")
-        output_keys = [item.output_key for item in command.items]
+        output_keys = [item.output_key for item in drafts]
         if len(output_keys) != len(set(output_keys)):
             raise DataServiceValidationError("output_key values must be unique within one review batch")
         existing = await self.repository.list_review_items_by_ids(
@@ -1262,15 +1691,9 @@ class MissionStore:
             if len(existing) != len(requested_ids):
                 raise DataServiceConflictError("Review-item retry mixed existing and new identifiers")
             existing_by_id = {item.review_item_id: item for item in existing}
-            for draft in command.items:
+            for draft in drafts:
                 record = existing_by_id[draft.review_item_id]
                 preview_json, preview_hash = _canonical_preview(draft)
-                policy = project_review_policy(
-                    review_mode=run.review_mode,
-                    target_kind=draft.target_kind,
-                    target_room=draft.target_room,
-                    risk_level=draft.risk_level.value,
-                )
                 if (
                     record.source_item_seq != draft.source_item_seq
                     or record.output_key != draft.output_key
@@ -1287,9 +1710,6 @@ class MissionStore:
                     or record.preview_ref != draft.preview_ref
                     or record.preview_hash != preview_hash
                     or _aware(record.preview_expires_at) != _aware(draft.preview_expires_at)
-                    or record.requires_explicit_review != policy.requires_explicit_review
-                    or record.batch_acceptable != policy.batch_acceptable
-                    or record.suggested_selected != policy.suggested_selected
                 ):
                     raise DataServiceConflictError(
                         "review_item_id was reused with different candidate content",
@@ -1297,19 +1717,32 @@ class MissionStore:
                     )
             return MissionReviewItemsResultPayload(
                 mission=mission_run_to_payload(run),
-                items=[mission_review_item_to_payload(existing_by_id[item_id]) for item_id in requested_ids],
+                items=[
+                    mission_review_item_to_payload(
+                        existing_by_id[item_id],
+                        review_mode=run.review_mode,
+                    )
+                    for item_id in requested_ids
+                ],
             )
-        now = await self.repository.database_now()
-        self._require_driver_fence(
-            run,
-            expected_state_version=command.expected_state_version,
-            lease_owner=command.lease_owner,
-            lease_epoch=command.lease_epoch,
-            now=now,
-        )
+        return None
+
+    async def _create_new_review_items_locked(
+        self,
+        run: MissionRunRecord,
+        *,
+        mission_id: str,
+        drafts: Sequence[MissionReviewItemDraftPayload],
+        now: datetime,
+        producer: str,
+        ledger_items: Sequence[MissionItemDraftPayload] = (),
+        snapshot_json: dict[str, object] | None = None,
+        patch: MissionRunPatchPayload | None = None,
+    ) -> MissionReviewItemsResultPayload:
+        output_keys = [item.output_key for item in drafts]
         candidate_destinations = {
             destination
-            for draft in command.items
+            for draft in drafts
             if (
                 destination := _review_materialization_destination(
                     target_kind=draft.target_kind,
@@ -1320,10 +1753,24 @@ class MissionStore:
             )
             is not None
         }
-        prior_candidates = await self.repository.list_review_items(
+        prior_candidates = await self.repository.list_review_items_for_replacement(
             mission_id=mission_id,
+            output_keys=output_keys,
+            destinations=list(candidate_destinations),
             for_update=True,
         )
+        accepted_candidate_ids = [
+            str(record.review_item_id)
+            for record in prior_candidates
+            if record.status == "accepted"
+        ]
+        active_commits = {
+            str(commit.review_item_id): commit
+            for commit in await self.repository.list_commits_by_review_item_ids(
+                mission_id=mission_id,
+                review_item_ids=accepted_candidate_ids,
+            )
+        }
         superseded_ids: list[str] = []
         superseded_pending = 0
         for record in prior_candidates:
@@ -1342,8 +1789,11 @@ class MissionStore:
             if record.status in {"committed", "superseded"}:
                 continue
             if record.status == "accepted":
-                active_commit = await self.repository.find_commit_by_review_item(record.review_item_id)
-                if active_commit is not None and active_commit.status != "cancelled":
+                active_commit = active_commits.get(str(record.review_item_id))
+                if active_commit is not None and active_commit.status in {
+                    "pending",
+                    "applying",
+                }:
                     raise DataServiceConflictError(
                         "Cannot replace an output while its accepted candidate is being saved",
                         detail={
@@ -1354,7 +1804,6 @@ class MissionStore:
             if record.status == "pending":
                 superseded_pending += 1
             record.status = "superseded"
-            record.suggested_selected = False
             record.decision_json = {
                 "decision": "superseded",
                 "reason": "A newer candidate now represents this output.",
@@ -1371,23 +1820,30 @@ class MissionStore:
                     item_type="review_candidate_superseded",
                     operation_id=review_item_id,
                     phase="completed",
-                    producer="mission_runtime",
+                    producer=producer,
                     summary="A newer candidate replaced this output.",
                     payload_json={"review_item_id": review_item_id},
                 )
             )
-        for draft in command.items:
-            if draft.source_item_seq is not None:
-                source_item = await self.repository.get_item(mission_id=mission_id, seq=draft.source_item_seq)
-                if source_item is None:
-                    raise DataServiceValidationError("source_item_seq must reference the same mission ledger")
-            preview_json, preview_hash = _canonical_preview(draft)
-            policy = project_review_policy(
-                review_mode=run.review_mode,
-                target_kind=draft.target_kind,
-                target_room=draft.target_room,
-                risk_level=draft.risk_level.value,
+        source_seqs = tuple(
+            sorted(
+                {
+                    draft.source_item_seq
+                    for draft in drafts
+                    if draft.source_item_seq is not None
+                }
             )
+        )
+        source_items = await self.repository.list_items_by_seqs(
+            mission_id=mission_id,
+            seqs=source_seqs,
+        )
+        if {record.seq for record in source_items} != set(source_seqs):
+            raise DataServiceValidationError(
+                "source_item_seq must reference the same mission ledger"
+            )
+        for draft in drafts:
+            preview_json, preview_hash = _canonical_preview(draft)
             values = draft.model_dump(mode="python")
             values.update(
                 {
@@ -1400,9 +1856,6 @@ class MissionStore:
                     "updated_at": now,
                     "preview_json": preview_json,
                     "preview_hash": preview_hash,
-                    "requires_explicit_review": policy.requires_explicit_review,
-                    "batch_acceptable": policy.batch_acceptable,
-                    "suggested_selected": policy.suggested_selected,
                 }
             )
             records.append(self.repository.create_review_item(values))
@@ -1411,7 +1864,7 @@ class MissionStore:
                     item_type="review_candidate_created",
                     operation_id=draft.review_item_id,
                     phase="completed",
-                    producer="mission_runtime",
+                    producer=producer,
                     summary=draft.title,
                     risk_level=draft.risk_level,
                     payload_json={
@@ -1421,16 +1874,23 @@ class MissionStore:
                     },
                 )
             )
-        self._append_drafts(run, audit_drafts, now=now)
+        self._append_drafts(run, [*audit_drafts, *ledger_items], now=now)
         run.pending_review_count = max(
             run.pending_review_count - superseded_pending + len(records),
             0,
         )
+        if snapshot_json is not None:
+            run.snapshot_json = dict(snapshot_json)
+        if patch is not None:
+            self._apply_patch(run, patch, now=now)
         self._touch(run, now)
         await self._finish()
         return MissionReviewItemsResultPayload(
             mission=mission_run_to_payload(run),
-            items=[mission_review_item_to_payload(item) for item in records],
+            items=[
+                mission_review_item_to_payload(item, review_mode=run.review_mode)
+                for item in records
+            ],
             superseded_review_item_ids=superseded_ids,
         )
 
@@ -1439,11 +1899,65 @@ class MissionStore:
         mission_id: str,
         *,
         status: list[str] | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
     ) -> list[MissionReviewItemPayload]:
-        if await self.repository.get_run(mission_id) is None:
+        page = await self.list_review_items_page(
+            mission_id,
+            status=status,
+            limit=limit,
+            cursor=cursor,
+        )
+        return page.items
+
+    async def list_review_items_page(
+        self,
+        mission_id: str,
+        *,
+        status: list[str] | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> MissionReviewPagePayload:
+        run = await self.repository.get_run(mission_id)
+        if run is None:
             raise DataServiceNotFoundError("MissionRun not found")
-        records = await self.repository.list_review_items(mission_id=mission_id, status=status)
-        return [mission_review_item_to_payload(record) for record in records]
+        after_created_at: datetime | None = None
+        after_review_item_id: str | None = None
+        if cursor is not None:
+            after_created_at, after_review_item_id = _decode_record_cursor(
+                cursor,
+                kind="review",
+            )
+        records = await self.repository.list_review_items(
+            mission_id=mission_id,
+            status=status,
+            after_created_at=after_created_at,
+            after_review_item_id=after_review_item_id,
+            limit=limit + 1,
+        )
+        page_records = records[:limit]
+        next_cursor = None
+        if len(records) > limit and page_records:
+            last = page_records[-1]
+            next_cursor = _encode_record_cursor(
+                kind="review",
+                created_at=last.created_at,
+                record_id=str(last.review_item_id),
+            )
+        return MissionReviewPagePayload(
+            items=[
+                mission_review_item_to_payload(record, review_mode=run.review_mode)
+                for record in page_records
+            ],
+            page=MissionCursorPagePayload(
+                total=await self.repository.count_review_items(
+                    mission_id=mission_id,
+                    status=status,
+                ),
+                returned=len(page_records),
+                next_cursor=next_cursor,
+            ),
+        )
 
     async def apply_review_decisions(
         self,
@@ -1491,7 +2005,13 @@ class MissionStore:
             by_id = {record.review_item_id: record for record in records}
             return MissionReviewItemsResultPayload(
                 mission=mission_run_to_payload(run),
-                items=[mission_review_item_to_payload(by_id[item_id]) for item_id in requested_ids],
+                items=[
+                    mission_review_item_to_payload(
+                        by_id[item_id],
+                        review_mode=run.review_mode,
+                    )
+                    for item_id in requested_ids
+                ],
             )
         self._require_state_version(run, command.expected_state_version)
         records = await self.repository.list_review_items_by_ids(
@@ -1502,6 +2022,18 @@ class MissionStore:
         if len(records) != len(requested_ids):
             raise DataServiceNotFoundError("One or more MissionReviewItems do not belong to the mission")
         by_id = {record.review_item_id: record for record in records}
+        accepted_review_ids = [
+            str(record.review_item_id)
+            for record in records
+            if record.status == "accepted"
+        ]
+        active_commits = {
+            str(commit.review_item_id): commit
+            for commit in await self.repository.list_commits_by_review_item_ids(
+                mission_id=mission_id,
+                review_item_ids=accepted_review_ids,
+            )
+        }
         now = await self.repository.database_now()
         audit_drafts: list[MissionItemDraftPayload] = []
         for decision in command.decisions:
@@ -1519,7 +2051,7 @@ class MissionStore:
                     },
                 )
             if record.status == "accepted":
-                active_commit = await self.repository.find_commit_by_review_item(record.review_item_id)
+                active_commit = active_commits.get(str(record.review_item_id))
                 if active_commit is not None and active_commit.status == "applying":
                     raise DataServiceConflictError(
                         "Review item has an applying commit",
@@ -1588,7 +2120,13 @@ class MissionStore:
         await self._finish()
         return MissionReviewItemsResultPayload(
             mission=mission_run_to_payload(run),
-            items=[mission_review_item_to_payload(by_id[item_id]) for item_id in requested_ids],
+            items=[
+                mission_review_item_to_payload(
+                    by_id[item_id],
+                    review_mode=run.review_mode,
+                )
+                for item_id in requested_ids
+            ],
         )
 
     async def record_commit(
@@ -1598,7 +2136,10 @@ class MissionStore:
     ) -> MissionCommitCreateResultPayload:
         run = await self._locked_run(mission_id)
         existing_by_key = await self.repository.find_commit_by_key(mission_id=mission_id, commit_key=command.commit_key)
-        existing_by_item = await self.repository.find_commit_by_review_item(command.review_item_id)
+        existing_by_item = await self.repository.find_commit_by_review_item(
+            mission_id=mission_id,
+            review_item_id=command.review_item_id,
+        )
         existing = existing_by_key or existing_by_item
         if existing is not None:
             if existing.mission_id != mission_id or existing.review_item_id != command.review_item_id or existing.commit_key != command.commit_key:
@@ -1807,6 +2348,24 @@ class MissionStore:
         item_type: str | None = None,
         operation_id: str | None = None,
     ) -> list[MissionItemPayload]:
+        page = await self.get_items_page(
+            mission_id,
+            after_seq=after_seq,
+            limit=limit,
+            item_type=item_type,
+            operation_id=operation_id,
+        )
+        return page.items
+
+    async def get_items_page(
+        self,
+        mission_id: str,
+        *,
+        after_seq: int = 0,
+        limit: int = 100,
+        item_type: str | None = None,
+        operation_id: str | None = None,
+    ) -> MissionItemPagePayload:
         if await self.repository.get_run(mission_id) is None:
             raise DataServiceNotFoundError("MissionRun not found")
         if operation_id is not None:
@@ -1814,15 +2373,46 @@ class MissionStore:
                 mission_id=mission_id,
                 operation_id=operation_id,
                 item_type=item_type,
+                after_seq=after_seq,
+                limit=limit + 1,
             )
-            records = [record for record in records if record.seq > after_seq][:limit]
         else:
             records = await self.repository.list_items(
                 mission_id=mission_id,
                 after_seq=after_seq,
-                limit=limit,
+                limit=limit + 1,
                 item_type=item_type,
             )
+        page_records = records[:limit]
+        return MissionItemPagePayload(
+            items=[mission_item_to_payload(record) for record in page_records],
+            page=MissionProjectionPagePayload(
+                total=await self.repository.count_items(
+                    mission_id=mission_id,
+                    item_type=item_type,
+                    operation_id=operation_id,
+                ),
+                returned=len(page_records),
+                next_cursor=(
+                    page_records[-1].seq
+                    if len(records) > limit and page_records
+                    else None
+                ),
+            ),
+        )
+
+    async def list_items_by_seqs(
+        self,
+        mission_id: str,
+        *,
+        seqs: tuple[int, ...],
+    ) -> list[MissionItemPayload]:
+        if await self.repository.get_run(mission_id) is None:
+            raise DataServiceNotFoundError("MissionRun not found")
+        records = await self.repository.list_items_by_seqs(
+            mission_id=mission_id,
+            seqs=seqs,
+        )
         return [mission_item_to_payload(record) for record in records]
 
     async def get_view(
@@ -1831,13 +2421,69 @@ class MissionStore:
         *,
         projection_item_limit: int = 50,
     ) -> MissionViewPayload | None:
+        last_start_version: int | None = None
+        last_end_version: int | None = None
+        for _attempt in range(_MISSION_VIEW_READ_ATTEMPTS):
+            start_version = await self.repository.get_run_state_version(mission_id)
+            if start_version is None:
+                return None
+            view = await self._project_view_once(
+                mission_id,
+                projection_item_limit=projection_item_limit,
+            )
+            if view is None:
+                return None
+            end_version = await self.repository.get_run_state_version(mission_id)
+            if (
+                start_version == end_version
+                and view.mission.state_version == start_version
+            ):
+                return view
+            last_start_version = start_version
+            last_end_version = end_version
+            self.session.expire_all()
+        raise MissionProjectionStaleError(
+            "Mission projection changed repeatedly while it was being read",
+            detail={
+                "mission_id": mission_id,
+                "attempts": _MISSION_VIEW_READ_ATTEMPTS,
+                "start_state_version": last_start_version,
+                "end_state_version": last_end_version,
+            },
+        )
+
+    async def _project_view_once(
+        self,
+        mission_id: str,
+        *,
+        projection_item_limit: int,
+    ) -> MissionViewPayload | None:
         run = await self.repository.get_run(mission_id)
         if run is None:
             return None
-        review_records = await self.repository.list_review_items(mission_id=mission_id)
-        visible_review_records = _current_review_records(review_records)
-        artifact_review_records = _artifact_review_records(visible_review_records)
-        commit_records = await self.repository.list_commits(mission_id=mission_id)
+        visible_review_records = await self.repository.list_current_review_items(
+            mission_id=mission_id,
+            limit=projection_item_limit,
+        )
+        artifact_records = await self.repository.list_current_artifact_review_items(
+            mission_id=mission_id,
+            limit=projection_item_limit + 1,
+        )
+        artifact_review_records = artifact_records[:projection_item_limit]
+        review_status_counts = await self.repository.aggregate_current_review_statuses(
+            mission_id=mission_id
+        )
+        commit_status_counts = await self.repository.aggregate_commit_statuses(
+            mission_id=mission_id
+        )
+        projected_review_ids = {
+            str(record.review_item_id)
+            for record in [*visible_review_records, *artifact_review_records]
+        }
+        commit_records = await self.repository.list_commits_by_review_item_ids(
+            mission_id=mission_id,
+            review_item_ids=sorted(projected_review_ids),
+        )
         evidence_records = await self.repository.list_items_by_types(
             mission_id=mission_id,
             item_types=("evidence",),
@@ -1848,27 +2494,35 @@ class MissionStore:
             seqs=tuple(record.source_item_seq for record in visible_review_records if record.status == "pending" and record.source_item_seq is not None),
         )
         review_counts = {status: 0 for status in _REVIEW_TRANSITIONS}
-        for record in visible_review_records:
-            review_counts[record.status] += 1
+        review_counts.update(dict(review_status_counts))
         commit_counts = {status: 0 for status in ("pending", "applying", "committed", "failed", "cancelled")}
-        for record in commit_records:
-            commit_counts[record.status] += 1
+        commit_counts.update(dict(commit_status_counts))
         evidence_page_records = evidence_records[:projection_item_limit]
-        artifact_page_records = artifact_review_records[:projection_item_limit]
         required_stage_ids, stage_summaries = _project_stages(
             run,
             observed_stage_ids=[record.stage_id for record in pending_review_sources if record.stage_id is not None],
         )
         team_summary, subagents = _project_subagents(run)
         committed_review_ids = {record.review_item_id for record in commit_records if record.status == "committed"}
+        commits_by_review_item = {
+            str(record.review_item_id): record for record in commit_records
+        }
+        projection_now = datetime.now(UTC)
         return MissionViewPayload(
             mission=mission_run_to_view_payload(run),
             activity=_project_activity(run),
             attention_request=_project_attention_request(run),
             review_summary=MissionReviewSummaryPayload(**review_counts),
             commit_summary=MissionCommitSummaryPayload(**commit_counts),
-            review_items=[mission_review_item_to_payload(record) for record in visible_review_records],
-            commits=[mission_commit_to_payload(record) for record in commit_records],
+            review_items=[
+                _project_review_view_item(
+                    record,
+                    review_mode=run.review_mode,
+                    commit=commits_by_review_item.get(str(record.review_item_id)),
+                    now=projection_now,
+                )
+                for record in visible_review_records
+            ],
             required_stage_ids=required_stage_ids,
             stage_summaries=stage_summaries,
             team_summary=team_summary,
@@ -1881,19 +2535,33 @@ class MissionStore:
             ),
             artifact_items=[
                 _project_artifact(record, committed_review_ids)
-                for record in artifact_page_records
+                for record in artifact_review_records
             ],
             artifact_page=MissionProjectionPagePayload(
-                total=len(artifact_review_records),
-                returned=len(artifact_page_records),
-                next_cursor=(artifact_page_records[-1].source_item_seq if len(artifact_review_records) > projection_item_limit else None),
+                total=await self.repository.count_current_artifact_review_items(
+                    mission_id=mission_id
+                ),
+                returned=len(artifact_review_records),
+                next_cursor=(
+                    artifact_review_records[-1].source_item_seq
+                    if len(artifact_records) > projection_item_limit
+                    else None
+                ),
+                next_tiebreaker=(
+                    str(artifact_review_records[-1].review_item_id)
+                    if len(artifact_records) > projection_item_limit
+                    else None
+                ),
             ),
             review_policy=MissionReviewPolicyPayload(
                 mode=run.review_mode,
                 protected_outputs_require_confirmation=True,
                 draft_outputs_may_be_automatic=run.review_mode != "review_all",
             ),
-            review_selection_revision=_review_selection_revision(visible_review_records),
+            review_selection_revision=_review_selection_revision(
+                visible_review_records,
+                review_mode=run.review_mode,
+            ),
             quality_highlights=_project_quality_highlights(run),
             refresh_token=f"{run.updated_at.isoformat()}:{run.mission_id}:{run.state_version}",
         )
@@ -1929,32 +2597,50 @@ class MissionStore:
         mission_id: str,
         *,
         after_seq: int = 0,
+        after_review_item_id: str = "",
         limit: int = 50,
     ) -> MissionArtifactPagePayload | None:
         run = await self.repository.get_run(mission_id)
         if run is None:
             return None
-        review_records = await self.repository.list_review_items(mission_id=mission_id)
-        commit_records = await self.repository.list_commits(mission_id=mission_id)
-        committed_review_ids = {record.review_item_id for record in commit_records if record.status == "committed"}
-        artifact_records = _artifact_review_records(
-            _current_review_records(review_records)
+        artifact_records = await self.repository.list_current_artifact_review_items(
+            mission_id=mission_id,
+            after_seq=after_seq,
+            after_review_item_id=after_review_item_id,
+            limit=limit + 1,
         )
-        remaining_records = [
-            record
-            for record in artifact_records
-            if record.source_item_seq is not None and record.source_item_seq > after_seq
-        ]
-        page_records = remaining_records[:limit]
+        page_records = artifact_records[:limit]
+        commit_records = await self.repository.list_commits_by_review_item_ids(
+            mission_id=mission_id,
+            review_item_ids=[
+                str(record.review_item_id) for record in page_records
+            ],
+        )
+        committed_review_ids = {
+            str(record.review_item_id)
+            for record in commit_records
+            if record.status == "committed"
+        }
         return MissionArtifactPagePayload(
             items=[
                 _project_artifact(record, committed_review_ids)
                 for record in page_records
             ],
             page=MissionProjectionPagePayload(
-                total=len(artifact_records),
+                total=await self.repository.count_current_artifact_review_items(
+                    mission_id=mission_id
+                ),
                 returned=len(page_records),
-                next_cursor=(page_records[-1].source_item_seq if len(remaining_records) > limit else None),
+                next_cursor=(
+                    page_records[-1].source_item_seq
+                    if len(artifact_records) > limit and page_records
+                    else None
+                ),
+                next_tiebreaker=(
+                    str(page_records[-1].review_item_id)
+                    if len(artifact_records) > limit and page_records
+                    else None
+                ),
             ),
         )
 
@@ -1962,21 +2648,86 @@ class MissionStore:
         self,
         command: MissionPreviewCleanupPayload,
     ) -> MissionPreviewCleanupResultPayload:
-        records = await self.repository.list_expired_review_previews(
+        mission_ids = await self.repository.list_mission_ids_with_expired_previews(
             now=command.now,
             limit=command.limit,
-            for_update=True,
         )
         refs: list[str] = []
-        for record in records:
-            if record.preview_ref:
-                refs.append(record.preview_ref)
-            record.preview_json = {}
-            record.preview_ref = None
-            record.updated_at = command.now
+        review_item_ids: list[str] = []
+        remaining = command.limit
+        for mission_id in mission_ids:
+            if remaining <= 0:
+                break
+            run = await self._locked_run(mission_id)
+            records = await self.repository.list_expired_review_previews(
+                mission_id=mission_id,
+                now=command.now,
+                limit=remaining,
+                for_update=True,
+            )
+            commits = await self.repository.list_commits_by_review_item_ids(
+                mission_id=mission_id,
+                review_item_ids=[str(record.review_item_id) for record in records],
+            )
+            commits_by_review_item = {
+                str(commit.review_item_id): commit for commit in commits
+            }
+            audit: list[MissionItemDraftPayload] = []
+            changed = False
+            for record in records:
+                if remaining <= 0:
+                    break
+                expires_at = _aware(record.preview_expires_at)
+                if (
+                    expires_at is None
+                    or expires_at > _aware(command.now)
+                    or (record.preview_ref is None and not record.preview_json)
+                ):
+                    continue
+                commit = commits_by_review_item.get(str(record.review_item_id))
+                if _commit_holds_review_preview(commit):
+                    continue
+                remaining -= 1
+                changed = True
+                review_item_ids.append(str(record.review_item_id))
+                if record.preview_ref:
+                    refs.append(record.preview_ref)
+                if record.status in {"pending", "accepted"}:
+                    if record.status == "pending":
+                        run.pending_review_count = max(
+                            run.pending_review_count - 1,
+                            0,
+                        )
+                    record.status = "superseded"
+                    record.decision_json = {
+                        "decision": "superseded",
+                        "reason_code": "review_preview_expired",
+                    }
+                    record.decided_by = None
+                    record.decided_at = command.now
+                    audit.append(
+                        MissionItemDraftPayload(
+                            item_type="review_candidate_superseded",
+                            operation_id=record.review_item_id,
+                            phase="completed",
+                            producer="preview_cleanup",
+                            summary="Expired review preview was retired.",
+                            payload_json={
+                                "review_item_id": record.review_item_id,
+                                "reason_code": "review_preview_expired",
+                            },
+                        )
+                    )
+                record.preview_json = {}
+                record.preview_ref = None
+                record.updated_at = command.now
+            if changed:
+                if audit:
+                    self._append_drafts(run, audit, now=command.now)
+                self._touch(run, command.now)
         await self._finish()
         return MissionPreviewCleanupResultPayload(
-            review_item_ids=[record.review_item_id for record in records],
+            review_item_ids=review_item_ids,
             preview_refs=refs,
         )
 
@@ -2052,17 +2803,27 @@ def _project_activity(run: MissionRunRecord) -> MissionActivityPayload:
 
 def _review_selection_revision(
     records: list[MissionReviewItemRecord],
+    *,
+    review_mode: str,
 ) -> str:
-    selection = [
-        {
-            "batch_acceptable": record.batch_acceptable,
-            "requires_explicit_review": record.requires_explicit_review,
-            "review_item_id": record.review_item_id,
-            "status": record.status,
-            "suggested_selected": record.suggested_selected,
-        }
-        for record in sorted(records, key=lambda item: item.review_item_id)
-    ]
+    selection = []
+    for record in sorted(records, key=lambda item: item.review_item_id):
+        policy = project_review_policy(
+            review_mode=review_mode,
+            target_kind=record.target_kind,
+            target_room=record.target_room,
+            target_ref=record.target_ref,
+            risk_level=record.risk_level,
+        )
+        selection.append(
+            {
+                "batch_acceptable": policy.batch_acceptable,
+                "requires_explicit_review": policy.requires_explicit_review,
+                "review_item_id": record.review_item_id,
+                "status": record.status,
+                "suggested_selected": policy.suggested_selected,
+            }
+        )
     encoded = json.dumps(
         selection,
         ensure_ascii=False,
@@ -2070,6 +2831,62 @@ def _review_selection_revision(
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def _project_review_view_item(
+    record: MissionReviewItemRecord,
+    *,
+    review_mode: str,
+    commit: MissionCommitRecord | None,
+    now: datetime,
+) -> MissionReviewViewItemPayload:
+    item = mission_review_item_to_payload(record, review_mode=review_mode)
+    commit_status = commit.status if commit is not None else None
+    block_reason: str | None = None
+    if record.status != "accepted":
+        block_reason = (
+            "already_committed"
+            if record.status == "committed"
+            else "review_item_not_accepted"
+        )
+    elif commit_status == "committed":
+        block_reason = "already_committed"
+    elif commit_status == "cancelled":
+        block_reason = "commit_cancelled"
+    elif (
+        commit_status == "applying"
+        and commit is not None
+        and commit.attempt_expires_at is not None
+        and _aware(commit.attempt_expires_at) > _aware(now)
+    ):
+        block_reason = "commit_in_progress"
+    elif not record.preview_hash:
+        block_reason = "review_preview_unavailable"
+    elif (
+        record.preview_expires_at is not None
+        and _aware(record.preview_expires_at) <= _aware(now)
+    ):
+        block_reason = "review_preview_expired"
+    error_json = dict(commit.error_json or {}) if commit is not None else {}
+    targets_json = dict(commit.targets_json or {}) if commit is not None else {}
+    return MissionReviewViewItemPayload.model_validate(
+        {
+            **item.model_dump(mode="python"),
+            "commit_status": commit_status,
+            "commit_eligible": block_reason is None,
+            "commit_block_reason": block_reason,
+            "commit_error_code": str(error_json.get("code") or "") or None,
+            "committed_target_ref": (
+                str(targets_json.get("target_ref"))
+                if targets_json.get("target_ref") is not None
+                else None
+            ),
+        }
+    )
+
+
+def _commit_holds_review_preview(commit: MissionCommitRecord | None) -> bool:
+    return commit is not None and commit.status in {"pending", "applying", "failed"}
 
 
 def _project_attention_request(
@@ -2084,14 +2901,34 @@ def _project_attention_request(
     summary = _text(request.get("summary")) or _text(request.get("question")) or _text(request.get("prompt")) or _attention_default_summary(reason)
 
     inputs = _project_attention_inputs(reason, request)
-    actions = [
-        MissionAttentionActionPayload(
-            action_id="reply",
-            label="回到对话回复",
-            action_type="reply_in_chat",
-            primary=True,
-        )
-    ]
+    if reason == "permission":
+        actions = [
+            MissionAttentionActionPayload(
+                action_id="allow-once",
+                label="仅本次允许",
+                action_type="permission_allow_once",
+                primary=True,
+            ),
+            MissionAttentionActionPayload(
+                action_id="allow-mission",
+                label="本任务内允许",
+                action_type="permission_allow_mission",
+            ),
+            MissionAttentionActionPayload(
+                action_id="reject",
+                label="不允许",
+                action_type="permission_reject",
+            ),
+        ]
+    else:
+        actions = [
+            MissionAttentionActionPayload(
+                action_id="reply",
+                label="回到对话回复",
+                action_type="reply_in_chat",
+                primary=True,
+            )
+        ]
     if any(item.input_type == "file" for item in inputs):
         actions.append(
             MissionAttentionActionPayload(
@@ -2125,7 +2962,7 @@ def _project_attention_inputs(
 ) -> list[MissionAttentionInputPayload]:
     blocking = request.get("blocking_user_inputs")
     labels = [_text(value) for value in blocking] if isinstance(blocking, list) else []
-    inputs = [
+    inputs: list[MissionAttentionInputPayload] = [
         MissionAttentionInputPayload(
             input_id=f"input-{index + 1}",
             label=label,
@@ -2134,6 +2971,31 @@ def _project_attention_inputs(
         for index, label in enumerate(labels)
         if label
     ]
+    required_assets = request.get("required_assets")
+    asset_labels = (
+        [_text(value) for value in required_assets]
+        if isinstance(required_assets, list)
+        else []
+    )
+    inputs.extend(
+        MissionAttentionInputPayload(
+            input_id=f"asset-{index + 1}",
+            label=label,
+            input_type="file",
+        )
+        for index, label in enumerate(asset_labels)
+        if label
+    )
+    minimum_schema = _text(request.get("minimum_schema"))
+    if minimum_schema:
+        inputs.append(
+            MissionAttentionInputPayload(
+                input_id="field-schema",
+                label="字段与单位说明",
+                description=minimum_schema,
+                input_type="text",
+            )
+        )
     if inputs:
         return inputs
     if request.get("required_credits") is not None:
@@ -2412,61 +3274,15 @@ def _project_evidence(record: MissionItemRecord) -> MissionEvidenceSummaryPayloa
     payload = record.payload_json or {}
     raw_metadata = payload.get("metadata")
     metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
-    source_type = _text(payload.get("source_type")) or "paper"
-    if source_type not in {"paper", "web_page", "dataset", "upload"}:
-        source_type = "paper"
     return MissionEvidenceSummaryPayload(
         item_id=record.id,
         seq=record.seq,
         title=_text(payload.get("title")) or record.summary or "研究证据",
-        source_type=source_type,
+        source_type=_text(payload.get("source_type")),
         source_label=(_text(payload.get("source_label")) or _text(payload.get("source")) or _text(metadata.get("publisher"))),
         summary=_text(payload.get("summary")) or record.summary,
         citation=_text(payload.get("citation")) or _text(payload.get("uri")),
         verified=payload.get("verified") is True,
-    )
-
-
-_USER_ARTIFACT_TARGET_KINDS = frozenset({"document", "workspace_asset"})
-_VISIBLE_ARTIFACT_REVIEW_STATUSES = frozenset({"pending", "accepted", "committed"})
-
-
-def _current_review_records(
-    records: list[MissionReviewItemRecord],
-) -> list[MissionReviewItemRecord]:
-    current_by_output: dict[str, MissionReviewItemRecord] = {}
-    for record in records:
-        if record.status != "superseded":
-            current_by_output[record.output_key] = record
-    return list(current_by_output.values())
-
-
-def _artifact_review_records(
-    records: list[MissionReviewItemRecord],
-) -> list[MissionReviewItemRecord]:
-    current_by_destination: dict[tuple[str, ...], MissionReviewItemRecord] = {}
-    for record in records:
-        if (
-            record.target_kind not in _USER_ARTIFACT_TARGET_KINDS
-            or record.status not in _VISIBLE_ARTIFACT_REVIEW_STATUSES
-            or record.source_item_seq is None
-        ):
-            continue
-        destination = _review_materialization_destination(
-            target_kind=record.target_kind,
-            target_room=record.target_room,
-            target_ref=record.target_ref,
-            preview_json=dict(record.preview_json or {}),
-        )
-        identity = (
-            ("destination", *destination)
-            if destination is not None
-            else ("output", record.output_key)
-        )
-        current_by_destination[identity] = record
-    return sorted(
-        current_by_destination.values(),
-        key=lambda record: record.source_item_seq or 0,
     )
 
 
@@ -2538,4 +3354,8 @@ def _review_materialization_destination(
     return ("new", target_kind, target_room or "", operation, path.strip())
 
 
-__all__ = ["MissionStore", "TERMINAL_MISSION_STATUSES"]
+__all__ = [
+    "MissionProjectionStaleError",
+    "MissionStore",
+    "TERMINAL_MISSION_STATUSES",
+]

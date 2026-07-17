@@ -6,7 +6,8 @@ from src.dataservice_app.routers.mission import router
 def test_mission_router_exposes_runtime_store_operations() -> None:
     paths = {route.path for route in router.routes}
     assert {
-        "/internal/v1/missions",
+            "/internal/v1/mission-admissions",
+            "/internal/v1/mission-reservation-reconciliation",
         "/internal/v1/missions/{mission_id}",
         "/internal/v1/workspaces/{workspace_id}/missions",
         "/internal/v1/missions/{mission_id}/items/append",

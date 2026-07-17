@@ -135,6 +135,7 @@ class StageAcceptanceContract(BaseModel):
     prerequisite_stage_ids: tuple[str, ...] = ()
     instantiation: StageInstantiationRule = Field(default_factory=StageInstantiationRule)
     all_item_prerequisite_templates: tuple[str, ...] = ()
+    all_item_source_context_key: str | None = None
     advance_condition: str
     stop_condition: str
     exemplar_refs: tuple[ImmutableContentRef, ...] = ()
@@ -173,6 +174,20 @@ class StageAcceptanceContract(BaseModel):
             raise ValueError("a stage cannot depend on itself")
         if any(template.count("{index}") != 1 for template in self.all_item_prerequisite_templates):
             raise ValueError("all-item prerequisite templates must contain {index} exactly once")
+        all_item_source = str(self.all_item_source_context_key or "").strip()
+        if self.all_item_prerequisite_templates and not all_item_source:
+            raise ValueError(
+                "all-item prerequisites require all_item_source_context_key"
+            )
+        if all_item_source and not self.all_item_prerequisite_templates:
+            raise ValueError(
+                "all_item_source_context_key requires all-item prerequisites"
+            )
+        instance_source = str(self.instantiation.source_context_key or "").strip()
+        if instance_source and all_item_source and instance_source != all_item_source:
+            raise ValueError(
+                "stage prerequisite families must use one item-count source"
+            )
         unique_groups = {
             "prerequisite_stage_ids": self.prerequisite_stage_ids,
             "required_artifact_kinds": tuple(item.kind for item in self.required_artifacts),
@@ -182,6 +197,16 @@ class StageAcceptanceContract(BaseModel):
             if len(values) != len(set(values)):
                 raise ValueError(f"{label} must not contain duplicates")
         return self
+
+    def item_count_source_key(self) -> str | None:
+        """Return the single pinned count source used to resolve this stage."""
+
+        return self.instantiation.source_context_key or self.all_item_source_context_key
+
+    def acceptance_criteria(self) -> tuple[StageCriterion, ...]:
+        """Return every criterion that must pass before stage progression."""
+
+        return (*self.minimum_criteria, *self.excellent_criteria)
 
     def immutable_ref(self) -> ImmutableContractRef:
         return ImmutableContractRef(

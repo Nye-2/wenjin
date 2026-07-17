@@ -17,6 +17,11 @@ def render_workspace_agent_prompt(context: WorkspaceAgentContext) -> str:
         if context.continuation_target
         else None
     )
+    prism_context_ref = (
+        context.prism_context_ref.model_dump(mode="json")
+        if context.prism_context_ref
+        else None
+    )
     shared_rules = "\n".join(f"- {rule}" for rule in SHARED_OPERATING_RULES)
     attachment_contexts = [item.model_dump(mode="json", exclude_none=True) for item in context.attachment_contexts]
     return f"""{WORKSPACE_AGENT_IDENTITY}
@@ -47,6 +52,7 @@ Shared trust rules:
 10. start_mission.title 必须是 8-30 个汉字左右的用户可扫读短标题；objective 才承载完整目标、阶段顺序和交付要求，禁止把 objective 截断后当标题。
 11. 阶段验收是问津内部的生成质量约束，不等于逐阶段请求用户复核。除非用户明确要求“每一阶段都等我确认”，阶段通过后应自动继续；“最终结果由我复核”只表示最终交付由用户确认。
 12. continuation_target 是服务端已校验的唯一续接目标：当前消息显式指定合法 Mission ID 时优先使用该任务，否则才使用当前线程最近的终态任务。用户明确要求续接、重试未完成部分或沿用已通过成果时，start_mission.parent_mission_id 必须原样使用其 mission_id，并保持相同 mission_policy_id；系统会继承已固定输入和已通过阶段。用户明确要求全新独立任务时 parent_mission_id 必须为 null。不得声称 continuation_target 不存在，也不得从对话文本猜测其他父任务 ID。
+13. prism_context_ref 是服务端校验过工作区归属的写作台选区定位符，不含可信正文。用户要求基于该选区生成学术图或继续处理时，必须把它原样用于任务目标；真正正文只能由 canonical Prism 读取工具按 revision/range/hash 再校验，禁止根据聊天文本伪造选区。
 
 workspace_type:
 {context.workspace_type}
@@ -59,6 +65,9 @@ active_mission:
 
 continuation_target:
 {json.dumps(continuation, ensure_ascii=False, separators=(",", ":"))}
+
+prism_context_ref:
+{json.dumps(prism_context_ref, ensure_ascii=False, separators=(",", ":"))}
 
 available_inputs:
 {json.dumps(attachment_contexts, ensure_ascii=False, separators=(",", ":"))}

@@ -12,9 +12,9 @@ from src.contracts.figure_generation import (
     ExactVisualLabel,
     FigureArtifactManifest,
     FigureSpec,
-    PrismContextRef,
     VisualCandidateRef,
 )
+from src.contracts.prism_context import PrismContextRef, split_utf8_selection
 
 
 def _manifest(**updates) -> FigureArtifactManifest:
@@ -30,6 +30,10 @@ def _manifest(**updates) -> FigureArtifactManifest:
         ),
         "renderer_id": "graphviz",
         "renderer_version": "2.42.2",
+        "source_code_ref": "sandbox-script:sha256:" + "a" * 64,
+        "source_code_hash": "a" * 64,
+        "context_hash": "b" * 64,
+        "ai_generated": False,
     }
     payload.update(updates)
     return FigureArtifactManifest.model_validate(payload)
@@ -469,7 +473,7 @@ def test_exact_labels_require_hybrid_for_generative_figure() -> None:
     assert brief.figure_spec.strategy == "hybrid"
 
 
-def test_prism_context_requires_canonical_hash_and_selection_range() -> None:
+def test_prism_context_requires_canonical_hash_and_utf8_byte_range() -> None:
     selection_hash = f"sha256:{'a' * 64}"
     context = PrismContextRef(
         workspace_id="ws-1",
@@ -477,11 +481,11 @@ def test_prism_context_requires_canonical_hash_and_selection_range() -> None:
         file_id="file-1",
         base_revision_ref="revision-3",
         selection_hash=selection_hash,
-        selection_range=(10, 42),
+        selection_byte_range=(10, 42),
     )
 
-    assert context.selection_range == (10, 42)
-    with pytest.raises(ValidationError, match="selection_range"):
+    assert context.selection_byte_range == (10, 42)
+    with pytest.raises(ValidationError, match="selection_byte_range"):
         PrismContextRef(
             workspace_id="ws-1",
             prism_project_id="project-1",
@@ -496,8 +500,18 @@ def test_prism_context_requires_canonical_hash_and_selection_range() -> None:
             file_id="file-1",
             base_revision_ref="revision-3",
             selection_hash="sha256:not-a-digest",
-            selection_range=(10, 42),
+            selection_byte_range=(10, 42),
         )
+
+
+def test_prism_selection_splits_only_at_utf8_boundaries() -> None:
+    content = "A😀联邦B"
+    start = len(b"A")
+    end = start + len("😀联邦".encode())
+
+    assert split_utf8_selection(content, (start, end)) == ("A", "😀联邦", "B")
+    with pytest.raises(ValueError, match="UTF-8 boundaries"):
+        split_utf8_selection(content, (start + 1, end))
 
 
 @pytest.mark.parametrize(
@@ -567,7 +581,10 @@ def test_candidate_requires_one_primary_ref_and_image2_for_generative_output() -
         "renderer_id": "openai-images",
         "renderer_version": "v1",
         "provider_model": "gpt-image-2",
+        "prompt_contract_version": "wenjin.academic_visual.prompt.v1",
+        "source_prompt_hash": "a" * 64,
         "context_hash": "sha256:context",
+        "ai_generated": True,
     }
     candidate = AcademicVisualCandidate.model_validate(payload)
     assert candidate.preview_ref == "preview:visual-1"
@@ -612,7 +629,10 @@ def test_candidate_and_manifest_cannot_bypass_canonical_strategy_route() -> None
                 "renderer_id": "openai-images",
                 "renderer_version": "v1",
                 "provider_model": "gpt-image-2",
+                "prompt_contract_version": "wenjin.academic_visual.prompt.v1",
+                "source_prompt_hash": "a" * 64,
                 "context_hash": "sha256:context",
+                "ai_generated": True,
             }
         )
 
@@ -623,4 +643,19 @@ def test_candidate_and_manifest_cannot_bypass_canonical_strategy_route() -> None
                 ref="preview:flow",
                 content_hash="sha256:flow",
             )
+        )
+
+
+@pytest.mark.parametrize("legacy_type", ["line_chart", "bar_chart"])
+def test_current_figure_type_rejects_legacy_chart_taxonomy(legacy_type: str) -> None:
+    with pytest.raises(ValidationError, match="figure_type"):
+        FigureSpec.model_validate(
+            {
+                "figure_id": "legacy-chart",
+                "title": "Legacy chart",
+                "figure_type": legacy_type,
+                "strategy": "matplotlib",
+                "purpose": "Reject removed taxonomy",
+                "output_targets": ["/workspace/outputs/legacy-chart.png"],
+            }
         )

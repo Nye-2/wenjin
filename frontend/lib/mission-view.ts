@@ -15,6 +15,14 @@ export function missionNeedsAttention(view: MissionView): boolean {
   return view.reviewSummary.pending > 0 || view.reviewSummary.needsMoreEvidence > 0;
 }
 
+export function mergeMissionView(
+  current: MissionView | null,
+  incoming: MissionView,
+): MissionView {
+  if (!current || current.missionId !== incoming.missionId) return incoming;
+  return incoming.stateVersion < current.stateVersion ? current : incoming;
+}
+
 export function defaultMissionSurface(view: MissionView): MissionConsoleSurface {
   if (
     view.executionStatus === "created" ||
@@ -33,12 +41,15 @@ export function missionDemandKey(view: MissionView): string | null {
   const active = ["created", "planning", "running", "waiting"].includes(
     view.executionStatus,
   );
-  if (!active && !missionNeedsAttention(view)) return null;
+  if (!active && !view.attentionRequest && !missionNeedsAttention(view)) return null;
   return [
     view.missionId,
     view.executionStatus,
     view.activeStage?.id ?? "",
+    view.attentionRequest?.requestId ?? "",
     view.reviewSelectionRevision,
+    view.reviewSummary.pending,
+    view.reviewSummary.needsMoreEvidence,
   ].join(":");
 }
 

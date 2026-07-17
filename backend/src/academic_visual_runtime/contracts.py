@@ -16,6 +16,7 @@ from src.contracts.figure_generation import (
     GenerativeVisualPayload,
     StructuredVisualPayload,
     VisualCandidateRef,
+    VisualContentHash,
 )
 
 
@@ -51,10 +52,40 @@ class AcademicVisualReceipt(BaseModel):
     manifest: FigureArtifactManifest
 
 
+class AcademicVisualOperationIdentity(BaseModel):
+    """Server-built semantic identity projected before any visual side effect."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_: Literal["wenjin.academic_visual.operation_identity.v1"] = Field(
+        default="wenjin.academic_visual.operation_identity.v1",
+        alias="schema",
+    )
+    source_item_seq: int = Field(ge=1)
+    variant_ordinal: int = Field(default=0, ge=0)
+    figure_id: str = Field(min_length=1, max_length=120)
+    brief_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    context_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    render_contract_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    contract_hashes: tuple[str, ...] = ()
+    renderer_id: str = Field(min_length=1, max_length=120)
+    renderer_version: str = Field(min_length=1, max_length=120)
+    source_semantic_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prompt_contract_version: str | None = Field(default=None, max_length=120)
+    prompt_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    dataset_content_hashes: dict[str, VisualContentHash] = Field(default_factory=dict)
+    source_content_hashes: dict[str, VisualContentHash] = Field(default_factory=dict)
+    provider_model: Literal["gpt-image-2"] | None = None
+    quality: Literal["low", "medium", "high", "auto"] | None = None
+    size: Literal["1024x1024", "1536x1024", "1024x1536"] | None = None
+    overlay_manifest_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
 __all__ = [
     "AcademicFigureBrief",
     "AcademicVisualCandidate",
     "AcademicVisualExecutionContext",
+    "AcademicVisualOperationIdentity",
     "AcademicVisualReceipt",
     "AcademicVisualRenderInput",
     "CodeVisualPayload",

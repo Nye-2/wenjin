@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import struct
 import zlib
 from datetime import UTC, datetime, timedelta
@@ -101,3 +102,57 @@ async def test_store_rejects_svg_doctype_before_xml_parsing(tmp_path) -> None:
             mime_type="image/svg+xml",
             filename="unsafe.svg",
         )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_bounds_ref_and_object_deletions(tmp_path) -> None:
+    store = MissionPreviewStore(tmp_path, default_ttl_seconds=3600, max_bytes=1024 * 1024)
+    expires_at = datetime.now(UTC) + timedelta(seconds=1)
+    descriptors = [
+        await store.put(
+            workspace_id="workspace-1",
+            content=_png(pixel=bytes((index, 0, 0, 0))),
+            mime_type="image/png",
+            filename=f"figure-{index}.png",
+            expires_at=expires_at,
+        )
+        for index in (1, 2)
+    ]
+    cutoff = expires_at + timedelta(minutes=1)
+
+    first = await store.cleanup_expired(now=cutoff, limit=1)
+
+    assert len(first) == 1
+    assert len(list((tmp_path / "refs").glob("*/*.json"))) == 1
+    assert len(list((tmp_path / "objects").glob("*/*/*/payload"))) == 1
+
+    second = await store.cleanup_expired(now=cutoff, limit=1)
+
+    assert sorted(first + second) == sorted(descriptor.ref for descriptor in descriptors)
+    assert not list((tmp_path / "refs").glob("*/*.json"))
+    assert not list((tmp_path / "objects").glob("*/*/*/payload"))
+
+
+@pytest.mark.asyncio
+async def test_cleanup_does_not_hide_object_io_failures(tmp_path, monkeypatch) -> None:
+    store = MissionPreviewStore(tmp_path, default_ttl_seconds=3600, max_bytes=1024 * 1024)
+    descriptor = await store.put(
+        workspace_id="workspace-1",
+        content=_png(),
+        mime_type="image/png",
+        filename="figure.png",
+    )
+    next((tmp_path / "refs").glob("*/*.json")).unlink()
+    object_path = next((tmp_path / "objects").glob("*/*/*/payload"))
+    os.utime(object_path, (0, 0))
+    original_stat = type(object_path).stat
+
+    def fail_object_stat(path, *args, **kwargs):
+        if path == object_path:
+            raise PermissionError("preview object unreadable")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(object_path), "stat", fail_object_stat)
+
+    with pytest.raises(PermissionError, match="preview object unreadable"):
+        await store.cleanup_expired(now=descriptor.expires_at + timedelta(seconds=1))

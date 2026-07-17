@@ -4,16 +4,16 @@ from .serialization import (
     dumps_json,
     encode_sse_data,
     serialize,
-    serialize_channel_values,
     serialize_lc_object,
     serialize_messages_tuple,
+    serialize_public_values,
 )
 
 __all__ = [
     "dumps_json",
     "encode_sse_data",
     "serialize",
-    "serialize_channel_values",
+    "serialize_public_values",
     "serialize_lc_object",
     "serialize_messages_tuple",
 ]

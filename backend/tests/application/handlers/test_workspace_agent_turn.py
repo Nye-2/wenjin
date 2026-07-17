@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -12,11 +13,19 @@ from src.application.handlers.thread_turn_handler import (
     _attachments_require_vision,
     _continuation_context,
     _explicit_mission_ids,
+    _focused_mission_id,
     _reply_blocks,
     _resolve_continuation_target,
+    _validate_active_mission_target,
     generate_thread_response,
+    stream_thread_response,
 )
-from src.application.results import PreparedThreadTurn, ThreadTurnAttachment, ThreadTurnRequest
+from src.application.results import (
+    GeneratedThreadReply,
+    PreparedThreadTurn,
+    ThreadTurnAttachment,
+    ThreadTurnRequest,
+)
 from src.dataservice_client.contracts.mission import MissionStatus
 from src.models.router import InvalidRequestedModelError
 
@@ -41,6 +50,40 @@ def test_only_image_attachments_require_vision_capability() -> None:
     assert _attachments_require_vision((pdf,)) is False
     assert _attachments_require_vision((pdf, mime_image)) is True
     assert _attachments_require_vision((suffix_image,)) is True
+
+
+@pytest.mark.asyncio
+async def test_thread_stream_delta_precedes_authoritative_reply() -> None:
+    release = asyncio.Event()
+
+    async def controlled_response(*args, on_text_delta, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        await on_text_delta("增量")
+        await release.wait()
+        return GeneratedThreadReply(
+            content="增量完成",
+            blocks=[{"kind": "text", "content": "增量完成"}],
+            metadata={},
+        )
+
+    with patch(
+        "src.application.handlers.thread_turn_handler.generate_thread_response",
+        side_effect=controlled_response,
+    ):
+        stream = stream_thread_response()
+        iterator = stream.__aiter__()
+        delta = await anext(iterator)
+
+        assert delta.kind == "content"
+        assert delta.text == "增量"
+        reply_task = asyncio.create_task(stream.wait_reply())
+        assert reply_task.done() is False
+
+        release.set()
+        with pytest.raises(StopAsyncIteration):
+            await anext(iterator)
+        reply = await reply_task
+
+    assert reply.content == "增量完成"
 
 
 def test_mission_reply_status_distinguishes_start_from_steer() -> None:
@@ -119,6 +162,37 @@ def test_explicit_mission_ids_only_capture_continuation_references() -> None:
         first,
         second,
     )
+
+
+def test_focused_mission_context_has_one_canonical_metadata_field() -> None:
+    mission_id = "11111111-1111-4111-8111-111111111111"
+
+    assert _focused_mission_id({"focused_mission_id": mission_id}) == mission_id
+    assert _focused_mission_id({"orchestration": {"mission_id": mission_id}}) is None
+
+
+def test_active_mission_rejects_a_different_focused_or_explicit_target() -> None:
+    active_id = "11111111-1111-4111-8111-111111111111"
+    other_id = "22222222-2222-4222-8222-222222222222"
+    active = SimpleNamespace(mission_id=active_id)
+
+    _validate_active_mission_target(  # type: ignore[arg-type]
+        active,
+        message="继续完善当前任务",
+        focused_mission_id=active_id,
+    )
+    with pytest.raises(BadRequestError, match="另一个进行中的研究任务"):
+        _validate_active_mission_target(  # type: ignore[arg-type]
+            active,
+            message="继续完善当前任务",
+            focused_mission_id=other_id,
+        )
+    with pytest.raises(BadRequestError, match="消息与界面指定了不同"):
+        _validate_active_mission_target(  # type: ignore[arg-type]
+            active,
+            message=f"续接任务 {other_id}",
+            focused_mission_id=active_id,
+        )
 
 
 @pytest.mark.asyncio
@@ -209,12 +283,11 @@ async def test_requested_model_failure_is_not_silently_switched() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_rollback_cancels_started_mission_before_removing_initiating_turn() -> None:
+async def test_chat_rollback_preserves_initiating_turn_when_mission_exists() -> None:
     missions = SimpleNamespace(
         get_by_idempotency_key=AsyncMock(
             return_value=SimpleNamespace(mission_id="mission-1", status=MissionStatus.RUNNING)
         ),
-        cancel=AsyncMock(),
     )
 
     @asynccontextmanager
@@ -230,14 +303,13 @@ async def test_chat_rollback_cancels_started_mission_before_removing_initiating_
         "src.application.handlers.thread_turn_handler.dataservice_client",
         client_context,
     ):
-        cancelled = await ThreadTurnHandler._cancel_started_mission(prepared)
+        exists = await ThreadTurnHandler._started_mission_exists(prepared)
 
-    assert cancelled is True
+    assert exists is True
     missions.get_by_idempotency_key.assert_awaited_once_with(
         workspace_id="workspace-1",
         key="mission:thread-1:message-1",
     )
-    missions.cancel.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -246,7 +318,6 @@ async def test_chat_rollback_preserves_turn_when_started_mission_is_terminal() -
         get_by_idempotency_key=AsyncMock(
             return_value=SimpleNamespace(mission_id="mission-1", status=MissionStatus.COMPLETED)
         ),
-        cancel=AsyncMock(),
     )
 
     @asynccontextmanager
@@ -262,7 +333,6 @@ async def test_chat_rollback_preserves_turn_when_started_mission_is_terminal() -
         "src.application.handlers.thread_turn_handler.dataservice_client",
         client_context,
     ):
-        cancelled = await ThreadTurnHandler._cancel_started_mission(prepared)
+        exists = await ThreadTurnHandler._started_mission_exists(prepared)
 
-    assert cancelled is False
-    missions.cancel.assert_not_awaited()
+    assert exists is True

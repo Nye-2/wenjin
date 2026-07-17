@@ -28,10 +28,6 @@ type PrismSurfaceLoadState = {
   error: string | null;
 };
 
-function safeCount(value: number | null | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
 export default function WorkspacePrismPage({
   params,
 }: {
@@ -60,14 +56,16 @@ export default function WorkspacePrismPage({
   const surface = loadState.workspaceId === id ? loadState.surface : null;
   const error = loadState.workspaceId === id ? loadState.error : null;
   const initialFileId = searchParams?.get("file_id")?.trim() || null;
+  const visualMissionId = searchParams?.get("visual_mission_id")?.trim() || null;
+  const visualReviewItemId = searchParams?.get("visual_review_item_id")?.trim() || null;
+  const visualInsertionSource = visualMissionId && visualReviewItemId
+    ? { missionId: visualMissionId, sourceReviewItemId: visualReviewItemId }
+    : null;
   const typeConfig = workspace
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
     : null;
-  const { pendingReviewCount, missionStatus, completedRunCount } =
-    useWorkspaceChromeCounts(
-      id,
-      safeCount(surface?.review_summary?.pending_count),
-    );
+  const { pendingReviewCount, missionStatus, completedRunCount, summaryState } =
+    useWorkspaceChromeCounts(id, `${prismRefreshCounter}:${surfaceRefreshToken}`);
 
   const refreshSurface = useCallback(() => {
     setSurfaceRefreshToken((token) => token + 1);
@@ -142,6 +140,7 @@ export default function WorkspacePrismPage({
         activeSurface="prism"
         pendingReviewCount={pendingReviewCount}
         missionStatus={missionStatus}
+        missionSummaryState={summaryState}
         onOpenHub={() => setHubOpen(true)}
       />
       <WorkspaceHubDrawer
@@ -163,6 +162,7 @@ export default function WorkspacePrismPage({
               workspaceId={id}
               surface={surface}
               initialFileId={initialFileId}
+              visualInsertionSource={visualInsertionSource}
               onSurfaceChanged={refreshSurface}
             />
           </div>

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
+from src.database.models.workspace import Workspace
 from src.dataservice.domains.workspace_memory.models import (
     WorkspaceMemoryDocumentRecord,
     WorkspaceMemoryRevisionRecord,
@@ -19,6 +20,9 @@ class WorkspaceMemoryRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def lock_workspace_for_update(self, workspace_id: str) -> None:
+        await self.session.execute(select(Workspace.id).where(Workspace.id == workspace_id).with_for_update())
 
     def create_document(self, values: dict[str, Any]) -> WorkspaceMemoryDocumentRecord:
         record = WorkspaceMemoryDocumentRecord(id=generate_uuid(), **values)
@@ -36,14 +40,11 @@ class WorkspaceMemoryRepository:
 
     async def get_revision_by_mission_commit(
         self,
+        *,
+        workspace_id: str,
         mission_commit_id: str,
     ) -> WorkspaceMemoryRevisionRecord | None:
-        result = await self.session.execute(
-            select(WorkspaceMemoryRevisionRecord).where(
-                WorkspaceMemoryRevisionRecord.source_mission_commit_id
-                == mission_commit_id
-            )
-        )
+        result = await self.session.execute(select(WorkspaceMemoryRevisionRecord).where(WorkspaceMemoryRevisionRecord.workspace_id == workspace_id, WorkspaceMemoryRevisionRecord.source_mission_commit_id == mission_commit_id))
         return result.scalar_one_or_none()
 
     async def list_revisions(

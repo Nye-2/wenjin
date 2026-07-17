@@ -4,9 +4,7 @@ import type {
   AdminLogItem,
   AdminReleaseGateReport,
   AdminUserItem,
-  CreditCostValue,
   CreditTransactionItem,
-  McpConfigResponse,
   UserDashboardData,
 } from "@/lib/api/types";
 
@@ -29,13 +27,6 @@ export async function getMyCreditHistory(params?: {
   const response = await apiClient.get("/dashboard/me/credits/history", {
     params,
   });
-  return response.data;
-}
-
-export async function getWorkflowCreditCosts(): Promise<{
-  costs: Record<string, CreditCostValue>;
-}> {
-  const response = await apiClient.get("/dashboard/me/credits/costs");
   return response.data;
 }
 
@@ -153,17 +144,5 @@ export async function getAdminLogs(params?: {
   has_more: boolean;
 }> {
   const response = await apiClient.get("/dashboard/admin/logs", { params });
-  return response.data;
-}
-
-export async function getMcpConfig(): Promise<McpConfigResponse> {
-  const response = await apiClient.get("/mcp/config");
-  return response.data;
-}
-
-export async function updateMcpConfig(
-  data: McpConfigResponse
-): Promise<McpConfigResponse> {
-  const response = await apiClient.put("/mcp/config", data);
   return response.data;
 }

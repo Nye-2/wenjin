@@ -9,6 +9,8 @@ from src.dataservice_client.contracts.pricing import (
     PricingPolicyPayload,
     PricingPolicyUpdatePayload,
     PricingSimulationRequestPayload,
+    PublicPricingCatalogPayload,
+    ResolvedModelUsagePricingPayload,
 )
 
 
@@ -32,6 +34,23 @@ class PricingDataServiceClientMixin:
             json=command.model_dump(mode="json"),
         )
         return dict(payload["data"])
+
+    async def get_public_pricing_catalog(self) -> PublicPricingCatalogPayload:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/pricing-policies/public-catalog",
+        )
+        return PublicPricingCatalogPayload.model_validate(payload["data"])
+
+    async def resolve_model_usage_pricing(
+        self,
+        model_id: str,
+    ) -> ResolvedModelUsagePricingPayload:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/pricing-policies/model-usage/{model_id}",
+        )
+        return ResolvedModelUsagePricingPayload.model_validate(payload["data"])
 
     async def list_pricing_policies(
         self,

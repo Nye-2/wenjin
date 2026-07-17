@@ -1,5 +1,9 @@
 import { apiClient } from "@/lib/api/client";
-import type { Model, ModelPurpose } from "@/lib/api/types";
+import type {
+  Model,
+  ModelGenerationApi,
+  ModelPurpose,
+} from "@/lib/api/types";
 
 interface ModelWireItem {
   name: string;
@@ -7,7 +11,7 @@ interface ModelWireItem {
   category?: string;
   provider: string;
   max_tokens: number;
-  generation_api: string | null;
+  generation_api: ModelGenerationApi | null;
   capability_profile_version: string;
   strict_tool_calls: boolean;
   streaming: boolean;

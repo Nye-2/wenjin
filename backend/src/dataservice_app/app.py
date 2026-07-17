@@ -87,7 +87,6 @@ from .routers import (  # noqa: E402
     prism,
     provenance,
     rooms,
-    sandbox,
     source,
     task,
     template,
@@ -109,7 +108,6 @@ app.include_router(pricing.router)
 app.include_router(prism.router)
 app.include_router(provenance.router)
 app.include_router(rooms.router)
-app.include_router(sandbox.router)
 app.include_router(source.router)
 app.include_router(task.router)
 app.include_router(template.router)

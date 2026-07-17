@@ -36,6 +36,7 @@ describe("WorkspaceChrome auth routing", () => {
         activeSurface="workbench"
         pendingReviewCount={0}
         missionStatus={null}
+        missionSummaryState="ready"
         onOpenHub={() => undefined}
       />,
     );

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
+from time import monotonic
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ValidationError
@@ -36,6 +37,8 @@ from src.tools.orchestrator.frames import parse_chat_completions_tool_calls
 from src.tools.orchestrator.redaction import redact_tool_value
 
 _MAX_INLINE_RETRY_DELAY_SECONDS = 2.0
+_PREFLIGHT_BUDGET_SECONDS = 5.0
+_TERMINAL_RECEIPT_MARGIN_SECONDS = 5.0
 
 
 class OperationJournal(Protocol):
@@ -43,12 +46,14 @@ class OperationJournal(Protocol):
 
     async def load_terminal(self, operation: ToolOperation) -> ResearchToolOutcome | None: ...
 
-    async def claim_started(self, operation: ToolOperation) -> bool: ...
+    async def claim_started(self, operation: ToolOperation) -> str | None: ...
 
     async def record_terminal(
         self,
         operation: ToolOperation,
         outcome: ResearchToolOutcome,
+        *,
+        claim_token: str,
     ) -> bool: ...
 
 
@@ -78,6 +83,7 @@ class ToolOrchestrator:
         lease_fence: ToolLeaseFence,
         guard: ToolExecutionGuard,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        monotonic_clock: Callable[[], float] = monotonic,
     ) -> None:
         if not catalog.frozen:
             raise ValueError("ToolOrchestrator requires a frozen ToolCatalog")
@@ -86,6 +92,15 @@ class ToolOrchestrator:
         self.lease_fence = lease_fence
         self.guard = guard
         self._sleep = sleep
+        self._monotonic = monotonic_clock
+
+    def required_budget_seconds(self, tool_id: str, policy: ToolPolicy) -> float:
+        registration = self.catalog.require(tool_id)
+        timeout_seconds, max_attempts = _execution_parameters(registration, policy)
+        return _required_budget_seconds(
+            timeout_seconds=timeout_seconds,
+            max_attempts=max_attempts,
+        )
 
     async def invoke_provider_response(
         self,
@@ -133,7 +148,7 @@ class ToolOrchestrator:
     ) -> ResearchToolOutcome:
         registration = self.catalog.require(tool_id)
         parsed_arguments = _validate_arguments(registration, arguments)
-        operation = _build_operation(
+        operation = await _build_operation(
             registration=registration,
             arguments=parsed_arguments,
             context=context,
@@ -145,29 +160,67 @@ class ToolOrchestrator:
         if existing is not None:
             return existing
 
-        await self.lease_fence.assert_current(operation)
-        claimed = await self.journal.claim_started(operation)
-        if not claimed:
-            existing = await self.journal.load_terminal(operation)
-            if existing is not None:
-                return existing
-            raise ToolOperationInProgressError(f"tool operation is already in progress: {operation.operation_id}")
-
         preflight = _catalog_preflight(
             registration=registration,
             context=context,
             policy=policy,
         )
         if preflight is None:
-            try:
-                preflight = await self.guard.preflight(
-                    descriptor=registration.descriptor,
-                    operation=operation,
-                    arguments=parsed_arguments,
-                    policy=policy,
+            timeout_seconds, max_attempts = _execution_parameters(
+                registration,
+                policy,
+            )
+            required_budget = _required_budget_seconds(
+                timeout_seconds=timeout_seconds,
+                max_attempts=max_attempts,
+            )
+            if context.deadline_monotonic - self._monotonic() < required_budget:
+                raise ToolDispatchError(
+                    ToolErrorType.TIMEOUT,
+                    "The current Mission slice cannot cover this tool's pinned attempt boundary.",
+                    recoverable_by_model=True,
                 )
+
+        await self.lease_fence.assert_current(operation)
+        claim_token = await self.journal.claim_started(operation)
+        if claim_token is None:
+            existing = await self.journal.load_terminal(operation)
+            if existing is not None:
+                return existing
+            raise ToolOperationInProgressError(f"tool operation is already in progress: {operation.operation_id}")
+
+        if preflight is None:
+            try:
+                preflight = await asyncio.wait_for(
+                    self.guard.preflight(
+                        descriptor=registration.descriptor,
+                        operation=operation,
+                        arguments=parsed_arguments,
+                        policy=policy,
+                    ),
+                    timeout=_PREFLIGHT_BUDGET_SECONDS,
+                )
+            except asyncio.CancelledError:
+                await self._record_cancelled_terminal(
+                    operation,
+                    claim_token=claim_token,
+                )
+                raise
             except StaleToolLeaseError:
                 raise
+            except TimeoutError:
+                outcome = _error_outcome(
+                    operation,
+                    ToolErrorType.TIMEOUT,
+                    "Tool permission and budget checks exceeded their pinned budget.",
+                    recoverable_by_model=True,
+                )
+                await self._record_terminal(
+                    operation,
+                    outcome,
+                    claim_token=claim_token,
+                )
+                return outcome
             except ToolDispatchError as exc:
                 outcome = _error_outcome(
                     operation,
@@ -176,7 +229,7 @@ class ToolOrchestrator:
                     recoverable_by_model=exc.recoverable_by_model,
                     retry_after_seconds=exc.retry_after_seconds,
                 )
-                await self._record_terminal(operation, outcome)
+                await self._record_terminal(operation, outcome, claim_token=claim_token)
                 return outcome
             except Exception:
                 outcome = _error_outcome(
@@ -184,7 +237,7 @@ class ToolOrchestrator:
                     ToolErrorType.INTERNAL_ERROR,
                     "Tool permission and budget checks could not be completed.",
                 )
-                await self._record_terminal(operation, outcome)
+                await self._record_terminal(operation, outcome, claim_token=claim_token)
                 return outcome
         if not preflight.allowed:
             outcome = _error_outcome(
@@ -192,25 +245,37 @@ class ToolOrchestrator:
                 preflight.error_type or ToolErrorType.POLICY_FORBIDDEN,
                 preflight.user_safe_summary or "Tool use is not allowed in this mission.",
             )
-            await self._record_terminal(operation, outcome)
+            await self._record_terminal(operation, outcome, claim_token=claim_token)
             return outcome
 
-        max_attempts = _max_attempts(registration, policy)
-        timeout_seconds = min(
-            registration.descriptor.default_timeout_seconds,
-            policy.max_timeout_seconds,
-        )
         last_failure: ToolDispatchError | None = None
 
         for attempt in range(1, max_attempts + 1):
             current_operation = operation.model_copy(update={"attempt": attempt})
-            await self.lease_fence.assert_current(current_operation)
             try:
+                await self.lease_fence.assert_current(current_operation)
+                attempt_timeout = min(
+                    timeout_seconds,
+                    max(
+                        0.0,
+                        context.deadline_monotonic
+                        - self._monotonic()
+                        - _TERMINAL_RECEIPT_MARGIN_SECONDS,
+                    ),
+                )
+                if attempt_timeout <= 0:
+                    raise TimeoutError
                 handler_result = await asyncio.wait_for(
                     registration.handler(current_operation, parsed_arguments),
-                    timeout=timeout_seconds,
+                    timeout=attempt_timeout,
                 )
                 await self.lease_fence.assert_current(current_operation)
+            except asyncio.CancelledError:
+                await self._record_cancelled_terminal(
+                    current_operation,
+                    claim_token=claim_token,
+                )
+                raise
             except StaleToolLeaseError:
                 raise
             except TimeoutError:
@@ -261,7 +326,11 @@ class ToolOrchestrator:
                     )
                     last_failure.__cause__ = exc
                 else:
-                    await self._record_terminal(current_operation, outcome)
+                    await self._record_terminal(
+                        current_operation,
+                        outcome,
+                        claim_token=claim_token,
+                    )
                     return outcome
 
             if not _should_retry(
@@ -271,31 +340,102 @@ class ToolOrchestrator:
                 max_attempts=max_attempts,
             ):
                 break
-            await self._sleep(_retry_delay(last_failure, attempt=attempt))
+            retry_delay = _retry_delay(last_failure, attempt=attempt)
+            if (
+                self._monotonic()
+                + retry_delay
+                + timeout_seconds * (max_attempts - attempt)
+                + _TERMINAL_RECEIPT_MARGIN_SECONDS
+                > context.deadline_monotonic
+            ):
+                last_failure = ToolDispatchError(
+                    ToolErrorType.TIMEOUT,
+                    "The Mission slice cannot cover another pinned tool attempt.",
+                    recoverable_by_model=True,
+                )
+                break
+            try:
+                await self._sleep(retry_delay)
+            except asyncio.CancelledError:
+                await self._record_cancelled_terminal(
+                    current_operation,
+                    claim_token=claim_token,
+                )
+                raise
 
         failure = last_failure or ToolDispatchError(
             ToolErrorType.INTERNAL_ERROR,
             "The tool could not complete this operation.",
         )
+        terminal_operation = operation.model_copy(update={"attempt": max_attempts})
         outcome = _error_outcome(
-            operation.model_copy(update={"attempt": max_attempts}),
+            terminal_operation,
             failure.error_type,
             failure.user_safe_summary,
             recoverable_by_model=failure.recoverable_by_model,
             retry_after_seconds=failure.retry_after_seconds,
         )
-        await self._record_terminal(operation, outcome)
+        await self._record_terminal(
+            terminal_operation,
+            outcome,
+            claim_token=claim_token,
+        )
         return outcome
 
     async def _record_terminal(
         self,
         operation: ToolOperation,
         outcome: ResearchToolOutcome,
+        *,
+        claim_token: str,
+    ) -> None:
+        task = asyncio.create_task(
+            self._record_terminal_unshielded(
+                operation,
+                outcome,
+                claim_token=claim_token,
+            )
+        )
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
+
+    async def _record_terminal_unshielded(
+        self,
+        operation: ToolOperation,
+        outcome: ResearchToolOutcome,
+        *,
+        claim_token: str,
     ) -> None:
         await self.lease_fence.assert_current(operation)
-        accepted = await self.journal.record_terminal(operation, outcome)
+        accepted = await self.journal.record_terminal(
+            operation,
+            outcome,
+            claim_token=claim_token,
+        )
         if not accepted:
             raise StaleToolLeaseError(f"terminal tool receipt rejected for operation {operation.operation_id}")
+
+    async def _record_cancelled_terminal(
+        self,
+        operation: ToolOperation,
+        *,
+        claim_token: str,
+    ) -> None:
+        existing = await self.journal.load_terminal(operation)
+        if existing is not None:
+            return
+        await self._record_terminal(
+            operation,
+            _error_outcome(
+                operation,
+                ToolErrorType.CANCELLED,
+                "The tool operation was cancelled before it completed.",
+            ),
+            claim_token=claim_token,
+        )
 
 
 def _catalog_preflight(
@@ -394,7 +534,7 @@ def _schema_property_names(schema: object) -> set[str]:
     return names
 
 
-def _build_operation(
+async def _build_operation(
     *,
     registration: ToolRegistration,
     arguments: BaseModel,
@@ -404,21 +544,48 @@ def _build_operation(
 ) -> ToolOperation:
     args_payload = arguments.model_dump(mode="json")
     args_hash = _stable_hash(args_payload)
-    operation_key = _stable_hash(
-        {
+    descriptor_hash = _stable_hash(
+        registration.descriptor.model_dump(mode="json")
+    )
+    semantic_identity_hash: str | None = None
+    if registration.semantic_identity_builder is not None:
+        semantic_identity = await registration.semantic_identity_builder(
+            arguments,
+            context,
+        )
+        semantic_payload = (
+            semantic_identity.model_dump(mode="json", by_alias=True)
+            if isinstance(semantic_identity, BaseModel)
+            else semantic_identity
+        )
+        semantic_identity_hash = _stable_hash(semantic_payload)
+        operation_key_payload = {
+            "mission_id": context.mission_id,
+            "stage_id": context.stage_id,
+            "tool_id": registration.descriptor.tool_id,
+            "tool_version": registration.descriptor.tool_version,
+            "descriptor_schema_hash": registration.descriptor.schema_hash,
+            "descriptor_hash": descriptor_hash,
+            "semantic_identity_hash": semantic_identity_hash,
+            "policy_ref": policy.policy_ref,
+        }
+    else:
+        operation_key_payload = {
             "mission_id": context.mission_id,
             "command_id": context.command_id,
             "stage_id": context.stage_id,
             "caller_id": context.caller_id,
             "model_id": context.model_id,
             "input_refs": context.input_refs,
+            "permission_grant_ref": context.permission_grant_ref,
             "tool_id": registration.descriptor.tool_id,
             "tool_version": registration.descriptor.tool_version,
             "descriptor_schema_hash": registration.descriptor.schema_hash,
+            "descriptor_hash": descriptor_hash,
             "args_hash": args_hash,
             "policy_ref": policy.policy_ref,
         }
-    )
+    operation_key = _stable_hash(operation_key_payload)
     return ToolOperation(
         mission_id=context.mission_id,
         operation_id=f"op_{operation_key[:32]}",
@@ -429,20 +596,61 @@ def _build_operation(
         caller_kind=context.caller_kind,
         model_id=context.model_id,
         input_refs=context.input_refs,
+        permission_grant_ref=context.permission_grant_ref,
         tool_id=registration.descriptor.tool_id,
         tool_version=registration.descriptor.tool_version,
         descriptor_schema_hash=registration.descriptor.schema_hash,
         args_hash=args_hash,
+        semantic_identity_hash=semantic_identity_hash,
         policy_snapshot_ref=policy.policy_ref,
         lease_epoch=context.lease_epoch,
         attempt=attempt,
     )
 
 
-def _max_attempts(registration: ToolRegistration, policy: ToolPolicy) -> int:
-    if registration.descriptor.side_effect_class is SideEffectClass.NON_IDEMPOTENT:
-        return 1
-    return policy.max_attempts
+def _execution_parameters(
+    registration: ToolRegistration,
+    policy: ToolPolicy,
+) -> tuple[float, int]:
+    descriptor = registration.descriptor
+    limit = policy.execution_limit(descriptor.tool_id)
+    if limit.descriptor_schema_hash != descriptor.schema_hash:
+        raise ToolDispatchError(
+            ToolErrorType.POLICY_FORBIDDEN,
+            "The pinned tool policy no longer matches the frozen catalog descriptor.",
+        )
+    if limit.descriptor_hash != _stable_hash(
+        descriptor.model_dump(mode="json")
+    ):
+        raise ToolDispatchError(
+            ToolErrorType.POLICY_FORBIDDEN,
+            "The pinned tool policy no longer matches the frozen catalog descriptor.",
+        )
+    if limit.timeout_seconds != descriptor.timeout_seconds:
+        raise ToolDispatchError(
+            ToolErrorType.POLICY_FORBIDDEN,
+            "The pinned tool timeout no longer matches the frozen catalog descriptor.",
+        )
+    if limit.max_attempts != descriptor.max_attempts:
+        raise ToolDispatchError(
+            ToolErrorType.POLICY_FORBIDDEN,
+            "The pinned tool attempt limit no longer matches the frozen catalog descriptor.",
+        )
+    return limit.timeout_seconds, limit.max_attempts
+
+
+def _required_budget_seconds(
+    *,
+    timeout_seconds: float,
+    max_attempts: int,
+) -> float:
+    retry_budget = _MAX_INLINE_RETRY_DELAY_SECONDS * max(0, max_attempts - 1)
+    return (
+        _PREFLIGHT_BUDGET_SECONDS
+        + timeout_seconds * max_attempts
+        + retry_budget
+        + _TERMINAL_RECEIPT_MARGIN_SECONDS
+    )
 
 
 def _should_retry(
@@ -536,7 +744,7 @@ def _enforce_provenance_requirements(
     predicates = {
         "workspace_scope": bool(operation.mission_id),
         "mission_receipt": bool(operation.operation_id and operation.operation_key),
-        "mission_permission": bool(operation.policy_snapshot_ref),
+        "mission_permission": bool(operation.permission_grant_ref),
         "verification_ref": any(
             bool(ref.metadata.get("verification_ref"))
             for ref in (*result.evidence_refs, *result.artifact_refs)

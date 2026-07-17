@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from src.runtime.chat_turns import ChatTurnRunManager, ChatTurnRunRecord
-from src.runtime.serialization import serialize_channel_values
+from src.runtime.serialization import serialize_public_values
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ async def build_chat_turn_wait_payload(
         return payload
 
     messages = await thread_service.list_thread_messages(thread)
-    payload["values"] = serialize_channel_values(
+    payload["values"] = serialize_public_values(
         {
             "thread_id": thread.id,
             "workspace_id": thread.workspace_id,

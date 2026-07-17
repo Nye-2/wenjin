@@ -15,10 +15,8 @@ import {
 
 import { Header } from "@/components/layout/header";
 import {
-  formatCreditCostLabel,
   formatCreditTransactionType,
   getThreadCreditStatus,
-  renderCostValue,
   summarizeCreditTransaction,
 } from "@/lib/credit-display";
 import { useAuthStore } from "@/stores/auth";
@@ -132,7 +130,24 @@ export default function MyDashboardPage() {
     return null;
   }
 
-  const costs = dashboard?.credits.costs ?? {};
+  const pricing = dashboard?.credits.pricing;
+  const pricingRows = [
+    ...(pricing?.chat_models.map((model) => ({
+      key: `chat:${model.model_id}`,
+      label: `主线对话 · ${model.display_name}`,
+      value: `最低 ${model.minimum_credits} 积分，按实际使用结算`,
+    })) ?? []),
+    ...(pricing?.missions.map((mission) => ({
+      key: `mission:${mission.policy_id}`,
+      label: mission.workspace_type
+        ? `研究任务 · ${mission.workspace_type}`
+        : "研究任务",
+      value:
+        mission.estimate_max_credits > 0
+          ? `预计 ${mission.estimate_min_credits}-${mission.estimate_max_credits} 积分`
+          : "按实际使用结算",
+    })) ?? []),
+  ];
   const creditBalance = dashboard?.credits.balance ?? 0;
   const threadCredit = getThreadCreditStatus(dashboard?.credits);
   const completionRate = ((dashboard?.tasks.completion_rate ?? 0) * 100).toFixed(1);
@@ -362,10 +377,10 @@ export default function MyDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(costs).map(([key, value]) => (
-                    <tr key={key} className="border-b border-[var(--wjn-line)]/50">
-                      <td className="py-2 text-[var(--wjn-text)]">{formatCreditCostLabel(key)}</td>
-                      <td className="py-2 text-[var(--wjn-text-secondary)]">{renderCostValue(value)}</td>
+                  {pricingRows.map((row) => (
+                    <tr key={row.key} className="border-b border-[var(--wjn-line)]/50">
+                      <td className="py-2 text-[var(--wjn-text)]">{row.label}</td>
+                      <td className="py-2 text-[var(--wjn-text-secondary)]">{row.value}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -51,12 +51,6 @@ const INITIAL_FORM = {
   pricing_policy_id: "",
   max_tokens: "4096",
   temperature: "0.7",
-  supports_streaming: true,
-  supports_tools: false,
-  supports_json_mode: true,
-  supports_json_schema: false,
-  supports_vision: false,
-  supports_reasoning_effort: false,
   enabled: true,
   is_default: false,
 };
@@ -98,12 +92,6 @@ export function ModelDialog({ open, model, onClose }: Props) {
       pricing_policy_id: model?.pricing_policy_id ?? "",
       max_tokens: String(model?.max_tokens ?? 4096),
       temperature: String(model?.temperature ?? 0.7),
-      supports_streaming: model?.supports_streaming ?? true,
-      supports_tools: model?.supports_tools ?? false,
-      supports_json_mode: model?.supports_json_mode ?? true,
-      supports_json_schema: model?.supports_json_schema ?? false,
-      supports_vision: model?.supports_vision ?? false,
-      supports_reasoning_effort: model?.supports_reasoning_effort ?? false,
       enabled: model?.enabled ?? true,
       is_default: model?.is_default ?? false,
     });
@@ -367,14 +355,17 @@ export function ModelDialog({ open, model, onClose }: Props) {
           )}
         </div>
 
+        {isEdit && (
+          <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3 text-sm">
+            <div className="font-medium text-[var(--wjn-text)]">探测能力</div>
+            <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
+              能力只来自最近一次端点探测。修改模型名、地址、协议、密钥或 Header 后，旧探测会立即失效；请保存后在模型列表重新测试。
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 text-sm">
           {[
-            ["supports_streaming", "Streaming"],
-            ["supports_tools", "Tools"],
-            ["supports_json_mode", "JSON mode"],
-            ["supports_json_schema", "JSON schema"],
-            ["supports_vision", "Vision"],
-            ["supports_reasoning_effort", "Reasoning effort"],
             ["enabled", "启用"],
             ["is_default", "设为默认"],
           ].map(([key, label]) => {
@@ -446,7 +437,7 @@ function buildPayload(
   return {
     model_id: form.model_id.trim(),
     display_name: form.display_name.trim(),
-    provider_protocol: "openai_compatible",
+    generation_api: form.category === "llm" ? "chat_completions" as const : null,
     provider_name: form.provider_name.trim() || "Custom",
     category: form.category,
     model_name: form.model_name.trim(),
@@ -454,18 +445,22 @@ function buildPayload(
     api_key: form.api_key.trim(),
     enabled: form.enabled,
     is_default: form.is_default,
-    supports_streaming: form.supports_streaming,
-    supports_tools: form.supports_tools,
-    supports_json_mode: form.supports_json_mode,
-    supports_json_schema: form.supports_json_schema,
-    supports_vision: form.supports_vision,
-    supports_reasoning_effort: form.supports_reasoning_effort,
-    max_tokens: parseInt(form.max_tokens, 10) || 4096,
-    temperature: parseFloat(form.temperature) || 0.7,
+    max_tokens: parsePositiveInteger(form.max_tokens, 4096),
+    temperature: parseFiniteNumber(form.temperature, 0.7),
     trust_level: "custom",
     pricing_policy_id: form.pricing_policy_id.trim() || null,
     default_headers: defaultHeaders,
   };
+}
+
+function parsePositiveInteger(value: string, fallback: number): number {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseFiniteNumber(value: string, fallback: number): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function buildUpdatePayload(

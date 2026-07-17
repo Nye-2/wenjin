@@ -14,13 +14,19 @@ from src.tools.orchestrator.contracts import (
     SideEffectClass,
     ToolCallerKind,
     ToolDescriptor,
+    ToolExecutionLimit,
     ToolHandlerResult,
+    ToolInvocationContext,
     ToolKind,
     ToolOperation,
 )
 from src.tools.orchestrator.errors import UnknownToolError
 
 ToolHandler = Callable[[ToolOperation, BaseModel], Awaitable[ToolHandlerResult]]
+ToolSemanticIdentityBuilder = Callable[
+    [BaseModel, ToolInvocationContext],
+    Awaitable[BaseModel | dict[str, Any]],
+]
 
 
 @dataclass(frozen=True)
@@ -28,6 +34,7 @@ class ToolRegistration:
     descriptor: ToolDescriptor
     input_model: type[BaseModel]
     handler: ToolHandler
+    semantic_identity_builder: ToolSemanticIdentityBuilder | None = None
 
 
 class ToolCatalog:
@@ -72,6 +79,31 @@ class ToolCatalog:
     def descriptor_snapshot_hash(self) -> str:
         return schema_hash([descriptor.model_dump(mode="json") for descriptor in self.descriptors()])
 
+    def execution_limits(
+        self,
+        tool_ids: Iterable[str],
+    ) -> tuple[ToolExecutionLimit, ...]:
+        if not self._frozen:
+            raise RuntimeError("ToolCatalog must be frozen before execution limits are pinned")
+        requested = tuple(tool_ids)
+        if len(requested) != len(set(requested)):
+            raise ValueError("tool execution limits require unique tool ids")
+        limits: list[ToolExecutionLimit] = []
+        for tool_id in requested:
+            descriptor = self.require(tool_id).descriptor
+            limits.append(
+                ToolExecutionLimit(
+                    tool_id=descriptor.tool_id,
+                    descriptor_schema_hash=descriptor.schema_hash,
+                    descriptor_hash=schema_hash(
+                        descriptor.model_dump(mode="json")
+                    ),
+                    timeout_seconds=descriptor.timeout_seconds,
+                    max_attempts=descriptor.max_attempts,
+                )
+            )
+        return tuple(limits)
+
 
 def build_tool_registration(
     *,
@@ -85,9 +117,11 @@ def build_tool_registration(
     required_permissions: tuple[str, ...] = (),
     network_profile: str = "none",
     budget_class: str = "standard",
-    default_timeout_seconds: float = 60.0,
+    timeout_seconds: float,
+    max_attempts: int,
     payload_limit_bytes: int = 262_144,
     provenance_requirements: tuple[str, ...] = (),
+    semantic_identity_builder: ToolSemanticIdentityBuilder | None = None,
 ) -> ToolRegistration:
     descriptor = ToolDescriptor(
         tool_id=tool_id,
@@ -101,7 +135,8 @@ def build_tool_registration(
         required_permissions=required_permissions,
         network_profile=network_profile,
         budget_class=budget_class,
-        default_timeout_seconds=default_timeout_seconds,
+        timeout_seconds=timeout_seconds,
+        max_attempts=max_attempts,
         payload_limit_bytes=payload_limit_bytes,
         provenance_requirements=provenance_requirements,
     )
@@ -109,6 +144,7 @@ def build_tool_registration(
         descriptor=descriptor,
         input_model=input_model,
         handler=handler,
+        semantic_identity_builder=semantic_identity_builder,
     )
 
 
@@ -130,6 +166,7 @@ __all__ = [
     "ToolCatalog",
     "ToolHandler",
     "ToolRegistration",
+    "ToolSemanticIdentityBuilder",
     "build_tool_registration",
     "schema_hash",
 ]

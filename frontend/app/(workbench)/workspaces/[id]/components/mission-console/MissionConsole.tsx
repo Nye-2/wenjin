@@ -20,17 +20,19 @@ import {
   Users,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import {
   commitMissionReviews,
   decideMissionReviews,
-  getMissionView,
   listMissionArtifacts,
   listMissionEvidence,
   listMissionItems,
+  resolveMissionPermission,
   updateMissionReviewMode,
+  type MissionMutationResult,
 } from "@/lib/api/missions";
 import type {
   MissionArtifactView,
@@ -53,7 +55,7 @@ interface MissionConsoleProps {
   view: MissionView;
   compact?: boolean;
   onClose(): void;
-  onViewChange(view: MissionView): void;
+  onMissionTarget(missionId: string): Promise<boolean>;
   onChatAction(action: MissionChatAction): void;
 }
 
@@ -67,11 +69,13 @@ const SURFACES = [
   { id: "trace", label: "轨迹", icon: History },
 ] as const;
 
+const EMPTY_REVIEW_SELECTION = new Set<string>();
+
 export function MissionConsole({
   view,
   compact = false,
   onClose,
-  onViewChange,
+  onMissionTarget,
   onChatAction,
 }: MissionConsoleProps) {
   const panelMode = useMissionUiStore((state) => state.panelMode);
@@ -87,7 +91,7 @@ export function MissionConsole({
         data-testid="mission-console-peek"
       >
         <MissionHeader view={view} onClose={onClose} />
-        <MissionStaleNotice view={view} onViewChange={onViewChange} />
+        <MissionStaleNotice view={view} onMissionTarget={onMissionTarget} />
         <button
           type="button"
           className="group flex flex-1 flex-col items-start gap-4 px-5 py-6 text-left hover:bg-[var(--wjn-surface-subtle)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--wjn-accent)]"
@@ -122,7 +126,7 @@ export function MissionConsole({
       data-testid="mission-console"
     >
       <MissionHeader view={view} onClose={onClose} />
-      <MissionStaleNotice view={view} onViewChange={onViewChange} />
+      <MissionStaleNotice view={view} onMissionTarget={onMissionTarget} />
       <div
         className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--wjn-line)] px-3 py-2"
         role="tablist"
@@ -163,14 +167,28 @@ export function MissionConsole({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {surface === "progress" ? (
-          <ProgressSurface view={view} onChatAction={onChatAction} />
+          <ProgressSurface
+            view={view}
+            onChatAction={onChatAction}
+            onMissionTarget={onMissionTarget}
+          />
         ) : null}
         {surface === "review" ? (
-          <ReviewSurface view={view} onViewChange={onViewChange} />
+          <ReviewSurface
+            key={view.missionId}
+            view={view}
+            onMissionTarget={onMissionTarget}
+          />
         ) : null}
-        {surface === "evidence" ? <EvidenceSurface view={view} /> : null}
-        {surface === "artifacts" ? <ArtifactSurface view={view} /> : null}
-        {surface === "trace" ? <TraceSurface view={view} /> : null}
+        {surface === "evidence" ? (
+          <EvidenceSurface key={view.missionId} view={view} />
+        ) : null}
+        {surface === "artifacts" ? (
+          <ArtifactSurface key={view.missionId} view={view} />
+        ) : null}
+        {surface === "trace" ? (
+          <TraceSurface key={view.missionId} view={view} />
+        ) : null}
       </div>
     </aside>
   );
@@ -178,10 +196,10 @@ export function MissionConsole({
 
 function MissionStaleNotice({
   view,
-  onViewChange,
+  onMissionTarget,
 }: {
   view: MissionView;
-  onViewChange(view: MissionView): void;
+  onMissionTarget(missionId: string): Promise<boolean>;
 }) {
   const [retrying, setRetrying] = useState(false);
   const [retryFailed, setRetryFailed] = useState(false);
@@ -191,7 +209,7 @@ function MissionStaleNotice({
     setRetrying(true);
     setRetryFailed(false);
     try {
-      onViewChange(await getMissionView(view.missionId));
+      setRetryFailed(!(await onMissionTarget(view.missionId)));
     } catch {
       setRetryFailed(true);
     } finally {
@@ -293,9 +311,11 @@ function MissionHeader({ view, onClose }: { view: MissionView; onClose(): void }
 function ProgressSurface({
   view,
   onChatAction,
+  onMissionTarget,
 }: {
   view: MissionView;
   onChatAction(action: MissionChatAction): void;
+  onMissionTarget(missionId: string): Promise<boolean>;
 }) {
   return (
     <div className="space-y-7 px-5 py-5" data-testid="mission-progress">
@@ -310,7 +330,11 @@ function ProgressSurface({
         </section>
       ) : null}
       {view.attentionRequest ? (
-        <AttentionRequestCard view={view} onChatAction={onChatAction} />
+        <AttentionRequestCard
+          view={view}
+          onChatAction={onChatAction}
+          onMissionTarget={onMissionTarget}
+        />
       ) : null}
       {!view.attentionRequest ? <MissionActivity view={view} /> : null}
       <section>
@@ -399,21 +423,52 @@ function subagentStatusLabel(status: MissionView["subagents"][number]["status"])
 function AttentionRequestCard({
   view,
   onChatAction,
+  onMissionTarget,
 }: {
   view: MissionView;
   onChatAction(action: MissionChatAction): void;
+  onMissionTarget(missionId: string): Promise<boolean>;
 }) {
   const request = view.attentionRequest;
   const setSurface = useMissionUiStore((state) => state.setSurface);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (!request) return null;
 
-  const runAction = (actionType: (typeof request.actions)[number]["actionType"]) => {
+  const runAction = async (actionType: (typeof request.actions)[number]["actionType"]) => {
     if (actionType === "open_review") {
       setSurface("review");
       return;
     }
     if (actionType === "upload_file") {
       onChatAction("attach");
+      return;
+    }
+    const permissionDecision =
+      actionType === "permission_allow_once"
+        ? "allow_once"
+        : actionType === "permission_allow_mission"
+          ? "allow_for_mission"
+          : actionType === "permission_reject"
+            ? "reject"
+            : undefined;
+    if (permissionDecision) {
+      setSubmitting(true);
+      setError(null);
+      try {
+        await resolveMissionPermission({
+          missionId: view.missionId,
+          requestId: request.requestId,
+          decision: permissionDecision,
+        });
+        if (!(await onMissionTarget(view.missionId))) {
+          setError("权限决定已记录，最新任务状态暂时未能同步。请稍后重试。");
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "权限确认失败");
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
     onChatAction("focus");
@@ -453,56 +508,92 @@ function AttentionRequestCard({
           <button
             key={action.id}
             type="button"
-            onClick={() => runAction(action.actionType)}
+            onClick={() => void runAction(action.actionType)}
+            disabled={submitting}
             className={`h-8 px-3 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--wjn-accent)] ${action.primary ? "bg-[var(--wjn-accent)] text-white hover:bg-[var(--wjn-accent-strong)]" : "border border-[var(--wjn-line)] bg-[var(--wjn-surface)] text-[var(--wjn-text)] hover:bg-[var(--wjn-surface-subtle)]"}`}
           >
+            {submitting && action.primary ? <LoaderCircle size={13} className="mr-1 inline animate-spin" /> : null}
             {action.label}
           </button>
         ))}
       </div>
+      {error ? <p role="alert" className="mt-3 text-xs text-[var(--wjn-danger)]">{error}</p> : null}
     </section>
   );
 }
 
 function ReviewSurface({
   view,
-  onViewChange,
+  onMissionTarget,
 }: {
   view: MissionView;
-  onViewChange(view: MissionView): void;
+  onMissionTarget(missionId: string): Promise<boolean>;
 }) {
-  const selected = useMissionUiStore((state) => state.selectedReviewItemIds);
+  const storedSelection = useMissionUiStore((state) => state.selectedReviewItemIds);
+  const selectionMissionId = useMissionUiStore((state) => state.selectionMissionId);
+  const selectionRevision = useMissionUiStore((state) => state.selectionRevision);
+  const ensureReviewSelection = useMissionUiStore((state) => state.ensureReviewSelection);
   const toggleReviewItem = useMissionUiStore((state) => state.toggleReviewItem);
-  const selectionRevisionRef = useRef<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const busy = useMissionUiStore((state) => state.submittingReviewMissionIds.has(view.missionId));
+  const beginReviewSubmission = useMissionUiStore((state) => state.beginReviewSubmission);
+  const endReviewSubmission = useMissionUiStore((state) => state.endReviewSubmission);
   const [error, setError] = useState<string | null>(null);
+  const [projectionPending, setProjectionPending] = useState(false);
   const pending = view.reviewItems.filter((item) => item.status === "pending");
+  const suggestedSelection = useMemo(() => suggestedReviewSelection(view), [view]);
+  const selected =
+    selectionMissionId === view.missionId &&
+    selectionRevision === view.reviewSelectionRevision
+      ? storedSelection
+      : EMPTY_REVIEW_SELECTION;
 
   useEffect(() => {
-    if (selectionRevisionRef.current !== view.reviewSelectionRevision) {
-      selectionRevisionRef.current = view.reviewSelectionRevision;
-      replaceReviewSelection(suggestedReviewSelection(view));
+    ensureReviewSelection(
+      view.missionId,
+      view.reviewSelectionRevision,
+      suggestedSelection,
+    );
+  }, [
+    ensureReviewSelection,
+    suggestedSelection,
+    view.missionId,
+    view.reviewSelectionRevision,
+  ]);
+
+  useEffect(() => {
+    setProjectionPending(false);
+  }, [view.missionId, view.stateVersion]);
+
+  const synchronizeReceipt = async (result: MissionMutationResult) => {
+    if (result.issueCodes.length) {
+      setError(reviewMutationIssue(result.issueCodes));
     }
-  }, [view]);
+    let synchronized = false;
+    try {
+      synchronized = await onMissionTarget(result.targetMissionId);
+    } catch {
+      synchronized = false;
+    }
+    setProjectionPending(!synchronized);
+  };
 
   const selectedPending = pending.filter((item) => selected.has(item.id));
   const selectedHasProtected = selectedPending.some((item) => !item.batchAcceptable);
 
   const decide = async (decision: "accepted" | "rejected" | "needs_more_evidence") => {
     if (!selectedPending.length || (decision === "accepted" && selectedHasProtected)) return;
-    setBusy(true);
+    if (!beginReviewSubmission(view.missionId)) return;
     setError(null);
     try {
-      const next = await decideMissionReviews({
+      const result = await decideMissionReviews({
         missionId: view.missionId,
         decisions: selectedPending.map((item) => ({ reviewItemId: item.id, decision })),
       });
-      onViewChange(next);
-      replaceReviewSelection([]);
+      await synchronizeReceipt(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认失败");
     } finally {
-      setBusy(false);
+      endReviewSubmission(view.missionId);
     }
   };
 
@@ -510,38 +601,38 @@ function ReviewSurface({
     reviewItemId: string,
     decision: "accepted" | "rejected" | "needs_more_evidence",
   ) => {
-    setBusy(true);
+    if (!beginReviewSubmission(view.missionId)) return;
     setError(null);
     try {
-      const next = await decideMissionReviews({
+      const result = await decideMissionReviews({
         missionId: view.missionId,
         decisions: [{ reviewItemId, decision }],
       });
-      onViewChange(next);
-      replaceReviewSelection([]);
+      await synchronizeReceipt(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认失败");
     } finally {
-      setBusy(false);
+      endReviewSubmission(view.missionId);
     }
   };
 
   const saveAccepted = async () => {
-    const accepted = view.reviewItems.filter((item) => item.status === "accepted");
+    const accepted = view.reviewItems.filter(
+      (item) => item.status === "accepted" && item.commitEligible,
+    );
     if (!accepted.length) return;
-    setBusy(true);
+    if (!beginReviewSubmission(view.missionId)) return;
     setError(null);
     try {
-      onViewChange(
-        await commitMissionReviews({
-          missionId: view.missionId,
-          reviewItemIds: accepted.map((item) => item.id),
-        }),
-      );
+      const result = await commitMissionReviews({
+        missionId: view.missionId,
+        reviewItemIds: accepted.map((item) => item.id),
+      });
+      await synchronizeReceipt(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
     } finally {
-      setBusy(false);
+      endReviewSubmission(view.missionId);
     }
   };
 
@@ -556,7 +647,7 @@ function ReviewSurface({
               : "当前没有待确认内容。"}
           </p>
         </div>
-        <ReviewModeSelect view={view} onViewChange={onViewChange} />
+        <ReviewModeSelect view={view} onMissionTarget={onMissionTarget} />
       </div>
 
       {pending.length ? (
@@ -569,7 +660,12 @@ function ReviewSurface({
                   <input
                     type="checkbox"
                     checked={selected.has(item.id)}
-                    onChange={() => toggleReviewItem(item.id)}
+                    disabled={busy}
+                    onChange={() => toggleReviewItem(
+                      view.missionId,
+                      view.reviewSelectionRevision,
+                      item.id,
+                    )}
                     aria-label={`选择 ${item.title}`}
                     className="h-4 w-4 accent-[var(--wjn-accent)]"
                   />
@@ -645,17 +741,33 @@ function ReviewSurface({
           <h4 className="mb-2 text-xs font-semibold text-[var(--wjn-text)]">已处理内容</h4>
           <div className="divide-y divide-[var(--wjn-line)]">
             {view.reviewItems.filter((item) => item.status !== "pending" && item.status !== "superseded").map((item) => (
-              <div key={item.id} className="flex items-center justify-between gap-3 py-2.5 text-xs">
-                <span className="min-w-0 truncate text-[var(--wjn-text-secondary)]">{item.title}</span>
-                <span className={item.status === "committed" ? "text-[var(--wjn-success)]" : item.status === "needs_more_evidence" ? "text-[var(--wjn-review)]" : "text-[var(--wjn-text-muted)]"}>
+              <div key={item.id} className="flex items-center gap-3 py-2.5 text-xs">
+                <span className="min-w-0 flex-1 truncate text-[var(--wjn-text-secondary)]">{item.title}</span>
+                {item.status === "committed" && item.targetKind === "workspace_asset" && item.visual && item.committedTargetRef ? (
+                  <Link
+                    href={`/workspaces/${encodeURIComponent(view.workspaceId)}/prism?visual_mission_id=${encodeURIComponent(view.missionId)}&visual_review_item_id=${encodeURIComponent(item.id)}`}
+                    className="shrink-0 font-medium text-[var(--wjn-accent-strong)] hover:underline"
+                  >
+                    插入写作台
+                  </Link>
+                ) : null}
+                <span className={`shrink-0 ${item.status === "committed" ? "text-[var(--wjn-success)]" : item.status === "needs_more_evidence" ? "text-[var(--wjn-review)]" : "text-[var(--wjn-text-muted)]"}`}>
                   {reviewItemStatusLabel(item.status, item.commitStatus)}
                 </span>
+                {item.commitErrorCode ? (
+                  <span className="sr-only">保存错误：{item.commitErrorCode}</span>
+                ) : null}
               </div>
             ))}
           </div>
         </div>
       ) : null}
       {error ? <p className="mt-3 text-xs text-[var(--wjn-error)]">{error}</p> : null}
+      {projectionPending ? (
+        <p className="mt-3 text-xs text-[var(--wjn-text-secondary)]" role="status">
+          操作已受理，最新任务状态正在同步。
+        </p>
+      ) : null}
       <div className="sticky bottom-0 mt-4 flex flex-wrap gap-2 border-t border-[var(--wjn-line)] bg-[var(--wjn-surface)] py-3">
         <button
           type="button"
@@ -683,7 +795,7 @@ function ReviewSurface({
         </button>
         <button
           type="button"
-          disabled={busy || view.reviewSummary.accepted === 0}
+          disabled={busy || !view.reviewItems.some((item) => item.status === "accepted" && item.commitEligible)}
           onClick={() => void saveAccepted()}
           className="wjn-button-secondary ml-auto h-8 px-3 text-xs disabled:opacity-45"
         >
@@ -730,27 +842,54 @@ function reviewMarkdownPreview(preview: MissionView["reviewItems"][number]["prev
   return null;
 }
 
-function ReviewModeSelect({ view, onViewChange }: { view: MissionView; onViewChange(view: MissionView): void }) {
+function ReviewModeSelect({
+  view,
+  onMissionTarget,
+}: {
+  view: MissionView;
+  onMissionTarget(missionId: string): Promise<boolean>;
+}) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectionPending, setProjectionPending] = useState(false);
+  const busy = useMissionUiStore((state) => state.submittingReviewMissionIds.has(view.missionId));
+  const beginReviewSubmission = useMissionUiStore((state) => state.beginReviewSubmission);
+  const endReviewSubmission = useMissionUiStore((state) => state.endReviewSubmission);
   const labels: Record<MissionReviewMode, string> = {
     review_all: "每项确认",
     balanced_default: "平衡模式",
     auto_draft: "草稿自动保存",
   };
+
+  useEffect(() => {
+    setProjectionPending(false);
+  }, [view.missionId, view.stateVersion]);
+
   const change = async (mode: MissionReviewMode) => {
+    if (!beginReviewSubmission(view.missionId)) return;
     setOpen(false);
     setError(null);
+    setProjectionPending(false);
     try {
-      onViewChange(await updateMissionReviewMode(view.missionId, mode));
+      const result = await updateMissionReviewMode(view.missionId, mode);
+      let synchronized = false;
+      try {
+        synchronized = await onMissionTarget(result.targetMissionId);
+      } catch {
+        synchronized = false;
+      }
+      setProjectionPending(!synchronized);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认方式更新失败");
+    } finally {
+      endReviewSubmission(view.missionId);
     }
   };
   return (
     <div className="relative">
       <button
         type="button"
+        disabled={busy}
         onClick={() => setOpen((value) => !value)}
         className="flex h-8 items-center gap-1 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] px-2.5 text-xs text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface-subtle)]"
         aria-haspopup="menu"
@@ -761,7 +900,7 @@ function ReviewModeSelect({ view, onViewChange }: { view: MissionView; onViewCha
       {open ? (
         <div className="absolute right-0 top-9 z-30 min-w-40 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-1 shadow-[var(--wjn-shadow-md)]" role="menu">
           {(Object.keys(labels) as MissionReviewMode[]).map((mode) => (
-            <button key={mode} type="button" role="menuitem" onClick={() => void change(mode)} className="flex w-full items-center justify-between rounded px-2.5 py-2 text-left text-xs hover:bg-[var(--wjn-surface-subtle)]">
+            <button key={mode} type="button" role="menuitem" disabled={busy} onClick={() => void change(mode)} className="flex w-full items-center justify-between rounded px-2.5 py-2 text-left text-xs hover:bg-[var(--wjn-surface-subtle)] disabled:opacity-45">
               {labels[mode]} {view.reviewMode === mode ? <Check size={13} /> : null}
             </button>
           ))}
@@ -770,6 +909,11 @@ function ReviewModeSelect({ view, onViewChange }: { view: MissionView; onViewCha
       {error ? (
         <span className="absolute right-0 top-9 z-30 w-48 rounded-[var(--wjn-radius)] bg-[var(--wjn-error-soft)] px-2.5 py-2 text-[11px] leading-4 text-[var(--wjn-error)]">
           {error}
+        </span>
+      ) : null}
+      {projectionPending ? (
+        <span className="absolute right-0 top-9 z-30 w-48 rounded-[var(--wjn-radius)] bg-[var(--wjn-surface-subtle)] px-2.5 py-2 text-[11px] leading-4 text-[var(--wjn-text-secondary)]" role="status">
+          设置已受理，最新状态正在同步。
         </span>
       ) : null}
     </div>
@@ -783,10 +927,20 @@ function EvidenceSurface({ view }: { view: MissionView }) {
   const [nextCursor, setNextCursor] = useState<number | null>(view.evidenceNextCursor ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const requestEpochRef = useRef(0);
+  const requestInFlightRef = useRef(false);
 
   useEffect(() => {
+    ++requestEpochRef.current;
+    requestInFlightRef.current = false;
     setEvidenceItems(view.evidenceItems);
     setNextCursor(view.evidenceNextCursor ?? null);
+    setLoadingMore(false);
+    setLoadError(null);
+    return () => {
+      ++requestEpochRef.current;
+      requestInFlightRef.current = false;
+    };
   }, [view.evidenceItems, view.evidenceNextCursor, view.missionId]);
 
   const items = useMemo(() => {
@@ -798,17 +952,26 @@ function EvidenceSurface({ view }: { view: MissionView }) {
   }, [evidenceItems, query]);
 
   const loadMore = async () => {
-    if (nextCursor === null || loadingMore) return;
+    if (nextCursor === null || requestInFlightRef.current) return;
+    const missionId = view.missionId;
+    const cursor = nextCursor;
+    const requestEpoch = ++requestEpochRef.current;
+    requestInFlightRef.current = true;
     setLoadingMore(true);
     setLoadError(null);
     try {
-      const page = await listMissionEvidence({ missionId: view.missionId, cursor: nextCursor });
+      const page = await listMissionEvidence({ missionId, cursor });
+      if (requestEpoch !== requestEpochRef.current) return;
       setEvidenceItems((current) => appendUnique(current, page.items));
       setNextCursor(page.nextCursor);
     } catch (reason) {
+      if (requestEpoch !== requestEpochRef.current) return;
       setLoadError(reason instanceof Error ? reason.message : "更多证据加载失败");
     } finally {
-      setLoadingMore(false);
+      if (requestEpoch === requestEpochRef.current) {
+        requestInFlightRef.current = false;
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -849,27 +1012,46 @@ function ArtifactSurface({ view }: { view: MissionView }) {
   const [nextCursor, setNextCursor] = useState<number | null>(view.artifactNextCursor ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const requestEpochRef = useRef(0);
+  const requestInFlightRef = useRef(false);
 
   useEffect(() => {
+    ++requestEpochRef.current;
+    requestInFlightRef.current = false;
     setArtifactItems(view.artifactItems);
     setNextCursor(view.artifactNextCursor ?? null);
+    setLoadingMore(false);
+    setLoadError(null);
+    return () => {
+      ++requestEpochRef.current;
+      requestInFlightRef.current = false;
+    };
   }, [view.artifactItems, view.artifactNextCursor, view.missionId]);
 
   const loadMore = async () => {
-    if (nextCursor === null || loadingMore) return;
+    if (nextCursor === null || requestInFlightRef.current) return;
+    const missionId = view.missionId;
+    const cursor = nextCursor;
+    const requestEpoch = ++requestEpochRef.current;
+    requestInFlightRef.current = true;
     setLoadingMore(true);
     setLoadError(null);
     try {
       const page = await listMissionArtifacts({
-        missionId: view.missionId,
-        cursor: nextCursor,
+        missionId,
+        cursor,
       });
+      if (requestEpoch !== requestEpochRef.current) return;
       setArtifactItems((current) => appendUnique(current, page.items));
       setNextCursor(page.nextCursor);
     } catch (reason) {
+      if (requestEpoch !== requestEpochRef.current) return;
       setLoadError(reason instanceof Error ? reason.message : "更多成果加载失败");
     } finally {
-      setLoadingMore(false);
+      if (requestEpoch === requestEpochRef.current) {
+        requestInFlightRef.current = false;
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -906,28 +1088,50 @@ function appendUnique<T extends { id: string }>(current: T[], incoming: T[]): T[
   return [...current, ...incoming.filter((item) => !known.has(item.id))];
 }
 
-function replaceReviewSelection(ids: string[]): void {
-  useMissionUiStore.setState({ selectedReviewItemIds: new Set(ids) });
-}
-
 function TraceSurface({ view }: { view: MissionView }) {
   const [items, setItems] = useState<MissionItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestEpochRef = useRef(0);
+  const requestInFlightRef = useRef(false);
+
+  useEffect(() => {
+    ++requestEpochRef.current;
+    requestInFlightRef.current = false;
+    setItems([]);
+    setCursor(null);
+    setStarted(false);
+    setLoading(false);
+    setError(null);
+    return () => {
+      ++requestEpochRef.current;
+      requestInFlightRef.current = false;
+    };
+  }, [view.missionId]);
+
   const load = async (nextCursor?: string | null) => {
+    if (requestInFlightRef.current) return;
+    const missionId = view.missionId;
+    const requestEpoch = ++requestEpochRef.current;
+    requestInFlightRef.current = true;
     setLoading(true);
     setError(null);
     try {
-      const page = await listMissionItems({ missionId: view.missionId, cursor: nextCursor, limit: 30 });
+      const page = await listMissionItems({ missionId, cursor: nextCursor, limit: 30 });
+      if (requestEpoch !== requestEpochRef.current) return;
       setItems((current) => (nextCursor ? [...current, ...page.items] : page.items));
       setCursor(page.nextCursor);
       setStarted(true);
     } catch {
+      if (requestEpoch !== requestEpochRef.current) return;
       setError("任务轨迹暂时未能加载，请重试。");
     } finally {
-      setLoading(false);
+      if (requestEpoch === requestEpochRef.current) {
+        requestInFlightRef.current = false;
+        setLoading(false);
+      }
     }
   };
   if (!started) {
@@ -981,6 +1185,22 @@ function reviewItemStatusLabel(
   if (status === "needs_more_evidence") return "需补证";
   if (status === "rejected") return "暂不保存";
   return "已更新";
+}
+
+function reviewMutationIssue(codes: string[]): string {
+  const labels: Record<string, string> = {
+    commit_in_progress: "部分内容仍在保存中",
+    explicit_review_required: "部分内容需要逐项确认",
+    review_item_not_accepted: "部分内容尚未确认",
+    review_preview_expired: "部分预览已过期，请重新生成",
+    review_preview_integrity_failed: "部分预览已变化，请重新生成",
+    stale_target_precondition: "目标文档已有更新，请重新生成变更",
+    target_path_conflict: "目标文件已存在，请调整后重试",
+    review_source_stage_unavailable: "暂时无法定位需要补充的研究阶段，请在对话中说明要修改的部分",
+    continuation_policy_changed: "研究方法已更新，请在对话中重新发起这项补充任务",
+    continuation_parent_not_terminal: "当前任务仍在推进，反馈会在下一步处理",
+  };
+  return [...new Set(codes)].map((code) => labels[code] ?? "部分内容未能完成").join("；");
 }
 
 function StatusMark({ status }: { status: MissionView["executionStatus"] }) {

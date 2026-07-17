@@ -150,8 +150,6 @@ def _source_import_command(
     citation_count: Any = None,
     source_type: ReferenceSourceType | str,
     source_label: str | None = None,
-    source_run_id: str | None = None,
-    source_artifact_id: str | None = None,
     verified_at: Any = None,
     library_status: ReferenceLibraryStatus | str = ReferenceLibraryStatus.CANDIDATE,
     evidence_level: ReferenceEvidenceLevel | str = ReferenceEvidenceLevel.METADATA_ONLY,
@@ -180,8 +178,6 @@ def _source_import_command(
         citation_count=safe_int(citation_count),
         ingest_kind=_enum_value(source_type),
         ingest_label=source_label,
-        ingest_mission_id=source_run_id,
-        ingest_mission_commit_id=source_artifact_id,
         verified_at=verified_at if hasattr(verified_at, "isoformat") else utc_now() if verified_at else None,
         library_status=_enum_value(library_status),
         evidence_level=_enum_value(evidence_level),
@@ -250,7 +246,6 @@ class SourceLibraryImportService:
         workspace_id: str,
         papers: Iterable[dict[str, Any]],
         source_label: str | None = None,
-        source_artifact_id: str | None = None,
     ) -> dict[str, Any]:
         imported: list[dict[str, Any]] = []
         created_count = 0
@@ -276,7 +271,6 @@ class SourceLibraryImportService:
                         citation_count=paper.get("citations_count") or paper.get("citation_count"),
                         source_type=_reference_source_type_for_search_source(source_name),
                         source_label=source_label or _reference_source_label_for_search_source(source_name),
-                        source_artifact_id=source_artifact_id,
                         verified_at=utc_now(),
                         library_status=ReferenceLibraryStatus.CANDIDATE,
                         evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED,

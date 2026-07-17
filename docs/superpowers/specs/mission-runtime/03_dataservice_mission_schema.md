@@ -1,9 +1,9 @@
 # 03 DataService Mission Schema Spec
 
 Status: Implemented
-Updated: 2026-07-11
+Updated: 2026-07-16
 
-Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, aggregate references by 096, and final workspace/runtime cutovers by 097-101. Development history is drop/reseed. Empty-database online migration through 101 is the release baseline.
+Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, aggregate references by 096, final workspace/runtime cutovers by 097-101, review policy projection by 102, and DataService concurrency fencing by 103. Development history is drop/reseed. Empty-database online migration through 103 is the release baseline.
 Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `13_migration_release_gate.md`
 
 ## Goal
@@ -90,6 +90,9 @@ next_wakeup_at timestamptz null
 lease_owner text null
 lease_epoch bigint not null default 0
 lease_expires_at timestamptz null
+dispatch_owner text null
+dispatch_epoch bigint not null default 0
+dispatch_expires_at timestamptz null
 state_version bigint not null default 0
 last_item_seq bigint not null default 0
 created_at timestamptz not null
@@ -155,6 +158,7 @@ Suggested columns:
 review_item_id uuid primary key
 mission_id uuid not null references mission_runs(mission_id) on delete cascade
 source_item_seq bigint null
+output_key text not null
 target_kind text not null
 target_room text null
 target_ref text null
@@ -183,7 +187,7 @@ index (mission_id, status, risk_level)
 index (mission_id, target_room)
 ```
 
-`review_item_id` is already the primary key; do not add a redundant unique `(mission_id, review_item_id)` index unless a measured query requires it.
+The composite unique `(mission_id, review_item_id)` is intentional: `mission_commits` uses it as a composite foreign-key target so a commit cannot reference a review item from another Mission. It is an ownership constraint, not a query-optimization duplicate.
 
 Statuses:
 
@@ -214,6 +218,9 @@ actor_user_id uuid not null
 targets_json jsonb not null default '{}'
 error_json jsonb null
 attempt_count integer not null default 0
+attempt_token text null
+attempt_started_at timestamptz null
+attempt_expires_at timestamptz null
 created_at timestamptz not null
 completed_at timestamptz null
 ```
@@ -243,6 +250,7 @@ POST   /internal/v1/missions/{mission_id}/review-items
 POST   /internal/v1/missions/{mission_id}/review-decisions
 POST   /internal/v1/missions/{mission_id}/commits
 GET    /internal/v1/missions/{mission_id}/items
+POST   /internal/v1/missions/{mission_id}/items/by-seqs
 ```
 
 Client shape:
@@ -268,14 +276,14 @@ The mission cutover includes every DataService field that currently stores execu
 | `ingest_execution_id` | `ingest_mission_id` |
 | `related_execution_ids` | `related_mission_ids` |
 | `holder_execution_id` | `holder_mission_id`, or delete when the lease is chat-transport-only |
-| `CreditReservation.scope=feature_execution` | `mission_execution` |
+| polymorphic credit reservation scopes | one Mission-owned reservation with unique `mission_id` |
 | `run_history.execution_id` | delete; mission list reads `mission_runs` |
 
 Domain-specific requirements:
 
-- Credit reservations must attach to `mission_id`; `ChatTurnRun` never owns feature-task credits.
+- Credit reservations attach to a required, unique `mission_id`; the table has no polymorphic scope or item-level ownership fields. `ChatTurnRun` never owns feature-task credits.
 - Sandbox jobs attach to `mission_id` and optional `mission_item_seq`; sandbox leases use mission or sandbox job ownership, not execution ownership.
-- Source/provenance records use mission provenance fields and remove old provider-only `source_type` history values.
+- Source/provenance records use `ingest_mission_id` / `ingest_mission_commit_id` and domain source kinds; `source_run_id`, `source_artifact_id`, and old provider-only history values are absent from runtime projections.
 - Prism, task, memory, and room write provenance use `source_mission_id` or `mission_commit_id`.
 - Workspace memory keeps source, observed time, confidence, and staleness metadata; only reviewed, non-stale facts enter mission context.
 - Existing `ReviewBatch` rows are dropped/reseeded; runtime review state lives in `mission_review_items`.
@@ -316,6 +324,7 @@ apply_review_decisions()
 record_commit()
 list_runs_summary()
 list_items_page()
+list_items_by_seqs()
 drop_or_reseed_development_data()
 ```
 

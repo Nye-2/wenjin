@@ -61,13 +61,15 @@ A mission is created only when the `WorkspaceAgent` emits a valid structured sta
 
 Each worker invocation drives a bounded `MissionDriveSlice`. It claims a fenced lease, consumes ordered commands, advances the agent loop, invokes tools or subagents, evaluates stage acceptance, emits review candidates, checkpoints state, and either completes or schedules a wakeup. Production permits one model decision per durable slice, with a 165-second request budget and provider-internal retries disabled; the durable scheduler owns retries. Repeated transient model failures are capped and terminate with `model_service_unavailable` while preserving partial work. A slice never owns an unbounded in-process research session.
 
-Dynamic tasks such as mathematical-modeling questions use server-owned stage cardinality. The quality action for the prerequisite understanding stage declares each policy-defined `quality_item_counts` source, and MissionRuntime validates the known source, range, projected prerequisite receipts, and absence of per-item work before atomically persisting both the stage pass and the count. A pass cannot become visible without every workload it unlocks, and `continue` cannot mutate cardinality. The client cannot supply or change these counts. Completion expands every per-item stage family from the pinned cardinality, requires every expanded stage to pass, and requires accepted terminal artifacts of the selected completion target to have a current user-visible confirmation candidate.
+Dynamic tasks such as mathematical-modeling questions use server-owned stage cardinality. The quality action for the prerequisite understanding stage declares each policy-defined `quality_item_counts` source, and MissionRuntime validates the known source, range, projected prerequisite receipts, and absence of per-item work before atomically persisting both the stage pass and the count. A pass cannot become visible without every workload it unlocks, and `continue` cannot mutate cardinality. The client cannot supply or change these counts. Every all-item prerequisite declares its count source explicitly through `all_item_source_context_key`; runtime code never scans templates to guess it. Completion expands every per-item stage family from the pinned cardinality, requires every expanded stage to pass, and requires accepted terminal artifacts of the selected completion target to have a current user-visible confirmation candidate.
 
 Mission statuses are `created`, `planning`, `running`, `waiting`, `completed`, `failed`, and `cancelled`. `waiting` is durable and may represent user input, permission, an in-loop review checkpoint, budget, or an external prerequisite. Final user confirmation is a separate review axis: once every required stage passes and terminal candidates are exposed, MissionRuntime deterministically completes execution even if the model proposes waiting for that confirmation. Terminal missions have no active lease or wakeup.
 
 A provenance-linked child Mission is a strict continuation. When a thread has no foreground Mission, `ThreadTurnHandler` resolves one bounded continuation target: a valid Mission id explicitly referenced in the current message takes precedence, otherwise the latest terminal Mission is used. Invalid or ambiguous explicit targets never fall back silently. An explicit continuation must return that exact parent id; an explicit new task returns no parent. The server rejects any model-authored parent that does not match the resolved target. The parent must be terminal, and workspace, thread, user, workspace type, MissionPolicy id, and pinned policy content hash must match.
 
 MissionRuntime copies only stage receipts whose result is `pass`, the server-owned dynamic stage cardinality established by those receipts, and a bounded canonical lineage of the exact inputs and outputs used by passed work. That lineage may include sealed `mission-input:` refs, accepted internal `artifact-candidate:` refs, verified `sandbox-artifact:` refs, workspace assets/documents, and the latest committed target for a stable `output_key`. It never inherits leases, failures, pending review state, rejected or unaccepted candidates, superseded committed outputs, or raw conversational context.
+
+Review feedback follows the same immutable boundary. During a non-terminal Mission it becomes one durable `review_feedback` command. After terminal completion, `needs_more_evidence`, explicit regeneration, or a stale-target commit starts an idempotent child Mission. The server resolves the exact source stage from the reviewed MissionItem, invalidates that stage and its transitive dependency closure, and inherits only unaffected passed stages. Missing source lineage fails closed; it never guesses by replaying every stage. Review/commit responses return the child Mission id, and the frontend immediately follows that canonical MissionView.
 
 ## 4. Mission persistence
 
@@ -88,7 +90,7 @@ Sequential tool workflows stay with WorkspaceAgent: it issues durable tool or Sa
 
 A continuation Mission inherits passed stage receipts plus the bounded canonical lineage actually required to continue accepted work without materializing intermediate files. Accepted internal candidates and verified Sandbox artifacts remain immutable refs; committed outputs resolve through the same `output_key` to the latest committed workspace target. Parent review queues, preview decisions, and unrelated draft candidates never become child runtime state.
 
-Linked domains use `mission_id`, `mission_item_seq`, `mission_review_item_id`, and `mission_commit_id` provenance. Historical development data was intentionally dropped/reseeded during migrations 086-101 rather than translated through runtime shims.
+Linked domains use `mission_id`, `mission_item_seq`, `mission_review_item_id`, and `mission_commit_id` provenance. Historical development data was intentionally dropped/reseeded during migrations 086-103 rather than translated through runtime shims.
 
 DataService writes user-facing semantic projections at the same transaction boundary as their cause. Finishing a tool operation atomically appends its immutable terminal receipt plus typed `evidence` and `artifact` items; counters are derived from those appended items. A retry either observes the complete projection or none of it and cannot duplicate references. The frontend never scans operation payloads to reconstruct evidence or artifacts.
 
@@ -140,6 +142,8 @@ Review modes are `review_all`, `balanced_default`, and `auto_draft`. They are se
 
 Generation quality is handled before this boundary by the Mission loop and StageAcceptance. Critic workers are optional diagnostics triggered only by an explicit user audit, not mandatory reviewers on every output. Review candidates are atomic, previewable write proposals created only for accepted deliverables that may change protected workspace truth. Users may inspect them when convenient, ask Chat to audit a suspicious section, accept, reject, request more evidence, or commit accepted subsets. `ReviewCommitRuntime` verifies ownership, decision state, base revision/hash, and idempotency before materialization. A commit records per-item outcomes, allowing partial save without pretending the whole mission succeeded.
 
+Every protected target write carries one `MissionWriteAuthority(mission_id, mission_review_item_id, mission_commit_id, attempt_token)`. The target DataService transaction rechecks the applying commit lease, accepted review item, Mission ownership, workspace, token, and expiry before writing. Provenance strings and caller-supplied ids never substitute for this authority. The same contract protects Prism, Source, Asset, Memory, Room, and Sandbox materialization.
+
 Permissions are durable mission pauses. Approval applies to a specific request and operation; sandboxed low-risk work is not interrupted by generic confirmation prompts. Resume appends an ordered user command and schedules the mission again.
 
 ## 9. Sandbox vNext
@@ -181,7 +185,6 @@ Workspace activity is also Mission-only. Thread, auxiliary Celery task, and arti
 - `worker` consumes `default,priority` for chat, document preprocessing, and other short jobs.
 - `mission-worker` consumes `long_running` with concurrency 1 and prefetch 1 for durable slices.
 - `celery-beat` is the single periodic scheduler and publishes Mission reconciliation hints every 15 seconds.
-- `memory-worker` consumes `memory`.
 - PostgreSQL stores durable truth; Redis backs Celery and event hints.
 
 The runtime can recover after process loss because leases expire, commands and items are durable, and the reconciler republishes due missions. In-memory UI state and queue delivery are never authoritative.
@@ -247,5 +250,10 @@ The runtime can recover after process loss because leases expire, commands and i
 - `099_thread_skill_cutover`: removes obsolete thread-level skill selection; MissionPolicy and WorkerSkill remain the only research methodology catalogs.
 - `100_review_output_key_cutover`: gives each semantic Mission output one stable review key; newer candidates supersede older candidates atomically and only the current candidate enters user projections.
 - `101_workspace_reasoning_effort_cutover`: makes `low | medium | high | xhigh` the only persisted workspace reasoning preference and removes the obsolete binary thinking flag.
+- `102_review_policy_projection_cutover`: removes persisted review-policy projection flags and derives them from review mode/risk; uniquely fences Mission-created workspace assets by their review source.
+- `103_dataservice_concurrency_fences`: serializes workspace decision and memory mutations at the DataService transaction boundary and uniquely fences active partial decisions.
+- `104_remove_dataservice_sandbox`: removes the obsolete persisted sandbox aggregate; Sandbox vNext keeps typed execution receipts and content-addressed artifacts under Mission ownership.
+- `105_remove_latex_compile_history`: removes Gateway-owned LaTeX compilation history and the direct Docker/process execution stack.
+- `106_remove_sandbox_pricing_policy`: removes standalone sandbox/refund billing surfaces and converges Mission reservations and public pricing on canonical DataService policy bindings.
 
 These migrations are intentionally irreversible in development. Recovery is drop/reseed, not compatibility code.

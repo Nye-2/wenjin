@@ -5,6 +5,8 @@ from celery import Celery
 from src.config.task_config import task_settings
 from src.mission_runtime.contracts import MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS
 
+MISSION_PREVIEW_CLEANUP_INTERVAL_SECONDS = 300.0
+
 # Create Celery app
 celery_app = Celery(
     "wenjin",
@@ -46,7 +48,7 @@ celery_app.conf.update(
         "src.task.tasks.process_chat_turn": {"queue": "default"},
         "src.task.tasks.drive_mission": {"queue": "long_running"},
         "src.task.tasks.reconcile_missions": {"queue": "default"},
-        "src.task.tasks.capture_memory": {"queue": "memory"},
+        "src.task.tasks.cleanup_mission_previews": {"queue": "default"},
         "credit_periodic.process_credit_grant_rules": {"queue": "default"},
     },
 
@@ -63,10 +65,6 @@ celery_app.conf.update(
         "priority": {
             "exchange": "tasks",
             "routing_key": "task.priority",
-        },
-        "memory": {
-            "exchange": "tasks",
-            "routing_key": "task.memory",
         },
     },
 
@@ -91,5 +89,9 @@ celery_app.conf.beat_schedule = {
     "reconcile-runnable-missions": {
         "task": "src.task.tasks.reconcile_missions",
         "schedule": 15.0,
+    },
+    "cleanup-expired-mission-previews": {
+        "task": "src.task.tasks.cleanup_mission_previews",
+        "schedule": MISSION_PREVIEW_CLEANUP_INTERVAL_SECONDS,
     },
 }

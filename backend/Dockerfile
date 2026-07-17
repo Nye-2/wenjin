@@ -71,7 +71,6 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy application code
 COPY src/ ./src/
-COPY config.yaml ./
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY seed/ ./seed/
@@ -107,7 +106,6 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy application code
 COPY src/ ./src/
-COPY config.yaml ./
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 
@@ -125,38 +123,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 # Default command - run DataService server
 CMD ["python", "-m", "uvicorn", "src.dataservice_app.app:app", "--host", "0.0.0.0", "--port", "8080"]
-
-# ============================================
-# LangGraph Stage - Agent Server
-# ============================================
-FROM base AS langgraph
-
-# Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
-
-# Add venv to PATH
-ENV PATH="/app/.venv/bin:$PATH"
-
-# Copy application code
-COPY src/ ./src/
-COPY config.yaml ./
-COPY langgraph.json ./
-COPY seed/ ./seed/
-
-# Create uploads directory
-RUN mkdir -p /app/uploads
-
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser && \
-    chown -R appuser:appuser /app
-USER appuser
-
-# Expose port
-EXPOSE 2024
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:2024/info || exit 1
-
-# Default command - run langgraph API server
-CMD ["langgraph", "dev", "--no-browser", "--no-reload", "--host", "0.0.0.0", "--port", "2024", "--config", "langgraph.json"]

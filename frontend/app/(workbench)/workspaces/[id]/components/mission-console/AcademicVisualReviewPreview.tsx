@@ -22,6 +22,7 @@ export function AcademicVisualReviewPreview({ missionId, item }: AcademicVisualR
   const [loadedMimeType, setLoadedMimeType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState(false);
+  const metadataMimeType = metadata?.mimeType ?? null;
 
   useEffect(() => {
     if (!metadata || !item.previewAvailable) return;
@@ -34,7 +35,7 @@ export function AcademicVisualReviewPreview({ missionId, item }: AcademicVisualR
     void getMissionReviewPreview({ missionId, reviewItemId: item.id })
       .then(({ blob, mimeType }) => {
         if (!active) return;
-        const resolvedMimeType = mimeType || metadata.mimeType || "";
+        const resolvedMimeType = mimeType || metadataMimeType || "";
         if (!IMAGE_MIME_TYPES.has(resolvedMimeType) && resolvedMimeType !== PDF_MIME_TYPE) {
           throw new Error("暂不支持此预览格式");
         }
@@ -50,7 +51,7 @@ export function AcademicVisualReviewPreview({ missionId, item }: AcademicVisualR
       active = false;
       if (nextObjectUrl) URL.revokeObjectURL(nextObjectUrl);
     };
-  }, [item.id, item.previewAvailable, metadata, missionId]);
+  }, [item.id, item.previewAvailable, metadataMimeType, missionId]);
 
   const metadataLines = useMemo(() => metadata ? visualMetadataLines(metadata) : [], [metadata]);
   if (!metadata) return null;

@@ -21,6 +21,7 @@ from src.agents.workspace_agent.mission_loop import (
 )
 from src.agents.workspace_agent.prompts.mission import render_workspace_mission_prompt
 from src.contracts.reasoning import ReasoningEffort
+from src.contracts.review_policy import ReviewMode
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     StageCriterion,
@@ -29,7 +30,6 @@ from src.contracts.stage_acceptance import (
 from src.dataservice_client.contracts.mission import (
     MissionItemPayload,
     MissionItemPhase,
-    MissionReviewMode,
     MissionRunPayload,
     MissionStatus,
 )
@@ -54,7 +54,7 @@ def _mission_payload() -> MissionRunPayload:
         title="Solve question one",
         objective="Validate question one in the sandbox.",
         status=MissionStatus.RUNNING,
-        review_mode=MissionReviewMode.REVIEW_ALL,
+        review_mode=ReviewMode.REVIEW_ALL,
         active_stage_id="question_1_solution_validation",
         model_id="gpt-5.6-luna",
         reasoning_effort=ReasoningEffort.XHIGH,
@@ -500,46 +500,46 @@ def test_mission_scope_rejects_duplicate_subagent_selected_refs() -> None:
 
 
 def test_mission_loop_maps_typed_review_items_to_atomic_candidates() -> None:
+    arguments = {
+        "decision_id": "review-1",
+        "kind": "review",
+        "summary": "Prepare the materials inventory for review",
+        "operation_id": "op-review-1",
+        "stage_id": "materials_inventory",
+        "risk_level": "medium",
+        "plan_json": "{}",
+        "tool_name": None,
+        "tool_arguments_json": "{}",
+        "subagent_jobs": [],
+        "quality_candidate_refs": [],
+        "quality_criteria": [],
+        "quality_blocking_user_inputs": [],
+        "review_summary": "One grounded draft is ready",
+        "review_items": [
+            {
+                "candidate_ref": "artifact-candidate:" + "a" * 64,
+                "output_key": "literature_positioning",
+                "target_kind": "document",
+                "target_room": "documents",
+                "target_ref": None,
+                "base_revision_ref": None,
+                "base_hash": None,
+                "title": "软著材料盘点",
+                "summary": "Known facts and missing evidence",
+                "risk_level": "medium",
+                "review_required_reason": "Document write requires confirmation",
+            }
+        ],
+        "failure_reason": None,
+        "pause_request": None,
+    }
     decision = parse_mission_decision(
         AIMessage(
             content="",
             tool_calls=[
                 {
                     "name": "mission_step",
-                    "args": {
-                        "decision_id": "review-1",
-                        "kind": "review",
-                        "summary": "Prepare the materials inventory for review",
-                        "operation_id": "op-review-1",
-                        "stage_id": "materials_inventory",
-                        "risk_level": "medium",
-                        "plan_json": "{}",
-                        "tool_name": None,
-                        "tool_arguments_json": "{}",
-                        "subagent_jobs": [],
-                        "quality_candidate_refs": [],
-                        "quality_criteria": [],
-                        "quality_blocking_user_inputs": [],
-                        "review_summary": "One grounded draft is ready",
-                        "review_items": [
-                            {
-                                "review_item_id": "review-item-1",
-                                "candidate_ref": "artifact-candidate:" + "a" * 64,
-                                "output_key": "literature_positioning",
-                                "target_kind": "document",
-                                "target_room": "documents",
-                                "target_ref": None,
-                                "base_revision_ref": None,
-                                "base_hash": None,
-                                "title": "软著材料盘点",
-                                "summary": "Known facts and missing evidence",
-                                "risk_level": "medium",
-                                "review_required_reason": "Document write requires confirmation",
-                            }
-                        ],
-                        "failure_reason": None,
-                        "pause_request": None,
-                    },
+                    "args": arguments,
                     "id": "frame-review",
                 }
             ],
@@ -550,6 +550,22 @@ def test_mission_loop_maps_typed_review_items_to_atomic_candidates() -> None:
     assert item["target_room"] == "documents"
     assert item["candidate_ref"] == "artifact-candidate:" + "a" * 64
     assert "preview_json" not in item
+    assert "review_item_id" not in item
+
+    arguments["review_items"][0]["review_item_id"] = "model-owned-id"
+    with pytest.raises(MissionAgentProtocolError, match="did not match the schema"):
+        parse_mission_decision(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "mission_step",
+                        "args": arguments,
+                        "id": "frame-review-with-id",
+                    }
+                ],
+            )
+        )
 
 
 def test_mission_loop_maps_quality_assessment_without_snapshot_side_channel() -> None:

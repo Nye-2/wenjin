@@ -62,7 +62,6 @@ class TestRouterRegistration:
             "auth",
             "dashboard",
             "latex",
-            "mcp",
             "missions",
             "models",
             "references",

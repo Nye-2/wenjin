@@ -7,7 +7,6 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.latex_compile_history import LatexCompileHistory
 from src.database.models.latex_project import LatexProject
 from src.database.models.latex_template import LatexTemplate
 
@@ -122,27 +121,6 @@ class LatexRepository:
             )
         )
         return list(result.scalars().all())
-
-    def create_compile_history(self, values: dict[str, Any]) -> LatexCompileHistory:
-        history = LatexCompileHistory(**values)
-        self.session.add(history)
-        return history
-
-    async def get_compile_history(self, history_id: str) -> LatexCompileHistory | None:
-        return await self.session.get(LatexCompileHistory, history_id)
-
-    async def list_compile_history(self, project_id: str) -> list[LatexCompileHistory]:
-        stmt = (
-            select(LatexCompileHistory)
-            .where(LatexCompileHistory.project_id == project_id)
-            .order_by(LatexCompileHistory.created_at.desc())
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
-    async def delete_compile_history(self, history: LatexCompileHistory) -> None:
-        await self.session.delete(history)
-
 
 def _scalar_one_or_none(result: Any) -> Any | None:
     scalar_one_or_none = getattr(result, "scalar_one_or_none", None)

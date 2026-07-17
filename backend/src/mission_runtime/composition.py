@@ -21,7 +21,6 @@ from src.mission_runtime.adapters import (
 )
 from src.mission_runtime.contracts import MissionSliceLimits
 from src.mission_runtime.ports import (
-    BillingPort,
     MissionAgentPort,
     MissionEventPublisherPort,
     MissionStartContextPort,
@@ -31,7 +30,6 @@ from src.mission_runtime.ports import (
 )
 from src.mission_runtime.production import (
     CeleryMissionWakeupPublisher,
-    MissionCreditBilling,
     PinnedMissionStartContext,
     PinnedStageAssessmentBuilder,
     PinnedStageContractResolver,
@@ -46,7 +44,12 @@ from src.mission_runtime.production import (
 from src.mission_runtime.runtime import MissionRuntime
 from src.services.model_catalog_cache import resolve_runtime_model_id
 from src.subagent_runtime.runtime import SubagentModelPort
-from src.tools.orchestrator import ToolCatalog, ToolExecutionGuard, ToolOrchestrator
+from src.tools.orchestrator import (
+    ToolCatalog,
+    ToolExecutionGuard,
+    ToolOrchestrator,
+    ToolPolicy,
+)
 
 
 class MissionCompositionConfigurationError(RuntimeError):
@@ -64,19 +67,19 @@ class MissionEffectContext:
 
 
 ToolCatalogFactory = Callable[[MissionEffectContext], ToolCatalog]
+MissionStartContextFactory = Callable[[ToolCatalog], MissionStartContextPort]
 
 
 @dataclass(frozen=True, slots=True)
 class MissionCompositionDependencies:
     agent: MissionAgentPort
-    start_context: MissionStartContextPort
+    start_context_factory: MissionStartContextFactory
     tool_catalog_factory: ToolCatalogFactory
     tool_guard: ToolExecutionGuard
     tool_policy_resolver: ToolPolicyResolver
     stage_contract_resolver: StageContractResolver
     stage_assessment_builder: StageAssessmentBuilder
     review_candidates: ReviewCandidatePort
-    billing: BillingPort
     events: MissionEventPublisherPort
     wakeups: MissionWakeupPublisherPort
     subagent_model: SubagentModelPort | None = None
@@ -98,14 +101,16 @@ async def build_production_mission_runtime(
         dataservice,
         MissionCompositionDependencies(
             agent=production_agent(),
-            start_context=PinnedMissionStartContext(dataservice),
+            start_context_factory=lambda catalog: PinnedMissionStartContext(
+                dataservice,
+                tool_catalog=catalog,
+            ),
             tool_catalog_factory=build_production_tool_catalog,
             tool_guard=StrictToolExecutionGuard(),
             tool_policy_resolver=PinnedToolPolicyResolver(),
             stage_contract_resolver=PinnedStageContractResolver(),
             stage_assessment_builder=PinnedStageAssessmentBuilder(),
             review_candidates=StrictReviewCandidateBuilder(),
-            billing=MissionCreditBilling(dataservice),
             events=WorkspaceMissionEventPublisher(),
             wakeups=CeleryMissionWakeupPublisher(),
             limits=MissionSliceLimits(max_model_turns=1),
@@ -143,7 +148,27 @@ def compose_mission_runtime(
         lease_fence=fence,
         guard=dependencies.tool_guard,
     )
+    for descriptor in tool_catalog.descriptors():
+        required_budget = orchestrator.required_budget_seconds(
+            descriptor.tool_id,
+            ToolPolicy(
+                policy_ref=f"catalog:{tool_catalog.descriptor_snapshot_hash()}",
+                allowed_tool_ids=(descriptor.tool_id,),
+                execution_limits=tool_catalog.execution_limits(
+                    (descriptor.tool_id,)
+                ),
+            ),
+        )
+        if required_budget > limits.wall_time_seconds:
+            raise MissionCompositionConfigurationError(
+                f"Tool execution budget exceeds the durable Mission slice: {descriptor.tool_id}"
+            )
+        if required_budget > operation_ttl_seconds:
+            raise MissionCompositionConfigurationError(
+                f"Tool execution budget exceeds its durable operation claim: {descriptor.tool_id}"
+            )
     tools = MissionToolOrchestratorAdapter(
+        store=store,
         orchestrator=orchestrator,
         policy_resolver=dependencies.tool_policy_resolver,
     )
@@ -166,12 +191,11 @@ def compose_mission_runtime(
     return MissionRuntime(
         store=store,
         agent=dependencies.agent,
-        start_context=dependencies.start_context,
+        start_context=dependencies.start_context_factory(tool_catalog),
         tools=tools,
         subagents=subagents,
         quality=quality,
         review_candidates=dependencies.review_candidates,
-        billing=dependencies.billing,
         events=dependencies.events,
         wakeups=dependencies.wakeups,
         limits=limits,
@@ -182,6 +206,7 @@ __all__ = [
     "MissionCompositionConfigurationError",
     "MissionCompositionDependencies",
     "MissionEffectContext",
+    "MissionStartContextFactory",
     "ToolCatalogFactory",
     "build_production_mission_runtime",
     "compose_mission_runtime",

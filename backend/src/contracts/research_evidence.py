@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any, Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from src.contracts.review_policy import ReviewMode
 
 ResearchSurface = Literal[
     "literature",
@@ -58,12 +59,6 @@ ReviewRiskCategory = Literal[
     "visual_output",
     "ordinary_draft",
 ]
-
-
-class ReviewMode(StrEnum):
-    REVIEW_ALL = "review_all"
-    BALANCED_DEFAULT = "balanced_default"
-    AUTO_DRAFT = "auto_draft"
 
 
 NON_BYPASSABLE_REVIEW_RISKS = frozenset(

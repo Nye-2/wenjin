@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class DecisionSetPayload(BaseModel):
     workspace_id: str
@@ -17,6 +19,7 @@ class DecisionSetPayload(BaseModel):
     source_mission_id: str | None = None
     source_mission_item_seq: int | None = None
     source_mission_commit_id: str | None = None
+    mission_write_authority: MissionWriteAuthority | None = None
 
 
 class WorkspaceTaskCreatePayload(BaseModel):
@@ -30,6 +33,7 @@ class WorkspaceTaskCreatePayload(BaseModel):
     source_mission_id: str | None = None
     source_mission_item_seq: int | None = None
     source_mission_commit_id: str | None = None
+    mission_write_authority: MissionWriteAuthority | None = None
 
 
 class WorkspaceTaskUpdatePayload(BaseModel):

@@ -39,9 +39,11 @@ PRODUCTION_ROOTS = (
 PRODUCTION_FILES = (
     ".env.example",
     "backend/Dockerfile",
+    "backend/Makefile",
     "backend/config.yaml",
-    "backend/extensions_config.json",
+    "backend/langgraph.json",
     "backend/pyproject.toml",
+    "docker-compose.local-build.yml",
     "docker-compose.yml",
 )
 SOURCE_SUFFIXES = frozenset(
@@ -51,15 +53,76 @@ EXCLUDED_PRODUCTION_FILES = frozenset(
     {"backend/src/quality/mission_cutover_gate.py"}
 )
 FORBIDDEN_PRODUCTION_PATH_PREFIXES = {
+    "old_yaml_runtime_config": ("backend/config.yaml",),
+    "old_runtime_config_loader": ("backend/src/config/config_loader.py",),
+    "old_billing_policy_facade": ("backend/src/services/billing_policy.py",),
+    "old_langgraph_server_config": ("backend/langgraph.json",),
     "old_chat_agent_path": ("backend/src/agents/chat_agent/",),
     "old_lead_agent_path": ("backend/src/agents/lead_agent/",),
     "old_execution_path": ("backend/src/execution/",),
     "old_operations_path": ("backend/src/dataservice/domains/operations/",),
     "old_capability_seed_path": ("backend/seed/capabilities/",),
     "old_public_skill_path": ("backend/skills/public/",),
+    "old_agent_middleware_path": ("backend/src/agents/middlewares/",),
+    "old_agent_thread_state_path": ("backend/src/agents/thread_state.py",),
+    "old_builtin_tool_path": ("backend/src/tools/builtins/",),
+    "old_subagents_path": ("backend/src/subagents/",),
+    "old_thesis_runtime_path": ("backend/src/thesis/",),
+    "old_mcp_runtime_path": ("backend/src/mcp/",),
+    "old_dataservice_sandbox_path": (
+        "backend/src/dataservice/domains/sandbox/",
+        "backend/src/dataservice/sandbox_api.py",
+        "backend/src/dataservice_app/routers/sandbox.py",
+        "backend/src/dataservice_client/sandbox_client.py",
+        "backend/src/dataservice_client/contracts/sandbox.py",
+    ),
+    "old_memory_capture_path": (
+        "backend/src/agents/memory/capture.py",
+        "backend/src/agents/memory/queue.py",
+        "backend/src/services/memory_capture_service.py",
+        "backend/src/task/tasks/memory.py",
+    ),
+    "old_event_bus_path": ("backend/src/services/event_bus.py",),
+    "old_observability_shim_path": (
+        "backend/src/observability/metrics.py",
+        "backend/src/observability/tracing.py",
+    ),
+    "old_parallel_latex_editor_path": ("frontend/components/latex/",),
+    "old_frontend_latex_state_path": (
+        "frontend/stores/latex.ts",
+        "frontend/lib/api/latex.ts",
+    ),
+    "old_latex_direct_docker_client_path": (
+        "backend/src/services/latex/docker_client.py",
+    ),
+    "old_latex_compile_router_path": (
+        "backend/src/gateway/routers/latex_compile.py",
+    ),
+    "old_latex_compile_service_path": (
+        "backend/src/services/latex/compile_service.py",
+        "backend/src/services/latex/engine_config.py",
+        "backend/src/services/latex/feedback_revision_service.py",
+        "backend/src/gateway/routers/latex_feedback.py",
+    ),
 }
 
 RULES: tuple[CutoverRule, ...] = (
+    CutoverRule(
+        "old_langgraph_server_surface",
+        re.compile(
+            r"\bdebug-langgraph\b|\bLANGGRAPH_IMAGE\b"
+            r"|\bNEXT_PUBLIC_LANGGRAPH_BASE_URL\b|\bwenjin-langgraph\b"
+            r"|\blanggraph-cli\b|^FROM base AS langgraph$"
+        ),
+    ),
+    CutoverRule(
+        "old_token_credit_policy",
+        re.compile(
+            r"\bTokenBillingPolicy\b|\bTokenBillingCharge\b"
+            r"|\bcalculate_token_billing_charge\b|\btokens_per_credit\b"
+        ),
+        ("backend/src",),
+    ),
     CutoverRule(
         "old_execution_record",
         re.compile(r"\bExecution(?:Node)?Record\b"),
@@ -195,14 +258,84 @@ RULES: tuple[CutoverRule, ...] = (
     ),
     CutoverRule(
         "model_capability_compatibility_flags",
-        re.compile(r"\bsupports_(?:tools|json_mode|json_schema)\b"),
+        re.compile(
+            r"\bsupports_(?:tools|json_mode|json_schema|streaming|vision|reasoning_effort)\b"
+        ),
         (
             "backend/src/config/llm_config.py",
             "backend/src/database/models/model_catalog.py",
             "backend/src/dataservice/domains/model_catalog",
             "backend/src/dataservice_client/contracts/model_catalog.py",
             "backend/src/services/model_catalog_cache.py",
+            "frontend/app/dashboard/admin/models",
+            "frontend/lib/api/admin-models.ts",
+            "frontend/lib/api/types.ts",
         ),
+    ),
+    CutoverRule(
+        "old_model_provider_protocol",
+        re.compile(r"\bprovider_protocol\b"),
+        (
+            "backend/src/dataservice/domains/model_catalog",
+            "backend/src/dataservice_client/contracts/model_catalog.py",
+            "frontend/app/dashboard/admin/models",
+            "frontend/lib/api/admin-models.ts",
+            "frontend/lib/api/types.ts",
+        ),
+    ),
+    CutoverRule(
+        "old_thread_checkpoint_api",
+        re.compile(
+            r"\bPlatformThread(?:Response|Summary|State|HistoryEntry)\b"
+            r"|[\"'`](?:/api)?/threads(?:/\{thread_id\})?/(?:search|state|history)"
+        ),
+        (
+            "backend/src/gateway/routers/threads.py",
+            "frontend/lib/api/threads.ts",
+            "frontend/lib/api/types.ts",
+        ),
+    ),
+    CutoverRule(
+        "old_frontend_latex_adapter_route",
+        re.compile(r"/prism/latex-adapter"),
+        (
+            "frontend/app",
+            "frontend/components",
+            "frontend/hooks",
+            "frontend/lib",
+            "frontend/stores",
+        ),
+    ),
+    CutoverRule(
+        "old_prism_dual_review_projection",
+        re.compile(r"\b(?:file_changes|applied_file_changes)\b"),
+        (
+            "backend/src/gateway/routers/workspaces_contracts.py",
+            "frontend/lib/api/types.ts",
+        ),
+    ),
+    CutoverRule(
+        "old_billing_compatibility_surface",
+        re.compile(
+            r"\b(?:CreditReservationScope|SandboxPricingPolicyConfig"
+            r"|OperationBillingPolicy|SandboxPricingEstimate)\b"
+            r"|\b(?:get_public_workflow_costs|get_workflow_costs"
+            r"|get_mission_billing_policy|get_sandbox_billing_policy"
+            r"|refund_failed_task)\b"
+            r"|\bsandbox_operation_billing\b"
+        ),
+    ),
+    CutoverRule(
+        "old_external_credit_reservation_transport",
+        re.compile(
+            r"/internal/v1/credit/(?:reservations|refund)"
+            r"|\bCreditReservation(?:Create|Settle|Release)Payload\b"
+            r"|\bCreditRefundPayload\b"
+        ),
+    ),
+    CutoverRule(
+        "old_memory_worker",
+        re.compile(r"\bmemory-worker\b|\bmemory_queue\b"),
     ),
 )
 

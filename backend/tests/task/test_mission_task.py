@@ -54,7 +54,6 @@ async def test_drive_slice_returns_only_runtime_telemetry() -> None:
         }
     )
     runtime = SimpleNamespace(run_slice=AsyncMock(return_value=telemetry))
-
     result = await drive_mission_slice_async(
         "mission-1",
         worker_id="worker-1",
@@ -86,6 +85,11 @@ async def test_drive_slice_builds_production_runtime_without_manual_bootstrap() 
         }
     )
     runtime = SimpleNamespace(run_slice=AsyncMock(return_value=telemetry))
+    review_commit = SimpleNamespace(
+        reconcile_auto_drafts=AsyncMock(
+            return_value=SimpleNamespace(outcomes=[])
+        )
+    )
     dataservice = SimpleNamespace(name="dataservice")
 
     @asynccontextmanager
@@ -101,6 +105,10 @@ async def test_drive_slice_builds_production_runtime_without_manual_bootstrap() 
             "src.mission_runtime.composition.build_production_mission_runtime",
             new=AsyncMock(return_value=runtime),
         ) as builder,
+        patch(
+            "src.review_commit_runtime.composition.build_review_commit_runtime",
+            return_value=review_commit,
+        ) as review_builder,
     ):
         result = await drive_mission_slice_async(
             "mission-1",
@@ -108,6 +116,8 @@ async def test_drive_slice_builds_production_runtime_without_manual_bootstrap() 
         )
 
     builder.assert_awaited_once_with(dataservice)
+    review_builder.assert_called_once_with(dataservice)
+    assert review_commit.reconcile_auto_drafts.await_count == 2
     runtime.run_slice.assert_awaited_once_with(
         "mission-1",
         worker_id="worker-1",

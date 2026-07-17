@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 from src.agents.workspace_agent.agent import (
     WorkspaceAgent,
@@ -30,9 +31,13 @@ class FakeModel:
         self.bind_kwargs = (tools, kwargs)
         return self
 
-    async def ainvoke(self, messages):
+    async def astream(self, messages):
         self.messages = messages
-        return self.message
+        yield AIMessageChunk(
+            content=self.message.content,
+            tool_calls=self.message.tool_calls,
+            usage_metadata=self.message.usage_metadata,
+        )
 
 
 class SequenceModel:
@@ -44,9 +49,37 @@ class SequenceModel:
         self.bind_kwargs = (tools, kwargs)
         return self
 
-    async def ainvoke(self, messages):
+    async def astream(self, messages):
         self.invocations.append(messages)
-        return self.messages.pop(0)
+        message = self.messages.pop(0)
+        yield AIMessageChunk(
+            content=message.content,
+            tool_calls=message.tool_calls,
+            usage_metadata=message.usage_metadata,
+        )
+
+
+class ControlledStreamModel:
+    def __init__(self, chunks: list[AIMessageChunk]) -> None:
+        self.chunks = chunks
+        self.first_chunk_sent = asyncio.Event()
+        self.release = asyncio.Event()
+        self.closed = asyncio.Event()
+
+    def bind_tools(self, tools, **kwargs):
+        self.bind_kwargs = (tools, kwargs)
+        return self
+
+    async def astream(self, messages):
+        self.messages = messages
+        try:
+            yield self.chunks[0]
+            self.first_chunk_sent.set()
+            await self.release.wait()
+            for chunk in self.chunks[1:]:
+                yield chunk
+        finally:
+            self.closed.set()
 
 
 class FakeMissions:
@@ -193,6 +226,84 @@ async def test_clarification_returns_one_structured_question() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action_name", "first_args", "second_args", "expected_first", "expected_text"),
+    [
+        ("answer", '{"text":"前半', '后半"}', "前半", "前半后半"),
+        (
+            "ask_user",
+            '{"request_id":"question-1","question":"选择',
+            '方向？","choices":[]}',
+            "选择",
+            "选择方向？",
+        ),
+    ],
+)
+async def test_streams_public_structured_text_before_provider_completion(
+    action_name: str,
+    first_args: str,
+    second_args: str,
+    expected_first: str,
+    expected_text: str,
+) -> None:
+    model = ControlledStreamModel(
+        [
+            AIMessageChunk(
+                content="",
+                additional_kwargs={"reasoning": "hidden chain of thought"},
+                tool_call_chunks=[
+                    {
+                        "name": action_name,
+                        "args": first_args,
+                        "id": "call-1",
+                        "index": 0,
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": second_args,
+                        "id": None,
+                        "index": 0,
+                    }
+                ],
+                usage_metadata={
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "total_tokens": 15,
+                },
+            ),
+        ]
+    )
+    deltas: list[str] = []
+
+    async def on_text_delta(delta: str) -> None:
+        deltas.append(delta)
+
+    task = asyncio.create_task(
+        WorkspaceAgent(model=model, missions=FakeMissions()).run(
+            context(),
+            on_text_delta=on_text_delta,
+        )
+    )
+    await model.first_chunk_sent.wait()
+
+    assert deltas == [expected_first]
+    assert "hidden chain of thought" not in "".join(deltas)
+    assert task.done() is False
+
+    model.release.set()
+    reply = await task
+
+    assert reply.text == expected_text
+    assert "".join(deltas) == expected_text
+    assert model.closed.is_set()
+
+
+@pytest.mark.asyncio
 async def test_start_is_idempotent_and_receipt_contains_real_mission_id() -> None:
     missions = FakeMissions()
     first = await WorkspaceAgent(
@@ -318,34 +429,17 @@ def test_provider_tool_schema_binds_context_authorities() -> None:
         text_chars=50,
     )
     descriptors = _tool_descriptors(context(mission_inputs=(manifest,)))
-    by_name = {
-        item["function"]["name"]: item["function"]["parameters"]
-        for item in descriptors
-    }
+    by_name = {item["function"]["name"]: item["function"]["parameters"] for item in descriptors}
     start_spec = by_name["start_mission"]["$defs"]["MissionStartSpec"]
 
-    assert start_spec["properties"]["input_refs"]["items"]["enum"] == [
-        manifest.input_ref
-    ]
-    assert by_name["steer_mission"]["properties"]["input_refs"]["items"][
-        "enum"
-    ] == [manifest.input_ref]
-    assert start_spec["properties"]["mission_policy_id"]["enum"] == [
-        "sci.research"
-    ]
-    assert start_spec["properties"]["parent_mission_id"]["anyOf"] == [
-        {"type": "null"}
-    ]
+    assert start_spec["properties"]["input_refs"]["items"]["enum"] == [manifest.input_ref]
+    assert by_name["steer_mission"]["properties"]["input_refs"]["items"]["enum"] == [manifest.input_ref]
+    assert start_spec["properties"]["mission_policy_id"]["enum"] == ["sci.research"]
+    assert start_spec["properties"]["parent_mission_id"]["anyOf"] == [{"type": "null"}]
 
     no_input_descriptors = _tool_descriptors(context())
-    no_input_start = next(
-        item
-        for item in no_input_descriptors
-        if item["function"]["name"] == "start_mission"
-    )["function"]["parameters"]
-    assert no_input_start["$defs"]["MissionStartSpec"]["properties"][
-        "input_refs"
-    ]["maxItems"] == 0
+    no_input_start = next(item for item in no_input_descriptors if item["function"]["name"] == "start_mission")["function"]["parameters"]
+    assert no_input_start["$defs"]["MissionStartSpec"]["properties"]["input_refs"]["maxItems"] == 0
 
 
 @pytest.mark.asyncio
@@ -383,11 +477,7 @@ async def test_invalid_structured_action_repairs_once_and_accounts_usage() -> No
 
     assert reply.mission_id == "mission-1"
     assert len(model.invocations) == 2
-    assert any(
-        "input_refs may contain only exact mission-input" in message.content
-        for message in model.invocations[1]
-        if getattr(message, "type", "") == "system"
-    )
+    assert any("input_refs may contain only exact mission-input" in message.content for message in model.invocations[1] if getattr(message, "type", "") == "system")
     assert reply.metadata["usage"] == {
         "input_tokens": 30,
         "output_tokens": 11,
@@ -452,13 +542,13 @@ async def test_native_search_failure_has_a_specific_user_facing_non_start() -> N
 
 
 @pytest.mark.asyncio
-async def test_credit_preflight_rejection_is_a_user_facing_non_start() -> None:
+async def test_invalid_start_state_is_a_user_facing_non_start() -> None:
     from src.mission_runtime import MissionStartRejectedError, MissionStartRejectionCode
 
     missions = FakeMissions()
     missions.start_error = MissionStartRejectedError(
-        "当前可用额度不足，任务尚未启动。",
-        code=MissionStartRejectionCode.BILLING_PREFLIGHT_REJECTED,
+        "任务启动信息不完整。",
+        code=MissionStartRejectionCode.INVALID_START_STATE,
     )
     reply = await WorkspaceAgent(
         model=FakeModel(tool_message("start_mission", start_args())),
@@ -466,10 +556,10 @@ async def test_credit_preflight_rejection_is_a_user_facing_non_start() -> None:
     ).run(context())
 
     assert reply.mission_id is None
-    assert reply.text == "当前可用额度不足，任务尚未启动。"
+    assert reply.text == "任务启动信息不完整，因此研究任务没有启动。请重新描述你的目标。"
     assert reply.metadata["mission_start"] == {
         "status": "not_started",
-        "reason": "billing_preflight_rejected",
+        "reason": "invalid_start_state",
     }
 
 
@@ -526,6 +616,82 @@ async def test_active_mission_steer_appends_typed_command() -> None:
                 "instruction": "聚焦医疗场景",
                 "request_id": None,
                 "mission_inputs": (),
+                "prism_context_ref": None,
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_focused_completed_mission_accepts_chat_review_decision() -> None:
+    missions = FakeMissions()
+    focused = ContinuationMissionContext(
+        mission_id="11111111-1111-1111-1111-111111111111",
+        title="研究定位",
+        objective="梳理空白",
+        status="completed",
+        mission_policy_id="sci.research",
+    )
+    reply = await WorkspaceAgent(
+        model=FakeModel(
+            tool_message(
+                "propose_review",
+                {
+                    "mission_id": focused.mission_id,
+                    "review_item_ids": ["review-1"],
+                    "decision": "accept",
+                },
+            )
+        ),
+        missions=missions,
+    ).run(context(continuation=focused))
+
+    assert reply.mission_id == focused.mission_id
+    assert missions.reviews == [
+        (
+            focused.mission_id,
+            {
+                "decision_id": "review:message-1",
+                "actor_user_id": "user-1",
+                "review_item_ids": ("review-1",),
+                "decision": "accept",
+                "rationale": None,
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_focused_completed_mission_accepts_chat_commit_request() -> None:
+    missions = FakeMissions()
+    focused = ContinuationMissionContext(
+        mission_id="11111111-1111-1111-1111-111111111111",
+        title="研究定位",
+        objective="梳理空白",
+        status="completed",
+        mission_policy_id="sci.research",
+    )
+    reply = await WorkspaceAgent(
+        model=FakeModel(
+            tool_message(
+                "request_commit",
+                {
+                    "mission_id": focused.mission_id,
+                    "review_item_ids": ["review-1"],
+                },
+            )
+        ),
+        missions=missions,
+    ).run(context(continuation=focused))
+
+    assert reply.mission_id == focused.mission_id
+    assert missions.commits == [
+        (
+            focused.mission_id,
+            {
+                "actor_user_id": "user-1",
+                "review_item_ids": ("review-1",),
+                "request_id": "commit:message-1",
             },
         )
     ]

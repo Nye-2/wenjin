@@ -1,7 +1,7 @@
 # Mission Release Gate Checklist
 
 > Status: Current
-> Updated: 2026-07-11
+> Updated: 2026-07-17
 
 ## Core invariants
 
@@ -40,7 +40,7 @@ Architecture-focused coverage must include:
 - native search receipt parser and fail-closed behavior;
 - Sandbox preflight, path/symlink/network controls, manifests, read-before-write;
 - review decisions, conflicts, partial commit, idempotency, linked-domain provenance;
-- migrations 086-101 and DataService/Gateway import smoke.
+- migrations 086-103 and DataService/Gateway import smoke.
 
 ## Frontend gates
 
@@ -60,7 +60,10 @@ Generation probe:
 
 ```bash
 cd backend
-.venv/bin/python -m src.models.capability_probe --model-id gpt-5.6-sol
+.venv/bin/python -m src.models.capability_probe \
+  --all-enabled-language-models \
+  --persist \
+  --require-native-search
 ```
 
 Release requires current evidence for strict tool calls, schema-valid arguments, clean Chat Completions stream completion, `store=false`, and xhigh effort.

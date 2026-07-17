@@ -7,21 +7,17 @@ import asyncio
 import logging
 import os
 import sys
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from celery.signals import worker_process_init, worker_process_shutdown
 
-from src.config.app_config import celery_settings, settings
+from src.config.app_config import celery_settings
 from src.task.celery_app import celery_app
 
 if TYPE_CHECKING:
-    from langchain_core.tools import BaseTool
-
     from src.academic.cache.redis_client import RedisClient
-    from src.config.extensions_config import ExtensionsConfig
-    from src.mcp.manager import MCPManager
 
 # Configure logging
 logging.basicConfig(
@@ -72,12 +68,6 @@ def parse_worker_cli_args(argv: list[str]) -> argparse.Namespace:
 
 
 type InitSentryFn = Callable[[], None]
-type GetExtensionsConfigFn = Callable[[], "ExtensionsConfig"]
-type ActivateMcpRuntimeFn = Callable[
-    ...,
-    Awaitable[tuple["MCPManager", list["BaseTool"]]],
-]
-type ShutdownMcpRuntimeFn = Callable[[], Awaitable[None]]
 
 
 async def _maybe_call_async_method(target: object, method_name: str, **kwargs: object) -> None:
@@ -91,32 +81,18 @@ async def _maybe_call_async_method(target: object, method_name: str, **kwargs: o
 def _load_worker_runtime_dependencies() -> tuple[
     InitSentryFn,
     RedisClient,
-    GetExtensionsConfigFn,
-    ActivateMcpRuntimeFn,
 ]:
     """Load bootstrap-time dependencies lazily to keep imports localized."""
     from src.academic.cache.redis_client import redis_client
-    from src.config import get_extensions_config
-    from src.mcp import activate_mcp_runtime
     from src.observability.sentry import init_sentry
 
-    return (
-        init_sentry,
-        redis_client,
-        get_extensions_config,
-        activate_mcp_runtime,
-    )
+    return init_sentry, redis_client
 
 
-def _load_worker_shutdown_dependencies() -> tuple[
-    ShutdownMcpRuntimeFn,
-    RedisClient,
-]:
+def _load_worker_shutdown_dependencies() -> RedisClient:
     """Load shutdown-time dependencies lazily."""
     from src.academic.cache.redis_client import redis_client
-    from src.mcp import shutdown_mcp_runtime
-
-    return shutdown_mcp_runtime, redis_client
+    return redis_client
 
 
 def _get_worker_runner() -> asyncio.Runner:
@@ -162,12 +138,7 @@ def _validate_default_mission_model_profile() -> str:
 
 async def _bootstrap_worker_runtime(*, require_mission_model_profile: bool = False) -> None:
     """Initialize worker-process runtime dependencies before task execution."""
-    (
-        init_sentry,
-        redis_client,
-        get_extensions_config,
-        activate_mcp_runtime,
-    ) = _load_worker_runtime_dependencies()
+    init_sentry, redis_client = _load_worker_runtime_dependencies()
 
     init_sentry()
     await redis_client.reset_client(close_current=False)
@@ -192,22 +163,6 @@ async def _bootstrap_worker_runtime(*, require_mission_model_profile: bool = Fal
         )
     if require_mission_model_profile:
         _validate_default_mission_model_profile()
-    manager, _ = await activate_mcp_runtime(
-        extensions_config=get_extensions_config(),
-        warmup=True,
-    )
-    runtime_errors = manager.get_last_load_errors()
-    if runtime_errors:
-        if settings.mcp_required_for_worker_bootstrap:
-            raise RuntimeError(
-                f"MCP runtime bootstrap failed for worker process: {runtime_errors}"
-            )
-        logger.warning(
-            "Worker MCP runtime degraded; continuing without MCP tools: %s",
-            runtime_errors,
-        )
-
-
 async def _refresh_worker_model_catalog_cache() -> None:
     """Warm the worker-process model catalog cache from DataService."""
     from src.dataservice_client.provider import dataservice_client
@@ -223,12 +178,8 @@ async def _refresh_worker_model_catalog_cache() -> None:
 
 async def _shutdown_worker_runtime() -> None:
     """Release worker-process runtime dependencies."""
-    shutdown_mcp_runtime, redis_client = _load_worker_shutdown_dependencies()
-
-    try:
-        await shutdown_mcp_runtime()
-    finally:
-        await redis_client.disconnect()
+    redis_client = _load_worker_shutdown_dependencies()
+    await redis_client.disconnect()
 
 
 def _run_async(coro: Coroutine[Any, Any, object]) -> None:

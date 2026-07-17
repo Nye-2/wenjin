@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
 from src.database.base import Base
 from src.dataservice.domains.asset.contracts import (
     WorkspaceArtifactCreateCommand,
@@ -267,6 +268,41 @@ async def test_register_list_update_download_and_delete_asset() -> None:
     assert all_after_delete[0].id == created.id
     assert repository.assets[created.id].deleted_at is not None
     assert session.commit_count == 3
+
+
+@pytest.mark.asyncio
+async def test_mission_review_asset_registration_is_source_idempotent() -> None:
+    service, repository, session = _service()
+    command = _command(
+        asset_kind="academic_visual",
+        source_kind="mission_review_item",
+        source_id="review-1",
+        mission_write_authority=MissionWriteAuthority(
+            mission_id="mission-1",
+            mission_review_item_id="review-1",
+            mission_commit_id="commit-1",
+            attempt_token="attempt-token-asset-1",
+        ),
+    )
+
+    with patch(
+        "src.dataservice.domains.asset.service.DataServiceWorkspaceService"
+    ) as workspace_service_cls, patch(
+        "src.dataservice.domains.asset.service.assert_active_mission_write",
+        new_callable=AsyncMock,
+    ) as authority_guard:
+        workspace_service_cls.return_value.lock_workspace_for_update = AsyncMock()
+        first = await service.register_asset(command)
+        second = await service.register_asset(command)
+
+    assert first.id == second.id
+    assert len(repository.assets) == 1
+    assert session.commit_count == 1
+    assert (
+        workspace_service_cls.return_value.lock_workspace_for_update.await_count
+        == 2
+    )
+    assert authority_guard.await_count == 2
 
 
 @pytest.mark.asyncio

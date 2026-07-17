@@ -161,6 +161,85 @@ def test_receipt_backed_main_agent_assessment_needs_no_external_verdict() -> Non
     assert result.missing_criteria == ()
 
 
+def test_excellent_criterion_cannot_be_self_asserted_from_candidate_content() -> None:
+    contract = _contract(
+        excellent_criteria=(
+            StageCriterion(
+                criterion_id="excellent_argument",
+                description="The argument is exceptionally precise and economical.",
+            ),
+        )
+    )
+    assessment = _passing_assessment(
+        criterion_assessments=(
+            *_passing_assessment().criterion_assessments,
+            CriterionAssessment(
+                criterion_id="excellent_argument",
+                status="pass",
+                supporting_refs=("candidate-1",),
+                rationale="The candidate itself appears to satisfy the excellent standard.",
+            ),
+        ),
+        evidence=(
+            *_passing_assessment().evidence,
+            EvidenceRecord(
+                evidence_id="candidate-1",
+                surface="writing",
+                kind="artifact_candidate",
+                status="verified",
+                source_ref="mission-item:2",
+                metadata={
+                    "authority": "content_addressed_candidate",
+                    "receipt_operation_id": "candidate:1",
+                },
+            ),
+        ),
+    )
+
+    result = evaluate_stage_acceptance(contract, assessment)
+
+    assert result.result == "revise"
+    assert result.missing_criteria == ("excellent_argument",)
+
+
+def test_semantic_excellent_criterion_accepts_independent_diagnostic_receipt() -> None:
+    contract = _contract(
+        excellent_criteria=(
+            StageCriterion(
+                criterion_id="excellent_argument",
+                description="The argument is exceptionally precise and economical.",
+            ),
+        )
+    )
+    assessment = _passing_assessment(
+        criterion_assessments=(
+            *_passing_assessment().criterion_assessments,
+            CriterionAssessment(
+                criterion_id="excellent_argument",
+                status="pass",
+                supporting_refs=("diagnostic-1",),
+                rationale="An independent diagnostic receipt verifies the semantic standard.",
+            ),
+        ),
+        evidence=(
+            *_passing_assessment().evidence,
+            EvidenceRecord(
+                evidence_id="diagnostic-1",
+                surface="writing_academic_style",
+                kind="quality_diagnostic",
+                status="verified",
+                source_ref="mission-item:2",
+                metadata={"receipt_operation_id": "diagnostic:1"},
+            ),
+        ),
+    )
+
+    result = evaluate_stage_acceptance(contract, assessment)
+
+    assert result.result == "pass"
+    assert result.satisfied_criteria == ("real_gap", "excellent_argument")
+
+
 def test_blocking_user_input_pauses_instead_of_false_pass() -> None:
     assessment = _passing_assessment(
         criterion_assessments=(),
@@ -314,6 +393,7 @@ def test_paper_gate_requires_every_parsed_question_instance() -> None:
     contract = _contract(
         stage_id="paper_integration",
         all_item_prerequisite_templates=("question_{index}_solution_validation",),
+        all_item_source_context_key="problem_questions",
     )
 
     instance = resolve_stage_instance(contract, total_items=4)

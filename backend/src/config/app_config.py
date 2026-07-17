@@ -350,17 +350,6 @@ class AppConfig(BaseSettings):
         le=30.0,
         description="Grace delay before canceling a disconnected run stream",
     )
-    mcp_required_for_readiness: bool = Field(
-        default=False,
-        alias="MCP_REQUIRED_FOR_READINESS",
-        description="Treat MCP runtime/tool health as a hard readiness dependency",
-    )
-    mcp_required_for_worker_bootstrap: bool = Field(
-        default=False,
-        alias="MCP_REQUIRED_FOR_WORKER_BOOTSTRAP",
-        description="Fail worker bootstrap when MCP runtime has load errors",
-    )
-
     # Paths
     config_path: str | None = None
     thread_data_root: Path = Field(

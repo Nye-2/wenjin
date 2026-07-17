@@ -32,16 +32,6 @@ from .app_config import (
     settings,
     smtp_settings,
 )
-from .extensions_config import (
-    ExtensionsConfig,
-    McpOAuthConfig,
-    McpServerConfig,
-    default_config_path,
-    get_extensions_config,
-    reload_extensions_config,
-    reset_extensions_config,
-    set_extensions_config,
-)
 from .llm_config import (
     LLMSettings,
     ModelConfig,
@@ -108,15 +98,6 @@ __all__ = [
     "get_model_full_config",
     "resolve_model_id",
     "reload_models",
-    # Extensions
-    "ExtensionsConfig",
-    "McpOAuthConfig",
-    "McpServerConfig",
-    "default_config_path",
-    "get_extensions_config",
-    "reload_extensions_config",
-    "reset_extensions_config",
-    "set_extensions_config",
     # Task
     "TaskSettings",
     "task_settings",

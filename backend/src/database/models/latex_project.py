@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from ..base import Base, TimestampMixin, UUIDMixin
-
-if TYPE_CHECKING:
-    from .latex_compile_history import LatexCompileHistory
 
 
 class LatexProject(Base, UUIDMixin, TimestampMixin):
@@ -76,12 +73,6 @@ class LatexProject(Base, UUIDMixin, TimestampMixin):
         String(64),
         nullable=True,
         index=True,
-    )
-
-    compile_history: Mapped[list[LatexCompileHistory]] = relationship(
-        "LatexCompileHistory",
-        back_populates="project",
-        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

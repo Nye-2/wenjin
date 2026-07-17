@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
+from src.dataservice.domains.mission.write_authority import assert_active_mission_write
 from src.dataservice.domains.source.context import SourceDomainContext
 from src.dataservice.domains.source.contracts import (
     SourceCreateCommand,
@@ -66,6 +67,13 @@ class SourceImportService:
         return source_to_projection(record)
 
     async def import_source(self, command: SourceImportCommand) -> SourceImportProjection:
+        await assert_active_mission_write(
+            self.context.session,
+            authority=command.mission_write_authority,
+            workspace_id=command.workspace_id,
+            mission_id=command.ingest_mission_id,
+            mission_commit_id=command.ingest_mission_commit_id,
+        )
         if command.ingest_mission_commit_id:
             replay = await self.context.repository.get_source_by_mission_commit(
                 command.ingest_mission_commit_id
@@ -91,6 +99,7 @@ class SourceImportService:
                     "normalized_title",
                     "external_ids",
                     "dedupe_by_title",
+                    "mission_write_authority",
                 }
             ),
             "normalized_title": normalized_title,

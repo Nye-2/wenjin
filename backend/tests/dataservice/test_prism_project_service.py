@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+from src.contracts.prism_context import prism_selection_hash
+from src.contracts.prism_visual_insertion import insert_after_prism_selection
 from src.database.base import Base
+from src.dataservice.domains.asset.service import WorkspaceAssetService
 from src.dataservice.domains.prism.contracts import (
     PrismFileContentUpdateCommand,
     PrismFileRestoreCommand,
     PrismFileVersionCreateCommand,
     PrismPrimaryProjectCommand,
     PrismProtectedScopeUpsertCommand,
+    PrismVisualInsertionCommand,
     PrismWorkspaceFileUpsertCommand,
 )
 from src.dataservice.domains.prism.models import (
@@ -55,6 +62,7 @@ class FakePrismRepository:
         self.files: dict[str, SimpleNamespace] = {}
         self.versions: dict[str, SimpleNamespace] = {}
         self.protected_scopes: dict[str, SimpleNamespace] = {}
+        self.locked_files: list[tuple[str, str]] = []
 
     def create_project(self, values: dict[str, Any]) -> SimpleNamespace:
         project_id = f"project-{len(self.projects) + 1}"
@@ -128,14 +136,50 @@ class FakePrismRepository:
     async def get_file(self, file_id: str) -> SimpleNamespace | None:
         return self.files.get(file_id)
 
-    async def get_file_for_workspace(self, *, workspace_id: str, file_id: str) -> SimpleNamespace | None:
+    async def get_file_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        file_id: str,
+        project_id: str | None = None,
+        for_update: bool = False,
+    ) -> SimpleNamespace | None:
+        if for_update:
+            self.locked_files.append((workspace_id, file_id))
         record = self.files.get(file_id)
         if record is None or record.workspace_id != workspace_id or record.deleted_at is not None:
+            return None
+        document = self.documents.get(record.document_id)
+        project = self.projects.get(document.project_id) if document is not None else None
+        if (
+            document is None
+            or document.workspace_id != workspace_id
+            or getattr(document, "status", "active") != "active"
+            or project is None
+            or project.workspace_id != workspace_id
+            or project.role != "primary_manuscript"
+            or project.status != "active"
+            or project.trashed_at is not None
+            or (project_id is not None and project.id != project_id)
+        ):
             return None
         return record
 
     async def get_file_version(self, version_id: str) -> SimpleNamespace | None:
         return self.versions.get(version_id)
+
+    async def get_file_version_by_mission_commit(
+        self,
+        mission_commit_id: str,
+    ) -> SimpleNamespace | None:
+        return next(
+            (
+                record
+                for record in self.versions.values()
+                if record.mission_commit_id == mission_commit_id
+            ),
+            None,
+        )
 
     async def get_current_file_version(self, file_record: SimpleNamespace) -> SimpleNamespace | None:
         if not file_record.current_version_id:
@@ -243,6 +287,23 @@ def test_file_version_allows_empty_inline_content() -> None:
     assert command.content_asset_id is None
 
 
+def test_visual_insertion_requires_mission_write_authority() -> None:
+    with pytest.raises(ValidationError, match="mission_write_authority"):
+        PrismVisualInsertionCommand(
+            target_file_id="file-1",
+            prism_project_id="project-1",
+            expected_current_version_id="version-1",
+            expected_current_hash="a" * 64,
+            selection_byte_range=(0, 1),
+            selection_hash=prism_selection_hash("x"),
+            insertion="![Figure](/figure.png)",
+            expected_content_hash=f"sha256:{'b' * 64}",
+            asset_id="asset-1",
+            created_by="user-1",
+            source_mission_commit_id="source-commit-1",
+        )
+
+
 @pytest.mark.asyncio
 async def test_ensure_primary_project_creates_project_document_and_root_file() -> None:
     service, repository, session = _service()
@@ -325,6 +386,77 @@ async def test_upsert_workspace_file_appends_initial_content_and_reads_current_v
 
 
 @pytest.mark.asyncio
+async def test_workspace_file_lookup_rejects_cross_project_identity() -> None:
+    service, repository, _session = _service()
+    surface = await service.ensure_primary_project(
+        PrismPrimaryProjectCommand(
+            workspace_id="ws-1",
+            title="Primary manuscript",
+            main_file="paper.md",
+        )
+    )
+    primary_file_id = surface.files[0].id
+    secondary_project = repository.create_project(
+        {
+            "workspace_id": "ws-1",
+            "role": "supplementary",
+            "title": "Other project",
+            "adapter_kind": "workspace_files",
+            "adapter_ref_id": None,
+            "status": "active",
+            "settings_json": {},
+            "adapter_metadata_json": {},
+        }
+    )
+    secondary_document = repository.create_document(
+        {
+            "workspace_id": "ws-1",
+            "project_id": secondary_project.id,
+            "document_kind": "manuscript",
+            "title": "Other document",
+            "adapter_kind": "workspace_files",
+            "status": "active",
+            "metadata_json": {},
+        }
+    )
+    secondary_file = repository.create_file(
+        {
+            "workspace_id": "ws-1",
+            "document_id": secondary_document.id,
+            "path": "other.md",
+            "file_role": "main",
+            "mime_type": "text/markdown",
+            "sort_order": 0,
+            "metadata_json": {},
+        }
+    )
+
+    assert (
+        await service.get_workspace_file_content(
+            workspace_id="ws-1",
+            file_id=secondary_file.id,
+        )
+        is None
+    )
+    assert (
+        await service.get_workspace_file_content(
+            workspace_id="ws-1",
+            file_id=primary_file_id,
+            prism_project_id=secondary_project.id,
+        )
+        is None
+    )
+    assert (
+        await service.get_workspace_file_content(
+            workspace_id="ws-1",
+            file_id=primary_file_id,
+            prism_project_id=surface.project.id,
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_only_workspace_file_rejects_existing_path_without_mutation() -> None:
     service, repository, _session = _service()
     initial = await service.upsert_workspace_file(
@@ -336,7 +468,6 @@ async def test_create_only_workspace_file_rejects_existing_path_without_mutation
             content_hash="hash-original",
         ),
     )
-
     conflict = await service.upsert_workspace_file(
         workspace_id="ws-1",
         command=PrismWorkspaceFileUpsertCommand(
@@ -370,6 +501,7 @@ async def test_append_file_content_skips_unchanged_hash() -> None:
             content_hash="hash-1",
         ),
     )
+    repository.locked_files.clear()
 
     second = await service.append_file_content(
         workspace_id="ws-1",
@@ -384,6 +516,144 @@ async def test_append_file_content_skips_unchanged_hash() -> None:
     assert second.changed is False
     assert second.skipped_reason == "unchanged"
     assert len(repository.versions) == 1
+    assert repository.locked_files == [("ws-1", initial.file.id)]
+
+
+@pytest.mark.asyncio
+async def test_visual_insertion_binds_asset_and_manuscript_in_one_commit(monkeypatch) -> None:
+    service, repository, session = _service()
+    authority_guard = AsyncMock()
+    monkeypatch.setattr(
+        "src.dataservice.domains.prism.service.assert_active_mission_write",
+        authority_guard,
+    )
+    surface = await service.ensure_primary_project(
+        PrismPrimaryProjectCommand(
+            workspace_id="ws-1",
+            title="Manuscript",
+            main_file="paper.md",
+        )
+    )
+    file_id = surface.files[0].id
+    original = "# Method\n\nSelected paragraph.\n"
+    original_hash = f"sha256:{hashlib.sha256(original.encode()).hexdigest()}"
+    original_version = await service.append_file_version(
+        PrismFileVersionCreateCommand(
+            file_id=file_id,
+            content_inline=original,
+            content_hash=original_hash,
+            created_by="user-1",
+        )
+    )
+    assert original_version is not None
+    asset = SimpleNamespace(
+        id="asset-1",
+        workspace_id="ws-1",
+        deleted_at=None,
+        source_kind="mission_review_item",
+        content_hash="a" * 64,
+        mime_type="image/png",
+        storage_path="generated_visuals/aa/figure.png",
+        metadata_json={"mission_commit_id": "source-commit-1"},
+    )
+    monkeypatch.setattr(
+        WorkspaceAssetService,
+        "get_asset",
+        AsyncMock(return_value=asset),
+    )
+    selection = "Selected paragraph."
+    start = len(original[: original.index(selection)].encode("utf-8"))
+    end = start + len(selection.encode("utf-8"))
+    insertion = f"![Figure](/api/workspaces/ws-1/files/{asset.storage_path})"
+    next_content = insert_after_prism_selection(
+        content=original,
+        selection_byte_range=(start, end),
+        selection_hash=prism_selection_hash(selection),
+        insertion=insertion,
+    )
+    next_hash = f"sha256:{hashlib.sha256(next_content.encode()).hexdigest()}"
+    command = PrismVisualInsertionCommand(
+        target_file_id=file_id,
+        prism_project_id=surface.project.id,
+        expected_current_version_id=original_version.id,
+        expected_current_hash=original_hash,
+        selection_byte_range=(start, end),
+        selection_hash=prism_selection_hash(selection),
+        insertion=insertion,
+        expected_content_hash=next_hash,
+        asset_id=asset.id,
+        created_by="user-1",
+        mission_write_authority=MissionWriteAuthority(
+            mission_id="mission-1",
+            mission_review_item_id="review-insertion-1",
+            mission_commit_id="insertion-commit-1",
+            attempt_token="attempt-token-insertion-1",
+        ),
+        source_mission_commit_id="source-commit-1",
+    )
+
+    result = await service.insert_visual_asset(workspace_id="ws-1", command=command)
+
+    assert result.manuscript.changed is True
+    assert result.manuscript.version is not None
+    assert result.manuscript.version.mission_commit_id == "insertion-commit-1"
+    assert result.asset_file.file.path == f"figures/{'a' * 64}.png"
+    assert result.asset_file.version is not None
+    assert result.asset_file.version.content_asset_id == "asset-1"
+    assert repository.files[file_id].content_hash == next_hash
+    authority_guard.assert_awaited()
+    assert session.commit_count == 3
+
+    later_content = f"{next_content}\nLater user edit.\n"
+    later_hash = f"sha256:{hashlib.sha256(later_content.encode()).hexdigest()}"
+    await service.append_file_version(
+        PrismFileVersionCreateCommand(
+            file_id=file_id,
+            content_inline=later_content,
+            content_hash=later_hash,
+            created_by="user-1",
+        )
+    )
+
+    replay = await service.insert_visual_asset(workspace_id="ws-1", command=command)
+    assert replay.manuscript.changed is False
+    assert replay.manuscript.skipped_reason == "already_applied"
+    assert replay.manuscript.version is not None
+    assert replay.manuscript.version.id == result.manuscript.version.id
+    assert replay.manuscript.file.content_hash == later_hash
+    assert len(repository.versions) == 4
+    assert session.commit_count == 4
+
+
+@pytest.mark.asyncio
+async def test_visual_insertion_rejects_lost_mission_write_authority(monkeypatch) -> None:
+    service, _repository, _session = _service()
+    monkeypatch.setattr(
+        "src.dataservice.domains.prism.service.assert_active_mission_write",
+        AsyncMock(side_effect=ValueError("mission_write_authority_lost")),
+    )
+    command = PrismVisualInsertionCommand(
+        target_file_id="file-1",
+        prism_project_id="project-1",
+        expected_current_version_id="version-1",
+        expected_current_hash="sha256:old",
+        selection_byte_range=(0, 1),
+        selection_hash=prism_selection_hash("x"),
+        insertion="![Figure](/figure.png)",
+        expected_content_hash=f"sha256:{'a' * 64}",
+        asset_id="asset-1",
+        created_by="user-1",
+        mission_write_authority=MissionWriteAuthority(
+            mission_id="mission-1",
+            mission_review_item_id="review-1",
+            mission_commit_id="commit-1",
+            attempt_token="attempt-token-12345",
+        ),
+        source_mission_commit_id="source-commit-1",
+    )
+
+    with pytest.raises(ValueError, match="mission_write_authority_lost"):
+        await service.insert_visual_asset(workspace_id="ws-1", command=command)
 
 
 @pytest.mark.asyncio

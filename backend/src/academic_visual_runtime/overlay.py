@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
 from src.contracts.figure_generation import ExactVisualLabel
+
+OVERLAY_CONTRACT_VERSION = "wenjin.academic_visual.overlay.v1"
 
 _ANCHORS: dict[str, tuple[float, float, str]] = {
     "top_left": (0.04, 0.04, "left"),
@@ -43,6 +47,22 @@ def overlay_exact_labels(content: bytes, labels: tuple[ExactVisualLabel, ...]) -
     output = io.BytesIO()
     image.convert("RGB").save(output, format="PNG", optimize=True)
     return output.getvalue()
+
+
+def overlay_manifest_hash(labels: tuple[ExactVisualLabel, ...]) -> str:
+    """Bind a hybrid candidate to the deterministic overlay contract and labels."""
+
+    payload = {
+        "contract_version": OVERLAY_CONTRACT_VERSION,
+        "labels": [label.model_dump(mode="json") for label in labels],
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _draw_label(
@@ -89,4 +109,8 @@ def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default(size=size)
 
 
-__all__ = ["overlay_exact_labels"]
+__all__ = [
+    "OVERLAY_CONTRACT_VERSION",
+    "overlay_exact_labels",
+    "overlay_manifest_hash",
+]

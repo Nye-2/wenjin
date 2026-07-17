@@ -10,10 +10,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.academic.cache.redis_client import redis_client
-from src.config import get_extensions_config, settings
 from src.config.app_config import celery_settings, get_prometheus_settings
 from src.dataservice_client.provider import dataservice_client
-from src.mcp import peek_mcp_manager
 from src.sandbox.preflight import run_sandbox_preflight
 from src.services.mission_catalog_readiness import evaluate_mission_catalog_readiness
 from src.services.model_catalog_cache import (
@@ -24,10 +22,6 @@ from src.task import celery_app
 
 logger = logging.getLogger(__name__)
 _READINESS_DEPENDENCY_TIMEOUT_SECONDS = 3.0
-
-
-def _mcp_failure_status() -> str:
-    return "unhealthy" if settings.mcp_required_for_readiness else "degraded"
 
 
 async def check_dataservice() -> dict[str, Any]:
@@ -152,54 +146,6 @@ async def _check_metrics_endpoint(host: str) -> tuple[bool, str | None]:
     return False, f"metrics probe returned HTTP {status}"
 
 
-async def check_mcp() -> dict[str, Any]:
-    """Verify MCP runtime/cache readiness when MCP servers are configured."""
-    configured_servers = sorted(get_extensions_config().get_enabled_mcp_servers().keys())
-    if not configured_servers:
-        return {
-            "status": "healthy",
-            "configured_servers": [],
-            "tool_count": 0,
-            "required": bool(settings.mcp_required_for_readiness),
-        }
-
-    failed_status = _mcp_failure_status()
-
-    manager = peek_mcp_manager()
-    if manager is None:
-        return {
-            "status": failed_status,
-            "configured_servers": configured_servers,
-            "error": "MCP runtime is not initialized",
-            "required": bool(settings.mcp_required_for_readiness),
-        }
-
-    try:
-        tools = await manager.load_tools(force_reload=False)
-        errors = manager.get_last_load_errors()
-        if errors:
-            return {
-                "status": failed_status,
-                "configured_servers": configured_servers,
-                "tool_count": len(tools),
-                "errors": errors,
-                "required": bool(settings.mcp_required_for_readiness),
-            }
-        return {
-            "status": "healthy",
-            "configured_servers": configured_servers,
-            "tool_count": len(tools),
-            "required": bool(settings.mcp_required_for_readiness),
-        }
-    except Exception as exc:
-        return {
-            "status": failed_status,
-            "configured_servers": configured_servers,
-            "error": str(exc),
-            "required": bool(settings.mcp_required_for_readiness),
-        }
-
-
 async def check_sandbox() -> dict[str, Any]:
     """Verify the operation sandbox required by Mission tools."""
     if celery_settings.enabled:
@@ -254,12 +200,11 @@ async def build_readiness_report() -> dict[str, Any]:
             )
             return {"status": "unhealthy", "error": str(exc)}
 
-    dataservice, mission_catalog, redis, task_backend, mcp, sandbox = await asyncio.gather(
+    dataservice, mission_catalog, redis, task_backend, sandbox = await asyncio.gather(
         _run_check_with_timeout("dataservice", check_dataservice),
         _run_check_with_timeout("mission_catalog", check_mission_catalog),
         _run_check_with_timeout("redis", check_redis),
         _run_check_with_timeout("task_backend", check_task_backend),
-        _run_check_with_timeout("mcp", check_mcp),
         _run_check_with_timeout("sandbox", check_sandbox),
     )
     checks = {
@@ -267,7 +212,6 @@ async def build_readiness_report() -> dict[str, Any]:
         "mission_catalog": mission_catalog,
         "redis": redis,
         "task_backend": task_backend,
-        "mcp": mcp,
         "sandbox": sandbox,
     }
     required_dependencies = [
@@ -277,9 +221,6 @@ async def build_readiness_report() -> dict[str, Any]:
         "task_backend",
         "sandbox",
     ]
-    if settings.mcp_required_for_readiness:
-        required_dependencies.append("mcp")
-
     required_failures = [name for name in required_dependencies if checks.get(name, {}).get("status") != "healthy"]
     optional_degradations = [name for name, report in checks.items() if name not in required_dependencies and report.get("status") != "healthy"]
 

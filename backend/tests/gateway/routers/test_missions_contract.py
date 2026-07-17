@@ -1,4 +1,7 @@
-from src.gateway.routers.missions import router
+import pytest
+from pydantic import ValidationError
+
+from src.gateway.routers.missions import ReviewDecisionsRequest, router
 
 
 def test_public_mission_router_exposes_view_trace_review_commit_and_permission() -> None:
@@ -14,3 +17,16 @@ def test_public_mission_router_exposes_view_trace_review_commit_and_permission()
     assert "/missions/{mission_id}/commits" in paths
     assert "/missions/{mission_id}/permissions/{request_id}/resolve" in paths
     assert all("execution" not in path for path in paths)
+
+
+def test_review_decisions_request_rejects_duplicate_review_item_ids() -> None:
+    with pytest.raises(ValidationError, match="review_item_id values must be unique"):
+        ReviewDecisionsRequest.model_validate(
+            {
+                "decision_id": "decision-1",
+                "decisions": [
+                    {"review_item_id": "review-1", "action": "accept"},
+                    {"review_item_id": "review-1", "action": "reject"},
+                ],
+            }
+        )

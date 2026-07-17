@@ -7,8 +7,9 @@ import pytest
 from src.models.capability_profile import (
     CapabilityProbeCheck,
     GenerationAPI,
-    GenerationTransportObservation,
     ModelCapabilityProbeEvidence,
+    ModelTransportAPI,
+    ModelTransportObservation,
     ProbeCheckStatus,
     SearchReceiptKind,
     WebSearchAPI,
@@ -208,12 +209,12 @@ def _search_capable_assessment():
             SearchReceiptKind.ANNOTATIONS_SOURCES,
         ),
         transport_observations=(
-            GenerationTransportObservation(
-                generation_api=GenerationAPI.CHAT_COMPLETIONS,
+            ModelTransportObservation(
+                transport_api=ModelTransportAPI.CHAT_COMPLETIONS,
                 protocol_conformance=True,
             ),
-            GenerationTransportObservation(
-                generation_api=GenerationAPI.RESPONSES,
+            ModelTransportObservation(
+                transport_api=ModelTransportAPI.RESPONSES,
                 protocol_conformance=True,
             ),
         ),

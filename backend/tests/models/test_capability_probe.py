@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -8,9 +8,10 @@ import pytest
 from src.models.capability_probe import (
     ModelProbeTarget,
     StreamProbeResult,
+    probe_catalog_models,
     probe_model_capabilities,
 )
-from src.models.capability_profile import GenerationAPI
+from src.models.capability_profile import GenerationAPI, ModelTransportAPI
 
 
 class _ProbeTransport:
@@ -101,6 +102,16 @@ class _ProbeTransport:
         }
 
 
+class _CatalogProbeService:
+    def __init__(self, records: dict[str, Any]) -> None:
+        self.records = records
+        self.calls: list[str] = []
+
+    async def test_model(self, model_id: str) -> Any:
+        self.calls.append(model_id)
+        return self.records.get(model_id)
+
+
 def _target() -> ModelProbeTarget:
     return ModelProbeTarget(
         model_id="gpt-5.6-sol",
@@ -150,6 +161,51 @@ async def test_probe_requires_strict_frame_and_sends_store_false() -> None:
 
 
 @pytest.mark.asyncio
+async def test_catalog_probe_uses_the_catalog_selected_model_set() -> None:
+    assessment = await probe_model_capabilities(_target(), transport=_ProbeTransport())
+    record = SimpleNamespace(
+        model_id="gpt-5.6-sol",
+        health_status="healthy",
+        capability_profile=assessment.profile,
+        capability_probe=assessment.evidence,
+        capability_probe_hash=assessment.profile.probe_hash,
+        capability_observed_at=assessment.profile.observed_at,
+    )
+    service = _CatalogProbeService({record.model_id: record})
+
+    payloads, ready = await probe_catalog_models(
+        service,
+        [record.model_id],
+        require_native_search=True,
+    )
+
+    assert ready is True
+    assert service.calls == [record.model_id]
+    assert [payload["model_id"] for payload in payloads] == [record.model_id]
+
+
+@pytest.mark.asyncio
+async def test_catalog_probe_fails_closed_for_missing_or_empty_catalog_models() -> None:
+    service = _CatalogProbeService({})
+
+    missing_payloads, missing_ready = await probe_catalog_models(
+        service,
+        ["gpt-5.6-luna"],
+        require_native_search=True,
+    )
+    empty_payloads, empty_ready = await probe_catalog_models(
+        service,
+        [],
+        require_native_search=True,
+    )
+
+    assert missing_ready is False
+    assert missing_payloads == [{"model_id": "gpt-5.6-luna", "status": "missing"}]
+    assert empty_ready is False
+    assert empty_payloads == []
+
+
+@pytest.mark.asyncio
 async def test_probe_rejects_malformed_function_arguments() -> None:
     assessment = await probe_model_capabilities(
         _target(),
@@ -182,21 +238,4 @@ async def test_search_probe_failure_does_not_elevate_native_search() -> None:
     assert assessment.profile.protocol_conformance is True
     assert assessment.profile.native_web_search is False
     assert assessment.evidence.check_passed("native_web_search_call") is False
-    assert assessment.evidence.transport_conforms(GenerationAPI.RESPONSES) is False
-
-
-@pytest.mark.asyncio
-async def test_responses_transport_is_not_probed_or_used_as_a_fallback() -> None:
-    transport = _ProbeTransport()
-
-    assessment = await probe_model_capabilities(
-        replace(_target(), generation_api=GenerationAPI.RESPONSES),
-        transport=transport,
-    )
-
-    assert assessment.profile.protocol_conformance is False
-    assert assessment.profile.native_web_search is False
-    assert transport.payloads == []
-    assert assessment.evidence.transport_observations[0].detail_code == (
-        "generation_api_not_enabled_in_runtime"
-    )
+    assert assessment.evidence.transport_conforms(ModelTransportAPI.RESPONSES) is False

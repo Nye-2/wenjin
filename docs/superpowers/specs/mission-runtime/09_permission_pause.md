@@ -1,7 +1,7 @@
 # 09 Permission / Pause Spec
 
 Status: Implemented
-Updated: 2026-07-11
+Updated: 2026-07-16
 
 Implementation outcome: permission/question/budget waits are durable Mission pauses with owner-scoped resolution and wakeup. Review remains a separate status axis. No hidden tool-specific waiting state is authoritative.
 Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `10_sandbox_vnext.md`
@@ -16,9 +16,9 @@ The table records pre-cutover ownership and the completed target action; it is n
 
 | Current file | Current responsibility | Target action |
 |---|---|---|
-| `backend/src/agents/middlewares/*` | Chat-time context, tool handling, loop detection | Keep only chat-safe middleware; move durable approvals to MissionRuntime |
-| `backend/src/agents/harness/command_audit.py` | Sandbox command policy and decision metadata | Keep as ToolOrchestrator policy evidence |
-| `backend/src/agents/harness/contracts.py` | Harness policy fields | Merge into ToolPolicy/PermissionPolicy |
+| `backend/src/permission_runtime/*` | Typed permission request and decision policy | Keep as the sole permission-policy boundary |
+| `backend/src/mission_runtime/*` | Durable pause/resume and pending request projection | Keep as Mission lifecycle owner |
+| `backend/src/tools/orchestrator/*` | Tool policy, operation identity, and receipts | Keep side-effect approval enforcement here |
 | frontend review/change panels | User checkbox decisions | Rebind to ReviewDecision and PermissionRequest surfaces |
 
 ## Request Types

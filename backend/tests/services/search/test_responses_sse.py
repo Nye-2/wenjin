@@ -7,9 +7,6 @@ import httpx
 import pytest
 
 from src.mission_runtime.production import ResponsesSSESearchExecutor
-from src.models.capability_profile import (
-    gpt56_release_assessment,
-)
 from src.services.model_catalog_cache import RuntimeModelConfig
 from src.services.search import (
     ModelNativeSearchInput,
@@ -17,6 +14,7 @@ from src.services.search import (
     ResponsesSearchSSEProtocolError,
     native_search_capability,
 )
+from tests.models.capability_fixtures import verified_capability_assessment
 
 FIXTURES = Path(__file__).with_name("fixtures")
 
@@ -26,7 +24,7 @@ def _fixture(name: str) -> str:
 
 
 def _runtime_model() -> RuntimeModelConfig:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
     return RuntimeModelConfig(
         id="gpt-5.6-sol",
         name="GPT-5.6 Sol",

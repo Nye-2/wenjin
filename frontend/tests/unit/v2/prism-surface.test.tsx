@@ -11,25 +11,24 @@ const mockSaveWorkspacePrismFile = vi.hoisted(() => vi.fn());
 const mockCreateWorkspacePrismFile = vi.hoisted(() => vi.fn());
 const mockGetWorkspace = vi.hoisted(() => vi.fn());
 const mockRouterPush = vi.hoisted(() => vi.fn());
+const mockStageMissionVisualInsertion = vi.hoisted(() => vi.fn());
+const mockSearchParams = vi.hoisted(() => ({ value: new URLSearchParams() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mockSearchParams.value,
 }));
 
-vi.mock("@/components/latex/LatexEditorShell", () => ({
-  LatexEditorShell: ({
-    projectId,
-    initialFileChanges = [],
-  }: {
-    projectId: string;
-    initialFileChanges?: Array<unknown>;
-  }) => (
-    <div data-testid="latex-editor-shell">
-      {projectId}:{initialFileChanges.length}
-    </div>
-  ),
-}));
+vi.mock("@/lib/api/missions", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/missions")>(
+    "@/lib/api/missions",
+  );
+  return {
+    ...actual,
+    stageMissionVisualInsertion: (...args: unknown[]) =>
+      mockStageMissionVisualInsertion(...args),
+  };
+});
 
 vi.mock("@/lib/api/workspace", () => ({
   ensureWorkspacePrismProject: (...args: unknown[]) =>
@@ -88,8 +87,6 @@ const prismSurface = {
   compile_status: null,
   has_pending_changes: false,
   target_files: ["main.tex"],
-  file_changes: [],
-  applied_file_changes: [],
   review_items: [],
   source_links: [],
   protected_sections: [],
@@ -166,6 +163,9 @@ describe("workspace prism surface", () => {
       type: "sci",
     });
     mockRouterPush.mockReset();
+    mockStageMissionVisualInsertion.mockReset();
+    mockStageMissionVisualInsertion.mockResolvedValue({});
+    mockSearchParams.value = new URLSearchParams();
     mockGetWorkspacePrismSurface.mockReset();
     mockGetWorkspacePrismSurface.mockResolvedValue(prismSurface);
   });
@@ -361,18 +361,276 @@ describe("workspace prism surface", () => {
     });
   });
 
+  it("saves the current editor buffer before loading a newly selected file", async () => {
+    let resolveSave: ((value: unknown) => void) | undefined;
+    mockSaveWorkspacePrismFile.mockReturnValueOnce(new Promise((resolve) => {
+      resolveSave = resolve;
+    }));
+    mockGetWorkspacePrismFile.mockImplementation(async (_workspaceId: string, fileId: string) => {
+      const file = fileId === "file-readme"
+        ? prismSurface.prism_files[1]
+        : prismSurface.prism_files[0];
+      const inline = fileId === "file-readme" ? "# Readme" : "\\section{Intro}";
+      return {
+        file,
+        current_version: {
+          id: fileId === "file-readme" ? "version-readme" : "version-main",
+          workspace_id: "ws-1",
+          file_id: fileId,
+          version_no: 1,
+          review_item_id: null,
+          content_inline: inline,
+          content_asset_id: null,
+          content_hash: file.content_hash,
+          created_by: "system",
+        },
+      };
+    });
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+    const editor = await screen.findByRole("textbox", { name: "编辑 main.tex" });
+    fireEvent.change(editor, { target: { value: "old file draft" } });
+    fireEvent.click(screen.getByTestId("prism-file-file-readme"));
+
+    await waitFor(() => expect(mockSaveWorkspacePrismFile).toHaveBeenCalledTimes(1));
+    expect(mockSaveWorkspacePrismFile).toHaveBeenCalledWith("ws-1", "file-main", {
+      content_inline: "old file draft",
+      expected_current_hash: "sha256:main",
+    });
+    expect(screen.getByRole("textbox", { name: "编辑 main.tex" })).toHaveValue("old file draft");
+    expect(
+      mockGetWorkspacePrismFile.mock.calls.some(([, fileId]) => fileId === "file-readme"),
+    ).toBe(false);
+
+    await act(async () => {
+      resolveSave?.({
+        file: { ...prismSurface.prism_files[0], content_hash: "sha256:draft" },
+        version: {
+          id: "version-draft",
+          workspace_id: "ws-1",
+          file_id: "file-main",
+          version_no: 2,
+          content_inline: "old file draft",
+          content_hash: "sha256:draft",
+          created_by: "user-1",
+        },
+        changed: true,
+      });
+    });
+
+    expect(await screen.findByRole("textbox", { name: "编辑 docs/readme.md" })).toHaveValue("# Readme");
+  });
+
+  it("keeps the current file and draft when saving before a switch fails", async () => {
+    mockSaveWorkspacePrismFile.mockRejectedValueOnce(new Error("network save failed"));
+    mockGetWorkspacePrismFile.mockImplementation(async (_workspaceId: string, fileId: string) => {
+      const file = fileId === "file-readme"
+        ? prismSurface.prism_files[1]
+        : prismSurface.prism_files[0];
+      const inline = fileId === "file-readme" ? "# Readme" : "\\section{Intro}";
+      return {
+        file,
+        current_version: {
+          id: fileId === "file-readme" ? "version-readme" : "version-main",
+          workspace_id: "ws-1",
+          file_id: fileId,
+          version_no: 1,
+          review_item_id: null,
+          content_inline: inline,
+          content_asset_id: null,
+          content_hash: file.content_hash,
+          created_by: "system",
+        },
+      };
+    });
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+    const editor = await screen.findByRole("textbox", { name: "编辑 main.tex" });
+    fireEvent.change(editor, { target: { value: "unsaved draft" } });
+    fireEvent.click(screen.getByTestId("prism-file-file-readme"));
+
+    expect(await screen.findByText("network save failed")).toBeInTheDocument();
+    expect(screen.getByTestId("prism-save-state")).toHaveTextContent("保存失败");
+    expect(screen.getByRole("textbox", { name: "编辑 main.tex" })).toHaveValue("unsaved draft");
+    expect(
+      mockGetWorkspacePrismFile.mock.calls.some(([, fileId]) => fileId === "file-readme"),
+    ).toBe(false);
+  });
+
+  it("drains an in-flight autosave and newer edits before switching files", async () => {
+    let resolveFirstSave: ((value: unknown) => void) | undefined;
+    let resolveSecondSave: ((value: unknown) => void) | undefined;
+    mockSaveWorkspacePrismFile
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveFirstSave = resolve;
+      }))
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveSecondSave = resolve;
+      }));
+    mockGetWorkspacePrismFile.mockImplementation(async (_workspaceId: string, fileId: string) => {
+      const file = fileId === "file-readme"
+        ? prismSurface.prism_files[1]
+        : prismSurface.prism_files[0];
+      const inline = fileId === "file-readme" ? "# Current readme" : "\\section{Intro}";
+      return {
+        file,
+        current_version: {
+          id: fileId === "file-readme" ? "version-readme" : "version-main",
+          workspace_id: "ws-1",
+          file_id: fileId,
+          version_no: 1,
+          review_item_id: null,
+          content_inline: inline,
+          content_asset_id: null,
+          content_hash: file.content_hash,
+          created_by: "system",
+        },
+      };
+    });
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+    const editor = await screen.findByRole("textbox", { name: "编辑 main.tex" });
+    vi.useFakeTimers();
+    fireEvent.change(editor, { target: { value: "\\section{First draft}" } });
+    await act(async () => {
+      vi.advanceTimersByTime(1_600);
+    });
+    vi.useRealTimers();
+
+    expect(mockSaveWorkspacePrismFile).toHaveBeenCalledWith(
+      "ws-1",
+      "file-main",
+      {
+        content_inline: "\\section{First draft}",
+        expected_current_hash: "sha256:main",
+      },
+    );
+
+    fireEvent.change(editor, { target: { value: "\\section{Latest draft}" } });
+    fireEvent.click(screen.getByTestId("prism-file-file-readme"));
+    expect(screen.getByRole("textbox", { name: "编辑 main.tex" })).toHaveValue("\\section{Latest draft}");
+    expect(
+      mockGetWorkspacePrismFile.mock.calls.some(([, fileId]) => fileId === "file-readme"),
+    ).toBe(false);
+
+    await act(async () => {
+      resolveFirstSave?.({
+        file: { ...prismSurface.prism_files[0], content_hash: "sha256:first-draft" },
+        version: {
+          id: "version-first-draft",
+          workspace_id: "ws-1",
+          file_id: "file-main",
+          version_no: 2,
+          content_inline: "\\section{First draft}",
+          content_hash: "sha256:first-draft",
+          created_by: "user-1",
+        },
+        changed: true,
+      });
+    });
+
+    await waitFor(() => expect(mockSaveWorkspacePrismFile).toHaveBeenCalledTimes(2));
+    expect(mockSaveWorkspacePrismFile.mock.calls[1]).toEqual([
+      "ws-1",
+      "file-main",
+      {
+        content_inline: "\\section{Latest draft}",
+        expected_current_hash: "sha256:first-draft",
+      },
+    ]);
+    expect(screen.getByRole("textbox", { name: "编辑 main.tex" })).toHaveValue("\\section{Latest draft}");
+
+    await act(async () => {
+      resolveSecondSave?.({
+        file: { ...prismSurface.prism_files[0], content_hash: "sha256:latest-draft" },
+        version: {
+          id: "version-latest-draft",
+          workspace_id: "ws-1",
+          file_id: "file-main",
+          version_no: 3,
+          content_inline: "\\section{Latest draft}",
+          content_hash: "sha256:latest-draft",
+          created_by: "user-1",
+        },
+        changed: true,
+      });
+    });
+
+    expect(await screen.findByRole("textbox", { name: "编辑 docs/readme.md" })).toHaveValue("# Current readme");
+    expect(mockSaveWorkspacePrismFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("stages a committed visual against a hash-bound manuscript selection", async () => {
+    mockGetWorkspacePrismFile.mockResolvedValue({
+      file: prismSurface.prism_files[0],
+      current_version: {
+        id: "version-main",
+        workspace_id: "ws-1",
+        file_id: "file-main",
+        version_no: 1,
+        review_item_id: null,
+        content_inline: "😀\\section{Intro}",
+        content_asset_id: null,
+        content_hash: "sha256:main",
+        created_by: "system",
+      },
+    });
+    mockSearchParams.value = new URLSearchParams({
+      visual_mission_id: "mission-1",
+      visual_review_item_id: "review-visual-1",
+    });
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+
+    const editor = await screen.findByTestId("prism-file-editor");
+    (editor as HTMLTextAreaElement).setSelectionRange(2, 10);
+    fireEvent.select(editor);
+    fireEvent.click(screen.getByRole("button", { name: "生成插入预览" }));
+
+    await waitFor(() => expect(mockStageMissionVisualInsertion).toHaveBeenCalledTimes(1));
+    expect(mockStageMissionVisualInsertion.mock.calls[0][0]).toMatchObject({
+      missionId: "mission-1",
+      sourceReviewItemId: "review-visual-1",
+      prismContextRef: {
+        workspace_id: "ws-1",
+        prism_project_id: "prism-1",
+        file_id: "file-main",
+        base_revision_ref: "version-main",
+        selection_byte_range: [4, 12],
+      },
+    });
+    expect(
+      mockStageMissionVisualInsertion.mock.calls[0][0].prismContextRef.selection_hash,
+    ).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      "/workspaces/ws-1?mission_id=mission-1&mission_surface=review",
+    );
+  });
+
   it("renders workspace manuscript context from the Prism surface projection", async () => {
     mockGetWorkspacePrismSurface.mockResolvedValue({
       ...prismSurface,
       has_pending_changes: true,
-      file_changes: [
-        {
-          id: "review-1",
-          logical_key: "section:introduction",
-          path: "sections/introduction.tex",
-          reason: "feature_proposal",
-        },
-      ],
       review_items: [
         {
           id: "review-1",

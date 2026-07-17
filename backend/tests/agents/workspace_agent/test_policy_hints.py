@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.middlewares.mission_policy_hints import load_mission_policy_hints
 from src.contracts.mission_policy import MissionPolicy
 from src.dataservice_client.contracts.catalog import MissionPolicyPayload
+from src.services.mission_policy_hints import load_mission_policy_hints
 from src.services.mission_policy_loader import MissionPolicyLoader
 
 

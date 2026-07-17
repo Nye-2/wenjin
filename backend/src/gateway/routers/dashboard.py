@@ -91,12 +91,13 @@ async def get_my_credit_history(
     }
 
 
-@router.get("/dashboard/me/credits/costs")
-async def get_workflow_costs(
+@router.get("/dashboard/me/credits/pricing")
+async def get_public_pricing(
     current_user: AccountAuthSubject = Depends(get_current_user),
+    dashboard_service: UserDashboardService = Depends(get_user_dashboard_service),
 ) -> dict[str, Any]:
-    """Get configured workflow credit costs."""
-    return {"costs": CreditService.get_public_workflow_costs()}
+    """Get the DataService-owned public pricing projection."""
+    return {"pricing": await dashboard_service.get_public_pricing()}
 
 
 @router.get("/dashboard/admin")

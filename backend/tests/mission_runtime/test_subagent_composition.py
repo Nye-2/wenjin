@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
 from src.dataservice_client.contracts.mission import MissionLeaseClaimPayload
 from src.mission_runtime.adapters import (
     MissionSandboxReceiptStore,
@@ -28,7 +29,11 @@ from src.sandbox.contracts import (
     content_hash_bytes,
     sandbox_job_id,
 )
-from src.subagent_runtime.contracts import SubagentAction, SubagentToolResult
+from src.subagent_runtime.contracts import (
+    SubagentAction,
+    SubagentModelTurn,
+    SubagentToolResult,
+)
 
 from .conftest import FakeQuality, ScriptedAgent, start_request
 
@@ -49,15 +54,26 @@ class _CompletingWorkerModel:
         self.context_budgets.append(job.budget.max_context_bytes)
         self.tool_budgets.append(job.budget.max_tool_steps)
         self.output_schemas.append(job.output_schema)
-        return SubagentAction(
-            kind="complete",
-            summary="Facet evidence is ready",
-            result_json={
-                "summary": "one verified facet",
-                "evidence_refs": [],
-                "artifact_refs": [],
-                "warnings": [],
-            },
+        return SubagentModelTurn(
+            action=SubagentAction(
+                kind="complete",
+                summary="Facet evidence is ready",
+                result_json={
+                    "summary": "one verified facet",
+                    "evidence_refs": [],
+                    "artifact_refs": [],
+                    "warnings": [],
+                },
+            ),
+            usage_receipt=ModelUsageReceipt(
+                model_id=job.model_id,
+                provider_response_id=f"response:{job.job_id}:{self.calls}",
+                usage=ModelUsage(
+                    input_tokens=100,
+                    output_tokens=25,
+                    total_tokens=125,
+                ),
+            ),
         )
 
 
@@ -111,10 +127,12 @@ class _AuditingWorkerModel(_CompletingWorkerModel):
             result["repair_actions"] = []
         if "reproducibility_findings" in properties:
             result["reproducibility_findings"] = []
-        return SubagentAction(
-            kind="complete",
-            summary="Pinned audit is ready",
-            result_json=result,
+        return SubagentModelTurn(
+            action=SubagentAction(
+                kind="complete",
+                summary="Pinned audit is ready",
+                result_json=result,
+            )
         )
 
 
@@ -217,6 +235,11 @@ async def test_subagent_ledger_conflict_recovers_without_duplicate_job_or_effect
         "running",
         "terminal",
     ]
+    usage = [item for item in items if item.item_type == "usage_receipt"]
+    assert len(usage) == 1
+    assert usage[0].producer == progress[0].producer
+    assert usage[0].payload_json["job_id"] == progress[0].payload_json["job_id"]
+    assert usage[0].payload_json["usage"]["total_tokens"] == 125
     completed = next(item for item in items if item.item_type == "subagent_completed")
     assert completed.payload_json["jobs"][0]["display_name"] == "文献猎手 · Lin"
     assert "full_transcript" not in str(completed.payload_json)

@@ -12,12 +12,6 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class PermissionDisposition(StrEnum):
-    ALLOW = "allow"
-    ASK = "ask"
-    DENY = "deny"
-
-
 class PermissionDecision(StrEnum):
     ALLOW_ONCE = "allow_once"
     ALLOW_FOR_MISSION = "allow_for_mission"
@@ -25,14 +19,6 @@ class PermissionDecision(StrEnum):
     REVISE_AND_CONTINUE = "revise_and_continue"
     ASK_MORE = "ask_more"
     CANCEL_MISSION = "cancel_mission"
-
-
-class PermissionRequestType(StrEnum):
-    PERMISSION = "permission"
-    TOOL_APPROVAL = "tool_approval"
-    USER_QUESTION = "user_question"
-    EXTERNAL_DATA_ACCESS = "external_data_access"
-    BUDGET_CONFIRMATION = "budget_confirmation"
 
 
 class PermissionContext(_StrictModel):
@@ -63,11 +49,6 @@ class PermissionGrant(_StrictModel):
         }:
             raise ValueError("PermissionGrant requires an allow decision")
         return self
-
-
-class PermissionEvaluation(_StrictModel):
-    disposition: PermissionDisposition
-    reason_code: str
 
 
 class PermissionResolution(_StrictModel):

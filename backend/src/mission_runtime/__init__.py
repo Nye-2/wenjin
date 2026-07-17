@@ -1,6 +1,7 @@
 """Durable, bounded, lease-fenced Mission Runtime."""
 
 from src.mission_runtime.contracts import (
+    MissionContinuationDirective,
     MissionSliceLimits,
     MissionSliceTelemetry,
     MissionStartReceipt,
@@ -15,6 +16,7 @@ from src.mission_runtime.runtime import (
 )
 
 __all__ = [
+    "MissionContinuationDirective",
     "MissionSliceLimits",
     "MissionSliceTelemetry",
     "MissionReconciler",

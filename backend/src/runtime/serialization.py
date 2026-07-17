@@ -35,11 +35,11 @@ def serialize_lc_object(obj: Any) -> Any:
         return repr(obj)
 
 
-def serialize_channel_values(channel_values: dict[str, Any]) -> dict[str, Any]:
-    """Serialize channel values while stripping LangGraph-internal keys."""
+def serialize_public_values(values: dict[str, Any]) -> dict[str, Any]:
+    """Serialize public values while stripping internal runtime keys."""
     result: dict[str, Any] = {}
-    for key, value in channel_values.items():
-        if str(key).startswith("__pregel_") or key == "__interrupt__":
+    for key, value in values.items():
+        if str(key).startswith("__"):
             continue
         result[str(key)] = serialize_lc_object(value)
     return result
@@ -60,7 +60,7 @@ def serialize(obj: Any, *, mode: str = "") -> Any:
         return serialize_messages_tuple(obj)
     if mode == "values":
         if isinstance(obj, dict):
-            return serialize_channel_values(obj)
+            return serialize_public_values(obj)
     return serialize_lc_object(obj)
 
 

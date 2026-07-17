@@ -1,5 +1,3 @@
-import type { ReasoningEffort } from "@/lib/reasoning-effort";
-
 export type MissionExecutionStatus =
   | "created"
   | "planning"
@@ -53,7 +51,7 @@ export interface MissionSubagentView {
 export interface MissionEvidenceView {
   id: string;
   title: string;
-  sourceType: "paper" | "web_page" | "dataset" | "upload";
+  sourceType: "paper" | "web_page" | "dataset" | "upload" | "artifact";
   sourceLabel?: string | null;
   summary?: string | null;
   citation?: string | null;
@@ -70,6 +68,15 @@ export interface MissionArtifactView {
 }
 
 export type MissionVisualArtifactKind = "figure" | "chart" | "table";
+
+export interface PrismContextRef {
+  workspace_id: string;
+  prism_project_id: string;
+  file_id: string;
+  base_revision_ref: string;
+  selection_hash: string;
+  selection_byte_range: [number, number];
+}
 
 export interface MissionVisualReviewMetadata {
   artifactKind: MissionVisualArtifactKind;
@@ -100,6 +107,10 @@ export interface MissionReviewItemView {
   previewUrl?: string | null;
   visual?: MissionVisualReviewMetadata | null;
   commitStatus?: MissionCommitStatus | null;
+  commitEligible: boolean;
+  commitBlockReason?: string | null;
+  commitErrorCode?: string | null;
+  committedTargetRef?: string | null;
 }
 
 export interface MissionReviewPreviewFile {
@@ -132,7 +143,13 @@ export interface MissionAttentionInput {
 export interface MissionAttentionAction {
   id: string;
   label: string;
-  actionType: "reply_in_chat" | "upload_file" | "open_review";
+  actionType:
+    | "reply_in_chat"
+    | "upload_file"
+    | "open_review"
+    | "permission_allow_once"
+    | "permission_allow_mission"
+    | "permission_reject";
   primary: boolean;
 }
 
@@ -266,14 +283,4 @@ export interface MissionEventHint {
   stateVersion: number;
   lastItemSeq: number;
   cursor: string;
-}
-
-export interface ModelCapabilityProfile {
-  version: string;
-  generationApi: string | null;
-  strictToolCalls: boolean;
-  streaming: boolean;
-  reasoningEfforts: ReasoningEffort[];
-  vision: boolean;
-  nativeWebSearch: boolean;
 }

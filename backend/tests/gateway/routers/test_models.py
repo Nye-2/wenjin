@@ -11,9 +11,9 @@ from src.dataservice_client.contracts.model_catalog import ModelCatalogPayload
 from src.gateway.routers import models as models_router
 from src.models.capability_profile import (
     GenerationAPI,
-    gpt56_release_assessment,
     unverified_capability_assessment,
 )
+from tests.models.capability_fixtures import verified_capability_assessment
 
 
 def _model_payload(**overrides: Any) -> ModelCatalogPayload:
@@ -34,7 +34,7 @@ def _model_payload(**overrides: Any) -> ModelCatalogPayload:
     }
     data.update(overrides)
     if verified and data["model_id"] == "gpt-5.6-sol":
-        assessment = gpt56_release_assessment("gpt-5.6-sol")
+        assessment = verified_capability_assessment("gpt-5.6-sol")
     else:
         generation_api = GenerationAPI(data["generation_api"]) if data.get("generation_api") else None
         assessment = unverified_capability_assessment(

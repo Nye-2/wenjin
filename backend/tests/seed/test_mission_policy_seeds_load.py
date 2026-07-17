@@ -82,3 +82,4 @@ def test_math_modeling_enforces_question_by_question_progression() -> None:
     assert model_rule["previous_item_prerequisite_templates"] == ["question_{index}_solution_validation"]
     assert validation_rule["same_item_prerequisite_templates"] == ["question_{index}_model"]
     assert by_stage["paper_integration"]["all_item_prerequisite_templates"] == ["question_{index}_solution_validation"]
+    assert by_stage["paper_integration"]["all_item_source_context_key"] == "problem_questions"

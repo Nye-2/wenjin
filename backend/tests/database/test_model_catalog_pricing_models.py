@@ -2,7 +2,6 @@
 
 from src.database.models.credit_reservation import (
     CreditReservation,
-    CreditReservationScope,
     CreditReservationStatus,
 )
 from src.database.models.model_catalog import (
@@ -70,7 +69,6 @@ def test_pricing_policy_contract() -> None:
     assert PricingPolicyKind.MODEL_USAGE.value == "model_usage"
     assert PricingPolicyKind.MISSION.value == "mission"
     assert PricingPolicyKind.TOOL.value == "tool"
-    assert PricingPolicyKind.SANDBOX.value == "sandbox"
 
     index_names = {idx.name for idx in PricingPolicy.__table__.indexes}
     assert "ix_pricing_policies_kind_enabled" in index_names
@@ -88,9 +86,6 @@ def test_pricing_policy_contract() -> None:
 
 def test_credit_reservation_contract() -> None:
     assert CreditReservation.__tablename__ == "credit_reservations"
-    assert CreditReservationScope.MISSION.value == "mission"
-    assert CreditReservationScope.SANDBOX_OPERATION.value == "sandbox_operation"
-    assert CreditReservationScope.THREAD_TURN.value == "thread_turn"
     assert CreditReservationStatus.RESERVED.value == "reserved"
     assert CreditReservationStatus.SETTLED.value == "settled"
     assert CreditReservationStatus.RELEASED.value == "released"
@@ -102,7 +97,7 @@ def test_credit_reservation_contract() -> None:
 
     reservation = CreditReservation(
         user_id="user-1",
-        scope=CreditReservationScope.MISSION,
+        mission_id="mission-1",
         reserved_credits=500,
         idempotency_key="mission:mission-1",
     )

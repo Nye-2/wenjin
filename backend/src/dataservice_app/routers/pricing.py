@@ -28,6 +28,25 @@ class PricingPolicyDisablePayload(BaseModel):
     admin_id: str | None = None
 
 
+@router.get("/public-catalog")
+async def get_public_pricing_catalog(
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServicePricingPolicyService(uow.required_session, autocommit=False)
+    catalog = await service.get_public_catalog()
+    return envelope_ok(catalog.model_dump(mode="json"))
+
+
+@router.get("/model-usage/{model_id}")
+async def resolve_model_usage_pricing(
+    model_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServicePricingPolicyService(uow.required_session, autocommit=False)
+    resolved = await service.resolve_model_usage_pricing(model_id)
+    return envelope_ok(resolved.model_dump(mode="json"))
+
+
 @router.get("")
 async def list_pricing_policies(
     policy_kind: str | None = Query(default=None),

@@ -12,11 +12,11 @@ from src.dataservice_client.contracts.model_catalog import (
 )
 from src.models.capability_profile import (
     GenerationAPI,
-    gpt56_release_assessment,
     unverified_capability_assessment,
 )
 from src.services.model_catalog_cache import reset_model_catalog_cache
 from src.services.model_catalog_service import ModelCatalogService
+from tests.models.capability_fixtures import verified_capability_assessment
 
 
 def _model_payload(**overrides: Any) -> ModelCatalogPayload:
@@ -223,7 +223,7 @@ async def test_test_model_records_probe_backed_assessment(monkeypatch) -> None:
         )
     ]
     service = ModelCatalogService(dataservice=dataservice)  # type: ignore[arg-type]
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
 
     async def _probe(_target):
         return assessment
@@ -255,7 +255,7 @@ async def test_test_model_can_probe_a_disabled_catalog_entry(monkeypatch) -> Non
         )
     ]
     service = ModelCatalogService(dataservice=dataservice)  # type: ignore[arg-type]
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
 
     async def _probe(_target):
         return assessment

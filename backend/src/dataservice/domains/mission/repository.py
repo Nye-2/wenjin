@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -26,6 +26,107 @@ def _aware(value: datetime) -> datetime:
 def _bucket_datetime(value: datetime | str) -> datetime:
     parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
     return _aware(parsed)
+
+
+def _current_review_rows(mission_id: str):
+    return (
+        select(
+            MissionReviewItemRecord.review_item_id.label("review_item_id"),
+            MissionReviewItemRecord.status.label("status"),
+            func.row_number()
+            .over(
+                partition_by=MissionReviewItemRecord.output_key,
+                order_by=(
+                    MissionReviewItemRecord.created_at.desc(),
+                    MissionReviewItemRecord.review_item_id.desc(),
+                ),
+            )
+            .label("review_rank"),
+        )
+        .where(
+            MissionReviewItemRecord.mission_id == mission_id,
+            MissionReviewItemRecord.status != "superseded",
+        )
+        .subquery()
+    )
+
+
+def _artifact_destination_partition():
+    materialization = MissionReviewItemRecord.preview_json["materialization"]
+    operation = materialization["operation"].as_string()
+    path = func.trim(materialization["payload"]["path"].as_string())
+    has_target_ref = and_(
+        MissionReviewItemRecord.target_ref.is_not(None),
+        MissionReviewItemRecord.target_ref != "",
+    )
+    is_new_document = and_(
+        operation == "documents.upsert_prism_file",
+        path.is_not(None),
+        path != "",
+    )
+    room = func.coalesce(MissionReviewItemRecord.target_room, "")
+    return (
+        case(
+            (has_target_ref, "existing"),
+            (is_new_document, "new"),
+            else_="output",
+        ),
+        case(
+            (
+                has_target_ref,
+                MissionReviewItemRecord.target_kind,
+            ),
+            else_=case(
+                (is_new_document, MissionReviewItemRecord.target_kind),
+                else_="",
+            ),
+        ),
+        case(
+            (has_target_ref, room),
+            else_=case(
+                (is_new_document, room),
+                else_="",
+            ),
+        ),
+        case(
+            (
+                has_target_ref,
+                MissionReviewItemRecord.target_ref,
+            ),
+            (is_new_document, path),
+            else_=MissionReviewItemRecord.output_key,
+        ),
+    )
+
+
+def _current_artifact_rows(mission_id: str):
+    current = _current_review_rows(mission_id)
+    return (
+        select(
+            MissionReviewItemRecord.review_item_id.label("review_item_id"),
+            MissionReviewItemRecord.source_item_seq.label("source_item_seq"),
+            func.row_number()
+            .over(
+                partition_by=_artifact_destination_partition(),
+                order_by=(
+                    MissionReviewItemRecord.created_at.desc(),
+                    MissionReviewItemRecord.review_item_id.desc(),
+                ),
+            )
+            .label("artifact_rank"),
+        )
+        .join(
+            current,
+            current.c.review_item_id == MissionReviewItemRecord.review_item_id,
+        )
+        .where(
+            current.c.review_rank == 1,
+            MissionReviewItemRecord.target_kind.in_(("document", "workspace_asset")),
+            MissionReviewItemRecord.status.in_(("pending", "accepted", "committed")),
+            MissionReviewItemRecord.source_item_seq.is_not(None),
+        )
+        .subquery()
+    )
 
 
 class MissionRepository:
@@ -58,6 +159,15 @@ class MissionRepository:
             statement = statement.with_for_update(skip_locked=skip_locked)
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
+
+    async def get_run_state_version(self, mission_id: str) -> int | None:
+        result = await self.session.execute(
+            select(MissionRunRecord.state_version).where(
+                MissionRunRecord.mission_id == mission_id
+            )
+        )
+        value = result.scalar_one_or_none()
+        return int(value) if value is not None else None
 
     async def find_by_idempotency_key(
         self,
@@ -353,14 +463,18 @@ class MissionRepository:
         mission_id: str,
         operation_id: str,
         item_type: str | None = None,
+        after_seq: int = 0,
+        limit: int = 100,
     ) -> list[MissionItemRecord]:
         statement = (
             select(MissionItemRecord)
             .where(
                 MissionItemRecord.mission_id == mission_id,
                 MissionItemRecord.operation_id == operation_id,
+                MissionItemRecord.seq > after_seq,
             )
             .order_by(MissionItemRecord.seq.asc())
+            .limit(limit)
         )
         if item_type is not None:
             statement = statement.where(MissionItemRecord.item_type == item_type)
@@ -447,19 +561,200 @@ class MissionRepository:
         result = await self.session.execute(statement)
         return list(result.scalars())
 
+    async def count_items(
+        self,
+        *,
+        mission_id: str,
+        item_type: str | None = None,
+        operation_id: str | None = None,
+    ) -> int:
+        statement = select(func.count(MissionItemRecord.id)).where(
+            MissionItemRecord.mission_id == mission_id
+        )
+        if item_type is not None:
+            statement = statement.where(MissionItemRecord.item_type == item_type)
+        if operation_id is not None:
+            statement = statement.where(
+                MissionItemRecord.operation_id == operation_id
+            )
+        result = await self.session.execute(statement)
+        return int(result.scalar_one())
+
     async def list_review_items(
         self,
         *,
         mission_id: str,
         status: list[str] | None = None,
         output_keys: list[str] | None = None,
+        after_created_at: datetime | None = None,
+        after_review_item_id: str | None = None,
+        limit: int = 100,
         for_update: bool = False,
     ) -> list[MissionReviewItemRecord]:
-        statement = select(MissionReviewItemRecord).where(MissionReviewItemRecord.mission_id == mission_id).order_by(MissionReviewItemRecord.created_at.asc())
+        statement = (
+            select(MissionReviewItemRecord)
+            .where(MissionReviewItemRecord.mission_id == mission_id)
+            .order_by(
+                MissionReviewItemRecord.created_at.asc(),
+                MissionReviewItemRecord.review_item_id.asc(),
+            )
+            .limit(limit)
+        )
         if status:
             statement = statement.where(MissionReviewItemRecord.status.in_(status))
         if output_keys:
             statement = statement.where(MissionReviewItemRecord.output_key.in_(output_keys))
+        if after_created_at is not None and after_review_item_id is not None:
+            statement = statement.where(
+                or_(
+                    MissionReviewItemRecord.created_at > after_created_at,
+                    and_(
+                        MissionReviewItemRecord.created_at == after_created_at,
+                        MissionReviewItemRecord.review_item_id > after_review_item_id,
+                    ),
+                )
+            )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await self.session.execute(statement)
+        return list(result.scalars())
+
+    async def count_review_items(
+        self,
+        *,
+        mission_id: str,
+        status: list[str] | None = None,
+    ) -> int:
+        statement = select(func.count(MissionReviewItemRecord.review_item_id)).where(
+            MissionReviewItemRecord.mission_id == mission_id
+        )
+        if status:
+            statement = statement.where(MissionReviewItemRecord.status.in_(status))
+        result = await self.session.execute(statement)
+        return int(result.scalar_one())
+
+    async def list_current_review_items(
+        self,
+        *,
+        mission_id: str,
+        limit: int,
+    ) -> list[MissionReviewItemRecord]:
+        current = _current_review_rows(mission_id)
+        result = await self.session.execute(
+            select(MissionReviewItemRecord)
+            .join(
+                current,
+                current.c.review_item_id == MissionReviewItemRecord.review_item_id,
+            )
+            .where(current.c.review_rank == 1)
+            .order_by(
+                MissionReviewItemRecord.created_at.asc(),
+                MissionReviewItemRecord.review_item_id.asc(),
+            )
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def aggregate_current_review_statuses(
+        self,
+        *,
+        mission_id: str,
+    ) -> list[tuple[str, int]]:
+        current = _current_review_rows(mission_id)
+        result = await self.session.execute(
+            select(current.c.status, func.count(current.c.review_item_id))
+            .where(current.c.review_rank == 1)
+            .group_by(current.c.status)
+        )
+        return [(str(status), int(count)) for status, count in result.all()]
+
+    async def list_current_artifact_review_items(
+        self,
+        *,
+        mission_id: str,
+        after_seq: int = 0,
+        after_review_item_id: str = "",
+        limit: int,
+    ) -> list[MissionReviewItemRecord]:
+        artifacts = _current_artifact_rows(mission_id)
+        result = await self.session.execute(
+            select(MissionReviewItemRecord)
+            .join(
+                artifacts,
+                artifacts.c.review_item_id == MissionReviewItemRecord.review_item_id,
+            )
+            .where(
+                artifacts.c.artifact_rank == 1,
+                or_(
+                    artifacts.c.source_item_seq > after_seq,
+                    and_(
+                        artifacts.c.source_item_seq == after_seq,
+                        artifacts.c.review_item_id > after_review_item_id,
+                    ),
+                ),
+            )
+            .order_by(
+                artifacts.c.source_item_seq.asc(),
+                artifacts.c.review_item_id.asc(),
+            )
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def count_current_artifact_review_items(self, *, mission_id: str) -> int:
+        artifacts = _current_artifact_rows(mission_id)
+        result = await self.session.execute(
+            select(func.count(artifacts.c.review_item_id)).where(
+                artifacts.c.artifact_rank == 1
+            )
+        )
+        return int(result.scalar_one())
+
+    async def list_review_items_for_replacement(
+        self,
+        *,
+        mission_id: str,
+        output_keys: list[str],
+        destinations: list[tuple[str, ...]],
+        for_update: bool = False,
+    ) -> list[MissionReviewItemRecord]:
+        destination_filters = []
+        materialization = MissionReviewItemRecord.preview_json["materialization"]
+        operation = materialization["operation"].as_string()
+        path = func.trim(materialization["payload"]["path"].as_string())
+        for destination in destinations:
+            if destination[0] == "existing":
+                _, target_kind, target_room, target_ref = destination
+                destination_filters.append(
+                    and_(
+                        MissionReviewItemRecord.target_kind == target_kind,
+                        func.coalesce(MissionReviewItemRecord.target_room, "")
+                        == target_room,
+                        MissionReviewItemRecord.target_ref == target_ref,
+                    )
+                )
+            elif destination[0] == "new":
+                _, target_kind, target_room, target_operation, target_path = destination
+                destination_filters.append(
+                    and_(
+                        MissionReviewItemRecord.target_kind == target_kind,
+                        func.coalesce(MissionReviewItemRecord.target_room, "")
+                        == target_room,
+                        MissionReviewItemRecord.target_ref.is_(None),
+                        operation == target_operation,
+                        path == target_path,
+                    )
+                )
+        matches = [MissionReviewItemRecord.output_key.in_(output_keys)]
+        matches.extend(destination_filters)
+        statement = select(MissionReviewItemRecord).where(
+            MissionReviewItemRecord.mission_id == mission_id,
+            MissionReviewItemRecord.status.not_in(("committed", "superseded")),
+            or_(*matches),
+        ).order_by(
+            MissionReviewItemRecord.created_at.asc(),
+            MissionReviewItemRecord.review_item_id.asc(),
+        )
         if for_update:
             statement = statement.with_for_update()
         result = await self.session.execute(statement)
@@ -468,6 +763,7 @@ class MissionRepository:
     async def list_expired_review_previews(
         self,
         *,
+        mission_id: str,
         now: datetime,
         limit: int,
         for_update: bool = False,
@@ -475,17 +771,47 @@ class MissionRepository:
         statement = (
             select(MissionReviewItemRecord)
             .where(
+                MissionReviewItemRecord.mission_id == mission_id,
                 MissionReviewItemRecord.preview_expires_at.is_not(None),
                 MissionReviewItemRecord.preview_expires_at <= now,
-                (MissionReviewItemRecord.preview_ref.is_not(None) | (MissionReviewItemRecord.preview_json != {})),
+                (
+                    MissionReviewItemRecord.preview_ref.is_not(None)
+                    | (MissionReviewItemRecord.preview_json != {})
+                ),
             )
-            .order_by(MissionReviewItemRecord.preview_expires_at.asc())
+            .order_by(
+                MissionReviewItemRecord.preview_expires_at.asc(),
+                MissionReviewItemRecord.review_item_id.asc(),
+            )
             .limit(limit)
         )
         if for_update:
             statement = statement.with_for_update(skip_locked=True)
         result = await self.session.execute(statement)
         return list(result.scalars())
+
+    async def list_mission_ids_with_expired_previews(
+        self,
+        *,
+        now: datetime,
+        limit: int,
+    ) -> list[str]:
+        statement = (
+            select(MissionReviewItemRecord.mission_id)
+            .where(
+                MissionReviewItemRecord.preview_expires_at.is_not(None),
+                MissionReviewItemRecord.preview_expires_at <= now,
+                (
+                    MissionReviewItemRecord.preview_ref.is_not(None)
+                    | (MissionReviewItemRecord.preview_json != {})
+                ),
+            )
+            .distinct()
+            .order_by(MissionReviewItemRecord.mission_id.asc())
+            .limit(limit)
+        )
+        result = await self.session.execute(statement)
+        return [str(value) for value in result.scalars().all()]
 
     def create_commit(self, values: dict[str, Any]) -> MissionCommitRecord:
         record = MissionCommitRecord(commit_id=generate_uuid(), **values)
@@ -520,14 +846,83 @@ class MissionRepository:
 
     async def find_commit_by_review_item(
         self,
+        *,
+        mission_id: str,
         review_item_id: str,
     ) -> MissionCommitRecord | None:
-        result = await self.session.execute(select(MissionCommitRecord).where(MissionCommitRecord.review_item_id == review_item_id))
+        result = await self.session.execute(
+            select(MissionCommitRecord).where(
+                MissionCommitRecord.mission_id == mission_id,
+                MissionCommitRecord.review_item_id == review_item_id,
+            )
+        )
         return result.scalar_one_or_none()
 
-    async def list_commits(self, *, mission_id: str) -> list[MissionCommitRecord]:
-        result = await self.session.execute(select(MissionCommitRecord).where(MissionCommitRecord.mission_id == mission_id).order_by(MissionCommitRecord.created_at.asc()))
+    async def list_commits_by_review_item_ids(
+        self,
+        *,
+        mission_id: str,
+        review_item_ids: list[str],
+    ) -> list[MissionCommitRecord]:
+        if not review_item_ids:
+            return []
+        result = await self.session.execute(
+            select(MissionCommitRecord).where(
+                MissionCommitRecord.mission_id == mission_id,
+                MissionCommitRecord.review_item_id.in_(review_item_ids),
+            )
+        )
         return list(result.scalars())
+
+    async def list_commits(
+        self,
+        *,
+        mission_id: str,
+        after_created_at: datetime | None = None,
+        after_commit_id: str | None = None,
+        limit: int = 100,
+    ) -> list[MissionCommitRecord]:
+        statement = (
+            select(MissionCommitRecord)
+            .where(MissionCommitRecord.mission_id == mission_id)
+            .order_by(
+                MissionCommitRecord.created_at.asc(),
+                MissionCommitRecord.commit_id.asc(),
+            )
+            .limit(limit)
+        )
+        if after_created_at is not None and after_commit_id is not None:
+            statement = statement.where(
+                or_(
+                    MissionCommitRecord.created_at > after_created_at,
+                    and_(
+                        MissionCommitRecord.created_at == after_created_at,
+                        MissionCommitRecord.commit_id > after_commit_id,
+                    ),
+                )
+            )
+        result = await self.session.execute(statement)
+        return list(result.scalars())
+
+    async def aggregate_commit_statuses(
+        self,
+        *,
+        mission_id: str,
+    ) -> list[tuple[str, int]]:
+        result = await self.session.execute(
+            select(MissionCommitRecord.status, func.count(MissionCommitRecord.commit_id))
+            .where(MissionCommitRecord.mission_id == mission_id)
+            .group_by(MissionCommitRecord.status)
+        )
+        return [(str(status), int(count)) for status, count in result.all()]
+
+    async def count_commits(self, *, mission_id: str) -> int:
+        result = await self.session.execute(
+            select(func.count(MissionCommitRecord.commit_id)).where(
+                MissionCommitRecord.mission_id == mission_id
+            )
+        )
+        return int(result.scalar_one())
 
 
 __all__ = ["MissionRepository", "NONTERMINAL_MISSION_STATUSES"]

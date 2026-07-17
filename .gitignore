@@ -43,11 +43,9 @@ logs/*.log
 logs/*.pid
 
 # Local docker image archives
-backend/docker/images/texlive/*.tar
 
 # Superpowers brainstorming sessions
 .superpowers/
 .worktrees/
 frontend/test-results/
 .playwright-cli/
-frontend/public/pdfjs/

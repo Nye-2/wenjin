@@ -10,10 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.credit import CreditTransactionType
 from src.database.models.credit_grant_rule import CreditGrantRuleType
-from src.database.models.credit_reservation import (
-    CreditReservationScope,
-    CreditReservationStatus,
-)
+from src.database.models.credit_reservation import CreditReservationStatus
 from src.dataservice.common.errors import CreditOverdraftLimitError
 from src.dataservice.domains.credit.repository import CreditRepository
 
@@ -36,10 +33,6 @@ def _idempotency_key(metadata: dict[str, Any] | None) -> str | None:
         return None
     value = str(metadata.get("idempotency_key") or "").strip()
     return value or None
-
-
-def _enum_value(value: Any) -> Any:
-    return value.value if hasattr(value, "value") else value
 
 
 class DataServiceCreditService:
@@ -78,15 +71,12 @@ class DataServiceCreditService:
 
     async def get_thread_token_usage_summary(self) -> dict[str, int]:
         transactions = await self.repository.list_thread_token_transactions()
-        refunded_ids = {str(tx.tx_metadata.get("original_transaction_id")) for tx in transactions if tx.transaction_type == CreditTransactionType.REFUND and isinstance(tx.tx_metadata, dict) and tx.tx_metadata.get("original_transaction_id")}
 
         total_tokens = 0
         transaction_count = 0
         user_ids: set[str] = set()
         for tx in transactions:
             if tx.transaction_type != CreditTransactionType.THREAD_TOKEN_CONSUME:
-                continue
-            if str(tx.id) in refunded_ids:
                 continue
             metadata = tx.tx_metadata if isinstance(tx.tx_metadata, dict) else {}
             token_usage = metadata.get("token_usage")
@@ -110,7 +100,6 @@ class DataServiceCreditService:
         inflow_types = {
             CreditTransactionType.ADMIN_GRANT,
             CreditTransactionType.REGISTRATION_BONUS,
-            CreditTransactionType.REFUND,
             CreditTransactionType.REFERRAL_BONUS,
             CreditTransactionType.REDEEM_CODE,
         }
@@ -173,14 +162,8 @@ class DataServiceCreditService:
             user_id=user_id,
             consume_type=consume_type,
         )
-        refunded_ids = {str(tx.tx_metadata.get("original_transaction_id")) for tx in transactions if tx.transaction_type == CreditTransactionType.REFUND and tx.tx_metadata.get("original_transaction_id")}
-
         total = 0
         for tx in transactions:
-            if tx.transaction_type != consume_type:
-                continue
-            if str(tx.id) in refunded_ids:
-                continue
             metadata = tx.tx_metadata or {}
             if metadata_type is not None and (not isinstance(metadata, dict) or metadata.get("type") != metadata_type):
                 continue
@@ -339,17 +322,14 @@ class DataServiceCreditService:
         self,
         *,
         user_id: str,
-        scope: CreditReservationScope | str,
         reserved_credits: int,
         idempotency_key: str,
         workspace_id: str | None = None,
-        mission_id: str | None = None,
-        mission_item_seq: int | None = None,
+        mission_id: str,
         expires_at: datetime | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Any:
         """Hold credits for long-running billable work without writing a ledger entry."""
-        normalized_scope = CreditReservationScope(scope)
         normalized_reserved = max(int(reserved_credits or 0), 0)
         normalized_key = str(idempotency_key or "").strip()
         if not normalized_key:
@@ -360,8 +340,6 @@ class DataServiceCreditService:
             raise ValueError("User not found")
 
         existing = await self.repository.find_reservation_by_idempotency_key(
-            user_id=user_id,
-            scope=normalized_scope,
             idempotency_key=normalized_key,
         )
         if existing is not None:
@@ -377,8 +355,6 @@ class DataServiceCreditService:
                 "user_id": user_id,
                 "workspace_id": workspace_id,
                 "mission_id": mission_id,
-                "mission_item_seq": mission_item_seq,
-                "scope": normalized_scope,
                 "status": CreditReservationStatus.RESERVED,
                 "reserved_credits": normalized_reserved,
                 "settled_credits": 0,
@@ -426,7 +402,6 @@ class DataServiceCreditService:
         tx_metadata.update(
             {
                 "reservation_id": str(reservation.id),
-                "reservation_scope": _enum_value(reservation.scope),
                 "reserved_credits": reserved_credits,
                 "settled_credits": credits_to_charge,
             }
@@ -472,24 +447,76 @@ class DataServiceCreditService:
             reason=reason,
         )
 
-    async def release_expired_reservations(
+    async def reactivate_reservation(
         self,
+        reservation_id: str,
         *,
-        now: datetime | None = None,
-    ) -> list[Any]:
-        """Release active reservations whose expiration has passed."""
-        effective_now = now or datetime.now(UTC)
-        reservations = await self.repository.list_expired_reserved_reservations(now=effective_now)
-        released: list[Any] = []
-        for reservation in reservations:
-            released.append(
-                await self._release_locked_reservation(
-                    reservation,
-                    status=CreditReservationStatus.EXPIRED,
-                    reason="reservation expired",
-                )
+        reserved_credits: int,
+        expires_at: datetime,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        reservation = await self.repository.get_reservation_for_update(
+            reservation_id
+        )
+        if reservation is None:
+            raise ValueError("Credit reservation not found")
+        if reservation.status == CreditReservationStatus.RESERVED:
+            return reservation
+        if reservation.status == CreditReservationStatus.SETTLED:
+            raise ValueError("Settled credit reservation cannot be reactivated")
+        user = await self.repository.get_user_for_update(reservation.user_id)
+        if user is None:
+            raise ValueError("User not found")
+        normalized_reserved = max(int(reserved_credits or 0), 0)
+        spendable_credits = int(user.credits or 0) - int(
+            getattr(user, "reserved_credits", 0) or 0
+        )
+        if normalized_reserved > spendable_credits:
+            raise CreditOverdraftLimitError(
+                "insufficient spendable credits for reservation"
             )
-        return released
+        user.reserved_credits = int(
+            getattr(user, "reserved_credits", 0) or 0
+        ) + normalized_reserved
+        reservation.status = CreditReservationStatus.RESERVED
+        reservation.reserved_credits = normalized_reserved
+        reservation.settled_credits = 0
+        reservation.transaction_id = None
+        reservation.expires_at = expires_at
+        reservation.metadata_json = {
+            **dict(reservation.metadata_json or {}),
+            **dict(metadata or {}),
+            "reactivated_at": datetime.now(UTC).isoformat(),
+        }
+        await self._finish(reservation)
+        return reservation
+
+    async def expire_reservation(
+        self,
+        reservation_id: str,
+        *,
+        now: datetime,
+    ) -> Any:
+        reservation = await self.repository.get_reservation_for_update(
+            reservation_id
+        )
+        if reservation is None:
+            raise ValueError("Credit reservation not found")
+        expires_at = reservation.expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        effective_now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+        if (
+            reservation.status != CreditReservationStatus.RESERVED
+            or expires_at is None
+            or expires_at > effective_now
+        ):
+            return reservation
+        return await self._release_locked_reservation(
+            reservation,
+            status=CreditReservationStatus.EXPIRED,
+            reason="reservation expired",
+        )
 
     async def _release_locked_reservation(
         self,
@@ -571,72 +598,6 @@ class DataServiceCreditService:
         )
         await self._finish(tx)
         return tx, balance_before
-
-    async def refund_consumption(
-        self,
-        *,
-        user_id: str,
-        original_transaction_id: str,
-        reason: str,
-        task_id: str | None = None,
-    ) -> Any | None:
-        original_tx = await self.repository.get_credit_transaction(original_transaction_id)
-        if (
-            not original_tx
-            or original_tx.user_id != user_id
-            or original_tx.transaction_type
-            not in {
-                CreditTransactionType.WORKFLOW_CONSUME,
-                CreditTransactionType.THREAD_TOKEN_CONSUME,
-            }
-        ):
-            return None
-
-        existing_refund = await self.repository.find_refund_for_original(
-            user_id=user_id,
-            original_transaction_id=original_transaction_id,
-        )
-        if existing_refund is not None:
-            return None
-
-        original_metadata = original_tx.tx_metadata if isinstance(original_tx.tx_metadata, dict) else {}
-        is_token_usage_transaction = (
-            original_tx.transaction_type == CreditTransactionType.THREAD_TOKEN_CONSUME
-            or original_metadata.get("type") == "mission_token_billing"
-        )
-        refund_amount = abs(int(original_tx.amount))
-        if refund_amount <= 0 and not is_token_usage_transaction:
-            return None
-
-        user = await self.repository.get_user_for_update(user_id)
-        if user is None:
-            raise ValueError("User not found")
-        if refund_amount > 0:
-            user.credits += refund_amount
-            user.total_credits_spent = max(0, int(user.total_credits_spent) - refund_amount)
-
-        refund_tx = self.repository.create_credit_transaction(
-            {
-                "user_id": user_id,
-                "transaction_type": CreditTransactionType.REFUND,
-                "amount": refund_amount,
-                "balance_after": user.credits,
-                "description": reason,
-                "mission_policy_id": original_tx.mission_policy_id,
-                "mission_id": original_tx.mission_id,
-                "operation_key": original_tx.operation_key,
-                "workspace_id": original_tx.workspace_id,
-                "task_id": task_id or original_tx.task_id,
-                "tx_metadata": {
-                    "original_transaction_id": original_transaction_id,
-                    "original_task_id": original_tx.task_id,
-                    "original_transaction_type": original_tx.transaction_type.value,
-                    "token_usage": original_metadata.get("token_usage"),
-                },
-            }
-        )
-        await self._finish(refund_tx)
-        return refund_tx
 
     async def admin_adjust(
         self,

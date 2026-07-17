@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import REAL, BigInteger, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import REAL, BigInteger, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..base import Base, UUIDMixin
@@ -27,6 +27,14 @@ class Decision(Base, UUIDMixin):
     __tablename__ = "decisions"
     __table_args__ = (
         Index("uq_decisions_mission_commit", "source_mission_commit_id", unique=True),
+        Index(
+            "uq_decisions_active_workspace_key",
+            "workspace_id",
+            "key",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL AND superseded_by IS NULL"),
+            sqlite_where=text("deleted_at IS NULL AND superseded_by IS NULL"),
+        ),
     )
 
     workspace_id: Mapped[str] = mapped_column(
@@ -38,7 +46,8 @@ class Decision(Base, UUIDMixin):
     value: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(REAL, nullable=False, default=1.0)
     source_message_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True,
+        String(36),
+        nullable=True,
     )
     extracted_by: Mapped[str] = mapped_column(String(100), nullable=False)
     superseded_by: Mapped[str | None] = mapped_column(
@@ -58,10 +67,13 @@ class Decision(Base, UUIDMixin):
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False,
+        DateTime(timezone=True),
+        server_default="now()",
+        nullable=False,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     def __repr__(self) -> str:

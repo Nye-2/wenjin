@@ -9,19 +9,21 @@ from fastapi import APIRouter, Depends, Query
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
+from src.dataservice.domains.mission.admission import MissionAdmissionService
 from src.dataservice.domains.mission.service import MissionStore
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionApplyCommandsPayload,
-    MissionCancelPayload,
     MissionCheckpointPayload,
     MissionCommitCreatePayload,
     MissionCommitFinishPayload,
     MissionCommitStartPayload,
     MissionCreatePayload,
+    MissionDerivedReviewItemCreatePayload,
     MissionDispatchReleasePayload,
+    MissionItemSeqsPayload,
     MissionLeaseClaimPayload,
     MissionLeaseHeartbeatPayload,
     MissionLeaseReleasePayload,
@@ -29,6 +31,7 @@ from src.dataservice_client.contracts.mission import (
     MissionOperationFinishPayload,
     MissionPausePayload,
     MissionPreviewCleanupPayload,
+    MissionReservationReconcilePayload,
     MissionResumePayload,
     MissionReviewDecisionsPayload,
     MissionReviewItemsCreatePayload,
@@ -48,12 +51,24 @@ def _store(uow: DataServiceUnitOfWork) -> MissionStore:
     return MissionStore(uow.required_session, autocommit=False)
 
 
-@router.post("/missions")
-async def create_mission(
+@router.post("/mission-admissions")
+async def admit_mission(
     command: MissionCreatePayload,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
-    result = await _store(uow).create_run(command)
+    result = await MissionAdmissionService(uow.required_session).admit(command)
+    await uow.commit()
+    return envelope_ok(result.model_dump(mode="json"))
+
+
+@router.post("/mission-reservation-reconciliation")
+async def reconcile_mission_reservations(
+    command: MissionReservationReconcilePayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await MissionAdmissionService(
+        uow.required_session
+    ).reconcile_expired_reservations(command)
     await uow.commit()
     return envelope_ok(result.model_dump(mode="json"))
 
@@ -80,6 +95,19 @@ async def get_mission_view(
     return envelope_ok(result.model_dump(mode="json") if result else None)
 
 
+@router.get("/missions/{mission_id}/review-items/{review_item_id}/commit")
+async def get_mission_commit_for_review_item(
+    mission_id: str,
+    review_item_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).load_commit_for_review_item(
+        mission_id,
+        review_item_id,
+    )
+    return envelope_ok(result.model_dump(mode="json") if result else None)
+
+
 @router.get("/missions/{mission_id}/evidence")
 async def list_mission_evidence_projection(
     mission_id: str,
@@ -99,12 +127,14 @@ async def list_mission_evidence_projection(
 async def list_mission_artifact_projection(
     mission_id: str,
     after_seq: int = Query(default=0, ge=0),
+    after_review_item_id: str = Query(default="", max_length=36),
     limit: int = Query(default=50, ge=1, le=200),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     result = await _store(uow).list_artifact_projection_page(
         mission_id,
         after_seq=after_seq,
+        after_review_item_id=after_review_item_id,
         limit=limit,
     )
     return envelope_ok(result.model_dump(mode="json") if result else None)
@@ -355,12 +385,25 @@ async def list_mission_items(
     operation_id: str | None = Query(default=None, max_length=200),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
-    results = await _store(uow).list_items_page(
+    result = await _store(uow).get_items_page(
         mission_id,
         after_seq=after_seq,
         limit=limit,
         item_type=item_type,
         operation_id=operation_id,
+    )
+    return envelope_ok(result.model_dump(mode="json"))
+
+
+@router.post("/missions/{mission_id}/items/by-seqs")
+async def list_mission_items_by_seqs(
+    mission_id: str,
+    command: MissionItemSeqsPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    results = await _store(uow).list_items_by_seqs(
+        mission_id,
+        seqs=command.seqs,
     )
     return envelope_ok([result.model_dump(mode="json") for result in results])
 
@@ -414,18 +457,10 @@ async def resume_mission(
     command: MissionResumePayload,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
-    result = await _store(uow).resume_run(mission_id, command)
-    await uow.commit()
-    return envelope_ok(result.model_dump(mode="json"))
-
-
-@router.post("/missions/{mission_id}/cancel")
-async def cancel_mission(
-    mission_id: str,
-    command: MissionCancelPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    result = await _store(uow).cancel_run(mission_id, command)
+    result = await MissionAdmissionService(uow.required_session).resume(
+        mission_id,
+        command,
+    )
     await uow.commit()
     return envelope_ok(result.model_dump(mode="json"))
 
@@ -441,14 +476,47 @@ async def create_mission_review_items(
     return envelope_ok(result.model_dump(mode="json"))
 
 
+@router.post("/missions/{mission_id}/derived-review-item")
+async def create_derived_mission_review_item(
+    mission_id: str,
+    command: MissionDerivedReviewItemCreatePayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).create_derived_review_item(mission_id, command)
+    await uow.commit()
+    return envelope_ok(result.model_dump(mode="json"))
+
+
 @router.get("/missions/{mission_id}/review-items")
 async def list_mission_review_items(
     mission_id: str,
     status: list[str] | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+    cursor: str | None = Query(default=None, min_length=1, max_length=1024),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
-    results = await _store(uow).list_review_items(mission_id, status=status)
-    return envelope_ok([result.model_dump(mode="json") for result in results])
+    result = await _store(uow).list_review_items_page(
+        mission_id,
+        status=status,
+        limit=limit,
+        cursor=cursor,
+    )
+    return envelope_ok(result.model_dump(mode="json"))
+
+
+@router.get("/missions/{mission_id}/commits")
+async def list_mission_commits(
+    mission_id: str,
+    limit: int = Query(default=100, ge=1, le=200),
+    cursor: str | None = Query(default=None, min_length=1, max_length=1024),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).list_commits_page(
+        mission_id,
+        limit=limit,
+        cursor=cursor,
+    )
+    return envelope_ok(result.model_dump(mode="json"))
 
 
 @router.post("/missions/{mission_id}/review-decisions")

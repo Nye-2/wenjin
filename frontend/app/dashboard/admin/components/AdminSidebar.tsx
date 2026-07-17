@@ -8,7 +8,6 @@ import {
   Coins,
   LayoutDashboard,
   ScrollText,
-  Settings,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -35,7 +34,6 @@ const BUSINESS: Array<{ href: string; label: string; icon: React.ComponentType<{
 ];
 
 const SYSTEM: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { href: "/dashboard/admin/mcp", label: "MCP 配置", icon: Settings },
   { href: "/dashboard/admin/release-gate", label: "发布门禁", icon: ShieldCheck },
   { href: "/dashboard/admin/logs", label: "操作日志", icon: ScrollText },
 ];

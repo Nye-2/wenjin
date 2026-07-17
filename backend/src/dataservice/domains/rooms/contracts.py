@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class DecisionSetCommand(BaseModel):
     """Set one workspace decision and supersede the previous active value."""
@@ -19,6 +21,7 @@ class DecisionSetCommand(BaseModel):
     source_mission_id: str | None = Field(default=None, max_length=36)
     source_mission_item_seq: int | None = Field(default=None, ge=1)
     source_mission_commit_id: str | None = Field(default=None, max_length=36)
+    mission_write_authority: MissionWriteAuthority | None = None
 
 
 class WorkspaceTaskCreateCommand(BaseModel):
@@ -34,6 +37,7 @@ class WorkspaceTaskCreateCommand(BaseModel):
     source_mission_id: str | None = Field(default=None, max_length=36)
     source_mission_item_seq: int | None = Field(default=None, ge=1)
     source_mission_commit_id: str | None = Field(default=None, max_length=36)
+    mission_write_authority: MissionWriteAuthority | None = None
 
 
 class WorkspaceTaskUpdateCommand(BaseModel):

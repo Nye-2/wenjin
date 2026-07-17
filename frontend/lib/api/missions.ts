@@ -7,6 +7,7 @@ import type {
   MissionItem,
   MissionPage,
   MissionProjectionPage,
+  PrismContextRef,
   MissionReviewDecision,
   MissionReviewItemView,
   MissionReviewPreviewFile,
@@ -22,6 +23,16 @@ import type {
 const API = "/api";
 type Json = Record<string, unknown>;
 
+export interface MissionMutationResult {
+  targetMissionId: string;
+  issueCodes: string[];
+}
+
+export interface MissionVisualInsertionResult {
+  targetMissionId: string;
+  reviewItemId: string;
+}
+
 interface MissionRunWire {
   mission_id: string;
   workspace_id: string;
@@ -31,7 +42,6 @@ interface MissionRunWire {
   status: MissionView["executionStatus"];
   review_mode: MissionReviewMode;
   active_stage_id?: string | null;
-  snapshot_json?: Json;
   pending_review_count: number;
   evidence_count: number;
   artifact_count: number;
@@ -68,14 +78,15 @@ interface MissionReviewWire {
   review_required_reason?: string | null;
   preview_json?: Json;
   preview_url?: string | null;
+  preview_expires_at?: string | null;
   requires_explicit_review: boolean;
   batch_acceptable: boolean;
   suggested_selected: boolean;
-}
-
-interface MissionCommitWire {
-  review_item_id: string;
-  status: MissionCommitStatus;
+  commit_status?: MissionCommitStatus | null;
+  commit_eligible: boolean;
+  commit_block_reason?: string | null;
+  commit_error_code?: string | null;
+  committed_target_ref?: string | null;
 }
 
 interface MissionViewWire {
@@ -94,7 +105,18 @@ interface MissionViewWire {
     summary: string;
     impact: string;
     required_inputs: Array<{ input_id: string; label: string; description?: string | null; input_type: "text" | "file" | "confirmation" | "credits"; required: boolean }>;
-    actions: Array<{ action_id: string; label: string; action_type: "reply_in_chat" | "upload_file" | "open_review"; primary: boolean }>;
+    actions: Array<{
+      action_id: string;
+      label: string;
+      action_type:
+        | "reply_in_chat"
+        | "upload_file"
+        | "open_review"
+        | "permission_allow_once"
+        | "permission_allow_mission"
+        | "permission_reject";
+      primary: boolean;
+    }>;
   } | null;
   review_summary: {
     pending: number;
@@ -109,7 +131,6 @@ interface MissionViewWire {
     failed: number;
   };
   review_items: MissionReviewWire[];
-  commits: MissionCommitWire[];
   required_stage_ids: string[];
   stage_summaries: Array<{ stage_id: string; title: string; status: MissionStageView["status"]; summary?: string | null }>;
   team_summary?: string | null;
@@ -122,6 +143,17 @@ interface MissionViewWire {
   review_selection_revision: string;
   quality_highlights: string[];
   refresh_token: string;
+}
+
+interface MissionMutationWire {
+  outcomes: Array<{
+    review_item_id: string;
+    applied?: boolean;
+    committed?: boolean;
+    reason_code?: string | null;
+  }>;
+  continuation_mission_id?: string | null;
+  continuation_error_code?: string | null;
 }
 
 async function readJson<T>(response: Response, fallback: string): Promise<T> {
@@ -205,7 +237,6 @@ export function projectMissionVisualReviewMetadata(
 function projectView(wire: MissionViewWire): MissionView {
   const run = wire.mission;
   const stages = wire.stage_summaries.map((stage) => ({ id: stage.stage_id, title: stage.title, status: stage.status, summary: stage.summary }));
-  const commitsByItem = new Map(wire.commits.map((item) => [item.review_item_id, item.status]));
   const reviewItems = wire.review_items.map((item) => ({
     id: item.review_item_id,
     title: item.title,
@@ -221,7 +252,11 @@ function projectView(wire: MissionViewWire): MissionView {
     previewAvailable: Boolean(item.preview_url),
     previewUrl: item.preview_url,
     visual: projectMissionVisualReviewMetadata(item.preview_json),
-    commitStatus: commitsByItem.get(item.review_item_id) ?? null,
+    commitStatus: item.commit_status ?? null,
+    commitEligible: item.commit_eligible,
+    commitBlockReason: item.commit_block_reason ?? null,
+    commitErrorCode: item.commit_error_code ?? null,
+    committedTargetRef: nonemptyString(item.committed_target_ref),
   }));
   const evidenceItems = wire.evidence_items.map((item) => ({ id: item.item_id, title: item.title, sourceType: item.source_type, sourceLabel: item.source_label, summary: item.summary, citation: item.citation, verified: item.verified }));
   const artifactItems = wire.artifact_items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed }));
@@ -413,34 +448,109 @@ export async function listMissionArtifacts(options: {
   };
 }
 
-export async function decideMissionReviews(options: { missionId: string; decisions: MissionReviewDecision[] }): Promise<MissionView> {
+export async function decideMissionReviews(options: { missionId: string; decisions: MissionReviewDecision[] }): Promise<MissionMutationResult> {
+  const decisions = options.decisions.map((item) => ({ review_item_id: item.reviewItemId, action: item.decision === "accepted" ? "accept" : item.decision === "rejected" ? "reject" : "needs_more_evidence" }));
   const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(options.missionId)}/review-decisions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      decision_id: crypto.randomUUID(),
-      bulk: options.decisions.length > 1,
-      decisions: options.decisions.map((item) => ({ review_item_id: item.reviewItemId, action: item.decision === "accepted" ? "accept" : item.decision === "rejected" ? "reject" : "needs_more_evidence" })),
+      decision_id: await missionMutationId("review", options.missionId, decisions),
+      decisions,
     }),
   });
-  if (!response.ok) throw new Error(await readErrorMessage(response, "确认结果失败"));
-  return getMissionView(options.missionId);
+  const result = await readJson<MissionMutationWire>(response, "确认结果失败");
+  return {
+    targetMissionId: result.continuation_mission_id ?? options.missionId,
+    issueCodes: [
+      ...result.outcomes.flatMap((item) =>
+        !item.applied && item.reason_code ? [item.reason_code] : []
+      ),
+      ...(result.continuation_error_code ? [result.continuation_error_code] : []),
+    ],
+  };
 }
 
-export async function commitMissionReviews(options: { missionId: string; reviewItemIds: string[] }): Promise<MissionView> {
+export async function commitMissionReviews(options: { missionId: string; reviewItemIds: string[] }): Promise<MissionMutationResult> {
+  const reviewItemIds = [...options.reviewItemIds].sort();
   const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(options.missionId)}/commits`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ request_id: crypto.randomUUID(), review_item_ids: options.reviewItemIds }),
+    body: JSON.stringify({
+      request_id: await missionMutationId("commit", options.missionId, reviewItemIds),
+      review_item_ids: reviewItemIds,
+    }),
   });
-  if (!response.ok) throw new Error(await readErrorMessage(response, "保存结果失败"));
-  return getMissionView(options.missionId);
+  const result = await readJson<MissionMutationWire>(response, "保存结果失败");
+  return {
+    targetMissionId: result.continuation_mission_id ?? options.missionId,
+    issueCodes: [
+      ...result.outcomes.flatMap((item) =>
+        !item.committed && item.reason_code ? [item.reason_code] : []
+      ),
+      ...(result.continuation_error_code ? [result.continuation_error_code] : []),
+    ],
+  };
 }
 
-export async function updateMissionReviewMode(missionId: string, reviewMode: MissionReviewMode): Promise<MissionView> {
+async function missionMutationId(
+  kind: "review" | "commit",
+  missionId: string,
+  payload: unknown,
+): Promise<string> {
+  const canonical = JSON.stringify({ kind, missionId, payload });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonical),
+  );
+  const hex = Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0")
+  ).join("");
+  return `${kind}-${hex.slice(0, 40)}`;
+}
+
+export async function stageMissionVisualInsertion(options: {
+  missionId: string;
+  sourceReviewItemId: string;
+  prismContextRef: PrismContextRef;
+}): Promise<MissionVisualInsertionResult> {
+  const response = await authorizedFetch(
+    `${API}/missions/${encodeURIComponent(options.missionId)}/visual-insertions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_review_item_id: options.sourceReviewItemId,
+        prism_context_ref: options.prismContextRef,
+      }),
+    },
+  );
+  const result = await readJson<{ review_item_id: string }>(
+    response,
+    "学术图插入预览生成失败",
+  );
+  return { targetMissionId: options.missionId, reviewItemId: result.review_item_id };
+}
+
+export async function updateMissionReviewMode(missionId: string, reviewMode: MissionReviewMode): Promise<MissionMutationResult> {
   const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(missionId)}/actions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_review_mode", review_mode: reviewMode }) });
-  if (!response.ok) throw new Error(await readErrorMessage(response, "确认方式更新失败"));
-  return getMissionView(missionId);
+  await readJson<MissionRunWire>(response, "确认方式更新失败");
+  return { targetMissionId: missionId, issueCodes: [] };
+}
+
+export async function resolveMissionPermission(options: {
+  missionId: string;
+  requestId: string;
+  decision: "allow_once" | "allow_for_mission" | "reject";
+}): Promise<void> {
+  const response = await authorizedFetch(
+    `${API}/missions/${encodeURIComponent(options.missionId)}/permissions/${encodeURIComponent(options.requestId)}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision: options.decision, input_json: {} }),
+    },
+  );
+  await readJson(response, "权限确认失败");
 }
 
 export function subscribeMissionEvents(options: { workspaceId: string; cursor?: string; onEvent(event: MissionEventHint): void; onReconnect(): void; onError?(message: string): void }): () => void {

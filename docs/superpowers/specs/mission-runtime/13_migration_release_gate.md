@@ -1,9 +1,9 @@
 # 13 Migration / Release Gate Spec
 
-Status: Partially implemented - code cutover complete, deployment acceptance pending
-Updated: 2026-07-15
+Status: Implemented; production deployment acceptance pending
+Updated: 2026-07-17
 
-Implementation outcome: production paths were deleted/migrated, migrations 086-101 form one head, the strict scanner reports zero findings, and the shared-tree backend/frontend suites are green. Remaining production-environment acceptance is the live native-search probe, production Sandbox attestations, and real-provider/real-Docker multi-turn browser coverage.
+Implementation outcome: production paths were deleted/migrated, migrations 086-103 form one head, and the strict scanner reports zero findings. A clean Docker drop/reseed deployment now passes the persisted live probe for all enabled models, the complete backend/frontend suites, and a real-provider multi-turn math-modeling browser chain covering Mission start, steer, subagents, stage acceptance, pause/resume, preview, user review, commit, evidence, artifacts, trace, and panel demand. The remaining external release step is production-environment image/network attestation plus a deployed smoke run; it does not require another architecture path.
 Depends on: all mission-runtime specs
 
 ## Goal
@@ -158,6 +158,8 @@ Backend:
 - ToolCatalog is the only runtime descriptor source; unknown tools fail explicitly, all calls use ToolOrchestrator, and no subagent/harness path bypasses operation identity or policy.
 - ModelCapabilityProfile live probes gate strict tools and native search; provider prose/URLs without structured receipts fail.
 - ReviewCommitRuntime idempotency tests pass.
+- Protected domain writes validate `MissionWriteAuthority` inside the target transaction.
+- Terminal review rework creates a stage-scoped child Mission and preserves unaffected passed stages.
 - Item-level batch partial-success and preview TTL cleanup tests pass.
 - Existing-target commits enforce base revision/hash and stale previews cannot overwrite newer content.
 - Sandbox manifest tests pass.

@@ -1,40 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  formatCreditCostLabel,
   getThreadCreditStatus,
-  renderCostValue,
   summarizeCreditTransaction,
 } from "@/lib/credit-display";
 
 describe("credit-display", () => {
-  it("renders public billing costs without token policy details", () => {
-    expect(formatCreditCostLabel("thread")).toBe("主线对话");
-    expect(formatCreditCostLabel("mission")).toBe("研究任务");
-    expect(formatCreditCostLabel("sandbox_run_python")).toBe("实验环境 Python");
-    expect(
-      renderCostValue({
-        enabled: true,
-        unit: "credits",
-        pricing: "usage_based",
-      })
-    ).toBe("按实际使用折算积分");
-    expect(
-      renderCostValue({
-        enabled: true,
-        unit: "credits",
-        credits: 1,
-      })
-    ).toBe("1 积分/次");
-  });
-
   it("parses thread credit status without token fields", () => {
     expect(
       getThreadCreditStatus({
         balance: 5,
         total_earned: 10,
         total_spent: 5,
-        costs: {},
+        pricing: { unit: "credits", chat_models: [], missions: [] },
         thread: {
           enabled: true,
           can_start_thread: true,

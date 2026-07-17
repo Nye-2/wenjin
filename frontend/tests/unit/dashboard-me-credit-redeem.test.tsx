@@ -43,9 +43,7 @@ function dashboardPayload(balance: number) {
       balance,
       total_earned: balance,
       total_spent: 0,
-      costs: {
-        thread: { unit: "credits", pricing: "usage_based" },
-      },
+      pricing: { unit: "credits", chat_models: [], missions: [] },
       thread: {
         enabled: true,
         can_start_thread: true,

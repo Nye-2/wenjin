@@ -42,6 +42,7 @@ recommended_model_effort
 prerequisite_stage_ids[]
 instantiation
 all_item_prerequisite_templates[]
+all_item_source_context_key
 advance_condition
 stop_condition
 exemplar_refs[]
@@ -127,7 +128,7 @@ Reasoning effort is exactly `low | medium | high | xhigh`. `recommended_model_ef
 
 ## Sequential Modeling
 
-Per-item contracts instantiate exact stage ids such as `question_1_model` and `question_1_solution_validation`. The quality decision that passes the policy-defined understanding stage must declare the exact `quality_item_counts` entries for every workload unlocked by that pass. MissionRuntime validates each known `source_context_key`, the 1-100 range, projected prerequisite receipts, and absence of per-item work, then atomically persists stage acceptance and cardinality. Missing or unrelated counts reject the whole quality action; `continue`, a subagent report, generated prose, client parameter, and UI state cannot define cardinality. Completion expands all required per-item stage families from this canonical snapshot value. Prerequisite templates make Question 2 unreachable until the required Question 1 stages pass.
+Per-item contracts instantiate exact stage ids such as `question_1_model` and `question_1_solution_validation`. The quality decision that passes the policy-defined understanding stage must declare the exact `quality_item_counts` entries for every workload unlocked by that pass. MissionRuntime validates each known `source_context_key`, the 1-100 range, projected prerequisite receipts, and absence of per-item work, then atomically persists stage acceptance and cardinality. Missing or unrelated counts reject the whole quality action; `continue`, a subagent report, generated prose, client parameter, and UI state cannot define cardinality. Completion expands all required per-item stage families from this canonical snapshot value. A single stage that depends on every item must declare `all_item_source_context_key`; template scanning or inferred count sources are forbidden. Prerequisite templates make Question 2 unreachable until the required Question 1 stages pass.
 
 ## User Review Boundary
 
@@ -148,5 +149,6 @@ Per-item contracts instantiate exact stage ids such as `question_1_model` and `q
 - Optional critic output has no acceptance authority.
 - Reassessment without new stage progress is rejected.
 - Per-item prerequisites block later questions.
+- All-item prerequisites without one explicit count source are rejected.
 - Review before `pass`, review of a different candidate, and completion without a user-reviewable final candidate are rejected; completion with a pending final review is allowed.
 - Lower effort can pass with complete evidence; higher effort cannot pass missing evidence.

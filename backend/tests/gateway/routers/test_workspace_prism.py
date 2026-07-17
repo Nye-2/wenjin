@@ -5,9 +5,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
+from src.dataservice_client.contracts.prism import PrismFileVersionPayload
 from src.gateway.routers import workspaces
 from src.gateway.routers.auth import get_current_user
 
@@ -159,7 +162,8 @@ def test_workspace_prism_file_read_returns_current_version():
                     "workspace_id": "ws-1",
                     "file_id": "file-1",
                     "version_no": 1,
-                    "review_item_id": None,
+                    "mission_review_item_id": "review-1",
+                    "mission_commit_id": "commit-1",
                     "content_inline": "# Spec",
                     "content_asset_id": None,
                     "content_hash": "sha256:old",
@@ -176,11 +180,36 @@ def test_workspace_prism_file_read_returns_current_version():
         dataservice=dataservice,
     )
 
-    response = client.get("/workspaces/ws-1/prism/files/file-1")
+    response = client.get(
+        "/workspaces/ws-1/prism/files/file-1?prism_project_id=prism-1"
+    )
 
     assert response.status_code == 200
     assert response.json()["current_version"]["content_inline"] == "# Spec"
-    dataservice.get_prism_workspace_file.assert_awaited_once_with("ws-1", "file-1")
+    assert response.json()["current_version"]["mission_review_item_id"] == "review-1"
+    assert response.json()["current_version"]["mission_commit_id"] == "commit-1"
+    assert "review_item_id" not in response.json()["current_version"]
+    dataservice.get_prism_workspace_file.assert_awaited_once_with(
+        "ws-1",
+        "file-1",
+        prism_project_id="prism-1",
+    )
+
+
+def test_prism_revision_contract_rejects_legacy_review_item_id() -> None:
+    with pytest.raises(ValidationError, match="review_item_id"):
+        PrismFileVersionPayload.model_validate(
+            {
+                "id": "version-1",
+                "workspace_id": "ws-1",
+                "file_id": "file-1",
+                "version_no": 1,
+                "review_item_id": "legacy-review-1",
+                "content_inline": "# Legacy",
+                "content_hash": "sha256:legacy",
+                "created_by": "user-1",
+            }
+        )
 
 
 def test_workspace_prism_file_save_uses_expected_hash_and_backend_hash():
@@ -208,7 +237,8 @@ def test_workspace_prism_file_save_uses_expected_hash_and_backend_hash():
                     "workspace_id": "ws-1",
                     "file_id": "file-1",
                     "version_no": 2,
-                    "review_item_id": None,
+                    "mission_review_item_id": None,
+                    "mission_commit_id": None,
                     "content_inline": "# Updated",
                     "content_asset_id": None,
                     "content_hash": "sha256:09b938bf2d8d508d7c22a4d23d9a19c6667d090aab7b50cdde7a41860c1f3b7b",

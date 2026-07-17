@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.contracts.review_policy import project_review_policy
 from src.database.models.mission import (
     MissionCommitRecord,
     MissionItemRecord,
@@ -106,7 +107,16 @@ def mission_item_to_payload(record: MissionItemRecord) -> MissionItemPayload:
 
 def mission_review_item_to_payload(
     record: MissionReviewItemRecord,
+    *,
+    review_mode: str,
 ) -> MissionReviewItemPayload:
+    policy = project_review_policy(
+        review_mode=review_mode,
+        target_kind=record.target_kind,
+        target_room=record.target_room,
+        target_ref=record.target_ref,
+        risk_level=record.risk_level,
+    )
     return MissionReviewItemPayload(
         review_item_id=str(record.review_item_id),
         mission_id=str(record.mission_id),
@@ -126,9 +136,9 @@ def mission_review_item_to_payload(
         preview_ref=record.preview_ref,
         preview_hash=record.preview_hash,
         preview_expires_at=record.preview_expires_at,
-        requires_explicit_review=record.requires_explicit_review,
-        batch_acceptable=record.batch_acceptable,
-        suggested_selected=record.suggested_selected,
+        requires_explicit_review=policy.requires_explicit_review,
+        batch_acceptable=policy.batch_acceptable,
+        suggested_selected=policy.suggested_selected,
         decision_json=dict(record.decision_json) if record.decision_json is not None else None,
         decided_by=record.decided_by,
         decided_at=record.decided_at,

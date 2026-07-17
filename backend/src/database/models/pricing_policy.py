@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Boolean, Index, Integer, String
+from sqlalchemy import JSON, Boolean, Index, Integer, String
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -20,7 +20,6 @@ class PricingPolicyKind(StrEnum):
     MODEL_USAGE = "model_usage"
     MISSION = "mission"
     TOOL = "tool"
-    SANDBOX = "sandbox"
 
 
 class PricingPolicy(Base, UUIDMixin, TimestampMixin):
@@ -44,7 +43,12 @@ class PricingPolicy(Base, UUIDMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
-    config_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    config_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
     created_by_admin_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     updated_by_admin_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 

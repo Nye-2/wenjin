@@ -18,6 +18,7 @@ export function WorkspaceChrome({
   activeSurface,
   pendingReviewCount,
   missionStatus,
+  missionSummaryState,
   onOpenHub,
 }: {
   workspaceId: string;
@@ -26,6 +27,7 @@ export function WorkspaceChrome({
   activeSurface: WorkspaceSurface;
   pendingReviewCount: number;
   missionStatus: WorkspaceMissionStatus;
+  missionSummaryState: "loading" | "ready" | "stale" | "unavailable";
   onOpenHub: () => void;
 }) {
   const theme = useWenjinThemeStore((state) => state.theme);
@@ -64,6 +66,9 @@ export function WorkspaceChrome({
         {missionStatus === "running" ? <StatusChip label="运行中" tone="running" /> : null}
         {missionStatus === "waiting" ? <StatusChip label="等待回应" tone="review" /> : null}
         {pendingReviewCount > 0 ? <StatusChip label="待确认" tone="review" /> : null}
+        {missionSummaryState === "stale" || missionSummaryState === "unavailable" ? (
+          <StatusChip label="状态待同步" tone="neutral" />
+        ) : null}
       </div>
 
       <div className="ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2">

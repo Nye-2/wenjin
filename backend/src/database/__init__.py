@@ -20,8 +20,6 @@ from .models import (
     CreditRedemption,
     CreditTransaction,
     CreditTransactionType,
-    # Generation
-    LatexCompileHistory,
     LatexProject,
     LatexTemplate,
     # Referral
@@ -87,8 +85,6 @@ __all__ = [
     # Models - Latex
     "LatexProject",
     "LatexTemplate",
-    "LatexCompileHistory",
-    # Models - Generation
     # Models - Task
     "TaskRecord",
 ]

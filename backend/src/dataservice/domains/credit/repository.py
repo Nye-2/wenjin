@@ -12,11 +12,7 @@ from src.database.models.credit import CreditTransaction, CreditTransactionType
 from src.database.models.credit_grant_rule import CreditGrantRule, CreditGrantRuleType
 from src.database.models.credit_redeem_code import CreditRedeemCode
 from src.database.models.credit_redemption import CreditRedemption
-from src.database.models.credit_reservation import (
-    CreditReservation,
-    CreditReservationScope,
-    CreditReservationStatus,
-)
+from src.database.models.credit_reservation import CreditReservation, CreditReservationStatus
 from src.database.models.referral import Referral
 from src.database.models.user import User
 
@@ -101,39 +97,46 @@ class CreditRepository:
         result = await self.session.execute(select(CreditReservation).where(CreditReservation.id == reservation_id).with_for_update())
         return result.scalar_one_or_none()
 
+    async def get_mission_reservation_for_update(
+        self,
+        mission_id: str,
+    ) -> CreditReservation | None:
+        result = await self.session.execute(
+            select(CreditReservation)
+            .where(CreditReservation.mission_id == mission_id)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def find_reservation_by_idempotency_key(
         self,
         *,
-        user_id: str,
-        scope: CreditReservationScope,
         idempotency_key: str,
     ) -> CreditReservation | None:
         result = await self.session.execute(
             select(CreditReservation)
-            .where(
-                CreditReservation.user_id == user_id,
-                CreditReservation.scope == scope,
-                CreditReservation.idempotency_key == idempotency_key,
-            )
+            .where(CreditReservation.idempotency_key == idempotency_key)
             .order_by(CreditReservation.created_at)
         )
         return result.scalars().first()
 
-    async def list_expired_reserved_reservations(
+    async def list_expired_mission_reservation_refs(
         self,
         *,
         now: datetime,
-    ) -> list[CreditReservation]:
+        limit: int,
+    ) -> list[tuple[str, str]]:
         result = await self.session.execute(
-            select(CreditReservation)
+            select(CreditReservation.id, CreditReservation.mission_id)
             .where(
                 CreditReservation.status == CreditReservationStatus.RESERVED,
                 CreditReservation.expires_at.is_not(None),
                 CreditReservation.expires_at <= now,
             )
-            .with_for_update()
+            .order_by(CreditReservation.expires_at, CreditReservation.id)
+            .limit(limit)
         )
-        return list(result.scalars().all())
+        return [(str(row.id), str(row.mission_id)) for row in result]
 
     async def get_admin_credit_summary(self) -> dict[str, int]:
         totals_result = await self.session.execute(
@@ -166,12 +169,8 @@ class CreditRepository:
     async def list_thread_token_transactions(self) -> list[CreditTransaction]:
         result = await self.session.execute(
             select(CreditTransaction).where(
-                CreditTransaction.transaction_type.in_(
-                    [
-                        CreditTransactionType.THREAD_TOKEN_CONSUME,
-                        CreditTransactionType.REFUND,
-                    ]
-                )
+                CreditTransaction.transaction_type
+                == CreditTransactionType.THREAD_TOKEN_CONSUME
             )
         )
         return list(result.scalars().all())
@@ -234,30 +233,10 @@ class CreditRepository:
         result = await self.session.execute(
             select(CreditTransaction).where(
                 CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type.in_(
-                    [
-                        consume_type,
-                        CreditTransactionType.REFUND,
-                    ]
-                ),
+                CreditTransaction.transaction_type == consume_type,
             )
         )
         return list(result.scalars().all())
-
-    async def find_refund_for_original(
-        self,
-        *,
-        user_id: str,
-        original_transaction_id: str,
-    ) -> CreditTransaction | None:
-        result = await self.session.execute(
-            select(CreditTransaction).where(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.transaction_type == CreditTransactionType.REFUND,
-                CreditTransaction.tx_metadata["original_transaction_id"].as_string() == original_transaction_id,
-            )
-        )
-        return result.scalar_one_or_none()
 
     async def find_consumption_by_idempotency_key(
         self,

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.model_usage import ModelUsageReceipt
 from src.contracts.reasoning import ReasoningEffort
 
 SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES = 24_000
@@ -173,6 +174,13 @@ class SubagentAction(_FrozenModel):
         if self.kind == "stop" and self.stop_reason is None:
             raise ValueError("stop action requires stop_reason")
         return self
+
+
+class SubagentModelTurn(_FrozenModel):
+    """One provider response: semantic action plus transport accounting."""
+
+    action: SubagentAction
+    usage_receipt: ModelUsageReceipt | None = None
 
 
 class SubagentStep(_FrozenModel):

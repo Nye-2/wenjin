@@ -16,25 +16,27 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.contracts.prism_context import PrismContextRef
+from src.contracts.review_policy import ReviewMode
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.mission import MissionReviewMode
 from src.dataservice_client.errors import DataServiceClientError
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps.core import get_dataservice_client
+from src.permission_runtime import PermissionResolutionService
 from src.permission_runtime.contracts import PermissionDecision
-from src.permission_runtime.runtime import PermissionRuntime
 from src.review_commit_runtime.composition import (
     build_review_commit_runtime,
     get_mission_preview_store,
 )
-from src.review_commit_runtime.contracts import ReviewAction, ReviewDecision
+from src.review_commit_runtime.contracts import ReviewDecision
 from src.review_commit_runtime.membership import (
     DataServiceMembershipAuthorizer,
     require_owned_mission,
 )
 from src.review_commit_runtime.preview_store import MissionPreviewStore
+from src.review_commit_runtime.visual_insertion import PrismVisualInsertionService
 from src.services.mission_runtime_service import MissionRuntimeService, build_mission_runtime
 
 router = APIRouter(tags=["missions"])
@@ -129,12 +131,23 @@ class _StrictModel(BaseModel):
 class ReviewDecisionsRequest(_StrictModel):
     decision_id: str = Field(min_length=1, max_length=160)
     decisions: list[ReviewDecision] = Field(min_length=1, max_length=100)
-    bulk: bool = False
+
+    @model_validator(mode="after")
+    def require_unique_review_items(self) -> ReviewDecisionsRequest:
+        review_item_ids = [decision.review_item_id for decision in self.decisions]
+        if len(review_item_ids) != len(set(review_item_ids)):
+            raise ValueError("review_item_id values must be unique")
+        return self
 
 
 class MissionCommitRequest(_StrictModel):
     request_id: str = Field(min_length=1, max_length=160)
     review_item_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class PrismVisualInsertionRequest(_StrictModel):
+    source_review_item_id: str = Field(min_length=1, max_length=36)
+    prism_context_ref: PrismContextRef
 
 
 class PermissionResolutionRequest(_StrictModel):
@@ -168,28 +181,14 @@ class SteerMissionAction(_StrictModel):
     request_id: str | None = Field(default=None, max_length=160)
 
 
-class ReviewMissionAction(_StrictModel):
-    action: Literal["review"]
-    decision_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=160)
-    review_item_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
-    decision: ReviewAction
-    rationale: str | None = Field(default=None, max_length=4000)
-
-
-class CommitMissionAction(_StrictModel):
-    action: Literal["commit"]
-    request_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=160)
-    review_item_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
-
-
 class SetReviewModeMissionAction(_StrictModel):
     action: Literal["set_review_mode"]
     command_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=160)
-    review_mode: MissionReviewMode
+    review_mode: ReviewMode
 
 
 MissionAction = Annotated[
-    CancelMissionAction | PauseMissionAction | ResumeMissionAction | SteerMissionAction | ReviewMissionAction | CommitMissionAction | SetReviewModeMissionAction,
+    CancelMissionAction | PauseMissionAction | ResumeMissionAction | SteerMissionAction | SetReviewModeMissionAction,
     Field(discriminator="action"),
 ]
 
@@ -311,11 +310,7 @@ async def get_mission_view(
     payload = view.model_dump(mode="json")
     for item in payload.get("review_items", []):
         has_binary_preview = bool(item.pop("preview_ref", None))
-        item["preview_url"] = (
-            f"/api/missions/{mission_id}/review-items/{item['review_item_id']}/preview"
-            if has_binary_preview
-            else None
-        )
+        item["preview_url"] = f"/api/missions/{mission_id}/review-items/{item['review_item_id']}/preview" if has_binary_preview else None
     return payload
 
 
@@ -580,22 +575,6 @@ async def act_on_mission(
                 input_json=command.input_json,
                 producer="mission_gateway",
             )
-        elif isinstance(command, ReviewMissionAction):
-            run = await runtime.review(
-                mission_id,
-                decision_id=command.decision_id,
-                actor_user_id=user_id,
-                review_item_ids=command.review_item_ids,
-                decision=command.decision.value,
-                rationale=command.rationale,
-            )
-        elif isinstance(command, CommitMissionAction):
-            run = await runtime.request_commit(
-                mission_id,
-                actor_user_id=user_id,
-                review_item_ids=command.review_item_ids,
-                request_id=command.request_id,
-            )
         elif isinstance(command, SetReviewModeMissionAction):
             run = await runtime.set_review_mode(
                 mission_id,
@@ -644,7 +623,6 @@ async def decide_mission_review_items(
         actor_user_id=str(current_user.id),
         decision_id=command.decision_id,
         decisions=command.decisions,
-        bulk=command.bulk,
     )
     return result.model_dump(mode="json")
 
@@ -665,6 +643,34 @@ async def commit_mission_review_items(
     return result.model_dump(mode="json")
 
 
+@router.post("/missions/{mission_id}/visual-insertions")
+async def stage_mission_visual_insertion(
+    mission_id: str,
+    command: PrismVisualInsertionRequest,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> dict[str, str]:
+    try:
+        item = await PrismVisualInsertionService(
+            dataservice=dataservice,
+            membership=DataServiceMembershipAuthorizer(dataservice),
+        ).stage(
+            mission_id,
+            actor_user_id=str(current_user.id),
+            source_review_item_id=command.source_review_item_id,
+            prism_context_ref=command.prism_context_ref,
+        )
+    except (LookupError, PermissionError) as exc:
+        raise HTTPException(status_code=404, detail="Mission not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DataServiceClientError as exc:
+        from src.gateway.error_mapping import dataservice_client_to_http_exception
+
+        raise dataservice_client_to_http_exception(exc) from exc
+    return {"review_item_id": item.review_item_id}
+
+
 @router.post("/missions/{mission_id}/permissions/{request_id}/resolve")
 async def resolve_mission_permission(
     mission_id: str,
@@ -672,17 +678,30 @@ async def resolve_mission_permission(
     command: PermissionResolutionRequest,
     current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+    runtime: MissionRuntimeService = Depends(_mission_runtime_service),
 ) -> dict[str, Any]:
-    result = await PermissionRuntime(
-        missions=dataservice.missions,
-        membership=DataServiceMembershipAuthorizer(dataservice),
-    ).resolve(
-        mission_id,
-        request_id=request_id,
-        decision=command.decision,
-        actor_user_id=str(current_user.id),
-        input_json=command.input_json,
-    )
+    try:
+        result = await PermissionResolutionService(
+            missions=dataservice.missions,
+            membership=DataServiceMembershipAuthorizer(dataservice),
+            resumer=runtime,
+        ).resolve(
+            mission_id,
+            request_id=request_id,
+            decision=command.decision,
+            actor_user_id=str(current_user.id),
+            input_json=command.input_json,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Mission not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="Active workspace membership required") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DataServiceClientError as exc:
+        from src.gateway.error_mapping import dataservice_client_to_http_exception
+
+        raise dataservice_client_to_http_exception(exc) from exc
     return result.model_dump(mode="json")
 
 

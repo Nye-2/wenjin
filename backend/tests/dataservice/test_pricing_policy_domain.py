@@ -16,7 +16,6 @@ from src.dataservice.domains.pricing.contracts import (
     PricingPolicyCreateCommand,
     PricingPolicyUpdateCommand,
     PricingSimulationRequest,
-    SandboxPricingPolicyConfig,
 )
 from src.dataservice.domains.pricing.seed_loader import DataServicePricingPolicySeedLoader
 from src.dataservice.domains.pricing.service import DataServicePricingPolicyService
@@ -168,29 +167,6 @@ def test_mission_policy_requires_max_charge_not_below_estimate() -> None:
         MissionPricingPolicyConfig(estimate_max_credits=20, max_charge_credits=10)
 
 
-def test_sandbox_policy_requires_at_least_one_tier() -> None:
-    with pytest.raises(ValidationError):
-        SandboxPricingPolicyConfig(tiers={})
-
-
-def test_sandbox_policy_accepts_runtime_billing_fields() -> None:
-    policy = SandboxPricingPolicyConfig(
-        operation="run_python",
-        startup_fee_credits=1,
-        minimum_billable_seconds=60,
-        max_charge_credits=60,
-        default_tier="standard",
-        tiers={"standard": {"credits_per_minute": 1}},
-    )
-
-    assert policy.operation == "run_python"
-    assert policy.default_tier == "standard"
-    assert policy.startup_fee_credits == 1
-    assert policy.minimum_billable_seconds == 60
-    assert policy.max_charge_credits == 60
-    assert policy.tiers["standard"]["credits_per_minute"] == 1
-
-
 @pytest.mark.asyncio
 async def test_create_pricing_policy_validates_config_and_returns_record() -> None:
     service, repository, session = _service()
@@ -284,16 +260,14 @@ async def test_pricing_policy_seed_loader_creates_default_billing_facts_once() -
     loaded = await DataServicePricingPolicySeedLoader(service, admin_id="admin-1").load_defaults()
     loaded_again = await DataServicePricingPolicySeedLoader(service, admin_id="admin-1").load_defaults()
 
-    assert loaded == 5
+    assert loaded == 4
     assert loaded_again == 0
     assert set(repository.rows) == {
         "default-global-credit",
         "default-model-usage",
         "default-mission",
         "default-tool",
-        "default-sandbox",
     }
     assert repository.rows["default-model-usage"].policy_kind == PricingPolicyKind.MODEL_USAGE
     assert repository.rows["default-model-usage"].config_json["credits_per_1k_weighted_tokens"] == 6
-    assert repository.rows["default-sandbox"].config_json["tiers"]["standard"]["credits_per_minute"] == 1
-    assert session.commit_count == 5
+    assert session.commit_count == 4

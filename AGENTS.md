@@ -23,9 +23,8 @@ Wenjin (问津) is a chat-native AI workbench for academic research and writing.
 - Catalog tables: `mission_policies`, `worker_skills`.
 - Default worker queues: `default,priority`.
 - Mission worker queue: `long_running`, concurrency 1, prefetch 1.
-- Memory worker queue: `memory`.
-- Current migration head: `101_workspace_reasoning_effort_cutover`.
-- Migrations 086-101 are irreversible development cutovers; use drop/reseed, never compatibility layers.
+- Current migration head: `106_remove_sandbox_pricing_policy`.
+- Migrations 086-106 are irreversible development cutovers; use drop/reseed, never compatibility layers.
 
 ## Model and search
 

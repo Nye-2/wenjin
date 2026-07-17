@@ -46,7 +46,7 @@ Reasoning effort wire values are `low`, `medium`, `high`, and `xhigh`. Deploymen
 | `CELERY_TASK_SOFT_TIME_LIMIT` | task soft limit; Mission work is sliced before this |
 | `CELERY_TASK_TIME_LIMIT` | task hard limit |
 
-Queue names and Mission worker prefetch are deployment commands in `docker-compose.yml`, not user-configurable workflow data. `worker` consumes `default,priority`; `mission-worker` consumes `long_running` with prefetch 1; `memory-worker` consumes `memory`.
+Queue names and Mission worker prefetch are deployment commands in `docker-compose.yml`, not user-configurable workflow data. `worker` consumes `default,priority`; `mission-worker` consumes `long_running` with prefetch 1.
 
 ## Sandbox vNext
 
@@ -92,7 +92,6 @@ Production must replace `JWT_SECRET_KEY`, `ADMIN_PASSWORD`, `DB_PASSWORD`, `DATA
 
 - `NEXT_PUBLIC_API_URL`: browser API prefix, normally `/api`;
 - `WENJIN_DEV_API_PROXY_TARGET`: local Next.js proxy target;
-- `NEXT_PUBLIC_LANGGRAPH_BASE_URL`: retained only for the separate LangGraph service surfaces that still use it; Mission orchestration does not depend on a browser LangGraph connection.
 
 ## Validation rules
 

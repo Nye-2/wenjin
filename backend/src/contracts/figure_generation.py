@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
+from src.contracts import prism_context
 from src.sandbox.workspace_layout import (
     is_user_reviewable_workspace_artifact_path,
     is_workspace_internal_path,
@@ -45,6 +46,10 @@ EvidenceLevel = Literal["evidence", "explanatory", "decorative"]
 BriefStatement = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
 VisualSourceRef = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)]
 ForbiddenVisualElement = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+VisualContentHash = Annotated[
+    str,
+    StringConstraints(pattern=r"^(?:sha256:)?[0-9a-f]{64}$"),
+]
 VisualLabelAnchor = Literal[
     "top_left",
     "top_center",
@@ -108,27 +113,6 @@ class ExactVisualLabel(BaseModel):
     text: str = Field(min_length=1, max_length=500)
     semantic_anchor: VisualLabelAnchor
     importance: Literal["required", "optional"] = "required"
-
-
-class PrismContextRef(BaseModel):
-    """Hash-bound Prism selection used to assemble academic visual context."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    workspace_id: str = Field(min_length=1, max_length=120)
-    prism_project_id: str = Field(min_length=1, max_length=120)
-    file_id: str = Field(min_length=1, max_length=120)
-    base_revision_ref: str = Field(min_length=1, max_length=2048)
-    selection_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    selection_range: tuple[int, int]
-
-    @field_validator("selection_range")
-    @classmethod
-    def _validate_selection_locator(cls, value: tuple[int, int]) -> tuple[int, int]:
-        start, end = value
-        if start < 0 or end <= start:
-            raise ValueError("selection_range must be a non-empty forward range")
-        return value
 
 
 class FigureSpec(BaseModel):
@@ -234,7 +218,7 @@ class AcademicFigureBrief(BaseModel):
     exact_labels: tuple[ExactVisualLabel, ...] = Field(default=(), max_length=32)
     source_refs: tuple[VisualSourceRef, ...] = Field(default=(), max_length=128)
     forbidden_elements: tuple[ForbiddenVisualElement, ...] = Field(default=(), max_length=32)
-    prism_context_ref: PrismContextRef | None = None
+    prism_context_ref: prism_context.PrismContextRef | None = None
 
     @property
     def schema(self) -> str:
@@ -340,12 +324,17 @@ class AcademicVisualCandidate(BaseModel):
     renderer_id: str = Field(min_length=1, max_length=120)
     renderer_version: str = Field(min_length=1, max_length=120)
     provider_model: Literal["gpt-image-2"] | None = None
+    prompt_contract_version: str | None = Field(default=None, min_length=1, max_length=120)
     source_code_hash: str | None = Field(default=None, min_length=1, max_length=256)
     source_prompt_hash: str | None = Field(default=None, min_length=1, max_length=256)
     context_hash: str = Field(min_length=1, max_length=256)
     source_refs: tuple[str, ...] = ()
     dataset_refs: tuple[str, ...] = ()
+    source_content_hashes: dict[str, VisualContentHash] = Field(default_factory=dict)
+    dataset_content_hashes: dict[str, VisualContentHash] = Field(default_factory=dict)
     reproducibility_ref: str | None = Field(default=None, min_length=1, max_length=2048)
+    ai_generated: bool
+    overlay_manifest_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     quality_receipt: dict[str, object] = Field(default_factory=dict)
     warnings: tuple[str, ...] = ()
 
@@ -366,14 +355,31 @@ class AcademicVisualCandidate(BaseModel):
         if self.strategy in AI_IMAGE_STRATEGIES:
             if self.provider_model != "gpt-image-2":
                 raise ValueError("AI image candidates require provider_model gpt-image-2")
+            if not self.ai_generated:
+                raise ValueError("AI image candidates require ai_generated provenance")
+            if not self.source_prompt_hash or not self.prompt_contract_version:
+                raise ValueError("AI image candidates require prompt contract provenance")
             if self.preview_ref is None:
                 raise ValueError("AI image candidates require a transient preview ref")
             if self.review_preview_ref != self.preview_ref:
                 raise ValueError("AI image candidate preview refs must identify the same transient object")
-        elif self.provider_model is not None:
-            raise ValueError("deterministic and real-artifact candidates cannot declare provider_model")
+        else:
+            if self.provider_model is not None or self.ai_generated:
+                raise ValueError("deterministic candidates cannot declare AI provider provenance")
+            if self.prompt_contract_version is not None:
+                raise ValueError("deterministic candidates cannot declare a prompt contract")
+            if not self.source_code_hash:
+                raise ValueError("deterministic candidates require source code provenance")
         if self.strategy not in AI_IMAGE_STRATEGIES and self.sandbox_artifact_ref is None:
             raise ValueError("deterministic candidates require sandbox_artifact_ref")
+        if self.strategy == "hybrid" and not self.overlay_manifest_hash:
+            raise ValueError("hybrid candidates require overlay provenance")
+        if self.strategy != "hybrid" and self.overlay_manifest_hash is not None:
+            raise ValueError("only hybrid candidates may declare overlay provenance")
+        if set(self.dataset_content_hashes) != set(self.dataset_refs):
+            raise ValueError("dataset content hashes must exactly cover dataset refs")
+        if not set(self.source_content_hashes).issubset(self.source_refs):
+            raise ValueError("source content hashes must identify declared source refs")
         return self
 
 
@@ -405,10 +411,17 @@ class FigureArtifactManifest(BaseModel):
     renderer_id: str = Field(min_length=1, max_length=120)
     renderer_version: str = Field(min_length=1, max_length=120)
     source_code_ref: str | None = Field(default=None, min_length=1, max_length=2048)
+    source_code_hash: str | None = Field(default=None, min_length=1, max_length=256)
+    prompt_contract_version: str | None = Field(default=None, min_length=1, max_length=120)
     source_prompt_hash: str | None = Field(default=None, min_length=1, max_length=256)
+    context_hash: str = Field(min_length=1, max_length=256)
     dataset_refs: tuple[str, ...] = ()
     source_refs: tuple[str, ...] = ()
+    dataset_content_hashes: dict[str, VisualContentHash] = Field(default_factory=dict)
+    source_content_hashes: dict[str, VisualContentHash] = Field(default_factory=dict)
     reproducibility_ref: str | None = Field(default=None, min_length=1, max_length=2048)
+    ai_generated: bool
+    overlay_manifest_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     caption: str | None = Field(default=None, max_length=4000)
     alt_text: str | None = Field(default=None, max_length=4000)
 
@@ -438,6 +451,21 @@ class FigureArtifactManifest(BaseModel):
         }[_render_kind_for_strategy(self.strategy)]
         if self.candidate.kind != expected_kind:
             raise ValueError(f"strategy {self.strategy} requires {expected_kind} candidate ref")
+        is_ai_generated = self.strategy in AI_IMAGE_STRATEGIES
+        if self.ai_generated != is_ai_generated:
+            raise ValueError("manifest ai_generated provenance must match its strategy")
+        if is_ai_generated and (not self.source_prompt_hash or not self.prompt_contract_version):
+            raise ValueError("AI image manifests require prompt contract provenance")
+        if not is_ai_generated and (not self.source_code_ref or not self.source_code_hash):
+            raise ValueError("deterministic manifests require source code provenance")
+        if self.strategy == "hybrid" and not self.overlay_manifest_hash:
+            raise ValueError("hybrid manifests require overlay provenance")
+        if self.strategy != "hybrid" and self.overlay_manifest_hash is not None:
+            raise ValueError("only hybrid manifests may declare overlay provenance")
+        if set(self.dataset_content_hashes) != set(self.dataset_refs):
+            raise ValueError("dataset content hashes must exactly cover dataset refs")
+        if not set(self.source_content_hashes).issubset(self.source_refs):
+            raise ValueError("source content hashes must identify declared source refs")
         return self
 
 

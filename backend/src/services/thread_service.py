@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from src.agents.middlewares.thread_data import delete_thread_directory
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
@@ -18,6 +17,7 @@ from src.dataservice_client.contracts.conversation import (
 )
 from src.dataservice_client.provider import dataservice_client
 from src.models.router import route_model, validate_requested_model
+from src.services.thread_data_paths import delete_thread_directory
 from src.services.workspace_skill_labels import (
     list_workspace_types,
 )

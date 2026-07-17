@@ -10,119 +10,8 @@ from src.task import worker as worker_module
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkeypatch):
-    init_calls: list[str] = []
-
-    class FakeManager:
-        def get_last_load_errors(self):
-            return {"secure-http": "401 unauthorized"}
-
-    async def _fake_activate_mcp_runtime(**_kwargs):
-        return FakeManager(), []
-
-    class FakeRedisClient:
-        async def reset_client(self, *, close_current=True):
-            init_calls.append(f"reset_redis:{close_current}")
-
-        async def reset_stream_client(self, *, close_current=True):
-            init_calls.append(f"reset_redis_stream:{close_current}")
-
-        async def connect(self):
-            init_calls.append("redis")
-
-        async def connect_stream(self):
-            init_calls.append("redis_stream")
-
-    monkeypatch.setattr(
-        worker_module,
-        "_refresh_worker_model_catalog_cache",
-        lambda: _append_async(init_calls, "model_catalog"),
-    )
-    monkeypatch.setattr(
-        worker_module,
-        "_load_worker_runtime_dependencies",
-        lambda: (
-            lambda: init_calls.append("sentry"),
-            FakeRedisClient(),
-            lambda: object(),
-            _fake_activate_mcp_runtime,
-        ),
-    )
-    monkeypatch.setattr(
-        worker_module.settings,
-        "mcp_required_for_worker_bootstrap",
-        False,
-    )
-
-    await worker_module._bootstrap_worker_runtime()
-
-    assert init_calls == [
-        "sentry",
-        "reset_redis:False",
-        "reset_redis_stream:False",
-        "redis",
-        "redis_stream",
-        "model_catalog",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_bootstrap_worker_runtime_raises_in_strict_mcp_mode(monkeypatch):
-    class FakeManager:
-        def get_last_load_errors(self):
-            return {"secure-http": "401 unauthorized"}
-
-    async def _fake_activate_mcp_runtime(**_kwargs):
-        return FakeManager(), []
-
-    class FakeRedisClient:
-        async def reset_client(self, *, close_current=True):
-            return None
-
-        async def reset_stream_client(self, *, close_current=True):
-            return None
-
-        async def connect(self):
-            return None
-
-        async def connect_stream(self):
-            return None
-
-    monkeypatch.setattr(
-        worker_module,
-        "_refresh_worker_model_catalog_cache",
-        lambda: _noop_async(),
-    )
-    monkeypatch.setattr(
-        worker_module,
-        "_load_worker_runtime_dependencies",
-        lambda: (
-            lambda: None,
-            FakeRedisClient(),
-            lambda: object(),
-            _fake_activate_mcp_runtime,
-        ),
-    )
-    monkeypatch.setattr(
-        worker_module.settings,
-        "mcp_required_for_worker_bootstrap",
-        True,
-    )
-
-    with pytest.raises(RuntimeError, match="secure-http"):
-        await worker_module._bootstrap_worker_runtime()
-
-
-@pytest.mark.asyncio
 async def test_bootstrap_worker_runtime_degrades_on_model_catalog_warmup_errors(monkeypatch):
     init_calls: list[str] = []
-
-    class FakeManager:
-        def get_last_load_errors(self):
-            return {}
-
-    async def _fake_activate_mcp_runtime(**_kwargs):
-        return FakeManager(), []
 
     class FakeRedisClient:
         async def reset_client(self, *, close_current=True):
@@ -146,8 +35,6 @@ async def test_bootstrap_worker_runtime_degrades_on_model_catalog_warmup_errors(
         lambda: (
             lambda: init_calls.append("sentry"),
             FakeRedisClient(),
-            lambda: object(),
-            _fake_activate_mcp_runtime,
         ),
     )
     monkeypatch.setattr(worker_module, "_refresh_worker_model_catalog_cache", _raise_refresh)
@@ -174,8 +61,6 @@ async def test_mission_worker_bootstrap_fails_closed_on_catalog_warmup_error(mon
         lambda: (
             lambda: None,
             _ConnectedRedisClient(),
-            lambda: object(),
-            lambda **_kwargs: _noop_async(),
         ),
     )
     monkeypatch.setattr(worker_module, "_refresh_worker_model_catalog_cache", _raise_refresh)
@@ -188,21 +73,12 @@ async def test_mission_worker_bootstrap_fails_closed_on_catalog_warmup_error(mon
 async def test_mission_worker_bootstrap_validates_canonical_profile(monkeypatch):
     validated: list[str] = []
 
-    class FakeManager:
-        def get_last_load_errors(self):
-            return {}
-
-    async def _activate(**_kwargs):
-        return FakeManager(), []
-
     monkeypatch.setattr(
         worker_module,
         "_load_worker_runtime_dependencies",
         lambda: (
             lambda: None,
             _ConnectedRedisClient(),
-            lambda: object(),
-            _activate,
         ),
     )
     monkeypatch.setattr(worker_module, "_refresh_worker_model_catalog_cache", _noop_async)

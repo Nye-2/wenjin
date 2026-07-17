@@ -15,7 +15,6 @@ def evaluate_model_catalog_pricing_gate(
     models: Iterable[Any],
     pricing_policies: Iterable[Any],
     mission_policies: Iterable[Any] = (),
-    sandbox_enabled: bool = False,
     env: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Evaluate production readiness for admin-managed models and pricing."""
@@ -58,6 +57,13 @@ def evaluate_model_catalog_pricing_gate(
                 "detail": "At least one enabled global_credit pricing policy is required.",
             }
         )
+    elif len(enabled_global_policies) > 1:
+        errors.append(
+            {
+                "code": "global_credit_policy_ambiguous",
+                "detail": "Exactly one enabled global_credit pricing policy is required.",
+            }
+        )
 
     model_usage_policy_keys = _enabled_policy_keys(policy_rows, "model_usage")
     for model in enabled_models:
@@ -71,6 +77,28 @@ def evaluate_model_catalog_pricing_gate(
             )
 
     mission_pricing_rows = [policy for policy in policy_rows if _bool_attr(policy, "enabled", True) and _str_attr(policy, "policy_kind") == "mission"]
+    mission_signatures: dict[tuple[str, str], list[str]] = {}
+    for policy in mission_pricing_rows:
+        config = _dict_attr(policy, "config")
+        signature = (
+            str(config.get("mission_policy_id") or "").strip(),
+            str(config.get("workspace_type") or "").strip(),
+        )
+        mission_signatures.setdefault(signature, []).append(
+            _str_attr(policy, "policy_key")
+        )
+    ambiguous_signatures = {
+        signature: keys
+        for signature, keys in mission_signatures.items()
+        if len(keys) > 1
+    }
+    if ambiguous_signatures:
+        errors.append(
+            {
+                "code": "mission_pricing_policy_ambiguous",
+                "detail": "Mission pricing selectors must be unique by mission_policy_id and workspace_type.",
+            }
+        )
     for mission_policy in mission_policies:
         if not _bool_attr(mission_policy, "enabled", True):
             continue
@@ -87,14 +115,6 @@ def evaluate_model_catalog_pricing_gate(
                     "detail": f"MissionPolicy {workspace_type}/{mission_policy_id} lacks Mission pricing policy.",
                 }
             )
-
-    if sandbox_enabled and not _enabled_policy_keys(policy_rows, "sandbox"):
-        errors.append(
-            {
-                "code": "sandbox_policy_missing",
-                "detail": "Sandbox billing is enabled but no enabled sandbox pricing policy exists.",
-            }
-        )
 
     return {
         "status": "passed" if not errors else "failed",
@@ -115,7 +135,6 @@ async def evaluate_dataservice_model_catalog_pricing_gate(
             models=models,
             pricing_policies=pricing_policies,
             mission_policies=mission_policies,
-            sandbox_enabled=_sandbox_enabled(env),
             env=env,
         )
 
@@ -181,11 +200,6 @@ def _model_secret_configured(env: Mapping[str, str]) -> bool:
     if value == "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=":
         return False
     return any(character != "0" for character in value)
-
-
-def _sandbox_enabled(env: Mapping[str, str] | None) -> bool:
-    value = str((env if env is not None else os.environ).get("WENJIN_SANDBOX_ENABLED") or "").strip().lower()
-    return value in {"1", "true", "yes", "on"}
 
 
 def _str_attr(value: Any, key: str, default: str = "") -> str:

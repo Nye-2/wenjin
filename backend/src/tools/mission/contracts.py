@@ -112,8 +112,6 @@ class SmokeCheckToolInput(MissionToolInput):
 
 class InstallDependenciesToolInput(MissionToolInput):
     packages: tuple[str, ...] = Field(min_length=1, max_length=100)
-    permission_request_id: str = Field(min_length=1, max_length=100)
-    permission_expires_at: datetime
 
 
 class RegisterDatasetToolInput(MissionToolInput):

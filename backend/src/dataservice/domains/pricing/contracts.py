@@ -52,6 +52,7 @@ class MissionPricingPolicyConfig(BaseModel):
     estimate_max_credits: int = Field(ge=0)
     max_charge_credits: int = Field(ge=0)
     included_revision_loops: int = Field(default=0, ge=0)
+    reservation_ttl_seconds: int = Field(default=86_400, ge=300, le=604_800)
     platform_failed_refund: str = "full"
     user_cancel_policy: str = "settle_completed_usage"
 
@@ -69,25 +70,6 @@ class ToolPricingPolicyConfig(BaseModel):
     base_credits: int = Field(ge=0)
 
 
-class SandboxPricingPolicyConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: str | None = None
-    startup_fee_credits: int = Field(default=0, ge=0)
-    minimum_billable_seconds: int = Field(default=0, ge=0)
-    max_charge_credits: int = Field(default=0, ge=0)
-    default_tier: str | None = None
-    tiers: dict[str, dict[str, Any]] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_tiers(self) -> SandboxPricingPolicyConfig:
-        if not self.tiers:
-            raise ValueError("sandbox pricing requires at least one tier")
-        if self.default_tier and self.default_tier not in self.tiers:
-            raise ValueError("default_tier must exist in tiers")
-        return self
-
-
 class PricingSimulationRequest(BaseModel):
     policy_kind: str
     surface: str = "chat"
@@ -95,7 +77,6 @@ class PricingSimulationRequest(BaseModel):
     model_usage_policy: ModelUsagePolicyConfig | None = None
     mission_policy: MissionPricingPolicyConfig | None = None
     tool_policy: ToolPricingPolicyConfig | None = None
-    sandbox_policy: SandboxPricingPolicyConfig | None = None
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
 
@@ -121,6 +102,14 @@ class PricingPolicyRecord(BaseModel):
     updated_at: datetime | None = None
 
 
+class ResolvedModelUsagePricing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_id: str
+    model_policy: PricingPolicyRecord
+    global_policy: PricingPolicyRecord | None = None
+
+
 class PricingPolicyCreateCommand(BaseModel):
     policy_key: str
     policy_kind: str
@@ -133,3 +122,37 @@ class PricingPolicyUpdateCommand(BaseModel):
     name: str | None = None
     config: dict[str, Any] | None = None
     enabled: bool | None = None
+
+
+class PublicModelPricing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_id: str
+    display_name: str
+    is_default: bool
+    policy_id: str
+    policy_key: str
+    policy_version: int
+    minimum_credits: int = Field(ge=0)
+
+
+class PublicMissionPricing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_id: str
+    policy_key: str
+    policy_version: int
+    workspace_type: str | None = None
+    mission_policy_id: str | None = None
+    base_fee_credits: int = Field(ge=0)
+    estimate_min_credits: int = Field(ge=0)
+    estimate_max_credits: int = Field(ge=0)
+    max_charge_credits: int = Field(ge=0)
+
+
+class PublicPricingCatalog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unit: str = "credits"
+    chat_models: list[PublicModelPricing] = Field(default_factory=list)
+    missions: list[PublicMissionPricing] = Field(default_factory=list)

@@ -150,11 +150,14 @@ class WorkspacePrismFileResponse(BaseModel):
 class WorkspacePrismFileVersionResponse(BaseModel):
     """Current Prism file version content."""
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     workspace_id: str
     file_id: str
     version_no: int
-    review_item_id: str | None = None
+    mission_review_item_id: str | None = None
+    mission_commit_id: str | None = None
     content_inline: str | None = None
     content_asset_id: str | None = None
     content_hash: str
@@ -209,13 +212,6 @@ class WorkspacePrismSurfaceResponse(BaseModel):
                 "compile_status": None,
                 "has_pending_changes": True,
                 "target_files": ["main.tex", "sections/introduction.tex"],
-                "file_changes": [
-                    {
-                        "path": "sections/introduction.tex",
-                        "status": "pending",
-                    }
-                ],
-                "applied_file_changes": [],
                 "review_items": [],
                 "source_links": [],
                 "protected_sections": [],
@@ -248,8 +244,6 @@ class WorkspacePrismSurfaceResponse(BaseModel):
     compile_status: str | None = None
     has_pending_changes: bool = False
     target_files: list[str] = Field(default_factory=list)
-    file_changes: list[dict[str, Any]] = Field(default_factory=list)
-    applied_file_changes: list[dict[str, Any]] = Field(default_factory=list)
     review_items: list[dict[str, Any]] = Field(default_factory=list)
     source_links: list[dict[str, Any]] = Field(default_factory=list)
     protected_sections: list[dict[str, Any]] = Field(default_factory=list)

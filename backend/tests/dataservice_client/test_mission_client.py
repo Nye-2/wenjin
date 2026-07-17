@@ -76,10 +76,58 @@ def _mission_view_payload() -> dict:
     return {key: value for key, value in payload.items() if key not in internal_fields}
 
 
+def _mission_item_payload(seq: int) -> dict:
+    return {
+        "id": f"item-{seq}",
+        "mission_id": "mission-1",
+        "seq": seq,
+        "item_type": "artifact",
+        "phase": "completed",
+        "payload_json": {},
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _mission_review_item_payload(review_item_id: str) -> dict:
+    now = datetime.now(UTC).isoformat()
+    return {
+        "review_item_id": review_item_id,
+        "mission_id": "mission-1",
+        "source_item_seq": None,
+        "output_key": review_item_id,
+        "target_kind": "memory",
+        "target_room": "memory",
+        "target_ref": review_item_id,
+        "title": "Review candidate",
+        "risk_level": "low",
+        "status": "pending",
+        "preview_json": {"body": "candidate"},
+        "requires_explicit_review": False,
+        "batch_acceptable": True,
+        "suggested_selected": True,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def _mission_commit_payload(commit_id: str) -> dict:
+    return {
+        "commit_id": commit_id,
+        "mission_id": "mission-1",
+        "review_item_id": "review-1",
+        "commit_key": commit_id,
+        "status": "pending",
+        "actor_user_id": "user-1",
+        "targets_json": {},
+        "attempt_count": 0,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+
 @pytest.mark.asyncio
 async def test_root_client_exposes_composed_mission_domain_and_typed_create() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/internal/v1/missions"
+        assert request.url.path == "/internal/v1/mission-admissions"
         body = json.loads(request.content)
         assert body["model_id"] == "gpt-5.6-sol"
         assert body["reasoning_effort"] == "xhigh"
@@ -98,7 +146,7 @@ async def test_root_client_exposes_composed_mission_domain_and_typed_create() ->
         transport=httpx.MockTransport(handler),
     ) as client:
         assert isinstance(client.missions, MissionDataServiceClient)
-        result = await client.missions.create(
+        result = await client.missions.admit(
             MissionCreatePayload(
                 workspace_id="workspace-1",
                 thread_id="thread-1",
@@ -224,6 +272,144 @@ async def test_command_client_uses_mission_route_and_stable_command_id() -> None
         ),
     )
     assert result.items[0].operation_id == "command-1"
+
+
+@pytest.mark.asyncio
+async def test_item_seq_batch_client_uses_one_typed_request() -> None:
+    async def request(method: str, path: str, **kwargs):
+        assert method == "POST"
+        assert path == "/internal/v1/missions/mission-1/items/by-seqs"
+        assert kwargs["json"] == {"seqs": [3, 8]}
+        return {
+            "status": "ok",
+            "data": [_mission_item_payload(3), _mission_item_payload(8)],
+        }
+
+    items = await MissionDataServiceClient(request).list_items_by_seqs(
+        "mission-1",
+        seqs=(3, 8),
+    )
+
+    assert [item.seq for item in items] == [3, 8]
+
+
+@pytest.mark.asyncio
+async def test_item_page_client_keeps_pagination_bounded() -> None:
+    async def request(method: str, path: str, **kwargs):
+        assert method == "GET"
+        assert path == "/internal/v1/missions/mission-1/items"
+        assert kwargs["params"] == {
+            "after_seq": 4,
+            "limit": 2,
+            "item_type": "artifact",
+            "operation_id": None,
+        }
+        return {
+            "status": "ok",
+            "data": {
+                "items": [_mission_item_payload(5), _mission_item_payload(6)],
+                "page": {"total": 8, "returned": 2, "next_cursor": 6},
+            },
+        }
+
+    page = await MissionDataServiceClient(request).list_items_page(
+        "mission-1",
+        after_seq=4,
+        limit=2,
+        item_type="artifact",
+    )
+
+    assert [item.seq for item in page.items] == [5, 6]
+    assert page.page.next_cursor == 6
+
+
+@pytest.mark.asyncio
+async def test_review_and_commit_clients_use_opaque_page_cursors() -> None:
+    calls: list[str] = []
+
+    async def request(method: str, path: str, **kwargs):
+        assert method == "GET"
+        calls.append(path)
+        if path.endswith("/review-items"):
+            assert kwargs["params"] == {
+                "status": ["pending"],
+                "limit": 20,
+                "cursor": "review-cursor",
+            }
+            return {
+                "status": "ok",
+                "data": {
+                    "items": [_mission_review_item_payload("review-1")],
+                    "page": {
+                        "total": 1,
+                        "returned": 1,
+                        "next_cursor": None,
+                    },
+                },
+            }
+        assert path.endswith("/commits")
+        assert kwargs["params"] == {"limit": 20, "cursor": "commit-cursor"}
+        return {
+            "status": "ok",
+            "data": {
+                "items": [_mission_commit_payload("commit-1")],
+                "page": {"total": 1, "returned": 1, "next_cursor": None},
+            },
+        }
+
+    client = MissionDataServiceClient(request)
+    reviews = await client.list_review_items_page(
+        "mission-1",
+        status=["pending"],
+        limit=20,
+        cursor="review-cursor",
+    )
+    commits = await client.list_commits_page(
+        "mission-1",
+        limit=20,
+        cursor="commit-cursor",
+    )
+
+    assert [item.review_item_id for item in reviews.items] == ["review-1"]
+    assert [item.commit_id for item in commits.items] == ["commit-1"]
+    assert calls == [
+        "/internal/v1/missions/mission-1/review-items",
+        "/internal/v1/missions/mission-1/commits",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_artifact_client_forwards_equal_seq_tiebreaker() -> None:
+    async def request(method: str, path: str, **kwargs):
+        assert method == "GET"
+        assert path == "/internal/v1/missions/mission-1/artifacts"
+        assert kwargs["params"] == {
+            "after_seq": 7,
+            "after_review_item_id": "review-7",
+            "limit": 5,
+        }
+        return {
+            "status": "ok",
+            "data": {
+                "items": [],
+                "page": {
+                    "total": 7,
+                    "returned": 0,
+                    "next_cursor": None,
+                    "next_tiebreaker": None,
+                },
+            },
+        }
+
+    page = await MissionDataServiceClient(request).list_artifact_projection(
+        "mission-1",
+        after_seq=7,
+        after_review_item_id="review-7",
+        limit=5,
+    )
+
+    assert page is not None
+    assert page.page.total == 7
 
 
 def test_mission_contract_rejects_execution_record_fields() -> None:

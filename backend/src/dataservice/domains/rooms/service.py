@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.dataservice.domains.mission.write_authority import assert_active_mission_write
 from src.dataservice.domains.rooms.contracts import (
     DecisionProjection,
     DecisionSetCommand,
@@ -30,11 +31,26 @@ class RoomsDataDomainService:
         self.repository = RoomsRepository(session)
 
     async def set_decision(self, command: DecisionSetCommand) -> DecisionProjection:
+        await assert_active_mission_write(
+            self.session,
+            authority=command.mission_write_authority,
+            workspace_id=command.workspace_id,
+            mission_id=command.source_mission_id,
+            mission_commit_id=command.source_mission_commit_id,
+            required=command.source_mission_id is not None,
+        )
         existing = await self._existing_decision_for_idempotent_source(command)
         if existing is not None:
             return decision_to_projection(existing)
 
+        await self.repository.lock_workspace_for_update(command.workspace_id)
+        existing = await self._existing_decision_for_idempotent_source(command)
+        if existing is not None:
+            await self._finish()
+            return decision_to_projection(existing)
+
         old = await self.repository.get_active_decision(workspace_id=command.workspace_id, key=command.key)
+        replacement_fence = datetime.now(UTC) if old is not None else None
         record = self.repository.create_decision(
             {
                 "workspace_id": command.workspace_id,
@@ -46,10 +62,16 @@ class RoomsDataDomainService:
                 "source_mission_id": command.source_mission_id,
                 "source_mission_item_seq": command.source_mission_item_seq,
                 "source_mission_commit_id": command.source_mission_commit_id,
+                "deleted_at": replacement_fence,
             }
         )
         if old is not None:
+            # Keep the replacement outside the active partial index until the
+            # prior row points at an already-persisted successor.
+            await self.session.flush()
             old.superseded_by = record.id
+            await self.session.flush()
+            record.deleted_at = None
         await self._finish()
         return decision_to_projection(record)
 
@@ -74,6 +96,14 @@ class RoomsDataDomainService:
         return True
 
     async def create_workspace_task(self, command: WorkspaceTaskCreateCommand) -> WorkspaceTaskProjection:
+        await assert_active_mission_write(
+            self.session,
+            authority=command.mission_write_authority,
+            workspace_id=command.workspace_id,
+            mission_id=command.source_mission_id,
+            mission_commit_id=command.source_mission_commit_id,
+            required=command.source_mission_id is not None,
+        )
         existing = await self._existing_task_for_idempotent_source(command)
         if existing is not None:
             return workspace_task_to_projection(existing)
@@ -150,12 +180,6 @@ class RoomsDataDomainService:
             )
             if existing is not None:
                 return existing
-        if _is_mission_commit_provenance(command.extracted_by):
-            return await self.repository.get_decision_by_extracted_by(
-                workspace_id=command.workspace_id,
-                key=command.key,
-                extracted_by=command.extracted_by,
-            )
         return None
 
     async def _existing_task_for_idempotent_source(
@@ -169,14 +193,4 @@ class RoomsDataDomainService:
             )
             if existing is not None:
                 return existing
-        if _is_mission_commit_provenance(command.created_by):
-            return await self.repository.get_workspace_task_by_created_by(
-                workspace_id=command.workspace_id,
-                title=command.title,
-                created_by=command.created_by,
-            )
         return None
-
-
-def _is_mission_commit_provenance(value: str) -> bool:
-    return value.startswith("mission:") and ":commit:" in value

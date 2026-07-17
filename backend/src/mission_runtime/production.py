@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlsplit
+from uuid import NAMESPACE_URL, uuid5
 
 import httpx
 
@@ -20,7 +22,6 @@ from src.contracts.stage_acceptance import (
     stage_instance_index,
 )
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.credit import CreditReservationSettlePayload
 from src.dataservice_client.contracts.mission import (
     MissionItemPayload,
     MissionReviewItemDraftPayload,
@@ -32,9 +33,7 @@ from src.mission_runtime.adapters import (
     ToolPolicyResolver,
 )
 from src.mission_runtime.contracts import (
-    BillingOutcome,
     MissionEventEnvelope,
-    MissionPauseRequest,
     MissionStartRequest,
     ReviewCandidateBatch,
     ReviewCandidateRequest,
@@ -42,7 +41,6 @@ from src.mission_runtime.contracts import (
 )
 from src.mission_runtime.reference_authority import evidence_authority_index
 from src.models.capability_profile import native_search_endpoint
-from src.services.credit_service import CreditService
 from src.services.model_catalog_cache import (
     RuntimeModelConfig,
     get_runtime_model_config,
@@ -62,12 +60,14 @@ from src.tools.mission.artifact_candidates import (
     artifact_candidate_content_hash,
     valid_artifact_candidate_receipt,
 )
+from src.tools.mission.contracts import ImportSourceCandidateInput
 from src.tools.orchestrator import (
     ToolCallerKind,
     ToolCatalog,
     ToolDescriptor,
     ToolDispatchError,
     ToolErrorType,
+    ToolExecutionLimit,
     ToolGuardDecision,
     ToolOperation,
     ToolPolicy,
@@ -142,8 +142,18 @@ def require_native_search_capability(
 class PinnedMissionStartContext:
     """Resolve DataService policy once and persist the immutable mission contract."""
 
-    def __init__(self, dataservice: AsyncDataServiceClient) -> None:
+    def __init__(
+        self,
+        dataservice: AsyncDataServiceClient,
+        *,
+        tool_catalog: ToolCatalog,
+    ) -> None:
+        if not tool_catalog.frozen:
+            raise MissionProductionConfigurationError(
+                "Mission tool catalog must be frozen before start-context pinning"
+            )
         self._dataservice = dataservice
+        self._tool_catalog = tool_catalog
 
     async def pin(self, request: MissionStartRequest) -> MissionStartRequest:
         if not request.mission_policy_id:
@@ -167,6 +177,10 @@ class PinnedMissionStartContext:
         policy = record.to_contract()
         if policy.workspace_type != request.workspace_type:
             raise MissionProductionConfigurationError("MissionPolicy belongs to another workspace type")
+        try:
+            policy.review_policy.require_allowed_mode(request.review_mode)
+        except ValueError as exc:
+            raise MissionProductionConfigurationError(str(exc)) from exc
         if not content_hash or content_hash != record.content_hash:
             raise MissionProductionConfigurationError("MissionPolicy content hash does not match its catalog record")
         if expected_policy_hash != record.content_hash:
@@ -193,6 +207,9 @@ class PinnedMissionStartContext:
 
         tool_groups = _resolve_tool_groups(policy)
         mission_tool_ids = set(tool_groups.tool_ids)
+        execution_limits = self._tool_catalog.execution_limits(
+            tool_groups.tool_ids
+        )
         skill_snapshots: dict[str, dict[str, object]] = {}
         for skill_id in policy.allowed_worker_skills:
             try:
@@ -247,8 +264,12 @@ class PinnedMissionStartContext:
                 "granted_permissions": granted_permissions,
                 "allowed_network_profiles": network_profiles,
                 "port_capabilities": list(tool_groups.port_capabilities),
+                "catalog_snapshot_hash": self._tool_catalog.descriptor_snapshot_hash(),
+                "execution_limits": [
+                    item.model_dump(mode="json")
+                    for item in execution_limits
+                ],
             },
-            "billing_estimated_credits": _estimated_credits(request),
         }
         return request.model_copy(update={"runtime_context_json": runtime_context})
 
@@ -269,15 +290,43 @@ class PinnedToolPolicyResolver(ToolPolicyResolver):
         expected_ref = str(mission.runtime_context_json.get("policy_ref") or "")
         if not policy_ref or policy_ref != expected_ref:
             raise MissionProductionConfigurationError("Mission tool policy ref is invalid")
+        catalog_snapshot_hash = str(raw.get("catalog_snapshot_hash") or "")
+        if len(catalog_snapshot_hash) != 64:
+            raise MissionProductionConfigurationError(
+                "Pinned Mission tool catalog snapshot is unavailable"
+            )
         permitted = tuple(str(item) for item in raw.get("allowed_tool_ids") or ())
         selected = permitted if allowed_tools is None else allowed_tools
-        if not set(selected).issubset(permitted):
+        if (
+            len(selected) != len(set(selected))
+            or not set(selected).issubset(permitted)
+        ):
             raise MissionProductionConfigurationError("Subagent tool scope exceeds the pinned Mission policy")
+        raw_limits = raw.get("execution_limits")
+        if not isinstance(raw_limits, list):
+            raise MissionProductionConfigurationError(
+                "Pinned Mission tool execution limits are unavailable"
+            )
+        try:
+            limits = tuple(ToolExecutionLimit.model_validate(item) for item in raw_limits)
+        except ValueError as exc:
+            raise MissionProductionConfigurationError(
+                "Pinned Mission tool execution limits are invalid"
+            ) from exc
+        limit_by_tool = {item.tool_id: item for item in limits}
+        if (
+            len(limit_by_tool) != len(limits)
+            or set(limit_by_tool) != set(permitted)
+        ):
+            raise MissionProductionConfigurationError(
+                "Pinned Mission tool execution limits do not cover the tool policy"
+            )
         return ToolPolicy(
             policy_ref=policy_ref,
             allowed_tool_ids=selected,
             granted_permissions=tuple(str(item) for item in raw.get("granted_permissions") or ()),
             allowed_network_profiles=tuple(str(item) for item in raw.get("allowed_network_profiles") or ()),
+            execution_limits=tuple(limit_by_tool[tool_id] for tool_id in selected),
         )
 
 
@@ -461,14 +510,9 @@ def _valid_content_hash(value: str) -> bool:
 def _academic_visual_artifact_kind(candidate: dict[str, Any]) -> str:
     figure_type = str(candidate.get("figure_type") or "")
     if figure_type in {
-        "line_chart",
-        "bar_chart",
-        "scatter_plot",
-        "heatmap",
-        "box_plot",
-        "violin_plot",
-        "histogram",
-        "radar_chart",
+        "data_plot",
+        "experiment_plot",
+        "statistical_chart",
     }:
         return "chart"
     if figure_type == "table_visual":
@@ -605,6 +649,27 @@ class StrictReviewCandidateBuilder:
                 )
             draft = {key: value for key, value in raw_item.items() if key != "candidate_ref"}
             draft.update(_review_projection(candidate_ref, candidate, draft))
+            output_key = str(draft.get("output_key") or "").strip()
+            request_mission = getattr(request, "mission", None)
+            mission_id = str(
+                getattr(request_mission, "mission_id", "")
+                or getattr(candidate[0], "mission_id", "")
+            )
+            draft["review_item_id"] = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    ":".join(
+                        (
+                            "wenjin",
+                            "mission-review",
+                            mission_id,
+                            str(getattr(request, "stage_id", "") or ""),
+                            output_key,
+                            candidate_ref,
+                        )
+                    ),
+                )
+            )
             item = MissionReviewItemDraftPayload.model_validate(draft)
             item = item.model_copy(update={"title": _canonical_output_title(item.title)})
             if not item.preview_ref and not item.preview_json:
@@ -658,6 +723,13 @@ def _review_projection(
     item, metadata, kind = candidate
     target_kind = str(draft.get("target_kind") or "")
     if kind == "artifact_candidate":
+        if str(metadata.get("artifact_kind") or "") == "source_import":
+            return _source_import_review_projection(
+                candidate_ref,
+                item=item,
+                metadata=metadata,
+                draft=draft,
+            )
         if target_kind != "document":
             raise MissionProductionConfigurationError(
                 "Text artifact candidates can only materialize as documents"
@@ -700,6 +772,22 @@ def _review_projection(
     if not preview_ref or expires_at is None:
         raise MissionProductionConfigurationError("Academic visual preview is unavailable")
     artifact_kind = _academic_visual_artifact_kind(visual)
+    caption = str(manifest.get("caption") or "").strip() or None
+    alt_text = str(manifest.get("alt_text") or "").strip() or None
+    title = str(draft.get("title") or "").strip() or str(
+        visual.get("figure_id") or "academic-visual"
+    )
+    provider_model = str(visual.get("provider_model") or "").strip() or None
+    renderer_id = str(visual.get("renderer_id") or "").strip() or None
+    reproducibility_status = (
+        "reproducible" if visual.get("reproducibility_ref") else "not_applicable"
+    )
+    provenance = _academic_visual_asset_provenance(
+        item=item,
+        visual=visual,
+        manifest=manifest,
+        quality_receipt=quality_receipt,
+    )
     return {
         "source_item_seq": item.seq,
         "preview_ref": preview_ref,
@@ -714,6 +802,14 @@ def _review_projection(
             "source_refs": list(visual.get("source_refs") or ()),
             "dataset_refs": list(visual.get("dataset_refs") or ()),
             "reproducibility_ref": visual.get("reproducibility_ref"),
+            "reproducibility_status": reproducibility_status,
+            "caption": caption,
+            "alt_text": alt_text,
+            "renderer_id": renderer_id,
+            "renderer_version": visual.get("renderer_version"),
+            "provider_model": provider_model,
+            "warnings": list(visual.get("warnings") or ()),
+            **provenance,
             "manifest": manifest,
             "materialization": {
                 "operation": "assets.create_from_preview",
@@ -721,10 +817,232 @@ def _review_projection(
                     "content_hash": visual.get("preview_hash"),
                     "mime_type": visual.get("mime_type"),
                     "manifest_ref": visual.get("reproducibility_ref"),
+                    "name": f"{visual.get('figure_id') or 'academic-visual'}{_visual_suffix(str(visual.get('mime_type') or ''))}",
+                    "title": title,
+                    "asset_kind": "academic_visual",
+                    "metadata_json": {
+                        "figure_id": visual.get("figure_id"),
+                        "figure_type": visual.get("figure_type"),
+                        "strategy": visual.get("strategy"),
+                        "evidence_level": visual.get("evidence_level"),
+                        "caption": caption,
+                        "alt_text": alt_text,
+                        "renderer_id": renderer_id,
+                        "renderer_version": visual.get("renderer_version"),
+                        "provider_model": provider_model,
+                        "source_refs": list(visual.get("source_refs") or ()),
+                        "dataset_refs": list(visual.get("dataset_refs") or ()),
+                        "reproducibility_ref": visual.get("reproducibility_ref"),
+                        **provenance,
+                    },
                 },
             },
         },
     }
+
+
+def _source_import_review_projection(
+    candidate_ref: str,
+    *,
+    item: MissionItemPayload,
+    metadata: dict[str, Any],
+    draft: dict[str, Any],
+) -> dict[str, Any]:
+    if draft.get("target_kind") != "source" or draft.get("target_room") != "library":
+        raise MissionProductionConfigurationError(
+            "Source import candidates can only materialize in the Library"
+        )
+    if draft.get("target_ref") is not None:
+        raise MissionProductionConfigurationError(
+            "Source import candidates cannot target an existing Source"
+        )
+    if getattr(item, "producer", None) != "tool_orchestrator":
+        raise MissionProductionConfigurationError(
+            "Source import candidate is not backed by the ToolOrchestrator"
+        )
+    payload = metadata.get("source_import_payload")
+    verification_ref = str(metadata.get("verification_ref") or "")
+    if not isinstance(payload, dict):
+        raise MissionProductionConfigurationError(
+            "Source import candidate payload is unavailable"
+        )
+    try:
+        args = ImportSourceCandidateInput.model_validate(
+            {
+                "title": payload.get("title"),
+                "citation_key": payload.get("citation_key"),
+                "verification_ref": verification_ref,
+                "source_kind": payload.get("source_kind"),
+                "authors": payload.get("authors_json"),
+                "year": payload.get("year"),
+                "venue": payload.get("venue"),
+                "doi": payload.get("doi"),
+                "url": payload.get("url"),
+                "abstract": payload.get("abstract"),
+            }
+        )
+    except ValueError as exc:
+        raise MissionProductionConfigurationError(
+            "Source import candidate metadata is invalid"
+        ) from exc
+    expected_payload = {
+        "source_kind": args.source_kind,
+        "title": args.title,
+        "authors_json": list(args.authors),
+        "year": args.year,
+        "venue": args.venue,
+        "doi": args.doi,
+        "url": args.url,
+        "abstract": args.abstract,
+        "ingest_kind": "mission_verified",
+        "ingest_label": verification_ref,
+        "library_status": "candidate",
+        "evidence_level": (
+            "uploaded_fulltext"
+            if verification_ref.startswith("asset:")
+            else "external_verified"
+        ),
+        "citation_key": args.citation_key,
+    }
+    receipt_operation_key = str(
+        item.payload_json.get("receipt_operation_key") or ""
+    )
+    item_operation_id = str(getattr(item, "operation_id", None) or "")
+    candidate_operation_key = str(metadata.get("operation_key") or "")
+    candidate_mission_id = str(metadata.get("mission_id") or "")
+    item_mission_id = str(getattr(item, "mission_id", None) or "")
+    if (
+        payload != expected_payload
+        or metadata.get("source_refs") != [verification_ref]
+        or str(metadata.get("title") or "") != args.title
+        or not _valid_source_verification_ref(verification_ref)
+        or not candidate_operation_key
+        or candidate_operation_key
+        not in {receipt_operation_key, item_operation_id}
+        or not candidate_mission_id
+        or candidate_mission_id != item_mission_id
+    ):
+        raise MissionProductionConfigurationError(
+            "Source import candidate receipt metadata is inconsistent"
+        )
+    uri = str(item.payload_json.get("uri") or "") or None
+    if args.url != uri or (args.url is not None and not _valid_source_url(args.url)):
+        raise MissionProductionConfigurationError(
+            "Source import candidate URL does not match its verified receipt"
+        )
+    return {
+        "source_item_seq": item.seq,
+        "preview_json": {
+            "artifact_kind": "source_import",
+            "candidate_ref": candidate_ref,
+            "verification_ref": verification_ref,
+            "citation_key": args.citation_key,
+            "title": args.title,
+            "authors": list(args.authors),
+            "year": args.year,
+            "venue": args.venue,
+            "doi": args.doi,
+            "url": args.url,
+            "abstract": args.abstract,
+            "source_refs": [verification_ref],
+            "content_hash": str(metadata.get("content_hash") or ""),
+            "materialization": {
+                "operation": "library.import_source",
+                "payload": expected_payload,
+            },
+        },
+    }
+
+
+def _valid_source_verification_ref(value: str) -> bool:
+    if re.fullmatch(r"(?:asset|source):[A-Za-z0-9][A-Za-z0-9._:-]{0,999}", value):
+        return True
+    return (
+        re.fullmatch(
+            r"search-receipt:[A-Za-z0-9][A-Za-z0-9._:-]{0,499}#[A-Za-z0-9][A-Za-z0-9._:-]{0,499}",
+            value,
+        )
+        is not None
+    )
+
+
+def _valid_source_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and port in {None, 80, 443}
+    )
+
+
+def _academic_visual_asset_provenance(
+    *,
+    item: MissionItemPayload,
+    visual: dict[str, Any],
+    manifest: dict[str, Any],
+    quality_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    source_prompt_hash = visual.get("source_prompt_hash") or manifest.get(
+        "source_prompt_hash"
+    )
+    source_code_hash = visual.get("source_code_hash") or manifest.get(
+        "source_code_hash"
+    )
+    context_hash = visual.get("context_hash") or manifest.get("context_hash")
+    prompt_contract_version = visual.get(
+        "prompt_contract_version"
+    ) or manifest.get("prompt_contract_version")
+    overlay_hash = visual.get("overlay_manifest_hash") or manifest.get(
+        "overlay_manifest_hash"
+    )
+    return {
+        "generated_by": "wenjin_academic_visual",
+        "mission_id": item.mission_id,
+        "source_item_seq": item.seq,
+        "content_hash": visual.get("preview_hash") or visual.get("content_hash"),
+        "candidate_content_hash": visual.get("content_hash"),
+        "source_prompt_hash": source_prompt_hash,
+        "prompt_hash": source_prompt_hash,
+        "prompt_contract_version": prompt_contract_version,
+        "source_code_hash": source_code_hash,
+        "source_code_ref": manifest.get("source_code_ref"),
+        "context_hash": context_hash,
+        "dimensions": {
+            "width": visual.get("width"),
+            "height": visual.get("height"),
+        },
+        "quality": dict(quality_receipt),
+        "quality_receipt": dict(quality_receipt),
+        "ai_generated": bool(
+            visual.get("ai_generated", manifest.get("ai_generated", False))
+        ),
+        "overlay_manifest_hash": overlay_hash,
+        "dataset_content_hashes": dict(
+            visual.get("dataset_content_hashes")
+            or manifest.get("dataset_content_hashes")
+            or {}
+        ),
+        "source_content_hashes": dict(
+            visual.get("source_content_hashes")
+            or manifest.get("source_content_hashes")
+            or {}
+        ),
+    }
+
+
+def _visual_suffix(mime_type: str) -> str:
+    return {
+        "application/pdf": ".pdf",
+        "image/png": ".png",
+        "image/svg+xml": ".svg",
+        "image/webp": ".webp",
+    }.get(mime_type, "")
 
 
 def _compile_document_review_candidate(
@@ -787,81 +1105,6 @@ def _has_materialization_descriptor(preview: dict[str, Any]) -> bool:
     operation = descriptor.get("operation")
     payload = descriptor.get("payload")
     return isinstance(operation, str) and bool(operation.strip()) and isinstance(payload, dict)
-
-
-class MissionCreditBilling:
-    def __init__(self, dataservice: AsyncDataServiceClient) -> None:
-        self._dataservice = dataservice
-        self._credits = CreditService(dataservice=dataservice)
-
-    async def preflight(self, request: MissionStartRequest) -> BillingOutcome:
-        policy = self._credits.get_mission_billing_policy()
-        if not policy.enabled:
-            return BillingOutcome(allowed=True, free_policy=True)
-        estimate = _estimated_credits(request)
-        summary = await self._credits.get_credit_summary(request.user_id)
-        if int(summary.get("spendable_credits", 0)) < estimate:
-            return BillingOutcome(
-                allowed=False,
-                pause_request=MissionPauseRequest(
-                    request_id=f"billing:{request.mission_idempotency_key}",
-                    reason="budget",
-                    summary="当前可用额度不足，任务尚未启动。",
-                    pending_request={"required_credits": estimate},
-                ),
-                summary="当前可用额度不足，任务尚未启动。",
-            )
-        return BillingOutcome(
-            allowed=True,
-            reservation_id=f"pending:{request.mission_idempotency_key}",
-        )
-
-    async def ensure_reservation(self, mission: MissionRunPayload) -> BillingOutcome:
-        policy = self._credits.get_mission_billing_policy()
-        if not policy.enabled:
-            return BillingOutcome(allowed=True, free_policy=True)
-        estimate = max(
-            int(mission.runtime_context_json.get("billing_estimated_credits") or 0),
-            1,
-        )
-        reservation = await self._credits.reserve_for_mission(
-            user_id=mission.user_id,
-            workspace_id=mission.workspace_id,
-            mission_id=mission.mission_id,
-            estimated_credits=estimate,
-            idempotency_key=f"mission:{mission.mission_id}",
-            metadata={
-                "mission_policy_id": mission.mission_policy_id,
-                "model_id": mission.model_id,
-            },
-        )
-        return BillingOutcome(allowed=True, reservation_id=str(reservation.id))
-
-    async def settle(self, mission: MissionRunPayload) -> None:
-        billing = mission.snapshot_json.get("billing")
-        if not isinstance(billing, dict) or billing.get("free_policy") is True:
-            return
-        reservation_id = str(billing.get("reservation_id") or "")
-        if not reservation_id or reservation_id.startswith("pending:"):
-            raise MissionProductionConfigurationError("Mission has no durable credit reservation to settle")
-        estimate = max(
-            int(mission.runtime_context_json.get("billing_estimated_credits") or 0),
-            0,
-        )
-        settled_credits = estimate if mission.status.value == "completed" else 0
-        await self._dataservice.settle_credit_reservation(
-            reservation_id,
-            CreditReservationSettlePayload(
-                settled_credits=settled_credits,
-                description=f"Mission {mission.title[:120]} settlement",
-                mission_policy_id=mission.mission_policy_id,
-                mission_id=mission.mission_id,
-                metadata={
-                    "mission_id": mission.mission_id,
-                    "status": mission.status.value,
-                },
-            ),
-        )
 
 
 class WorkspaceMissionEventPublisher:
@@ -1036,16 +1279,6 @@ def _resolve_tool_group_names(
     )
 
 
-def _estimated_credits(request: MissionStartRequest) -> int:
-    raw = request.runtime_context_json.get("billing_estimated_credits")
-    if raw is None:
-        raw = request.snapshot_json.get("billing_estimated_credits")
-    try:
-        return max(int(raw if raw is not None else 10), 1)
-    except (TypeError, ValueError):
-        raise MissionProductionConfigurationError("Mission billing estimate must be an integer") from None
-
-
 def stable_operation_id(*parts: str) -> str:
     digest = hashlib.sha256(":".join(parts).encode()).hexdigest()[:24]
     return f"mission-op:{digest}"
@@ -1053,7 +1286,6 @@ def stable_operation_id(*parts: str) -> str:
 
 __all__ = [
     "CeleryMissionWakeupPublisher",
-    "MissionCreditBilling",
     "MissionProductionConfigurationError",
     "MissionProductionConfigurationErrorCode",
     "PinnedMissionStartContext",

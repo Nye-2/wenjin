@@ -7,6 +7,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from src.database.models.credit_reservation import CreditReservation
 from src.database.models.mission import (
     MissionCommitRecord,
     MissionItemRecord,
@@ -14,11 +15,15 @@ from src.database.models.mission import (
     MissionRunRecord,
 )
 from src.dataservice.domains.mission.service import MissionStore
+from src.dataservice_client.contracts.mission import (
+    MissionItemDraftPayload,
+    MissionItemPhase,
+    MissionStatus,
+)
 from src.mission_runtime.contracts import MissionSliceLimits, MissionSliceOutcome
 from src.mission_runtime.runtime import MissionRuntime
 
 from .conftest import (
-    FakeBilling,
     FakeEvents,
     FakeQuality,
     FakeReviewCandidates,
@@ -34,6 +39,7 @@ from .test_runtime import complete_decision, continue_decision
 
 MISSION_TABLES = [
     MissionRunRecord.__table__,
+    CreditReservation.__table__,
     MissionItemRecord.__table__,
     MissionReviewItemRecord.__table__,
     MissionCommitRecord.__table__,
@@ -46,8 +52,24 @@ class DirectMissionStoreAdapter:
     def __init__(self, store: MissionStore) -> None:
         self.store = store
 
-    async def create(self, command):
-        return await self.store.create_run(command)
+    async def admit(self, command):
+        created = await self.store.create_run(command)
+        if not created.created:
+            return created
+        snapshot = dict(created.mission.snapshot_json)
+        snapshot["billing"] = {"state": "ready", "free_policy": True}
+        mission = await self.store.apply_initial_admission(
+            created.mission.mission_id,
+            status=MissionStatus.PLANNING,
+            snapshot_json=snapshot,
+            item=MissionItemDraftPayload(
+                item_type="status_update",
+                phase=MissionItemPhase.COMPLETED,
+                producer="mission_admission",
+                summary="Mission admitted for integration test",
+            ),
+        )
+        return created.model_copy(update={"mission": mission})
 
     async def get(self, mission_id):
         return await self.store.load_run_snapshot(mission_id)
@@ -78,9 +100,6 @@ class DirectMissionStoreAdapter:
 
     async def resume(self, mission_id, command):
         return await self.store.resume_run(mission_id, command)
-
-    async def cancel(self, mission_id, command):
-        return await self.store.cancel_run(mission_id, command)
 
     async def create_review_items(self, mission_id, command):
         return await self.store.create_review_items(mission_id, command)
@@ -126,7 +145,6 @@ async def test_runtime_drives_real_mission_store_across_two_slices(
         subagents=FakeSubagents(),
         quality=FakeQuality(),
         review_candidates=FakeReviewCandidates(),
-        billing=FakeBilling(),
         events=FakeEvents(),
         wakeups=FakeWakeups(),
         limits=limits,

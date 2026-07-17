@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 import inspect
 import re
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
+from pydantic import ValidationError
 
 from src.academic.services.artifact_service import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService
-from src.agents.middlewares.mission_policy_hints import load_mission_policy_hints
 from src.agents.workspace_agent.agent import WorkspaceAgent
 from src.agents.workspace_agent.contracts import (
     ActiveMissionContext,
@@ -30,14 +30,14 @@ from src.application.results import (
     ThreadTurnRequest,
 )
 from src.config import get_model_config
+from src.contracts.prism_context import PrismContextRef
 from src.contracts.reasoning import (
     DEFAULT_REASONING_EFFORT,
     normalize_reasoning_effort,
 )
+from src.contracts.review_policy import ReviewMode
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.mission import (
-    MissionCancelPayload,
-    MissionReviewMode,
     MissionRunPayload,
     MissionStatus,
 )
@@ -47,6 +47,7 @@ from src.models.router import InvalidRequestedModelError
 from src.services import ThreadAccessError, ThreadService
 from src.services.credit_service import CreditService
 from src.services.mission_inputs import MissionInputService
+from src.services.mission_policy_hints import load_mission_policy_hints
 from src.services.mission_runtime_service import MissionRuntimeService, build_mission_runtime
 from src.services.thread_billing import normalize_token_usage
 from src.services.thread_events import publish_thread_updated, set_thread_status
@@ -64,9 +65,8 @@ _EXPLICIT_MISSION_REFERENCE_RE = re.compile(
 
 @dataclass(frozen=True, slots=True)
 class ThreadStreamDelta:
-    kind: Literal["reasoning", "content", "tool_invocation", "tool_result"]
+    kind: Literal["content"]
     text: str = ""
-    data: dict[str, Any] | None = None
 
 
 class _ReplyStreamRun:
@@ -200,7 +200,7 @@ def build_thread_initial_state(
 async def _workspace_agent_settings(
     workspace_service: WorkspaceService | None,
     workspace_id: str,
-) -> tuple[str, MissionReviewMode]:
+) -> tuple[str, ReviewMode]:
     service = workspace_service or WorkspaceService()
     workspace = await service.get(workspace_id)
     if workspace is None:
@@ -208,7 +208,9 @@ async def _workspace_agent_settings(
     workspace_type = str(getattr(workspace, "workspace_type", None) or getattr(workspace, "type", "")).strip()
     settings = getattr(workspace, "settings_json", None)
     raw_review_mode = settings.get("review_mode") if isinstance(settings, dict) else None
-    return workspace_type, MissionReviewMode(raw_review_mode or MissionReviewMode.BALANCED_DEFAULT.value)
+    return workspace_type, ReviewMode(
+        raw_review_mode or ReviewMode.BALANCED_DEFAULT.value
+    )
 
 
 def _attachments_require_vision(attachments: tuple[ThreadTurnAttachment, ...]) -> bool:
@@ -339,8 +341,16 @@ async def _resolve_continuation_target(
     workspace_id: str,
     thread_id: str,
     user_id: str,
+    focused_mission_id: str | None = None,
 ) -> MissionRunPayload | None:
     explicit_ids = _explicit_mission_ids(message)
+    requested_id = str(focused_mission_id or "").strip().lower()
+    if requested_id:
+        if not re.fullmatch(_MISSION_UUID, requested_id):
+            raise BadRequestError("指定的研究任务编号无效")
+        if explicit_ids and explicit_ids != (requested_id,):
+            raise BadRequestError("消息与界面指定了不同的研究任务")
+        explicit_ids = (requested_id,)
     if len(explicit_ids) > 1:
         raise BadRequestError("一次只能指定一个需要续接的研究任务")
     if not explicit_ids:
@@ -367,6 +377,51 @@ async def _resolve_continuation_target(
     ):
         raise BadRequestError("指定的研究任务在当前工作区中不可续接")
     return mission
+
+
+def _focused_mission_id(metadata: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(metadata, Mapping):
+        return None
+    value = metadata.get("focused_mission_id")
+    return str(value).strip() if isinstance(value, str) and value.strip() else None
+
+
+def _validate_active_mission_target(
+    active: MissionRunPayload,
+    *,
+    message: str,
+    focused_mission_id: str | None,
+) -> None:
+    explicit_ids = _explicit_mission_ids(message)
+    focused_id = str(focused_mission_id or "").strip().lower()
+    if focused_id and not re.fullmatch(_MISSION_UUID, focused_id):
+        raise BadRequestError("指定的研究任务编号无效")
+    if len(explicit_ids) > 1:
+        raise BadRequestError("一次只能指定一个研究任务")
+    if focused_id and explicit_ids and explicit_ids != (focused_id,):
+        raise BadRequestError("消息与界面指定了不同的研究任务")
+    target_id = explicit_ids[0] if explicit_ids else focused_id
+    if target_id and target_id != active.mission_id.lower():
+        raise BadRequestError("当前对话已有另一个进行中的研究任务，请先切回该任务或结束它")
+
+
+def _prism_context_ref(
+    metadata: Mapping[str, Any] | None,
+    *,
+    workspace_id: str,
+) -> PrismContextRef | None:
+    if not isinstance(metadata, Mapping):
+        return None
+    raw = metadata.get("prism_context_ref")
+    if raw is None:
+        return None
+    try:
+        context = PrismContextRef.model_validate(raw)
+    except ValidationError as exc:
+        raise BadRequestError("写作台选区定位已失效，请重新选择") from exc
+    if context.workspace_id != workspace_id:
+        raise BadRequestError("写作台选区不属于当前工作区")
+    return context
 
 
 def _reply_blocks(
@@ -411,6 +466,7 @@ async def generate_thread_response(
     workspace_service: WorkspaceService | None = None,
     conversation_messages: list[dict[str, Any]] | None = None,
     mission_input_service: MissionInputService | None = None,
+    on_text_delta: Callable[[str], Awaitable[None]] | None = None,
     **_: Any,
 ) -> GeneratedThreadReply:
     workspace_id = str(thread.workspace_id or request.workspace_id or "").strip()
@@ -442,6 +498,7 @@ async def generate_thread_response(
     )
 
     async with dataservice_client() as dataservice:
+        focused_mission_id = _focused_mission_id(request.metadata)
         active = await _foreground_mission(
             dataservice,
             workspace_id=workspace_id,
@@ -449,10 +506,17 @@ async def generate_thread_response(
             user_id=actor_id,
         )
         continuation_target = None
-        if active is None:
+        if active is not None:
+            _validate_active_mission_target(
+                active,
+                message=request.message,
+                focused_mission_id=focused_mission_id,
+            )
+        else:
             continuation_target = await _resolve_continuation_target(
                 dataservice,
                 message=request.message,
+                focused_mission_id=focused_mission_id,
                 workspace_id=workspace_id,
                 thread_id=str(thread.id),
                 user_id=actor_id,
@@ -474,8 +538,15 @@ async def generate_thread_response(
             policy_hints=await load_mission_policy_hints(dataservice, workspace_type),
             active_mission=_active_context(active),
             continuation_target=_continuation_context(continuation_target),
+            prism_context_ref=_prism_context_ref(
+                request.metadata,
+                workspace_id=workspace_id,
+            ),
         )
-        reply = await WorkspaceAgent(model=model, missions=_LazyMissionPort(dataservice)).run(context)
+        reply = await WorkspaceAgent(model=model, missions=_LazyMissionPort(dataservice)).run(
+            context,
+            on_text_delta=on_text_delta,
+        )
 
     usage = dict(reply.metadata.get("usage") or {})
     usage.update({"model_name": model_id, "source": "workspace_agent"})
@@ -499,17 +570,31 @@ async def generate_thread_response(
 
 
 def stream_thread_response(*args: Any, **kwargs: Any) -> _ReplyStreamRun:
-    future: asyncio.Future[GeneratedThreadReply] = asyncio.get_running_loop().create_future()
+    finished = object()
+    queue: asyncio.Queue[str | object] = asyncio.Queue()
+
+    async def emit_text(delta: str) -> None:
+        await queue.put(delta)
+
+    async def produce() -> GeneratedThreadReply:
+        try:
+            return await generate_thread_response(
+                *args,
+                **kwargs,
+                on_text_delta=emit_text,
+            )
+        finally:
+            queue.put_nowait(finished)
+
+    future = asyncio.create_task(produce())
 
     async def iterator() -> AsyncIterator[ThreadStreamDelta]:
-        try:
-            reply = await generate_thread_response(*args, **kwargs)
-            yield ThreadStreamDelta(kind="content", text=reply.content)
-            future.set_result(reply)
-        except BaseException as exc:
-            if not future.done():
-                future.set_exception(exc)
-            raise
+        while True:
+            item = await queue.get()
+            if item is finished:
+                break
+            yield ThreadStreamDelta(kind="content", text=str(item))
+        await future
 
     return _ReplyStreamRun(iterator(), future)
 
@@ -534,7 +619,7 @@ class ThreadTurnHandler:
 
     async def prepare_turn(self, request: ThreadTurnRequest, *, actor_id: str) -> PreparedThreadTurn:
         thread = await self._get_or_create_owned_thread(request, actor_id=actor_id)
-        await ensure_thread_turn_budget(actor_id)
+        await ensure_thread_turn_budget(actor_id, model_name=thread.model)
         metadata = dict(request.metadata or {})
         if request.attachments:
             metadata["attachments"] = [asdict(item) for item in request.attachments]
@@ -623,6 +708,9 @@ class ThreadTurnHandler:
                 if not future.done():
                     future.set_exception(exc)
                 raise
+            finally:
+                if stream is not None:
+                    await stream.aclose()
 
         return _CompletedTurnStreamRun(iterator(), future)
 
@@ -681,10 +769,7 @@ class ThreadTurnHandler:
         return thread
 
     async def handle_run_interruption(self, prepared: PreparedThreadTurn, *, rollback: bool) -> None:
-        if rollback:
-            if not await self._cancel_started_mission(prepared):
-                await self._fail(prepared.thread)
-                return
+        if rollback and not await self._started_mission_exists(prepared):
             messages = await self.thread_service.list_thread_messages(prepared.thread)
             await self.thread_service.rollback_last_user_message(
                 prepared.thread,
@@ -694,38 +779,23 @@ class ThreadTurnHandler:
         await self._fail(prepared.thread)
 
     @staticmethod
-    async def _cancel_started_mission(prepared: PreparedThreadTurn) -> bool:
+    async def _started_mission_exists(prepared: PreparedThreadTurn) -> bool:
         if not prepared.user_message_id or not prepared.thread.workspace_id:
-            return True
+            return False
         key = f"mission:{prepared.thread.id}:{prepared.user_message_id}"
         async with dataservice_client() as client:
             mission = await client.missions.get_by_idempotency_key(
                 workspace_id=prepared.thread.workspace_id,
                 key=key,
             )
-            if mission is None:
-                return True
-            if mission.status in {
-                MissionStatus.COMPLETED,
-                MissionStatus.FAILED,
-                MissionStatus.CANCELLED,
-            }:
-                return False
-            await client.missions.cancel(
-                mission.mission_id,
-                MissionCancelPayload(
-                    request_id=f"chat-rollback:{prepared.user_message_id}",
-                    reason="Initiating chat turn was rolled back",
-                ),
-            )
-        return True
+            return mission is not None
 
     @staticmethod
     async def _fail(thread: Any) -> None:
         await set_thread_status(thread.workspace_id, thread.id, status="failed")
 
 
-async def ensure_thread_turn_budget(actor_id: str) -> None:
-    if await CreditService().can_start_thread_turn(actor_id):
+async def ensure_thread_turn_budget(actor_id: str, *, model_name: str) -> None:
+    if await CreditService().can_start_thread_turn(actor_id, model_name=model_name):
         return
     raise PaymentRequiredError("主线对话积分额度不足，请先补充积分后继续。")

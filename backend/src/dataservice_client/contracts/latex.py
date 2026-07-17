@@ -40,17 +40,6 @@ class LatexTemplatePayload(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
-class LatexCompileHistoryPayload(BaseModel):
-    id: str
-    project_id: str
-    engine: str
-    main_file: str
-    status: int
-    log: str | None = None
-    pdf_path: str | None = None
-    created_at: datetime | None = None
-
-
 class LatexProjectCreatePayload(BaseModel):
     user_id: str
     name: str
@@ -76,12 +65,3 @@ class LatexProjectTouchPayload(BaseModel):
 
 class LatexProjectAttachWorkspacePayload(BaseModel):
     workspace_id: str
-
-
-class LatexCompileHistoryCreatePayload(BaseModel):
-    project_id: str
-    engine: str
-    main_file: str
-    status: int
-    log: str | None = None
-    pdf_path: str | None = None

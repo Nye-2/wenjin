@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class PrismPrimaryProjectCommand(BaseModel):
     """Ensure one workspace primary Prism project."""
@@ -38,8 +40,7 @@ class PrismWorkspaceFileUpsertCommand(PrismFileCreateCommand):
     content_asset_id: str | None = Field(default=None, max_length=36)
     content_hash: str | None = Field(default=None, max_length=128)
     created_by: str = Field(default="system", min_length=1, max_length=100)
-    mission_review_item_id: str | None = Field(default=None, max_length=36)
-    mission_commit_id: str | None = Field(default=None, max_length=36)
+    mission_write_authority: MissionWriteAuthority | None = None
 
     @model_validator(mode="after")
     def validate_optional_content_pointer(self) -> PrismWorkspaceFileUpsertCommand:
@@ -77,8 +78,7 @@ class PrismFileContentUpdateCommand(BaseModel):
     content_asset_id: str | None = Field(default=None, max_length=36)
     content_hash: str = Field(min_length=1, max_length=128)
     created_by: str = Field(default="user", min_length=1, max_length=100)
-    mission_review_item_id: str | None = Field(default=None, max_length=36)
-    mission_commit_id: str | None = Field(default=None, max_length=36)
+    mission_write_authority: MissionWriteAuthority | None = None
     expected_current_hash: str | None = Field(default=None, max_length=128)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -86,6 +86,31 @@ class PrismFileContentUpdateCommand(BaseModel):
     def validate_content_pointer(self) -> PrismFileContentUpdateCommand:
         if bool(self.content_inline is not None) == bool(self.content_asset_id):
             raise ValueError("Exactly one of content_inline or content_asset_id is required")
+        return self
+
+
+class PrismVisualInsertionCommand(BaseModel):
+    """Atomically bind one committed asset and update its Prism manuscript."""
+
+    target_file_id: str = Field(min_length=1, max_length=36)
+    prism_project_id: str = Field(min_length=1, max_length=36)
+    expected_current_version_id: str = Field(min_length=1, max_length=36)
+    expected_current_hash: str = Field(min_length=1, max_length=128)
+    selection_byte_range: tuple[int, int]
+    selection_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    insertion: str = Field(min_length=1, max_length=32_000)
+    expected_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    asset_id: str = Field(min_length=1, max_length=36)
+    created_by: str = Field(min_length=1, max_length=100)
+    mission_write_authority: MissionWriteAuthority
+    source_mission_commit_id: str = Field(min_length=1, max_length=36)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_selection_range(self) -> PrismVisualInsertionCommand:
+        start, end = self.selection_byte_range
+        if start < 0 or end <= start:
+            raise ValueError("selection_byte_range must be a non-empty forward range")
         return self
 
 
@@ -182,6 +207,11 @@ class PrismFileWriteProjection(BaseModel):
     version: PrismFileVersionProjection | None = None
     changed: bool = False
     skipped_reason: str | None = None
+
+
+class PrismVisualInsertionProjection(BaseModel):
+    manuscript: PrismFileWriteProjection
+    asset_file: PrismFileWriteProjection
 
 
 class PrismProtectedScopeProjection(BaseModel):

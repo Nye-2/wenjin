@@ -13,7 +13,6 @@ from src.dataservice.latex_api import LatexDataService
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
 from src.dataservice_client.contracts.latex import (
-    LatexCompileHistoryCreatePayload,
     LatexProjectAttachWorkspacePayload,
     LatexProjectCreatePayload,
     LatexProjectTouchPayload,
@@ -64,21 +63,6 @@ def _template_payload(template: Any) -> dict[str, Any] | None:
         "featured": bool(template.featured),
         "template_path": template.template_path,
         "metadata_json": dict(getattr(template, "metadata_json", {}) or {}),
-    }
-
-
-def _compile_history_payload(history: Any) -> dict[str, Any] | None:
-    if history is None:
-        return None
-    return {
-        "id": str(history.id),
-        "project_id": str(history.project_id),
-        "engine": history.engine,
-        "main_file": history.main_file,
-        "status": history.status,
-        "log": history.log,
-        "pdf_path": history.pdf_path,
-        "created_at": history.created_at,
     }
 
 
@@ -310,54 +294,3 @@ async def get_template(
         autocommit=False,
     ).get_template(template_id)
     return envelope_ok(_template_payload(template))
-
-
-@router.post("/compile-history")
-async def record_compile_history(
-    payload: LatexCompileHistoryCreatePayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    history = await LatexDataService(
-        uow.required_session,
-        autocommit=False,
-    ).record_compile_history(**payload.model_dump())
-    await uow.commit()
-    return envelope_ok(_compile_history_payload(history))
-
-
-@router.get("/compile-history/{history_id}")
-async def get_compile_history(
-    history_id: str,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    history = await LatexDataService(
-        uow.required_session,
-        autocommit=False,
-    ).get_compile_history(history_id)
-    return envelope_ok(_compile_history_payload(history))
-
-
-@router.delete("/compile-history/{history_id}")
-async def delete_compile_history(
-    history_id: str,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    service = LatexDataService(uow.required_session, autocommit=False)
-    history = await service.get_compile_history(history_id)
-    if history is None:
-        return envelope_ok({"deleted": False})
-    await service.delete_compile_histories([history])
-    await uow.commit()
-    return envelope_ok({"deleted": True})
-
-
-@router.get("/projects/{project_id}/compile-history")
-async def list_compile_history(
-    project_id: str,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    histories = await LatexDataService(
-        uow.required_session,
-        autocommit=False,
-    ).list_compile_history(project_id)
-    return envelope_ok([_compile_history_payload(history) for history in histories])

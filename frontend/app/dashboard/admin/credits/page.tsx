@@ -29,8 +29,7 @@ type CreditTypeFilter =
   | "admin_deduct"
   | "workflow_consume"
   | "thread_token_consume"
-  | "registration_bonus"
-  | "refund";
+  | "registration_bonus";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 
@@ -208,7 +207,6 @@ export default function AdminCreditsPage() {
                   <SelectItem value="workflow_consume">功能扣费</SelectItem>
                   <SelectItem value="thread_token_consume">主线对话扣费</SelectItem>
                   <SelectItem value="registration_bonus">注册奖励</SelectItem>
-                  <SelectItem value="refund">退款</SelectItem>
                 </SelectContent>
               </Select>
             </div>

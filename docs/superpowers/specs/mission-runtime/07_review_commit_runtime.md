@@ -1,7 +1,7 @@
 # 07 ReviewCommitRuntime Spec
 
 Status: Implemented
-Updated: 2026-07-11
+Updated: 2026-07-16
 
 Implementation outcome: item-level decisions, review modes, conflict checks, partial commit, materializers, receipts, and linked-domain provenance are implemented. Old batch/change review ownership was deleted.
 Depends on: `03_dataservice_mission_schema.md`, `08_mission_console_frontend.md`, `10_sandbox_vnext.md`
@@ -80,6 +80,7 @@ external data access
 review_item_id
 mission_id
 source_item_seq
+output_key
 target_kind
 target_room
 target_ref
@@ -129,6 +130,9 @@ targets_json
 status
 error_json
 attempt_count
+attempt_token
+attempt_started_at
+attempt_expires_at
 created_at
 completed_at
 ```
@@ -139,7 +143,9 @@ MissionCommit status is `pending | applying | committed | failed | cancelled`. T
 
 Frontend batch acceptance submits multiple independent items. Successful commits remain successful if another item fails, and only failed items are retried. There is no batch-level all-or-nothing claim and no distributed transaction across room domains.
 
-Review and commit may continue after MissionRun execution is terminal. They append audit MissionItems and update review/commit summaries, but cannot reopen the agent loop or mutate the terminal execution status/timestamp. `needs_more_evidence` creates a linked child mission when new research is required after terminal completion.
+Review and commit may continue after MissionRun execution is terminal. They append audit MissionItems and update review/commit summaries, but cannot reopen the agent loop or mutate the terminal execution status/timestamp. During a non-terminal Mission, rework is an ordered `review_feedback` command. After terminal completion, `needs_more_evidence`, `regenerate`, or a stale-target commit creates an idempotent linked child Mission. The source stage is resolved from the reviewed ledger item; the child invalidates that stage and its transitive dependency closure while inheriting unaffected passed stages. Missing lineage fails closed rather than replaying every stage.
+
+Every target-domain write receives one `MissionWriteAuthority` containing Mission, review item, commit, and attempt token. The target DataService transaction revalidates accepted review state, applying commit lease/expiry, workspace ownership, and token before materialization. No domain infers authority from provenance strings or a commit id alone.
 
 ## Commit Targets
 
@@ -166,7 +172,7 @@ User actions and their persisted effects:
 | regenerate | old item -> `superseded`; create a stage command and later a new candidate |
 | save draft only | accept an already draft-target item, or supersede it and create a new draft-target candidate before commit |
 
-`needs_more_evidence` is not a commit. For an in-loop waiting mission it resumes the same stage; for a terminal mission it creates a linked child MissionRun seeded from the relevant stage/evidence gap.
+`needs_more_evidence` is not a commit. For a non-terminal Mission it appends durable feedback and wakes the same loop; for a terminal Mission it creates a linked child MissionRun scoped to the exact source stage and dependency closure.
 
 ## Deletions
 
@@ -200,6 +206,8 @@ Best-effort locks can remain, but MissionCommit is durable truth.
 - Duplicate commit key is idempotent.
 - Rejected item never writes rooms.
 - Needs-more-evidence resumes an in-loop waiting stage or creates a linked child mission after terminal execution.
+- Terminal continuation never guesses a source stage, preserves unaffected passed stages, and returns the child Mission id to chat/frontend.
+- Every protected target rejects missing, stale, expired, mismatched, or cross-workspace `MissionWriteAuthority`.
 - Prism item requires preview/apply boundary.
 - Commit failure records failed MissionCommit and does not fake success in UI.
 - A batch with mixed outcomes preserves successful items and retries only failed items.

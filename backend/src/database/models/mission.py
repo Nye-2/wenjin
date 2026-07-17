@@ -8,7 +8,6 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     BigInteger,
-    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -19,7 +18,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
-    false,
     func,
     text,
 )
@@ -385,15 +383,6 @@ class MissionReviewItemRecord(Base):
     preview_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     preview_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
-    )
-    requires_explicit_review: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=false()
-    )
-    batch_acceptable: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=false()
-    )
-    suggested_selected: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=false()
     )
     decision_json: Mapped[dict[str, Any] | None] = mapped_column(
         MISSION_JSON_TYPE, nullable=True

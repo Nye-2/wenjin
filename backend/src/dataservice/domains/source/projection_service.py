@@ -67,7 +67,8 @@ class SourceProjectionService:
                 {
                     "source_type": source.ingest_kind,
                     "source_label": source.ingest_label,
-                    "source_run_id": source.ingest_mission_id,
+                    "ingest_mission_id": source.ingest_mission_id,
+                    "ingest_mission_commit_id": source.ingest_mission_commit_id,
                     "verified_at": source.verified_at.isoformat() if source.verified_at else None,
                 }
             ],

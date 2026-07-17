@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agents.workspace_agent.prompts import render_workspace_mission_prompt
+from src.contracts.model_usage import ModelUsage
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
     stage_id_matches_contract,
@@ -148,7 +149,6 @@ class _ProviderSubagentJob(BaseModel):
 class _ProviderReviewItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    review_item_id: str = Field(min_length=1, max_length=36)
     candidate_ref: str = Field(
         pattern=r"^(?:artifact-candidate:[0-9a-f]{64}|academic-visual:[A-Za-z0-9._:-]{1,160})$",
         max_length=180,
@@ -976,11 +976,11 @@ def _attach_usage(
     decision: MissionAgentDecision,
     response: AIMessage,
 ) -> MissionAgentDecision:
-    usage = response.usage_metadata
-    if not usage:
+    usage = ModelUsage.from_provider_metadata(response.usage_metadata)
+    if usage is None:
         return decision
     patch = dict(decision.snapshot_patch)
-    patch["last_model_usage"] = {key: int(value) for key, value in usage.items() if isinstance(value, int) and value >= 0}
+    patch["last_model_usage"] = usage.model_dump(mode="json")
     return decision.model_copy(update={"snapshot_patch": patch})
 
 

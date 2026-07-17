@@ -1,9 +1,9 @@
 # 12 ToolOrchestrator Spec
 
-Status: Implemented; provider search capability currently conditional
-Updated: 2026-07-15
+Status: Implemented
+Updated: 2026-07-17
 
-Implementation outcome: the frozen canonical ToolCatalog, all Mission tool groups, operation ledger, fencing, policy narrowing, receipts, error taxonomy, model profiles, and independent Responses SSE native-search adapter are implemented. Search-required missions remain correctly unavailable until a live probe returns complete search/source/citation receipts.
+Implementation outcome: the frozen canonical ToolCatalog, all Mission tool groups, operation ledger, fencing, policy narrowing, receipts, error taxonomy, model profiles, and independent Responses SSE native-search adapter are implemented. Deployment now fails closed at startup unless every enabled language model passes the persisted live capability probe, including complete native-search call, source, citation, storage, streaming, and reasoning-effort receipts.
 Depends on: `02_mission_runtime.md`, `05_capability_skill_lite.md`, `09_permission_pause.md`, `10_sandbox_vnext.md`
 
 ## Goal
@@ -74,7 +74,7 @@ network and sandbox profile
 side-effect and retry class
 ```
 
-Unknown high-risk operations fail closed. A tool cannot expand its permissions through prompt text, returned content, MCP metadata, or a nested subagent.
+Unknown high-risk operations fail closed. A tool cannot expand its permissions through prompt text, returned content, external tool metadata, or a nested subagent.
 
 Permission, external-data, and budget interruptions use `09_permission_pause.md`; ToolOrchestrator creates the durable request and returns control to MissionRuntime instead of waiting inside the tool.
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,19 @@ class WorkspaceAssetRecord(Base, UUIDMixin, TimestampMixin):
         Index("ix_workspace_assets_source", "source_kind", "source_id"),
         Index("ix_workspace_assets_content_hash", "content_hash"),
         Index("ix_workspace_assets_parent", "parent_asset_id"),
+        Index(
+            "uq_workspace_assets_mission_review_source",
+            "workspace_id",
+            "source_kind",
+            "source_id",
+            unique=True,
+            postgresql_where=text(
+                "source_kind = 'mission_review_item' AND source_id IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "source_kind = 'mission_review_item' AND source_id IS NOT NULL"
+            ),
+        ),
     )
 
     workspace_id: Mapped[str] = mapped_column(

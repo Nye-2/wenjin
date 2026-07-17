@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.billing.policies import calculate_model_usage_credits
 from src.database.models.pricing_policy import PricingPolicyKind
+from src.dataservice.domains.model_catalog.repository import ModelCatalogRepository
 from src.dataservice.domains.pricing.contracts import (
     GlobalCreditPolicyConfig,
     MissionPricingPolicyConfig,
@@ -17,10 +18,14 @@ from src.dataservice.domains.pricing.contracts import (
     PricingPolicyUpdateCommand,
     PricingSimulationRequest,
     PricingSimulationResult,
-    SandboxPricingPolicyConfig,
+    PublicMissionPricing,
+    PublicModelPricing,
+    PublicPricingCatalog,
+    ResolvedModelUsagePricing,
     ToolPricingPolicyConfig,
 )
 from src.dataservice.domains.pricing.repository import PricingPolicyRepository
+from src.dataservice.domains.pricing.resolver import CanonicalPricingResolver
 
 
 class DataServicePricingPolicyService:
@@ -30,6 +35,8 @@ class DataServicePricingPolicyService:
         self.session = session
         self.autocommit = autocommit
         self.repository = PricingPolicyRepository(session)
+        self.models = ModelCatalogRepository(session)
+        self.resolver = CanonicalPricingResolver(session)
 
     async def list_policies(
         self,
@@ -103,6 +110,60 @@ class DataServicePricingPolicyService:
             admin_id=admin_id,
         )
 
+    async def get_public_catalog(self) -> PublicPricingCatalog:
+        chat_models: list[PublicModelPricing] = []
+        for model in await self.models.list_models(category="llm", enabled_only=True):
+            policy = await self.resolver.resolve_model_usage(model.model_id)
+            config = ModelUsagePolicyConfig.model_validate(policy.config_json or {})
+            chat_models.append(
+                PublicModelPricing(
+                    model_id=model.model_id,
+                    display_name=model.display_name,
+                    is_default=bool(model.is_default),
+                    policy_id=str(policy.id),
+                    policy_key=policy.policy_key,
+                    policy_version=int(policy.version or 1),
+                    minimum_credits=config.min_chat_credits,
+                )
+            )
+
+        missions: list[PublicMissionPricing] = []
+        for policy in await self.repository.list_policies(
+            policy_kind=PricingPolicyKind.MISSION.value,
+            enabled_only=True,
+        ):
+            config = MissionPricingPolicyConfig.model_validate(policy.config_json or {})
+            missions.append(
+                PublicMissionPricing(
+                    policy_id=str(policy.id),
+                    policy_key=policy.policy_key,
+                    policy_version=int(policy.version or 1),
+                    workspace_type=config.workspace_type,
+                    mission_policy_id=config.mission_policy_id,
+                    base_fee_credits=config.base_fee_credits,
+                    estimate_min_credits=config.estimate_min_credits,
+                    estimate_max_credits=config.estimate_max_credits,
+                    max_charge_credits=config.max_charge_credits,
+                )
+            )
+        return PublicPricingCatalog(chat_models=chat_models, missions=missions)
+
+    async def resolve_model_usage_pricing(
+        self,
+        model_id: str,
+    ) -> ResolvedModelUsagePricing:
+        model_policy = await self.resolver.resolve_model_usage(model_id)
+        global_policy = await self.resolver.resolve_global_credit()
+        return ResolvedModelUsagePricing(
+            model_id=model_id,
+            model_policy=self.to_record(model_policy),
+            global_policy=(
+                self.to_record(global_policy)
+                if global_policy is not None
+                else None
+            ),
+        )
+
     def simulate(self, request: PricingSimulationRequest) -> PricingSimulationResult:
         if request.policy_kind == "model_usage":
             return self._simulate_model_usage(request)
@@ -170,7 +231,6 @@ def _validated_config(kind: str | PricingPolicyKind, config: dict[str, Any]) -> 
         PricingPolicyKind.MODEL_USAGE.value: ModelUsagePolicyConfig,
         PricingPolicyKind.MISSION.value: MissionPricingPolicyConfig,
         PricingPolicyKind.TOOL.value: ToolPricingPolicyConfig,
-        PricingPolicyKind.SANDBOX.value: SandboxPricingPolicyConfig,
     }
     validator = validators[kind_value]
     return validator.model_validate(config).model_dump(mode="json", exclude_none=True)

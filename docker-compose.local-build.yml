@@ -16,16 +16,6 @@ x-backend-gateway-build: &backend_gateway_build
     APT_MIRROR: ${APT_MIRROR:-}
     APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
 
-x-langgraph-build: &langgraph_build
-  context: ./backend
-  dockerfile: Dockerfile
-  target: langgraph
-  args:
-    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
-    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    APT_MIRROR: ${APT_MIRROR:-}
-    APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
-
 x-backend-dataservice-build: &backend_dataservice_build
   context: ./backend
   dockerfile: Dockerfile
@@ -51,6 +41,10 @@ services:
     build: *backend_gateway_build
 
   bootstrap-admin:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+
+  model-probe:
     image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
 
@@ -92,14 +86,6 @@ services:
   celery-beat:
     image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
-
-  memory-worker:
-    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
-    build: *backend_gateway_build
-
-  langgraph:
-    image: ${LOCAL_LANGGRAPH_IMAGE:-wenjin-langgraph}
-    build: *langgraph_build
 
   frontend:
     image: ${LOCAL_FRONTEND_IMAGE:-wenjin-frontend}

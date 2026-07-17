@@ -87,20 +87,19 @@ describe("chat stream resume", () => {
     const chunks: string[] = [];
     const threadIds: string[] = [];
 
-    await new Promise<void>((resolve, reject) => {
-      streamThread(
-        {
-          message: "hello",
-          thread_id: "thread-1",
-        },
-        (content) => chunks.push(content),
-        undefined,
-        (threadId) => threadIds.push(threadId),
-        undefined,
-        (error) => reject(new Error(`unexpected stream error: ${error}`)),
-        () => resolve()
-      );
-    });
+    const outcome = await streamThread(
+      {
+        message: "hello",
+        thread_id: "thread-1",
+      },
+      {
+        onContent: (content) => chunks.push(content),
+        onThreadId: (threadId) => threadIds.push(threadId),
+      },
+    ).completion;
+    if (outcome.status !== "completed") {
+      throw new Error(`unexpected stream outcome: ${outcome.status}`);
+    }
 
     expect(chunks).toEqual(["hello ", "world"]);
     expect(threadIds).toEqual(["thread-1"]);
@@ -156,17 +155,11 @@ describe("chat stream resume", () => {
       }) as typeof setTimeout
     );
 
-    await new Promise<void>((resolve, reject) => {
-      streamThread(
-        { message: "hello", thread_id: "thread-1" },
-        () => {},
-        undefined,
-        undefined,
-        undefined,
-        (error) => reject(new Error(`unexpected stream error: ${error}`)),
-        () => resolve()
-      );
-    });
+    const outcome = await streamThread(
+      { message: "hello", thread_id: "thread-1" },
+      { onContent: () => {} },
+    ).completion;
+    expect(outcome.status).toBe("completed");
 
     expect(mockAuthorizedFetch.mock.calls[1]?.[0]).toBe(
       "/api/threads/thread-1/runs/run-meta/stream"
@@ -179,33 +172,34 @@ describe("chat stream resume", () => {
   });
 
   it("best-effort cancels active run on manual abort", async () => {
-    const liveResponse = buildSseResponse(
-      [
-        "event: metadata",
-        'data: {"run_id":"run-live","thread_id":"thread-1"}',
-        "",
-        'data: {"type":"content","content":"hello"}',
-        "",
-      ].join("\n")
+    const encoder = new TextEncoder();
+    const liveResponse = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            "event: metadata",
+            'data: {"run_id":"run-live","thread_id":"thread-1"}',
+            "",
+            'data: {"type":"content","content":"hello"}',
+            "",
+          ].join("\n")));
+        },
+      }),
+      { status: 200 },
     );
     mockAuthorizedFetch
       .mockResolvedValueOnce(liveResponse)
       .mockResolvedValueOnce(new Response("", { status: 202 }));
 
-    const stop = streamThread(
+    const handle = streamThread(
       { message: "hello", thread_id: "thread-1" },
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined
+      { onContent: () => {} },
     );
 
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    stop();
-    await Promise.resolve();
+    await handle.stop();
+    await expect(handle.completion).resolves.toEqual({ status: "cancelled" });
 
     expect(mockAuthorizedFetch.mock.calls[1]?.[0]).toBe(
       "/api/threads/thread-1/runs/run-live/cancel?action=interrupt"
@@ -238,20 +232,12 @@ describe("chat stream resume", () => {
     const errors: string[] = [];
     let doneCount = 0;
 
-    await new Promise<void>((resolve) => {
-      streamThread(
-        { message: "hello", thread_id: "thread-1" },
-        (content) => chunks.push(content),
-        undefined,
-        undefined,
-        undefined,
-        (error) => errors.push(error),
-        () => {
-          doneCount += 1;
-          resolve();
-        }
-      );
-    });
+    const outcome = await streamThread(
+      { message: "hello", thread_id: "thread-1" },
+      { onContent: (content) => chunks.push(content) },
+    ).completion;
+    if (outcome.status === "failed") errors.push(outcome.error);
+    if (outcome.status === "completed") doneCount += 1;
 
     expect(chunks).toEqual(["done"]);
     expect(errors).toEqual([]);

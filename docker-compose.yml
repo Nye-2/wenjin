@@ -4,14 +4,6 @@
 # Default deployment uses prebuilt images. Local rebuilds are explicit:
 #   docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 
-# TeXLive image build config (manual build only: docker build -t wenjin/texlive:2024 backend/docker/images/texlive)
-# x-texlive-build: &texlive_build
-#   context: ./backend/docker/images/texlive
-#   dockerfile: Dockerfile
-#   args:
-#     BASE_IMAGE: ${TEXLIVE_BASE_IMAGE:-ubuntu:22.04}
-#     APT_MIRROR: ${TEXLIVE_APT_MIRROR:-}
-
 services:
   # PostgreSQL 16 with pgvector extension
   postgres:
@@ -47,22 +39,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    networks:
-      - wenjin-network
-
-  # One-shot TeXLive image bootstrap for LaTeX compilation runtime.
-  # Build manually: docker build -t wenjin/texlive:2024 backend/docker/images/texlive
-  # Or pull from Docker Hub: docker pull <username>/wenjin-texlive:2024
-  texlive:
-    image: ${TEXLIVE_IMAGE_NAME:-junze0514/wenjin-texlive:2024}
-    container_name: wenjin-texlive
-    restart: "no"
-    command:
-      [
-        "sh",
-        "-lc",
-        "xelatex --version >/dev/null && pdflatex --version >/dev/null && biber --version >/dev/null && kpsewhich listings.sty >/dev/null && kpsewhich ctexart.cls >/dev/null",
-      ]
     networks:
       - wenjin-network
 
@@ -104,6 +80,35 @@ services:
     command: ["python", "-m", "src.database.bootstrap_admin"]
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - wenjin-network
+
+  # One-shot, receipt-backed protocol gate for the default Mission model.
+  # A fresh/reseeded catalog contains no trusted provider evidence, so the
+  # long-running worker must not start until this probe is persisted.
+  model-probe:
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
+    container_name: wenjin-model-probe
+    env_file:
+      - ./.env
+    environment:
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+    command:
+      [
+        "python",
+        "-m",
+        "src.models.capability_probe",
+        "--all-enabled-language-models",
+        "--persist",
+        "--require-native-search",
+      ]
+    depends_on:
+      bootstrap-admin:
         condition: service_completed_successfully
       dataservice:
         condition: service_healthy
@@ -164,7 +169,6 @@ services:
       - WORKSPACE_ASSET_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/workspace_uploads
     volumes:
       - uploads:/app/uploads
-      - ./backend/extensions_config.json:/app/extensions_config.json
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
     depends_on:
       bootstrap-admin:
@@ -177,8 +181,6 @@ services:
         condition: service_healthy
       celery-beat:
         condition: service_healthy
-      texlive:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/models?purpose=chat"]
       interval: 30s
@@ -228,15 +230,12 @@ services:
       ]
     volumes:
       - uploads:/app/uploads
-      - ./backend/extensions_config.json:/app/extensions_config.json:ro
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
     depends_on:
       bootstrap-admin:
         condition: service_completed_successfully
       dataservice:
         condition: service_healthy
-      texlive:
-        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -278,7 +277,6 @@ services:
       - SANDBOX_ROOT_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/sandbox
     volumes:
       - uploads:/app/uploads
-      - ./backend/extensions_config.json:/app/extensions_config.json:ro
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - ${SANDBOX_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
     group_add:
@@ -300,6 +298,13 @@ services:
         "1",
         "--require-mission-model-profile",
       ]
+    depends_on:
+      bootstrap-admin:
+        condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
+      model-probe:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -351,92 +356,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    networks:
-      - wenjin-network
-
-  memory-worker:
-    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
-    container_name: wenjin-memory-worker
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
-      - REDIS_ENABLED=true
-      - REDIS_URL=redis://redis:6379/0
-      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
-      - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
-      - CELERY_ENABLED=true
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
-      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
-      - PROMETHEUS_WORKER_PORT=${PROMETHEUS_MEMORY_WORKER_PORT:-9153}
-      - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-memory-worker
-      - DATASERVICE_URL=http://dataservice:8080
-      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
-    command: ["python", "-m", "src.task.worker", "1", "--queues", "memory"]
-    depends_on:
-      bootstrap-admin:
-        condition: service_completed_successfully
-      dataservice:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl -fsS http://127.0.0.1:${PROMETHEUS_MEMORY_WORKER_PORT:-9153}/metrics >/dev/null",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - wenjin-network
-
-  # LangGraph Agent Server
-  langgraph:
-    profiles: ["langgraph"]
-    image: ${LANGGRAPH_IMAGE:-junze0514/wenjin-langgraph:latest}
-    container_name: wenjin-langgraph
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
-      - REDIS_ENABLED=true
-      - REDIS_URL=redis://redis:6379/0
-      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
-      - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
-      - CELERY_ENABLED=true
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - LANGGRAPH_HOST=0.0.0.0
-      - LANGGRAPH_PORT=2024
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
-      - DATASERVICE_URL=http://dataservice:8080
-      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
-      - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
-      - THREAD_DATA_ROOT=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/threads
-    volumes:
-      - uploads:/app/uploads
-      - ./backend/extensions_config.json:/app/extensions_config.json:ro
-      - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      dataservice:
-        condition: service_healthy
-      texlive:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:2024/info"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     networks:
       - wenjin-network
 

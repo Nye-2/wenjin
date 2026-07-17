@@ -293,7 +293,8 @@ def model_native_search_registration(
         required_permissions=("external_research",),
         network_profile="model_provider_native_search",
         budget_class="research_search",
-        default_timeout_seconds=90,
+        timeout_seconds=90,
+        max_attempts=1,
         provenance_requirements=(
             "provider_web_search_call",
             "provider_url_citations",

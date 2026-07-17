@@ -2,9 +2,7 @@
 # Copy this file to the repository-root .env before running docker compose.
 
 BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
-LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
 FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
-TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
 
 # Runtime images can use registry mirrors if Docker Hub is unstable.
 POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16

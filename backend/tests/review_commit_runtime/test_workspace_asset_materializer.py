@@ -79,12 +79,14 @@ async def test_workspace_asset_materialization_is_verified_and_idempotent(tmp_pa
         item,
         workspace_id="workspace-1",
         mission_commit_id="commit-1",
+        mission_commit_attempt_token="attempt-token-commit-1",
         actor_user_id="user-1",
     )
     second = await writer.apply(
         item,
         workspace_id="workspace-1",
         mission_commit_id="commit-1",
+        mission_commit_attempt_token="attempt-token-commit-1",
         actor_user_id="user-1",
     )
 
@@ -136,6 +138,7 @@ async def test_workspace_asset_materialization_keeps_multiple_items_in_one_commi
         ),
         workspace_id="workspace-1",
         mission_commit_id="commit-1",
+        mission_commit_attempt_token="attempt-token-commit-1",
         actor_user_id="user-1",
     )
     second = await writer.apply(
@@ -146,6 +149,7 @@ async def test_workspace_asset_materialization_keeps_multiple_items_in_one_commi
         ),
         workspace_id="workspace-1",
         mission_commit_id="commit-1",
+        mission_commit_attempt_token="attempt-token-commit-1",
         actor_user_id="user-1",
     )
 
@@ -176,6 +180,7 @@ async def test_workspace_asset_materialization_rejects_descriptor_mismatch(tmp_p
             _item(preview_ref=descriptor.ref, content_hash="0" * 64),
             workspace_id="workspace-1",
             mission_commit_id="commit-1",
+            mission_commit_attempt_token="attempt-token-commit-1",
             actor_user_id="user-1",
         )
     dataservice.register_asset.assert_not_awaited()

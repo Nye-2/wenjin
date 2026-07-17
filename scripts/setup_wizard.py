@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wenjin interactive setup wizard.
+"""Wenjin environment setup wizard.
 
 Usage:
     python scripts/setup_wizard.py
@@ -7,11 +7,9 @@ Usage:
 
 from __future__ import annotations
 
-import getpass
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
 
 
 def _is_interactive() -> bool:
@@ -30,10 +28,6 @@ def _c(text: str, code: str) -> str:
 
 def green(text: str) -> str:
     return _c(text, "32")
-
-
-def yellow(text: str) -> str:
-    return _c(text, "33")
 
 
 def cyan(text: str) -> str:
@@ -57,31 +51,12 @@ def ask_yes_no(prompt: str, *, default: bool) -> bool:
         print("Please answer y or n.")
 
 
-def ask_text(prompt: str, *, default: str = "", secret: bool = False) -> str:
+def ask_text(prompt: str, *, default: str = "") -> str:
     suffix = f" [{default}] " if default else " "
-    reader = getpass.getpass if secret else input
-    value = reader(prompt + suffix).strip()
+    value = input(prompt + suffix).strip()
     if not value:
         return default
     return value
-
-
-def _load_yaml(path: Path) -> dict[str, Any]:
-    import yaml
-
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(data, dict):
-        raise ValueError(f"Invalid yaml document at {path}: expected mapping")
-    return data
-
-
-def _save_yaml(path: Path, data: dict[str, Any]) -> None:
-    import yaml
-
-    path.write_text(
-        yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
 
 
 def _ensure_env_file(target: Path, example: Path) -> bool:
@@ -142,76 +117,6 @@ def _write_dotenv_updates(path: Path, updates: dict[str, str]) -> None:
     path.write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
 
 
-def _collect_model_env_vars(config_data: dict[str, Any]) -> list[str]:
-    keys: list[str] = []
-    for model in config_data.get("models", []):
-        if not isinstance(model, dict):
-            continue
-        api_key = model.get("api_key")
-        if isinstance(api_key, str) and api_key.startswith("$"):
-            env_name = api_key[1:].strip()
-            if env_name and env_name not in keys:
-                keys.append(env_name)
-    return keys
-
-
-def _choose_default_model(config_data: dict[str, Any]) -> str | None:
-    models = config_data.get("models", [])
-    if not isinstance(models, list) or not models:
-        return None
-
-    names = [
-        str(item.get("name")).strip()
-        for item in models
-        if isinstance(item, dict) and str(item.get("name", "")).strip()
-    ]
-    if not names:
-        return None
-
-    current = str(config_data.get("default_model", "")).strip()
-    print()
-    print(bold("Available default models:"))
-    for idx, name in enumerate(names, start=1):
-        marker = " (current)" if name == current else ""
-        print(f"  {idx}. {name}{marker}")
-    print(f"  {len(names) + 1}. keep current ({current or 'unset'})")
-
-    while True:
-        choice = input("Choose default model number [keep current]: ").strip()
-        if not choice:
-            return current or None
-        if not choice.isdigit():
-            print("Please enter a number.")
-            continue
-        selected = int(choice)
-        if selected == len(names) + 1:
-            return current or None
-        if 1 <= selected <= len(names):
-            return names[selected - 1]
-        print("Choice out of range.")
-
-
-def _choose_sandbox_use(config_data: dict[str, Any]) -> str | None:
-    current = ""
-    sandbox = config_data.get("sandbox")
-    if isinstance(sandbox, dict):
-        current = str(sandbox.get("use", "")).strip()
-    print()
-    print(bold("Execution sandbox mode:"))
-    print("  1. Local sandbox (default)")
-    print("  2. Docker sandbox")
-    print(f"  3. keep current ({current or 'unset'})")
-    while True:
-        choice = input("Choose mode [keep current]: ").strip()
-        if not choice or choice == "3":
-            return current or None
-        if choice == "1":
-            return "src.sandbox.providers.local:LocalSandboxProvider"
-        if choice == "2":
-            return "src.sandbox.providers.docker:DockerSandboxProvider"
-        print("Please choose 1, 2, or 3.")
-
-
 def main() -> int:
     if not _is_interactive():
         print(
@@ -226,11 +131,9 @@ def main() -> int:
 
     root_env = project_root / ".env"
     root_env_example = project_root / ".env.example"
-    config_path = backend_dir / "config.yaml"
-
     print()
     print(bold("Welcome to Wenjin Setup Wizard"))
-    print("This wizard prepares the root .env file and core backend config.")
+    print("This wizard prepares the root .env file used by every service.")
     print()
 
     if not backend_dir.exists() or not frontend_dir.exists():
@@ -241,30 +144,8 @@ def main() -> int:
     if created_root_env:
         print(green(f"Created {root_env.relative_to(project_root)}"))
 
-    if not config_path.exists():
-        print(yellow("backend/config.yaml not found. Wizard will only update .env files."))
-        config_data: dict[str, Any] = {}
-    else:
-        try:
-            config_data = _load_yaml(config_path)
-        except Exception as exc:
-            print(f"Failed to parse backend/config.yaml: {exc}")
-            return 1
-
     current_env = _parse_dotenv(root_env)
     updates: dict[str, str] = {}
-
-    model_key_envs = _collect_model_env_vars(config_data)
-    if model_key_envs:
-        print()
-        print(bold("Model API keys"))
-        print("Press Enter to keep existing values.")
-        for env_name in model_key_envs:
-            current_masked = "set" if current_env.get(env_name) else "not set"
-            if ask_yes_no(f"Set {env_name}? (current: {current_masked})", default=False):
-                value = ask_text(f"{env_name}", secret=True)
-                if value:
-                    updates[env_name] = value
 
     if ask_yes_no("Configure common service URLs in root .env?", default=False):
         for key in ("DATABASE_URL", "REDIS_URL"):
@@ -276,24 +157,6 @@ def main() -> int:
     if updates:
         _write_dotenv_updates(root_env, updates)
         print(green(f"Updated {root_env.relative_to(project_root)}"))
-
-    should_update_config = bool(config_data) and ask_yes_no(
-        "Apply optional backend/config.yaml updates (default model / sandbox)?",
-        default=False,
-    )
-    if should_update_config:
-        selected_model = _choose_default_model(config_data)
-        selected_sandbox_use = _choose_sandbox_use(config_data)
-        if selected_model:
-            config_data["default_model"] = selected_model
-        if selected_sandbox_use:
-            sandbox = config_data.get("sandbox")
-            if not isinstance(sandbox, dict):
-                sandbox = {}
-            sandbox["use"] = selected_sandbox_use
-            config_data["sandbox"] = sandbox
-        _save_yaml(config_path, config_data)
-        print(green(f"Updated {config_path.relative_to(project_root)}"))
 
     print()
     print(bold("Setup complete"))
@@ -312,4 +175,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         print("\nSetup cancelled.")
-        raise SystemExit(130)
+        raise SystemExit(130) from None

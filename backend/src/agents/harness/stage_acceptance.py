@@ -52,7 +52,11 @@ def evaluate_stage_acceptance(
 
     satisfied_criteria: list[str] = []
     missing_criteria: list[str] = []
-    for criterion in contract.minimum_criteria:
+    excellent_ids = {
+        criterion.criterion_id for criterion in contract.excellent_criteria
+    }
+    missing_independent_evidence = False
+    for criterion in contract.acceptance_criteria():
         result = criterion_results.get(criterion.criterion_id)
         if result is None or result.status != "pass":
             missing_criteria.append(criterion.criterion_id)
@@ -61,12 +65,24 @@ def evaluate_stage_acceptance(
         if criterion.requires_supporting_ref and not support_refs.intersection(known_refs):
             missing_criteria.append(criterion.criterion_id)
             continue
+        excellent = criterion.criterion_id in excellent_ids
+        criterion_evidence = [
+            evidence
+            for ref in support_refs
+            for evidence in evidence_by_id.get(ref, ())
+            if evidence.status == "verified"
+        ]
+        if excellent and not any(
+            _is_independent_receipt(evidence) for evidence in criterion_evidence
+        ):
+            missing_criteria.append(criterion.criterion_id)
+            missing_independent_evidence = True
+            continue
         if criterion.required_evidence_surfaces:
             supported_surfaces = {
                 evidence.surface
-                for ref in support_refs
-                for evidence in evidence_by_id.get(ref, ())
-                if evidence.status == "verified"
+                for evidence in criterion_evidence
+                if not excellent or _is_independent_receipt(evidence)
             }
             if not set(criterion.required_evidence_surfaces) <= supported_surfaces:
                 missing_criteria.append(criterion.criterion_id)
@@ -127,7 +143,8 @@ def evaluate_stage_acceptance(
         result = "revise"
         next_action = _repair_action(
             contract,
-            missing_evidence=bool(missing_evidence_surfaces),
+            missing_evidence=bool(missing_evidence_surfaces)
+            or missing_independent_evidence,
         )
 
     revision_count = previous.revision_count + (1 if result == "revise" else 0)
@@ -160,6 +177,18 @@ def evaluate_stage_acceptance(
         next_action=next_action,
         failure_fingerprint=failure_fingerprint,
         progress_state=progress_state,
+    )
+
+
+def _is_independent_receipt(evidence: EvidenceRecord) -> bool:
+    """Exclude the assessed candidate itself from excellent-quality authority."""
+
+    receipt_operation_id = evidence.metadata.get("receipt_operation_id")
+    return (
+        evidence.status == "verified"
+        and isinstance(receipt_operation_id, str)
+        and bool(receipt_operation_id.strip())
+        and evidence.metadata.get("authority") != "content_addressed_candidate"
     )
 
 

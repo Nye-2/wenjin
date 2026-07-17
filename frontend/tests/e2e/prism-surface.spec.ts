@@ -19,12 +19,10 @@ test("workspace Prism surface stays usable on mobile without extra room reloads"
   await installWorkspaceRouteMocks(page, context, {
     prismReview: {
       path: "main.tex",
-      pendingContent:
-        "\\documentclass{article}\\begin{document}Mobile Prism manuscript\\end{document}",
     },
   });
 
-  await page.goto("/workspaces/ws-1/prism?focus=file_changes");
+  await page.goto("/workspaces/ws-1/prism");
 
   await expect(page.getByRole("tab", { name: "Workbench" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Prism" })).toHaveAttribute(

@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Circle,
   SendHorizontal,
+  Square,
 } from "lucide-react";
 import {
   getWorkspaceSettings,
@@ -23,6 +24,7 @@ import {
   type Model,
   updateWorkspaceSettings,
 } from "@/lib/api";
+import type { PrismContextRef } from "@/lib/api/mission-types";
 import type { ThreadAttachment } from "@/lib/api/types";
 import {
   chooseReasoningEffort,
@@ -56,6 +58,8 @@ interface ChatPanelProps {
   typeConfig?: WorkspaceTypeConfig;
   className?: string;
   onMissionCreated?: (missionId: string) => void;
+  prismContextRef?: PrismContextRef | null;
+  onPrismContextConsumed?: () => void;
   "data-testid"?: string;
 }
 
@@ -77,34 +81,25 @@ function compactModelLabel(label: string): string {
 }
 
 function buildBlockIntentForwardingOptions(
-  metadata: Record<string, unknown> | undefined,
   blockAction: ContinueThreadBlockAction | undefined,
 ):
   | {
       metadata: {
-        orchestration?: Record<string, unknown>;
         block_action?: ContinueThreadBlockAction;
       };
     }
   | undefined {
   const payload: {
-    orchestration?: Record<string, unknown>;
     block_action?: {
       action: "continue_thread";
       intent: string;
       source_block_kind: "question_card" | "result_card";
     };
   } = {};
-  if (metadata && typeof metadata === "object") {
-    const orchestration = metadata.orchestration;
-    if (orchestration && typeof orchestration === "object") {
-      payload.orchestration = { ...(orchestration as Record<string, unknown>) };
-    }
-  }
   if (blockAction) {
     payload.block_action = blockAction;
   }
-  if (!payload.orchestration && !payload.block_action) {
+  if (!payload.block_action) {
     return undefined;
   }
   return {
@@ -112,7 +107,7 @@ function buildBlockIntentForwardingOptions(
   };
 }
 
-function withMissionRunContext(
+function withMissionContinuationContext(
   options: SendMessageOptions | undefined,
   missionId: string | null | undefined,
 ): SendMessageOptions | undefined {
@@ -127,24 +122,27 @@ function withMissionRunContext(
     nextOptions.metadata && typeof nextOptions.metadata === "object"
       ? { ...(nextOptions.metadata as Record<string, unknown>) }
       : {};
-  const currentOrchestration =
-    metadata.orchestration && typeof metadata.orchestration === "object"
-      ? { ...(metadata.orchestration as Record<string, unknown>) }
-      : {};
-
   if (
-    typeof currentOrchestration.mission_id === "string" &&
-    currentOrchestration.mission_id.trim()
+    typeof metadata.focused_mission_id === "string" &&
+    metadata.focused_mission_id.trim()
   ) {
     return nextOptions;
   }
-
-  metadata.orchestration = {
-    ...currentOrchestration,
-    mission_id: normalizedMissionId,
-    source: currentOrchestration.source ?? "mission_console",
-  };
+  metadata.focused_mission_id = normalizedMissionId;
   nextOptions.metadata = metadata;
+  return nextOptions;
+}
+
+function withPrismContext(
+  options: SendMessageOptions | undefined,
+  prismContextRef: PrismContextRef | null,
+): SendMessageOptions | undefined {
+  if (!prismContextRef) return options;
+  const nextOptions: SendMessageOptions = { ...(options ?? {}) };
+  nextOptions.metadata = {
+    ...(nextOptions.metadata ?? {}),
+    prism_context_ref: prismContextRef,
+  };
   return nextOptions;
 }
 
@@ -156,6 +154,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
       typeConfig,
       className,
       onMissionCreated,
+      prismContextRef = null,
+      onPrismContextConsumed,
       "data-testid": testId,
     },
     ref,
@@ -163,8 +163,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
   const messages = useChatStoreV2((s) => s.getWorkspaceMessages(workspaceId));
   const isSending = useChatStoreV2((s) => s.isSending);
   const sendMessage = useChatStoreV2((s) => s.sendMessage);
+  const stopSending = useChatStoreV2((s) => s.stopSending);
   const setActiveWorkspace = useChatStoreV2((s) => s.setActiveWorkspace);
   const focusedMissionId = useMissionUiStore((state) => state.focusedMissionId);
+  const continuationMissionId = useMissionUiStore((state) => state.continuationMissionId);
+  const consumeContinuationMission = useMissionUiStore((state) => state.consumeContinuationMission);
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<ThreadAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -202,6 +205,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
     messages.length === 0 &&
     welcome !== null &&
     focusedMissionId === null;
+
+  useEffect(() => {
+    if (!prismContextRef) return;
+    setInputValue((current) => current || "请基于我在写作台选中的内容生成一张适合论文使用的学术图。");
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [prismContextRef]);
   const inputPlaceholder = useMemo(() => {
     if (attachmentUploading) {
       return "附件上传中...";
@@ -282,11 +291,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
       if (!intent.trim() || isSending) {
         return;
       }
-      void sendMessage(workspaceId, intent.trim(), [], withMissionRunContext(withSelectedModel(options), focusedMissionId)).then((result) => {
-        if (result?.missionId) onMissionCreated?.(result.missionId);
+      const targetMissionId = continuationMissionId;
+      void sendMessage(workspaceId, intent.trim(), [], withMissionContinuationContext(withSelectedModel(options), targetMissionId)).then((result) => {
+        if (result.status === "cancelled" || result.status === "failed") return;
+        if (targetMissionId) {
+          consumeContinuationMission(targetMissionId);
+        }
+        if (result.status === "launched") onMissionCreated?.(result.missionId);
       });
     },
-    [focusedMissionId, isSending, onMissionCreated, sendMessage, withSelectedModel, workspaceId],
+    [consumeContinuationMission, continuationMissionId, isSending, onMissionCreated, sendMessage, withSelectedModel, workspaceId],
   );
   const handleWelcomeChoice = useCallback(
     (chip: WorkspaceWelcomeChip) => {
@@ -446,18 +460,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
     if (!trimmed || isSending || attachmentUploading) return;
     setInputValue("");
     const currentAttachments = [...attachments];
+    const currentPrismContext = prismContextRef;
+    const targetMissionId = continuationMissionId;
     setAttachments([]);
 
     void sendMessage(
       workspaceId,
       trimmed,
       currentAttachments,
-      withMissionRunContext(
-        withSelectedModel(),
-        focusedMissionId,
+      withPrismContext(
+        withMissionContinuationContext(
+          withSelectedModel(),
+          targetMissionId,
+        ),
+        currentPrismContext,
       ),
     ).then((result) => {
-      if (result?.missionId) onMissionCreated?.(result.missionId);
+      if (result.status === "cancelled") return;
+      if (result?.status === "failed") {
+        setInputValue(trimmed);
+        setAttachments(currentAttachments);
+        return;
+      }
+      if (result.status === "launched") onMissionCreated?.(result.missionId);
+      if (targetMissionId) {
+        consumeContinuationMission(targetMissionId);
+      }
+      if (currentPrismContext) {
+        onPrismContextConsumed?.();
+      }
     });
   }
 
@@ -581,6 +612,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
             ))}
           </div>
         )}
+        {prismContextRef ? (
+          <div className="mb-1.5 flex items-center gap-2 text-[11px] text-[var(--wjn-accent-strong)]">
+            <span className="rounded-[var(--wjn-radius)] bg-[var(--wjn-accent-soft)] px-2 py-1">
+              来自写作台选区
+            </span>
+            <button
+              type="button"
+              onClick={() => onPrismContextConsumed?.()}
+              className="text-[var(--wjn-text-muted)] hover:text-[var(--wjn-text)]"
+            >
+              移除
+            </button>
+          </div>
+        ) : null}
         {attachmentError ? (
           <div
             role="status"
@@ -907,8 +952,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
             ) : null}
           </div>
           <button
-            onClick={handleSubmit}
-            disabled={sendDisabled}
+            type="button"
+            onClick={() => {
+              if (isSending) {
+                void stopSending();
+                return;
+              }
+              handleSubmit();
+            }}
+            disabled={!isSending && sendDisabled}
             data-testid="chat-send"
             style={{
               width: 38,
@@ -919,18 +971,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
               borderRadius: "var(--wjn-radius)",
               border: "none",
               background:
-                sendDisabled
+                !isSending && sendDisabled
                   ? "var(--wjn-line-strong)"
                   : "var(--wjn-accent)",
               color: "#FFFFFF",
               fontSize: 13,
               cursor:
-                sendDisabled ? "not-allowed" : "pointer",
-              opacity: isSending || attachmentUploading ? 0.6 : 1,
+                !isSending && sendDisabled ? "not-allowed" : "pointer",
+              opacity: attachmentUploading && !isSending ? 0.6 : 1,
             }}
-            aria-label="发送"
+            aria-label={isSending ? "停止生成" : "发送"}
+            title={isSending ? "停止生成" : "发送"}
           >
-            {isSending || attachmentUploading ? "..." : <SendHorizontal size={16} aria-hidden="true" />}
+            {isSending ? (
+              <Square size={14} fill="currentColor" aria-hidden="true" />
+            ) : attachmentUploading ? (
+              "..."
+            ) : (
+              <SendHorizontal size={16} aria-hidden="true" />
+            )}
           </button>
         </div>
       </div>
@@ -1158,7 +1217,6 @@ const MessageRow = memo(function MessageRow({
                       onIntent(
                         intent,
                         buildBlockIntentForwardingOptions(
-                          message.metadata,
                           buildContinueThreadBlockAction(intent, sourceBlockKind),
                         ),
                       )

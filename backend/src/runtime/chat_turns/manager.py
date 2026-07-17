@@ -7,7 +7,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -87,6 +87,10 @@ class ChatTurnRunManager:
     @staticmethod
     def _thread_lock_key(thread_id: str) -> str:
         return f"runtime:chat_turns:lock:thread:{thread_id}"
+
+    @staticmethod
+    def _run_lock_key(run_id: str) -> str:
+        return f"runtime:chat_turns:lock:run:{run_id}"
 
     @staticmethod
     def _score_from_iso(timestamp: str) -> float:
@@ -351,6 +355,54 @@ class ChatTurnRunManager:
                 exc_info=True,
             )
 
+    async def _acquire_run_state_lock(self, run_id: str) -> str | None:
+        if not self._supports_thread_lock():
+            return None
+        key = self._run_lock_key(run_id)
+        token = uuid.uuid4().hex
+        deadline = time.monotonic() + self._thread_lock_wait_seconds
+        while time.monotonic() < deadline:
+            try:
+                acquired = await self._redis.set(  # type: ignore[union-attr]
+                    key,
+                    token,
+                    nx=True,
+                    ex=self._thread_lock_ttl_seconds,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to acquire run state lock for run %s",
+                    run_id,
+                    exc_info=True,
+                )
+                return None
+            if acquired:
+                return token
+            await asyncio.sleep(self._thread_lock_retry_seconds)
+        return None
+
+    async def _release_run_state_lock(self, run_id: str, token: str | None) -> None:
+        if token is None or not self._supports_thread_lock():
+            return
+        try:
+            await self._redis.eval(  # type: ignore[union-attr]
+                """
+                if redis.call('get', KEYS[1]) == ARGV[1] then
+                    return redis.call('del', KEYS[1])
+                end
+                return 0
+                """,
+                1,
+                self._run_lock_key(run_id),
+                token,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to release run state lock for run %s",
+                run_id,
+                exc_info=True,
+            )
+
     async def hydrate_recent(self, *, limit: int = 300) -> None:
         """Load recent run metadata from Redis into local memory."""
         if self._redis is None:
@@ -464,26 +516,65 @@ class ChatTurnRunManager:
 
         await self._persist_record(snapshot)
 
+    async def transition_status(
+        self,
+        run_id: str,
+        status: ChatTurnRunStatus,
+        *,
+        expected: Collection[ChatTurnRunStatus],
+        error: str | None = None,
+    ) -> bool:
+        """Conditionally move one run while serializing cross-process writers."""
+        expected_statuses = frozenset(expected)
+        if not expected_statuses:
+            return False
+        lock_token = await self._acquire_run_state_lock(run_id)
+        if self._redis is not None and lock_token is None:
+            return False
+        try:
+            record = await self.get_or_load(run_id, refresh=self._redis is not None)
+            if record is None:
+                return False
+            async with self._lock:
+                current = self._chat_turns.get(run_id)
+                if current is None or current.status not in expected_statuses:
+                    return False
+                current.status = status
+                current.updated_at = _now_iso()
+                if error is not None:
+                    current.error = error
+                snapshot = current
+            await self._persist_record(snapshot)
+            return True
+        finally:
+            await self._release_run_state_lock(run_id, lock_token)
+
     async def bind_thread(self, run_id: str, thread_id: str) -> None:
         """Bind a run to its resolved thread once preparation finishes."""
         normalized = str(thread_id).strip()
         if not normalized:
             return
-
-        record = await self.get_or_load(run_id)
-        if record is None:
+        lock_token = await self._acquire_run_state_lock(run_id)
+        if self._redis is not None and lock_token is None:
             return
-
-        async with self._lock:
-            record = self._chat_turns.get(run_id)
+        try:
+            record = await self.get_or_load(run_id, refresh=self._redis is not None)
             if record is None:
                 return
-            previous_thread_id = record.thread_id
-            record.thread_id = normalized
-            record.updated_at = _now_iso()
-            snapshot = record
-
-        await self._persist_record(snapshot, previous_thread_id=previous_thread_id)
+            async with self._lock:
+                current = self._chat_turns.get(run_id)
+                if current is None:
+                    return
+                previous_thread_id = current.thread_id
+                current.thread_id = normalized
+                current.updated_at = _now_iso()
+                snapshot = current
+            await self._persist_record(
+                snapshot,
+                previous_thread_id=previous_thread_id,
+            )
+        finally:
+            await self._release_run_state_lock(run_id, lock_token)
 
     async def create_or_reject(
         self,
@@ -505,14 +596,28 @@ class ChatTurnRunManager:
             # before applying multitask_strategy decisions.
             await self._load_thread_chat_turns_from_redis(normalized_thread_id)
 
+            if multitask_strategy not in supported:
+                raise UnsupportedChatTurnStrategyError(
+                    f"Multitask strategy '{multitask_strategy}' is not supported. "
+                    f"Supported strategies: {', '.join(supported)}"
+                )
+            if self._redis is not None and multitask_strategy in (
+                "interrupt",
+                "rollback",
+            ):
+                async with self._lock:
+                    inflight_ids = [
+                        item.run_id
+                        for item in self._chat_turns.values()
+                        if item.thread_id == normalized_thread_id
+                        and item.status
+                        in (ChatTurnRunStatus.pending, ChatTurnRunStatus.running)
+                    ]
+                for inflight_id in inflight_ids:
+                    await self.cancel(inflight_id, action=multitask_strategy)
+
             persisted_updates: list[ChatTurnRunRecord] = []
             async with self._lock:
-                if multitask_strategy not in supported:
-                    raise UnsupportedChatTurnStrategyError(
-                        f"Multitask strategy '{multitask_strategy}' is not supported. "
-                        f"Supported strategies: {', '.join(supported)}"
-                    )
-
                 inflight = [
                     record
                     for record in self._chat_turns.values()
@@ -563,25 +668,52 @@ class ChatTurnRunManager:
             await self._release_thread_scheduling_lock(normalized_thread_id, lock_token)
 
     async def cancel(self, run_id: str, *, action: str = "interrupt") -> bool:
-        record = await self.get_or_load(run_id, refresh=True)
-        if record is None:
+        lock_token = await self._acquire_run_state_lock(run_id)
+        if self._redis is not None and lock_token is None:
             return False
-
-        async with self._lock:
-            record = self._chat_turns.get(run_id)
+        try:
+            record = await self.get_or_load(run_id, refresh=self._redis is not None)
             if record is None:
                 return False
-            if record.status not in (ChatTurnRunStatus.pending, ChatTurnRunStatus.running):
-                return False
-            record.abort_action = action
-            record.abort_event.set()
-            if record.task is not None and not record.task.done():
-                record.task.cancel()
-            record.status = ChatTurnRunStatus.interrupted
-            record.updated_at = _now_iso()
-            snapshot = record
-        await self._persist_record(snapshot)
-        return True
+            async with self._lock:
+                current = self._chat_turns.get(run_id)
+                if current is None or current.status not in (
+                    ChatTurnRunStatus.pending,
+                    ChatTurnRunStatus.running,
+                ):
+                    return False
+                current.abort_action = action
+                current.abort_event.set()
+                if current.task is not None and not current.task.done():
+                    current.task.cancel()
+                current.status = ChatTurnRunStatus.interrupted
+                current.updated_at = _now_iso()
+                snapshot = current
+            await self._persist_record(snapshot)
+            return True
+        finally:
+            await self._release_run_state_lock(run_id, lock_token)
+
+    async def wait_for_abort(
+        self,
+        run_id: str,
+        *,
+        poll_interval: float = 0.1,
+    ) -> str:
+        """Wait for a local or cross-process abort request and return its action."""
+        interval = max(0.02, float(poll_interval))
+        while True:
+            record = await self.get_or_load(run_id, refresh=self._redis is not None)
+            if record is None:
+                await asyncio.sleep(interval)
+                continue
+            if record.abort_event.is_set() or record.status == ChatTurnRunStatus.interrupted:
+                record.abort_event.set()
+                return str(record.abort_action or "interrupt")
+            try:
+                await asyncio.wait_for(record.abort_event.wait(), timeout=interval)
+            except TimeoutError:
+                continue
 
     async def is_abort_requested(self, run_id: str) -> bool:
         """Return whether the run has an active abort request."""

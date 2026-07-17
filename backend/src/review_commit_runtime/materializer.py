@@ -8,16 +8,16 @@ import re
 from pathlib import Path
 from typing import Any
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.mission import MissionReviewItemPayload
 from src.dataservice_client.contracts.prism import (
     PrismFileContentUpdatePayload,
+    PrismVisualInsertionPayload,
     PrismWorkspaceFileUpsertPayload,
 )
-from src.dataservice_client.contracts.rooms import DecisionSetPayload, WorkspaceTaskCreatePayload
 from src.dataservice_client.contracts.source import SourceImportPayload
-from src.dataservice_client.contracts.workspace_memory import WorkspaceMemoryMergePayload
 from src.services.path_safety import normalize_path_component
 
 from .contracts import MaterializationReceipt, PreviewObjectStore, TargetSnapshot
@@ -54,7 +54,13 @@ class MissionDomainWriter:
     ) -> TargetSnapshot:
         if item.target_ref is None:
             return TargetSnapshot()
-        if item.target_kind in {"document", "prism_file", "prism_file_change", "prism_structure"}:
+        if item.target_kind in {
+            "document",
+            "prism_file",
+            "prism_file_change",
+            "prism_structure",
+            "prism_visual_insertion",
+        }:
             file_id = _prism_file_id(item.target_ref)
             current = await self._dataservice.get_prism_workspace_file(workspace_id, file_id)
             if current is None:
@@ -81,11 +87,18 @@ class MissionDomainWriter:
         *,
         workspace_id: str,
         mission_commit_id: str,
+        mission_commit_attempt_token: str,
         actor_user_id: str,
     ) -> MaterializationReceipt:
         descriptor = dict(item.preview_json.get("materialization") or {})
         operation = str(descriptor.get("operation") or "")
         payload = dict(descriptor.get("payload") or {})
+        authority = MissionWriteAuthority(
+            mission_id=item.mission_id,
+            mission_review_item_id=item.review_item_id,
+            mission_commit_id=mission_commit_id,
+            attempt_token=mission_commit_attempt_token,
+        )
         provenance = {
             "mission_id": item.mission_id,
             "mission_item_seq": item.source_item_seq,
@@ -99,6 +112,16 @@ class MissionDomainWriter:
                 actor_user_id=actor_user_id,
                 payload=payload,
                 provenance=provenance,
+                mission_write_authority=authority,
+            )
+        if operation == "documents.insert_visual_asset":
+            return await self._insert_visual_asset(
+                item,
+                workspace_id=workspace_id,
+                actor_user_id=actor_user_id,
+                payload=payload,
+                provenance=provenance,
+                mission_write_authority=authority,
             )
         if operation == "library.import_source":
             command = SourceImportPayload.model_validate(
@@ -107,83 +130,13 @@ class MissionDomainWriter:
                     "workspace_id": workspace_id,
                     "ingest_mission_id": item.mission_id,
                     "ingest_mission_commit_id": mission_commit_id,
+                    "mission_write_authority": authority,
                 }
             )
             result = await self._dataservice.import_source(command)
             return _receipt(
                 target_ref=result.source.id,
                 content_hash=_hash_json(result.source.model_dump(mode="json")),
-                provenance=provenance,
-            )
-        if operation == "memory.merge_items":
-            command = WorkspaceMemoryMergePayload.model_validate(
-                {
-                    **payload,
-                    "workspace_id": workspace_id,
-                    "updated_by": f"mission:{item.mission_id}:commit:{mission_commit_id}",
-                    "source_mission_id": item.mission_id,
-                    "source_mission_commit_id": mission_commit_id,
-                    "metadata_json": {
-                        **dict(payload.get("metadata_json") or {}),
-                        **provenance,
-                    },
-                }
-            )
-            result = await self._dataservice.merge_workspace_memory(workspace_id, command)
-            return _receipt(
-                target_ref=result.document.id,
-                revision_ref=str(result.revision.revision if result.revision else result.document.revision),
-                content_hash=(result.revision.content_hash if result.revision else result.document.content_hash),
-                provenance=provenance,
-            )
-        if operation == "decisions.set":
-            result = await self._dataservice.set_room_decision(
-                DecisionSetPayload.model_validate(
-                    {
-                        **payload,
-                        "workspace_id": workspace_id,
-                        "extracted_by": f"mission:{item.mission_id}:commit:{mission_commit_id}",
-                        "source_mission_id": item.mission_id,
-                        "source_mission_item_seq": item.source_item_seq,
-                        "source_mission_commit_id": mission_commit_id,
-                    }
-                )
-            )
-            return _receipt(
-                target_ref=result.id,
-                content_hash=_hash_json(result.model_dump(mode="json")),
-                provenance=provenance,
-            )
-        if operation == "tasks.create":
-            result = await self._dataservice.create_room_task(
-                WorkspaceTaskCreatePayload.model_validate(
-                    {
-                        **payload,
-                        "workspace_id": workspace_id,
-                        "created_by": f"mission:{item.mission_id}:commit:{mission_commit_id}",
-                        "source_mission_id": item.mission_id,
-                        "source_mission_item_seq": item.source_item_seq,
-                        "source_mission_commit_id": mission_commit_id,
-                    }
-                )
-            )
-            return _receipt(
-                target_ref=result.id,
-                content_hash=_hash_json(result.model_dump(mode="json")),
-                provenance=provenance,
-            )
-        if operation == "sandbox.materialize_artifact":
-            artifact_id = str(payload["sandbox_artifact_id"])
-            result = await self._dataservice.mark_sandbox_artifact_materialized(
-                artifact_id,
-                mission_commit_id=mission_commit_id,
-            )
-            if result is None or not result.content_hash:
-                raise ValueError("sandbox_materialization_receipt_missing")
-            return _receipt(
-                target_ref=result.workspace_asset_id,
-                content_hash=result.content_hash,
-                manifest_ref=str(payload.get("manifest_ref") or "") or None,
                 provenance=provenance,
             )
         if operation == "assets.create_from_preview":
@@ -194,6 +147,7 @@ class MissionDomainWriter:
                 actor_user_id=actor_user_id,
                 payload=payload,
                 provenance=provenance,
+                mission_write_authority=authority,
             )
         raise ValueError("unknown_materialization_operation")
 
@@ -206,6 +160,7 @@ class MissionDomainWriter:
         actor_user_id: str,
         payload: dict[str, Any],
         provenance: dict[str, Any],
+        mission_write_authority: MissionWriteAuthority,
     ) -> MaterializationReceipt:
         if item.target_kind != "workspace_asset" or item.target_ref is not None:
             raise ValueError("workspace_asset_materialization_requires_new_target")
@@ -265,6 +220,7 @@ class MissionDomainWriter:
                 created_by=actor_user_id,
                 source_kind="mission_review_item",
                 source_id=item.review_item_id,
+                mission_write_authority=mission_write_authority,
                 metadata_json=metadata,
             )
         )
@@ -283,6 +239,7 @@ class MissionDomainWriter:
         actor_user_id: str,
         payload: dict[str, Any],
         provenance: dict[str, Any],
+        mission_write_authority: MissionWriteAuthority,
     ) -> MaterializationReceipt:
         metadata = {**dict(payload.get("metadata_json") or {}), **provenance}
         if item.target_ref:
@@ -293,8 +250,7 @@ class MissionDomainWriter:
                     "content_asset_id": payload.get("content_asset_id"),
                     "content_hash": payload["content_hash"],
                     "created_by": actor_user_id,
-                    "mission_review_item_id": item.review_item_id,
-                    "mission_commit_id": provenance["mission_commit_id"],
+                    "mission_write_authority": mission_write_authority,
                     "expected_current_hash": item.base_hash,
                     "metadata_json": metadata,
                 }
@@ -310,8 +266,7 @@ class MissionDomainWriter:
                     **payload,
                     "create_only": True,
                     "created_by": actor_user_id,
-                    "mission_review_item_id": item.review_item_id,
-                    "mission_commit_id": provenance["mission_commit_id"],
+                    "mission_write_authority": mission_write_authority,
                     "metadata_json": metadata,
                 }
             )
@@ -323,8 +278,64 @@ class MissionDomainWriter:
         return _receipt(
             target_ref=f"prism-file:{result.file.id}",
             revision_ref=result.version.id if result.version else result.file.current_version_id,
-            content_hash=result.file.content_hash or str(payload["content_hash"]),
+            content_hash=(
+                result.version.content_hash
+                if result.version is not None
+                else result.file.content_hash or str(payload["content_hash"])
+            ),
             provenance=provenance,
+        )
+
+    async def _insert_visual_asset(
+        self,
+        item: MissionReviewItemPayload,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        payload: dict[str, Any],
+        provenance: dict[str, Any],
+        mission_write_authority: MissionWriteAuthority,
+    ) -> MaterializationReceipt:
+        if item.target_kind != "prism_visual_insertion" or not item.target_ref:
+            raise ValueError("visual insertion requires a canonical Prism target")
+        file_id = _prism_file_id(item.target_ref)
+        command = PrismVisualInsertionPayload.model_validate(
+            {
+                **payload,
+                "target_file_id": file_id,
+                "expected_current_version_id": item.base_revision_ref,
+                "expected_current_hash": item.base_hash,
+                "created_by": actor_user_id,
+                "mission_write_authority": mission_write_authority,
+                "metadata_json": {
+                    **dict(payload.get("metadata_json") or {}),
+                    **provenance,
+                },
+            }
+        )
+        result = await self._dataservice.insert_prism_visual_asset(
+            workspace_id,
+            command,
+        )
+        manuscript = result.manuscript
+        return _receipt(
+            target_ref=f"prism-file:{manuscript.file.id}",
+            revision_ref=(
+                manuscript.version.id
+                if manuscript.version is not None
+                else manuscript.file.current_version_id
+            ),
+            content_hash=(
+                manuscript.version.content_hash
+                if manuscript.version is not None
+                else manuscript.file.content_hash or command.expected_content_hash
+            ),
+            provenance={
+                **provenance,
+                "asset_id": command.asset_id,
+                "asset_prism_ref": f"prism-file:{result.asset_file.file.id}",
+                "source_mission_commit_id": command.source_mission_commit_id,
+            },
         )
 
 

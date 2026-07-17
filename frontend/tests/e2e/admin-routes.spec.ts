@@ -23,9 +23,6 @@ test.describe("admin routes", () => {
     await page.click('a[href="/dashboard/admin/credits"]');
     await expect(page).toHaveURL(/admin\/credits$/);
 
-    await page.click('a[href="/dashboard/admin/mcp"]');
-    await expect(page).toHaveURL(/admin\/mcp/);
-
     await page.click('a[href="/dashboard/admin/release-gate"]');
     await expect(page).toHaveURL(/admin\/release-gate/);
 

@@ -6,28 +6,34 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import update
+from sqlalchemy import event, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
 from src.contracts.stage_acceptance import StageAcceptanceContract
+from src.database.models.credit_reservation import CreditReservation
 from src.database.models.mission import (
     MissionCommitRecord,
     MissionItemRecord,
     MissionReviewItemRecord,
     MissionRunRecord,
 )
-from src.dataservice.common.errors import DataServiceConflictError
+from src.dataservice.common.errors import (
+    DataServiceConflictError,
+    DataServiceValidationError,
+)
 from src.dataservice.domains.mission.service import (
+    MissionProjectionStaleError,
     MissionStore,
     _project_stage_instance_ids,
     _stage_projection_title,
 )
+from src.dataservice.domains.mission.write_authority import assert_active_mission_write
 from src.dataservice_client.contracts.mission import (
     MAX_MISSION_SNAPSHOT_BYTES,
     MissionAppendPayload,
     MissionApplyCommandsPayload,
-    MissionCancelPayload,
     MissionCheckpointPayload,
     MissionCommitCreatePayload,
     MissionCommitFinishPayload,
@@ -53,6 +59,7 @@ from src.dataservice_client.contracts.mission import (
 
 MISSION_TABLES = [
     MissionRunRecord.__table__,
+    CreditReservation.__table__,
     MissionItemRecord.__table__,
     MissionReviewItemRecord.__table__,
     MissionCommitRecord.__table__,
@@ -223,7 +230,7 @@ async def test_mission_view_preserves_dynamic_stage_while_waiting_for_review(
             expected_state_version=appended.mission.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     source_item_seq=source_seq,
                     output_key="question_1_solution",
@@ -314,6 +321,35 @@ async def _claim(store: MissionStore, mission_id: str, *, version: int, worker: 
     )
 
 
+async def _cancel_at_boundary(
+    store: MissionStore,
+    mission_id: str,
+    *,
+    request_id: str,
+    reason: str,
+):
+    queued = await store.append_command_once(
+        mission_id,
+        MissionUserCommandPayload(
+            command_id=request_id,
+            command_type="cancel",
+            summary=reason,
+            payload_json={"reason": reason},
+        ),
+    )
+    claimed = await _claim(store, mission_id, version=queued.mission.state_version)
+    return await store.apply_commands_and_advance_cursor(
+        mission_id,
+        MissionApplyCommandsPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            through_command_seq=queued.mission.last_command_seq,
+            patch=MissionRunPatchPayload(status="cancelled"),
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_mission_stats_aggregate_only_mission_runs(
     mission_session: AsyncSession,
@@ -398,7 +434,7 @@ async def test_user_summary_aggregates_all_runs_and_bounds_recent_projection(
 
 
 @pytest.mark.asyncio
-async def test_review_mode_command_updates_mission_without_waking_agent(
+async def test_review_mode_command_is_ordered_before_runtime_applies_it(
     mission_session: AsyncSession,
 ) -> None:
     store = MissionStore(mission_session, autocommit=True)
@@ -413,11 +449,56 @@ async def test_review_mode_command_updates_mission_without_waking_agent(
         ),
     )
 
-    assert result.mission.review_mode.value == "review_all"
-    assert result.mission.last_applied_command_seq == result.mission.last_command_seq
+    assert result.mission.review_mode.value == "balanced_default"
+    assert result.mission.last_applied_command_seq < result.mission.last_command_seq
     assert result.mission.next_wakeup_at is not None
-    assert created.mission.next_wakeup_at is not None
-    assert result.mission.next_wakeup_at.replace(tzinfo=UTC).timestamp() == created.mission.next_wakeup_at.timestamp()
+
+    claimed = await _claim(
+        store,
+        created.mission.mission_id,
+        version=result.mission.state_version,
+    )
+    applied = await store.apply_commands_and_advance_cursor(
+        created.mission.mission_id,
+        MissionApplyCommandsPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            through_command_seq=result.mission.last_command_seq,
+            patch=MissionRunPatchPayload(review_mode="review_all"),
+        ),
+    )
+    assert applied.mission.review_mode.value == "review_all"
+    assert applied.mission.last_applied_command_seq == applied.mission.last_command_seq
+
+
+@pytest.mark.asyncio
+async def test_prism_command_is_rejected_before_persistence_when_workspace_differs(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    created = await store.create_run(_create_payload())
+    command = MissionUserCommandPayload(
+        command_id="prism-command-1",
+        command_type="instruction",
+        payload_json={
+            "prism_context_ref": {
+                "workspace_id": "another-workspace",
+                "prism_project_id": "project-1",
+                "file_id": "file-1",
+                "base_revision_ref": "revision-1",
+                "selection_hash": f"sha256:{'a' * 64}",
+                "selection_byte_range": [0, 1],
+            }
+        },
+    )
+
+    with pytest.raises(DataServiceValidationError, match="Mission workspace"):
+        await store.append_command_once(created.mission.mission_id, command)
+
+    unchanged = await store.load_run_snapshot(created.mission.mission_id)
+    assert unchanged is not None
+    assert unchanged.last_command_seq == 0
 
 
 @pytest.mark.asyncio
@@ -491,7 +572,7 @@ async def test_mission_view_keeps_execution_and_review_axes_separate_and_cleans_
             expected_state_version=planning.mission.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     output_key="draft",
                     target_kind="document",
@@ -555,9 +636,11 @@ async def test_one_foreground_mission_per_thread_and_idempotent_create(
     with pytest.raises(DataServiceConflictError, match="foreground"):
         await store.create_run(_create_payload(idempotency_key="mission-create-2"))
 
-    await store.cancel_run(
+    await _cancel_at_boundary(
+        store,
         created.mission.mission_id,
-        MissionCancelPayload(request_id="cancel-1", reason="Replace the task"),
+        request_id="cancel-1",
+        reason="Replace the task",
     )
     replacement = await store.create_run(_create_payload(idempotency_key="mission-create-2"))
     assert replacement.created is True
@@ -569,9 +652,11 @@ async def test_latest_mission_for_thread_includes_terminal_run(
 ) -> None:
     store = MissionStore(mission_session, autocommit=True)
     created = await store.create_run(_create_payload())
-    await store.cancel_run(
+    await _cancel_at_boundary(
+        store,
         created.mission.mission_id,
-        MissionCancelPayload(request_id="cancel-latest", reason="Pause here"),
+        request_id="cancel-latest",
+        reason="Pause here",
     )
 
     latest = await store.latest_for_thread(
@@ -646,6 +731,20 @@ async def test_append_allocates_ordered_immutable_items_and_updates_snapshot_onc
     result.items[0].payload_json["client_only"] = True
     persisted = await store.list_items_page(mission_id)
     assert "client_only" not in persisted[0].payload_json
+    selected = await store.list_items_by_seqs(mission_id, seqs=(1, 3))
+    assert [item.seq for item in selected] == [1, 3]
+    assert [item.item_type for item in selected] == ["plan", "context_checkpoint"]
+    first_page = await store.get_items_page(mission_id, limit=2)
+    assert [item.seq for item in first_page.items] == [1, 2]
+    assert first_page.page.total == 3
+    assert first_page.page.next_cursor == 2
+    second_page = await store.get_items_page(
+        mission_id,
+        after_seq=first_page.page.next_cursor,
+        limit=2,
+    )
+    assert [item.seq for item in second_page.items] == [3]
+    assert second_page.page.next_cursor is None
 
 
 @pytest.mark.asyncio
@@ -726,6 +825,7 @@ async def test_operation_claim_is_atomic_reusable_and_terminal_epoch_fenced(
             request_hash="a" * 64,
             claimant="tool-call-1",
             lease_epoch=claimed.lease_epoch,
+            claim_token=first.receipt.claim_token,
             status="succeeded",
             receipt_json={"outcome": {"ok": True}},
         ),
@@ -743,7 +843,7 @@ async def test_operation_finish_atomically_projects_semantic_references_once(
     store = MissionStore(mission_session, autocommit=True)
     mission_id = await _created(store)
     claimed = await _claim(store, mission_id, version=0)
-    await store.claim_operation(
+    operation_claim = await store.claim_operation(
         mission_id,
         MissionOperationClaimPayload(
             operation_key="search-1",
@@ -759,6 +859,7 @@ async def test_operation_finish_atomically_projects_semantic_references_once(
         request_hash="b" * 64,
         claimant="tool-call-1",
         lease_epoch=claimed.lease_epoch,
+        claim_token=operation_claim.receipt.claim_token,
         stage_id="literature",
         producer="文献研究员",
         status="succeeded",
@@ -814,7 +915,7 @@ async def test_operation_finish_atomically_projects_semantic_references_once(
             expected_state_version=current.state_version,
             lease_owner="worker-1",
             lease_epoch=current.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-gap-map",
                     source_item_seq=semantic_items["artifact"].seq,
@@ -839,6 +940,69 @@ async def test_operation_finish_atomically_projects_semantic_references_once(
     assert view.mission.artifact_count == 1
     assert view.artifact_page.total == 1
     assert [item.title for item in artifact_page.items] == ["研究空白图谱"]
+
+
+@pytest.mark.asyncio
+async def test_operation_reclaim_rejects_stale_attempt_token(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    claim_command = MissionOperationClaimPayload(
+        operation_key="reclaimed-operation",
+        kind="tool",
+        request_hash="c" * 64,
+        claimant="stable-operation-id",
+        lease_epoch=claimed.lease_epoch,
+        ttl_seconds=30,
+    )
+    first = await store.claim_operation(mission_id, claim_command)
+    first_item = await mission_session.get(MissionItemRecord, first.receipt.receipt_id)
+    assert first_item is not None
+    expired_payload = {
+        **dict(first_item.payload_json),
+        "lease_expires_at": (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+    }
+    await mission_session.execute(
+        update(MissionItemRecord)
+        .where(MissionItemRecord.id == first.receipt.receipt_id)
+        .values(payload_json=expired_payload)
+    )
+    await mission_session.commit()
+
+    second = await store.claim_operation(mission_id, claim_command)
+    assert second.acquired is True
+    assert second.receipt.attempt == 2
+    assert second.receipt.claim_token != first.receipt.claim_token
+
+    with pytest.raises(DataServiceConflictError, match="claim fence"):
+        await store.finish_operation(
+            mission_id,
+            MissionOperationFinishPayload(
+                operation_key=claim_command.operation_key,
+                kind=claim_command.kind,
+                request_hash=claim_command.request_hash,
+                claimant=claim_command.claimant,
+                lease_epoch=claim_command.lease_epoch,
+                claim_token=first.receipt.claim_token,
+                status="succeeded",
+            ),
+        )
+
+    terminal = await store.finish_operation(
+        mission_id,
+        MissionOperationFinishPayload(
+            operation_key=claim_command.operation_key,
+            kind=claim_command.kind,
+            request_hash=claim_command.request_hash,
+            claimant=claim_command.claimant,
+            lease_epoch=claim_command.lease_epoch,
+            claim_token=second.receipt.claim_token,
+            status="succeeded",
+        ),
+    )
+    assert terminal.finalized is True
 
 
 @pytest.mark.asyncio
@@ -869,6 +1033,210 @@ async def test_mission_view_projects_retry_activity_without_exposing_snapshot(
     assert view.activity.attempt == 2
     assert "snapshot_json" not in view.mission.model_dump()
     assert view.mission.state_version == result.mission.state_version
+
+
+@pytest.mark.asyncio
+async def test_mission_view_retries_after_projection_version_drift(
+    mission_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    current = await store.load_run_snapshot(mission_id)
+    assert current is not None
+    expected_version = current.state_version
+    real_get_version = store.repository.get_run_state_version
+    observed_calls = 0
+
+    async def drifting_once(candidate_mission_id: str) -> int | None:
+        nonlocal observed_calls
+        observed_calls += 1
+        if observed_calls == 1:
+            return expected_version + 1
+        return await real_get_version(candidate_mission_id)
+
+    monkeypatch.setattr(store.repository, "get_run_state_version", drifting_once)
+
+    view = await store.get_view(mission_id)
+
+    assert view is not None
+    assert view.mission.state_version == expected_version
+    assert observed_calls == 4
+
+
+@pytest.mark.asyncio
+async def test_mission_view_fails_closed_after_repeated_projection_drift(
+    mission_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    current = await store.load_run_snapshot(mission_id)
+    assert current is not None
+    expected_version = current.state_version
+
+    async def always_drifting(_mission_id: str) -> int:
+        return expected_version + 1
+
+    monkeypatch.setattr(store.repository, "get_run_state_version", always_drifting)
+
+    with pytest.raises(
+        MissionProjectionStaleError,
+        match="changed repeatedly",
+    ) as raised:
+        await store.get_view(mission_id)
+    assert raised.value.code == "MISSION_PROJECTION_STALE"
+    assert raised.value.detail == {
+        "mission_id": mission_id,
+        "attempts": 3,
+        "start_state_version": expected_version + 1,
+        "end_state_version": expected_version + 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_mission_projection_is_bounded_and_pages_review_and_commit_history(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    now = datetime.now(UTC)
+    review_records = [
+        MissionReviewItemRecord(
+            review_item_id=f"review-{index:04d}",
+            mission_id=mission_id,
+            source_item_seq=None,
+            output_key=f"output-{index:04d}",
+            target_kind="memory",
+            target_room="memory",
+            target_ref=f"memory-{index:04d}",
+            title=f"Candidate {index}",
+            risk_level="low",
+            status="accepted",
+            preview_json={"body": f"candidate-{index}"},
+            preview_hash=f"{index:064x}",
+            created_at=now,
+            updated_at=now,
+        )
+        for index in range(120)
+    ]
+    commit_records = [
+        MissionCommitRecord(
+            commit_id=f"commit-{index:04d}",
+            mission_id=mission_id,
+            review_item_id=f"review-{index:04d}",
+            commit_key=f"commit-key-{index:04d}",
+            status="pending",
+            actor_user_id="user-1",
+            targets_json={},
+            attempt_count=0,
+            created_at=now,
+        )
+        for index in range(120)
+    ]
+    mission_session.add_all([*review_records, *commit_records])
+    await mission_session.commit()
+
+    statement_count = 0
+    bind = mission_session.get_bind()
+
+    def count_statement(*_args: object) -> None:
+        nonlocal statement_count
+        statement_count += 1
+
+    event.listen(bind, "before_cursor_execute", count_statement)
+    try:
+        view = await store.get_view(mission_id, projection_item_limit=10)
+    finally:
+        event.remove(bind, "before_cursor_execute", count_statement)
+
+    assert view is not None
+    assert len(view.review_items) == 10
+    assert view.review_summary.accepted == 120
+    assert view.commit_summary.pending == 120
+    assert statement_count <= 10
+
+    first_reviews = await store.list_review_items_page(mission_id, limit=25)
+    assert first_reviews.page.total == 120
+    assert first_reviews.page.returned == 25
+    assert first_reviews.page.next_cursor is not None
+    second_reviews = await store.list_review_items_page(
+        mission_id,
+        limit=25,
+        cursor=first_reviews.page.next_cursor,
+    )
+    assert {
+        item.review_item_id for item in first_reviews.items
+    }.isdisjoint(item.review_item_id for item in second_reviews.items)
+
+    first_commits = await store.list_commits_page(mission_id, limit=25)
+    assert first_commits.page.total == 120
+    assert first_commits.page.returned == 25
+    assert first_commits.page.next_cursor is not None
+    second_commits = await store.list_commits_page(
+        mission_id,
+        limit=25,
+        cursor=first_commits.page.next_cursor,
+    )
+    assert {item.commit_id for item in first_commits.items}.isdisjoint(
+        item.commit_id for item in second_commits.items
+    )
+
+
+@pytest.mark.asyncio
+async def test_artifact_projection_cursor_preserves_equal_source_sequences(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    now = datetime.now(UTC)
+    mission_session.add(
+        MissionItemRecord(
+            id="artifact-source-1",
+            mission_id=mission_id,
+            seq=1,
+            item_type="artifact",
+            phase="completed",
+            payload_json={},
+            created_at=now,
+        )
+    )
+    mission_session.add_all(
+        [
+            MissionReviewItemRecord(
+                review_item_id=f"artifact-review-{suffix}",
+                mission_id=mission_id,
+                source_item_seq=1,
+                output_key=f"artifact-output-{suffix}",
+                target_kind="document",
+                target_room="documents",
+                target_ref=f"document-{suffix}",
+                title=f"Artifact {suffix}",
+                risk_level="low",
+                status="pending",
+                preview_json={"artifact_kind": "document"},
+                preview_hash=("a" if suffix == "a" else "b") * 64,
+                created_at=now,
+                updated_at=now,
+            )
+            for suffix in ("a", "b")
+        ]
+    )
+    await mission_session.commit()
+
+    first = await store.list_artifact_projection_page(mission_id, limit=1)
+    assert first.page.total == 2
+    assert first.page.next_cursor == 1
+    assert first.page.next_tiebreaker == "artifact-review-a"
+
+    second = await store.list_artifact_projection_page(
+        mission_id,
+        after_seq=first.page.next_cursor,
+        after_review_item_id=first.page.next_tiebreaker,
+        limit=1,
+    )
+    assert [item.item_id for item in second.items] == ["artifact-review-b"]
+    assert second.page.next_cursor is None
 
 
 @pytest.mark.asyncio
@@ -954,7 +1322,11 @@ async def test_mission_view_pages_long_evidence_ledger_without_truncating_summar
                     item_type="evidence",
                     phase="completed",
                     summary=f"Evidence {index}",
-                    payload_json={"title": f"Evidence {index}", "verified": True},
+                    payload_json={
+                        "title": f"Evidence {index}",
+                        "source_type": "artifact",
+                        "verified": True,
+                    },
                 )
                 for index in range(60)
             ],
@@ -1059,6 +1431,64 @@ async def test_view_projects_waiting_snapshot_as_typed_attention_request(
 
 
 @pytest.mark.asyncio
+async def test_view_projects_permission_request_as_explicit_decisions(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    planning = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            patch=MissionRunPatchPayload(status="planning"),
+        ),
+    )
+    await store.release_run_lease(
+        mission_id,
+        MissionLeaseReleasePayload(
+            worker_id="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            expected_state_version=planning.mission.state_version,
+        ),
+    )
+    await store.pause_run(
+        mission_id,
+        MissionPausePayload(
+            request_id="permission-1",
+            reason="permission",
+            pending_request={
+                "request_id": "permission-1",
+                "summary": "需要访问 Python 包索引安装依赖。",
+                "permission_context": {
+                    "mission_id": mission_id,
+                    "tool_name": "sandbox.install_dependencies",
+                    "operation": "install:abc",
+                    "risk_level": "medium",
+                    "network_profile": "package-index",
+                },
+            },
+        ),
+    )
+
+    view = await store.get_view(mission_id)
+
+    assert view is not None and view.attention_request is not None
+    assert [action.action_type for action in view.attention_request.actions] == [
+        "permission_allow_once",
+        "permission_allow_mission",
+        "permission_reject",
+    ]
+    assert [action.label for action in view.attention_request.actions] == [
+        "仅本次允许",
+        "本任务内允许",
+        "不允许",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_view_omits_attention_request_outside_waiting_state(
     mission_session: AsyncSession,
 ) -> None:
@@ -1067,6 +1497,59 @@ async def test_view_omits_attention_request_outside_waiting_state(
 
     assert view is not None
     assert view.attention_request is None
+
+
+@pytest.mark.asyncio
+async def test_view_projects_required_assets_and_schema_from_agent_pause(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            patch=MissionRunPatchPayload(status="planning"),
+        ),
+    )
+    paused = await store.pause_run(
+        mission_id,
+        MissionPausePayload(
+            request_id="request-validation-data",
+            reason="user_input",
+            pending_request={
+                "summary": "请提供真实观测数据后继续验证。",
+                "required_assets": ["逐小时借还量", "逐小时天气"],
+                "minimum_schema": "station_id、timestamp、rentals_out、returns_in",
+            },
+        ),
+    )
+
+    view = await store.get_view(mission_id)
+
+    assert paused.mission.snapshot_json["pending_request"]["request_id"] == "request-validation-data"
+    assert view is not None and view.attention_request is not None
+    assert view.attention_request.summary == "请提供真实观测数据后继续验证。"
+    assert [item.label for item in view.attention_request.required_inputs] == [
+        "逐小时借还量",
+        "逐小时天气",
+        "字段与单位说明",
+    ]
+    assert [item.input_type for item in view.attention_request.required_inputs] == [
+        "file",
+        "file",
+        "text",
+    ]
+    assert view.attention_request.required_inputs[-1].description == (
+        "station_id、timestamp、rentals_out、returns_in"
+    )
+    assert [action.action_type for action in view.attention_request.actions] == [
+        "reply_in_chat",
+        "upload_file",
+    ]
 
 
 @pytest.mark.asyncio
@@ -1149,7 +1632,7 @@ async def test_new_review_candidate_atomically_replaces_same_output(
             expected_state_version=first_candidate.mission.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-first",
                     source_item_seq=first_candidate.items[0].seq,
@@ -1188,7 +1671,7 @@ async def test_new_review_candidate_atomically_replaces_same_output(
             expected_state_version=best_candidate.mission.state_version,
             lease_owner="worker-1",
             lease_epoch=best_candidate.mission.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-best",
                     source_item_seq=best_candidate.items[0].seq,
@@ -1236,7 +1719,7 @@ async def test_new_review_candidate_replaces_same_document_destination_even_when
             expected_state_version=claimed.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-path-first",
                     output_key="q1.solution_validation",
@@ -1256,7 +1739,7 @@ async def test_new_review_candidate_replaces_same_document_destination_even_when
             expected_state_version=first.mission.state_version,
             lease_owner="worker-1",
             lease_epoch=first.mission.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-path-best",
                     output_key="q1.question_solution",
@@ -1269,6 +1752,7 @@ async def test_new_review_candidate_replaces_same_document_destination_even_when
                             **materialization,
                             "payload": {
                                 **materialization["payload"],
+                                "path": "  第一问求解.md  ",
                                 "content_inline": "best",
                             },
                         }
@@ -1295,7 +1779,7 @@ async def test_review_and_commit_are_item_scoped_and_commit_replay_is_idempotent
             expected_state_version=claimed.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-1",
                     output_key="literature_gap",
@@ -1390,6 +1874,14 @@ async def test_review_and_commit_are_item_scoped_and_commit_replay_is_idempotent
     assert replay.created is False
     assert replay.commit.commit_id == first.commit.commit_id
     assert replay.mission.status == "completed"
+    pending_commit_view = await store.get_view(mission_id)
+    assert pending_commit_view is not None
+    assert "commits" not in pending_commit_view.model_dump(mode="json")
+    assert pending_commit_view.review_items[0].commit_status == "pending"
+    assert pending_commit_view.review_items[0].commit_eligible is True
+    loaded = await store.load_commit_for_review_item(mission_id, "review-1")
+    assert loaded is not None
+    assert loaded.commit.commit_id == first.commit.commit_id
 
     await mission_session.execute(update(MissionReviewItemRecord).where(MissionReviewItemRecord.review_item_id == "review-1").values(status="rejected"))
     await mission_session.commit()
@@ -1407,6 +1899,46 @@ async def test_review_and_commit_are_item_scoped_and_commit_replay_is_idempotent
         first.commit.commit_id,
         MissionCommitStartPayload(attempt_token="attempt-token-0001"),
     )
+    await mission_session.execute(
+        update(MissionReviewItemRecord)
+        .where(MissionReviewItemRecord.review_item_id == "review-1")
+        .values(
+            preview_ref="mpv1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            preview_expires_at=datetime.now(UTC) - timedelta(seconds=1),
+        )
+    )
+    await mission_session.commit()
+    protected_cleanup = await store.cleanup_expired_previews(
+        MissionPreviewCleanupPayload(now=datetime.now(UTC))
+    )
+    assert protected_cleanup.review_item_ids == []
+    protected_item = (await store.list_review_items(mission_id))[0]
+    assert protected_item.status == "accepted"
+    assert protected_item.preview_ref == "mpv1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    authority = MissionWriteAuthority(
+        mission_id=mission_id,
+        mission_review_item_id="review-1",
+        mission_commit_id=first.commit.commit_id,
+        attempt_token="attempt-token-0001",
+    )
+    await assert_active_mission_write(
+        mission_session,
+        authority=authority,
+        workspace_id="workspace-1",
+        required=True,
+    )
+    with pytest.raises(ValueError, match="mission_write_authority_lost"):
+        await assert_active_mission_write(
+            mission_session,
+            authority=authority.model_copy(update={"attempt_token": "wrong-attempt-token"}),
+            workspace_id="workspace-1",
+            required=True,
+        )
+    applying_view = await store.get_view(mission_id)
+    assert applying_view is not None
+    assert applying_view.review_items[0].commit_status == "applying"
+    assert applying_view.review_items[0].commit_eligible is False
+    assert applying_view.review_items[0].commit_block_reason == "commit_in_progress"
     with pytest.raises(DataServiceConflictError, match="already applying"):
         await store.start_commit(
             mission_id,
@@ -1445,6 +1977,11 @@ async def test_review_and_commit_are_item_scoped_and_commit_replay_is_idempotent
     assert committed.commit.status == "committed"
     assert committed.commit.attempt_count == 2
     assert committed.mission.status == "completed"
+    committed_view = await store.get_view(mission_id)
+    assert committed_view is not None
+    assert committed_view.review_items[0].commit_status == "committed"
+    assert committed_view.review_items[0].commit_eligible is False
+    assert committed_view.review_items[0].commit_block_reason == "already_committed"
     terminal_replay = await store.finish_commit(
         mission_id,
         first.commit.commit_id,
@@ -1482,7 +2019,7 @@ async def test_committed_review_makes_nonterminal_mission_durably_runnable(
             expected_state_version=claimed.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-runnable",
                     output_key="stage_result",
@@ -1581,7 +2118,7 @@ async def test_revision_decision_makes_nonterminal_mission_durably_runnable(
             expected_state_version=claimed.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
-            items=[
+            review_items=[
                 MissionReviewItemDraftPayload(
                     review_item_id="review-revise",
                     output_key="stage_result",

@@ -10,7 +10,8 @@ import {
 } from "@/lib/api/client";
 import type { AgentBlock } from "@/lib/api/blocks";
 import { normalizeChatBlock } from "@/lib/api/blocks";
-import type { ThreadAttachment } from "@/lib/api/types";
+import { streamThread, type ThreadStreamHandle } from "@/lib/api/streams";
+import type { RunRequest, ThreadAttachment } from "@/lib/api/types";
 import type { ReasoningEffort } from "@/lib/reasoning-effort";
 
 // ── Data types ──────────────────────────────────────────────────────────────
@@ -34,11 +35,11 @@ export type SendMessageOptions = {
   metadata?: Record<string, unknown> | null;
 };
 
-export type SendMessageResult = {
-  missionId?: string | null;
-  status?: string | null;
-  error?: string | null;
-};
+export type SendMessageResult =
+  | { status: "completed" }
+  | { status: "launched"; missionId: string }
+  | { status: "failed"; error: string }
+  | { status: "cancelled" };
 
 // ── Event type (discriminated union) ────────────────────────────────────────
 
@@ -57,7 +58,6 @@ type ChatEvent =
       type: "chat.assistant.start";
       data: { message_id: string; timestamp?: string; [key: string]: unknown };
     }
-  | { type: "chat.assistant.thinking"; delta: string }
   | { type: "chat.assistant.block"; block: Block }
   | { type: "chat.assistant.finalize_block"; block: Block }
   | { type: "chat.assistant.completion" };
@@ -74,6 +74,7 @@ interface ChatState {
   activeRequestId: string | null;
   activeRequestWorkspaceId: string | null;
   activeAbortController: AbortController | null;
+  activeStream: ThreadStreamHandle | null;
   /** Tracks assistant message IDs that have received their first post-stream
    *  block — subsequent finalize_block events append, the first one replaces. */
   finalizedMessageIds: Set<string>;
@@ -87,7 +88,8 @@ interface ChatState {
     content: string,
     attachments?: ThreadAttachment[],
     options?: SendMessageOptions,
-  ): Promise<SendMessageResult | void>;
+  ): Promise<SendMessageResult>;
+  stopSending(): Promise<void>;
   reset(): void;
 }
 
@@ -207,6 +209,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   activeRequestId: null,
   activeRequestWorkspaceId: null,
   activeAbortController: null,
+  activeStream: null,
   finalizedMessageIds: new Set<string>(),
 
   setActiveWorkspace(workspaceId: string) {
@@ -216,6 +219,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       before.activeWorkspaceId !== workspaceId;
     if (switchingWorkspace) {
       before.activeAbortController?.abort();
+      before.activeStream?.abort();
     }
     const workspaceKey = normalizeWorkspaceKey(workspaceId);
     set((state) => {
@@ -252,6 +256,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               activeRequestId: null,
               activeRequestWorkspaceId: null,
               activeAbortController: null,
+              activeStream: null,
             }
           : {}),
       };
@@ -305,45 +310,6 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           ...syncActiveMessages(state, [...state.messages, message]),
           currentAssistantId: event.data.message_id,
         }));
-        break;
-      }
-
-      // ── Thinking delta ────────────────────────────────────────────────
-      case "chat.assistant.thinking": {
-        const { currentAssistantId } = get();
-        set((state) => {
-          const idx = findAssistantMessageIndex(
-            state.messages,
-            currentAssistantId,
-          );
-          if (idx === -1) return state;
-
-          const msg = state.messages[idx];
-          const lastBlock = msg.blocks[msg.blocks.length - 1];
-
-          // If last block is thinking, merge the delta into it
-          if (lastBlock?.kind === "thinking") {
-            const updatedBlocks = [...msg.blocks];
-            updatedBlocks[updatedBlocks.length - 1] = {
-              ...lastBlock,
-              text: lastBlock.text + event.delta,
-            };
-            const updatedMessages = [...state.messages];
-            updatedMessages[idx] = { ...msg, blocks: updatedBlocks };
-            return syncActiveMessages(state, updatedMessages);
-          }
-
-          // Otherwise create a new thinking block — preserves arrival order
-          const updatedMessages = [...state.messages];
-          updatedMessages[idx] = {
-            ...msg,
-            blocks: [
-              ...msg.blocks,
-              { kind: "thinking", text: event.delta },
-            ],
-          };
-          return syncActiveMessages(state, updatedMessages);
-        });
         break;
       }
 
@@ -443,6 +409,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
   reset() {
     get().activeAbortController?.abort();
+    get().activeStream?.abort();
     set({
       activeWorkspaceId: null,
       messagesByWorkspace: {},
@@ -453,6 +420,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       activeRequestId: null,
       activeRequestWorkspaceId: null,
       activeAbortController: null,
+      activeStream: null,
       finalizedMessageIds: new Set<string>(),
     });
   },
@@ -506,6 +474,16 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     }
   },
 
+  async stopSending() {
+    const state = get();
+    if (!state.isSending) return;
+    if (state.activeStream) {
+      await state.activeStream.stop();
+      return;
+    }
+    state.activeAbortController?.abort();
+  },
+
   async sendMessage(
     workspaceId: string,
     content: string,
@@ -513,7 +491,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     options: SendMessageOptions = {},
   ) {
     const { isSending } = get();
-    if (isSending || !content.trim()) return;
+    if (isSending || !content.trim()) return { status: "cancelled" };
     get().setActiveWorkspace(workspaceId);
     const requestId = crypto.randomUUID();
     const abortController = new AbortController();
@@ -569,14 +547,14 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           signal: abortController.signal,
         },
       );
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) return { status: "cancelled" };
       if (!threadRes.ok) {
         throw new Error(
           await readErrorMessage(threadRes, "无法连接对话，请稍后重试"),
         );
       }
       const thread = await threadRes.json();
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) return { status: "cancelled" };
       const threadId = typeof thread.id === "string" ? thread.id : "";
       if (!threadId) throw new Error("对话线程无效，请稍后重试");
       const workspaceKey = normalizeWorkspaceKey(workspaceId);
@@ -604,9 +582,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         data: { message_id: assistantMsgId },
       });
 
-      const runPayload: Record<string, unknown> = {
+      const runPayload: RunRequest = {
         message: content,
         workspace_id: workspaceId,
+        thread_id: threadId,
         attachments,
       };
       if (typeof options.model === "string" && options.model.trim()) {
@@ -616,159 +595,66 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         typeof options.reasoning_effort === "string" &&
         options.reasoning_effort.trim()
       ) {
-        runPayload.reasoning_effort = options.reasoning_effort.trim();
+        runPayload.reasoning_effort = options.reasoning_effort;
       }
       if (options.metadata && typeof options.metadata === "object") {
         runPayload.metadata = options.metadata;
       }
 
-      // Stream run response — backend expects RunCreateRequest { message, ... }
-      const res = await authorizedFetch(
-        `/api/threads/${threadId}/runs/stream`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(runPayload),
-          signal: abortController.signal,
+      const stream = streamThread(runPayload, {
+        onContent(delta) {
+          if (!isCurrentRequest()) return;
+          get().handleEvent({
+            type: "chat.assistant.block",
+            block: { kind: "text", content: delta },
+          });
         },
-      );
-
-      if (!isCurrentRequest()) return;
-      if (!res.ok) {
-        throw new Error(
-          await readErrorMessage(res, "对话未能启动，请稍后重试"),
-        );
-      }
-      if (!res.body) throw new Error("No response body");
-
-      // Parse SSE from fetch response
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let frameData: string[] = [];
-      let frameEvent: string | null = null;
-
-      const flushFrame = () => {
-        if (!isCurrentRequest()) {
-          frameData = [];
-          frameEvent = null;
-          return;
-        }
-        if (!frameData.length) {
-          frameEvent = null;
-          return;
-        }
-        const payload = frameData.join("\n");
-        frameData = [];
-        const eventName = frameEvent;
-        frameEvent = null;
-
-        if (eventName === "end") return;
-        if (!payload || payload === "null") return;
-
-        try {
-          const data = JSON.parse(payload);
-          const store = get();
-
-          // Backend run stream events: reasoning, content, block, done, error
-          switch (eventName) {
-            case "reasoning": {
-              store.handleEvent({
-                type: "chat.assistant.thinking",
-                delta: data.content ?? "",
-              });
-              break;
-            }
-            case "content": {
-              store.handleEvent({
-                type: "chat.assistant.block",
-                block: { kind: "text", content: data.content ?? "" },
-              });
-              break;
-            }
-            case "block": {
-              if (data.block) {
-                const block = normalizeStoreBlock(data.block);
-                store.handleEvent({
-                  type: "chat.assistant.finalize_block",
-                  block,
-                });
-                if (
-                  block.kind === "status_line" &&
-                  block.action === "start_mission" &&
-                  block.run_id.trim()
-                ) {
-                  launchedResult = {
-                    missionId: block.run_id.trim(),
-                    status: "launched",
-                  };
-                }
-              }
-              break;
-            }
-            case "error": {
-              store.handleEvent({
-                type: "chat.assistant.block",
-                block: {
-                  kind: "status_line",
-                  label: data.error ?? "Unknown error",
-                  run_id: "stream-error",
-                  tone: "error",
-                },
-              });
-              break;
-            }
-            default:
-              break;
+        onBlock({ block: rawBlock }) {
+          if (!isCurrentRequest()) return;
+          const block = normalizeStoreBlock(rawBlock);
+          get().handleEvent({
+            type: "chat.assistant.finalize_block",
+            block,
+          });
+          if (
+            block.kind === "status_line" &&
+            block.action === "start_mission" &&
+            block.run_id.trim()
+          ) {
+            launchedResult = {
+              missionId: block.run_id.trim(),
+              status: "launched",
+            };
           }
-        } catch {
-          // Skip malformed frames
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (!isCurrentRequest()) return;
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          const trimmed = line.replace(/\r$/, "");
-          if (!trimmed) {
-            flushFrame();
-            continue;
-          }
-          if (trimmed.startsWith(":")) continue;
-          if (trimmed.startsWith("event:")) {
-            frameEvent = trimmed.slice(6).trim() || null;
-          } else if (trimmed.startsWith("data:")) {
-            frameData.push(trimmed.slice(5).trimStart());
-          }
-        }
+        },
+      });
+      if (!isCurrentRequest()) {
+        stream.abort();
+        return { status: "cancelled" };
       }
-      buffer += decoder.decode();
-      for (const line of buffer.split("\n")) {
-        const trimmed = line.replace(/\r$/, "");
-        if (!trimmed) {
-          flushFrame();
-          continue;
-        }
-        if (trimmed.startsWith(":")) continue;
-        if (trimmed.startsWith("event:")) {
-          frameEvent = trimmed.slice(6).trim() || null;
-        } else if (trimmed.startsWith("data:")) {
-          frameData.push(trimmed.slice(5).trimStart());
-        }
+      set({ activeStream: stream, activeAbortController: null });
+      const outcome = await stream.completion;
+      if (!isCurrentRequest()) return { status: "cancelled" };
+      if (outcome.status === "cancelled") {
+        set((state) => {
+          const messages = state.messages.filter(
+            (message) => message.id !== assistantMsgId,
+          );
+          return {
+            ...syncActiveMessages(state, messages),
+            currentAssistantId: null,
+          };
+        });
+        return { status: "cancelled" };
       }
-      flushFrame();
-
-      if (!isCurrentRequest()) return;
+      if (outcome.status === "failed") {
+        throw new Error(outcome.error);
+      }
       get().handleEvent({ type: "chat.assistant.completion" });
-      return launchedResult ?? undefined;
+      return launchedResult ?? { status: "completed" };
     } catch (error: unknown) {
       if (!isCurrentRequest() || isAbortError(error)) {
-        return;
+        return { status: "cancelled" };
       }
       if (!get().currentAssistantId) {
         get().handleEvent({
@@ -798,6 +684,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           activeRequestId: null,
           activeRequestWorkspaceId: null,
           activeAbortController: null,
+          activeStream: null,
         });
       }
     }

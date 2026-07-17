@@ -10,11 +10,6 @@ from typing import Any
 
 from src.config.llm_config import resolve_model_seed
 from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
-from src.models.capability_profile import (
-    GPT56_RELEASE_MODEL_IDS,
-    GenerationAPI,
-    gpt56_release_assessment,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +38,6 @@ class DataServiceModelCatalogSeedLoader:
         loaded = 0
         for seed in seeds:
             await self.service.create_model(seed, admin_id=self.admin_id)
-            assessment = _release_assessment_for_seed(seed)
-            if assessment is not None:
-                await self.service.update_capability_assessment(
-                    seed["model_id"],
-                    profile=assessment.profile,
-                    evidence=assessment.evidence,
-                )
             loaded += 1
         if loaded:
             logger.info("Loaded %d model catalog seed(s) from env config", loaded)
@@ -132,17 +120,3 @@ class DataServiceModelCatalogSeedLoader:
             "pricing_policy_id": pricing_policy_id,
             "default_headers": dict(model.default_headers or {}),
         }
-
-
-def _release_assessment_for_seed(seed: dict[str, Any]):
-    if (
-        seed.get("category") == "llm"
-        and seed.get("model_id") in GPT56_RELEASE_MODEL_IDS
-        and seed.get("model_name") == seed.get("model_id")
-        and str(seed.get("base_url") or "").rstrip("/")
-        == "https://api.nainai.love/v1"
-        and str(seed.get("generation_api") or "")
-        == GenerationAPI.CHAT_COMPLETIONS.value
-    ):
-        return gpt56_release_assessment(str(seed["model_id"]))
-    return None

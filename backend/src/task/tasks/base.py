@@ -368,33 +368,6 @@ async def _execute_task_async(
                 track_task_end(task_type, time.perf_counter() - _task_start_time)
             except Exception:
                 pass
-            credit_transaction_id = payload.get("credit_transaction_id")
-            if credit_transaction_id:
-                try:
-                    from src.services.credit_service import CreditService
-
-                    # Phase 3: Unified path — payload is the sole source of truth.
-                    user_id = str(payload.get("user_id") or payload.get("created_by") or "").strip()
-                    if user_id:
-                        credit_service = CreditService()
-                        refund_tx = await credit_service.refund_failed_task(
-                            user_id=user_id,
-                            original_transaction_id=str(credit_transaction_id),
-                            reason="任务执行失败退款",
-                            task_id=task_id,
-                        )
-                        if refund_tx is not None:
-                            logger.info(
-                                "Refunded %s credits for failed task %s",
-                                refund_tx.amount,
-                                task_id,
-                            )
-                except Exception:
-                    logger.exception(
-                        "Failed to refund credits for task %s (tx=%s)",
-                        task_id,
-                        credit_transaction_id,
-                    )
             await store.mark_task_completed(task_id, success=False, error=str(e))
             await progress.fail(str(e))
             await _sync_document_preprocess_attachment_state(

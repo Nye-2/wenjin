@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -12,8 +13,10 @@ from typing import Any, Protocol
 from src.academic_visual_runtime.contracts import (
     AcademicVisualCandidate,
     AcademicVisualExecutionContext,
+    AcademicVisualOperationIdentity,
     AcademicVisualReceipt,
     AcademicVisualRenderInput,
+    CodeVisualPayload,
     FigureArtifactManifest,
     GenerativeVisualPayload,
     StructuredVisualPayload,
@@ -24,7 +27,7 @@ from src.academic_visual_runtime.image_provider import (
     ImageGenerationRequest,
     ImageProviderError,
 )
-from src.academic_visual_runtime.overlay import overlay_exact_labels
+from src.academic_visual_runtime.overlay import overlay_exact_labels, overlay_manifest_hash
 from src.academic_visual_runtime.prompt_compiler import PROMPT_CONTRACT_VERSION, compile_image_prompt
 from src.academic_visual_runtime.quality import RasterQualityError, inspect_raster
 from src.academic_visual_runtime.router import InvalidFigureStrategyError, VisualRoute, route_visual
@@ -43,6 +46,9 @@ from src.sandbox.security import (
 )
 
 RUNTIME_VERSION = "wenjin.academic_visual.runtime.v1"
+RENDER_CONTRACT_VERSION = "wenjin.academic_visual.render.v1"
+_CONTENT_HASH_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+_EMBEDDED_CONTENT_HASH_PATTERN = re.compile(r"sha256:([0-9a-f]{64})")
 _MIME_BY_SUFFIX = {
     ".png": "image/png",
     ".webp": "image/webp",
@@ -152,6 +158,132 @@ class AcademicVisualRuntime:
             return await self._render_generative(request, context=context, route=route)
         raise AcademicVisualRuntimeError("invalid_figure_strategy", "unsupported academic visual route")
 
+    async def semantic_identity(
+        self,
+        request: AcademicVisualRenderInput,
+        *,
+        context: AcademicVisualExecutionContext,
+        source_item_seq: int,
+        contract_hashes: tuple[str, ...] = (),
+        content_hash_refs: dict[str, str] | None = None,
+        variant_ordinal: int = 0,
+    ) -> AcademicVisualOperationIdentity:
+        """Resolve the stable, server-owned identity used by ToolOrchestrator."""
+
+        try:
+            route = route_visual(request)
+        except InvalidFigureStrategyError as exc:
+            raise AcademicVisualRuntimeError("invalid_figure_strategy", str(exc)) from exc
+        data_hashes = await self._dataset_content_hashes(
+            context=context,
+            paths=tuple(request.brief.figure_spec.dataset_paths),
+        )
+        known_hashes = {
+            ref: _normalize_content_hash(content_hash)
+            for ref, content_hash in (content_hash_refs or {}).items()
+        }
+        for path, content_hash in data_hashes.items():
+            expected = known_hashes.get(path)
+            if expected is not None and expected != content_hash:
+                raise AcademicVisualRuntimeError(
+                    "dataset_unavailable",
+                    "visual data changed after its verified source receipt",
+                )
+        source_hashes = _source_content_hashes(request.brief.source_refs)
+        source_hashes.update(
+            {
+                ref: known_hashes[ref]
+                for ref in request.brief.source_refs
+                if ref in known_hashes
+            }
+        )
+        payload = request.render
+        prompt_hash: str | None = None
+        prompt_contract_version: str | None = None
+        provider_model: str | None = None
+        quality: str | None = None
+        size: str | None = None
+        overlay_hash: str | None = None
+        if isinstance(payload, CodeVisualPayload):
+            source_semantic_hash = _sha256_text(payload.source_code)
+            renderer_version = payload.environment_id or RUNTIME_VERSION
+        elif isinstance(payload, StructuredVisualPayload):
+            source_semantic_hash = _sha256_text(payload.source)
+            renderer_version = RUNTIME_VERSION
+        elif isinstance(payload, GenerativeVisualPayload):
+            _prompt, prompt_hash = compile_image_prompt(
+                request.brief,
+                prism_context=context.prism_context_text,
+            )
+            source_semantic_hash = prompt_hash
+            renderer_version = PROMPT_CONTRACT_VERSION
+            prompt_contract_version = PROMPT_CONTRACT_VERSION
+            provider_model = "gpt-image-2"
+            quality = payload.quality
+            size = payload.size
+            if route.family == "hybrid":
+                overlay_hash = overlay_manifest_hash(request.brief.exact_labels)
+        else:  # pragma: no cover - discriminated union exhaustiveness
+            raise AcademicVisualRuntimeError(
+                "invalid_figure_strategy",
+                "academic visual render payload is unsupported",
+            )
+        context_hash = _context_hash(request, context.prism_context_hash)
+        return AcademicVisualOperationIdentity(
+            source_item_seq=source_item_seq,
+            variant_ordinal=variant_ordinal,
+            figure_id=request.brief.figure_spec.figure_id,
+            brief_hash=_canonical_hash(
+                request.brief.model_dump(mode="json", by_alias=True)
+            ),
+            context_hash=context_hash,
+            render_contract_hash=_canonical_hash(
+                {
+                    "render_contract_version": RENDER_CONTRACT_VERSION,
+                    "runtime_version": RUNTIME_VERSION,
+                }
+            ),
+            contract_hashes=tuple(sorted(set(contract_hashes))),
+            renderer_id=route.renderer_id,
+            renderer_version=renderer_version,
+            source_semantic_hash=source_semantic_hash,
+            prompt_contract_version=prompt_contract_version,
+            prompt_hash=prompt_hash,
+            dataset_content_hashes=data_hashes,
+            source_content_hashes=source_hashes,
+            provider_model=provider_model,
+            quality=quality,
+            size=size,
+            overlay_manifest_hash=overlay_hash,
+        )
+
+    async def _dataset_content_hashes(
+        self,
+        *,
+        context: AcademicVisualExecutionContext,
+        paths: tuple[str, ...],
+    ) -> dict[str, str]:
+        content_hashes: dict[str, str] = {}
+        for path in paths:
+            try:
+                content_hash = await self.sandbox.read_public_file_precondition_hash(
+                    workspace_id=context.workspace_id,
+                    path=path,
+                    max_bytes=50 * 1024 * 1024,
+                )
+            except SandboxPathError as exc:
+                raise AcademicVisualRuntimeError(
+                    "dataset_unavailable",
+                    "academic visual data is unavailable or outside the workspace",
+                ) from exc
+            if content_hash is None:
+                raise AcademicVisualRuntimeError(
+                    "dataset_unavailable",
+                    f"academic visual data has no verified content hash: {path}",
+                )
+            content_hashes[path] = _normalize_content_hash(content_hash)
+        return content_hashes
+
     async def _render_in_sandbox(
         self,
         request: AcademicVisualRenderInput,
@@ -207,6 +339,11 @@ class AcademicVisualRuntime:
             output_base_hashes = {}
         else:
             raise AcademicVisualRuntimeError("invalid_figure_strategy", "sandbox route received the wrong payload")
+        dataset_content_hashes = await self._dataset_content_hashes(
+            context=context,
+            paths=tuple(request.brief.figure_spec.dataset_paths),
+        )
+        source_content_hashes = _source_content_hashes(request.brief.source_refs)
         try:
             base_content_hash = await self.sandbox.read_public_file_precondition_hash(
                 workspace_id=context.workspace_id,
@@ -332,6 +469,9 @@ class AcademicVisualRuntime:
             renderer_version=artifact.sandbox_environment_id,
             source_code_hash=source_hash,
             reproducibility_ref=f"sandbox-operation:{result.operation_key}",
+            prism_context_hash=context.prism_context_hash,
+            dataset_content_hashes=dataset_content_hashes,
+            source_content_hashes=source_content_hashes,
         )
         candidate = _candidate(
             request,
@@ -344,6 +484,10 @@ class AcademicVisualRuntime:
             source_code_hash=source_hash,
             reproducibility_ref=f"sandbox-operation:{result.operation_key}",
             prism_context_hash=context.prism_context_hash,
+            dataset_content_hashes=dataset_content_hashes,
+            source_content_hashes=source_content_hashes,
+            width=_optional_int(raster_quality.get("width")),
+            height=_optional_int(raster_quality.get("height")),
             quality_receipt={
                 "sandbox_operation_key": result.operation_key,
                 "sandbox_job_id": result.sandbox_job_id,
@@ -369,6 +513,16 @@ class AcademicVisualRuntime:
         prompt, prompt_hash = compile_image_prompt(
             request.brief,
             prism_context=context.prism_context_text,
+        )
+        dataset_content_hashes = await self._dataset_content_hashes(
+            context=context,
+            paths=tuple(request.brief.figure_spec.dataset_paths),
+        )
+        source_content_hashes = _source_content_hashes(request.brief.source_refs)
+        overlay_hash = (
+            overlay_manifest_hash(request.brief.exact_labels)
+            if route.family == "hybrid"
+            else None
         )
         try:
             generated = await self.image_provider.generate(
@@ -430,6 +584,11 @@ class AcademicVisualRuntime:
             renderer_id=route.renderer_id,
             renderer_version=PROMPT_CONTRACT_VERSION,
             source_prompt_hash=prompt_hash,
+            prompt_contract_version=PROMPT_CONTRACT_VERSION,
+            prism_context_hash=context.prism_context_hash,
+            dataset_content_hashes=dataset_content_hashes,
+            source_content_hashes=source_content_hashes,
+            overlay_manifest_hash=overlay_hash,
         )
         candidate = _candidate(
             request,
@@ -441,7 +600,11 @@ class AcademicVisualRuntime:
             preview_hash=stored.content_hash,
             provider_model="gpt-image-2",
             source_prompt_hash=prompt_hash,
+            prompt_contract_version=PROMPT_CONTRACT_VERSION,
             prism_context_hash=context.prism_context_hash,
+            dataset_content_hashes=dataset_content_hashes,
+            source_content_hashes=source_content_hashes,
+            overlay_manifest_hash=overlay_hash,
             width=generated.width,
             height=generated.height,
             quality_receipt={
@@ -449,6 +612,8 @@ class AcademicVisualRuntime:
                 "width": generated.width,
                 "height": generated.height,
                 "provider_request_id": generated.provider_request_id,
+                "requested_quality": payload.quality,
+                "requested_size": payload.size,
                 "preview_expires_at": stored.expires_at.isoformat(),
                 **raster_quality,
             },
@@ -465,7 +630,12 @@ def _manifest(
     renderer_version: str,
     source_code_hash: str | None = None,
     source_prompt_hash: str | None = None,
+    prompt_contract_version: str | None = None,
     reproducibility_ref: str | None = None,
+    prism_context_hash: str | None = None,
+    dataset_content_hashes: dict[str, str] | None = None,
+    source_content_hashes: dict[str, str] | None = None,
+    overlay_manifest_hash: str | None = None,
 ) -> FigureArtifactManifest:
     spec = request.brief.figure_spec
     return FigureArtifactManifest(
@@ -478,10 +648,17 @@ def _manifest(
         renderer_id=renderer_id,
         renderer_version=renderer_version,
         source_code_ref=(f"sandbox-script:sha256:{source_code_hash}" if source_code_hash else None),
+        source_code_hash=source_code_hash,
+        prompt_contract_version=prompt_contract_version,
         source_prompt_hash=source_prompt_hash,
+        context_hash=_context_hash(request, prism_context_hash),
         dataset_refs=tuple(spec.dataset_paths),
         source_refs=request.brief.source_refs,
+        dataset_content_hashes=dataset_content_hashes or {},
+        source_content_hashes=source_content_hashes or {},
         reproducibility_ref=reproducibility_ref,
+        ai_generated=spec.strategy in {"llm_image", "hybrid"},
+        overlay_manifest_hash=overlay_manifest_hash,
         caption=spec.caption,
         alt_text=spec.alt_text,
     )
@@ -499,27 +676,36 @@ def _candidate(
     provider_model: str | None = None,
     source_code_hash: str | None = None,
     source_prompt_hash: str | None = None,
+    prompt_contract_version: str | None = None,
     reproducibility_ref: str | None = None,
     prism_context_hash: str | None = None,
+    dataset_content_hashes: dict[str, str] | None = None,
+    source_content_hashes: dict[str, str] | None = None,
+    overlay_manifest_hash: str | None = None,
     width: int | None = None,
     height: int | None = None,
     quality_receipt: dict[str, str | int | float | bool | None] | None = None,
     warnings: tuple[str, ...] = (),
 ) -> AcademicVisualCandidate:
     spec = request.brief.figure_spec
+    context_hash = _context_hash(request, prism_context_hash)
     identity = _canonical_hash(
         {
             "runtime": RUNTIME_VERSION,
-            "brief": request.brief.model_dump(mode="json", by_alias=True),
-            "candidate_ref": candidate_ref.model_dump(mode="json"),
+            "brief_hash": _canonical_hash(
+                request.brief.model_dump(mode="json", by_alias=True)
+            ),
+            "context_hash": context_hash,
+            "candidate_content_hash": candidate_ref.content_hash,
             "renderer_id": renderer_id,
             "renderer_version": renderer_version,
-        }
-    )
-    context_hash = _canonical_hash(
-        {
-            "brief": request.brief.model_dump(mode="json", by_alias=True),
-            "prism_context_hash": prism_context_hash,
+            "source_code_hash": source_code_hash,
+            "source_prompt_hash": source_prompt_hash,
+            "prompt_contract_version": prompt_contract_version,
+            "dataset_content_hashes": dataset_content_hashes or {},
+            "source_content_hashes": source_content_hashes or {},
+            "provider_model": provider_model,
+            "overlay_manifest_hash": overlay_manifest_hash,
         }
     )
     return AcademicVisualCandidate(
@@ -539,12 +725,17 @@ def _candidate(
         renderer_id=renderer_id,
         renderer_version=renderer_version,
         provider_model=provider_model,
+        prompt_contract_version=prompt_contract_version,
         source_code_hash=source_code_hash,
         source_prompt_hash=source_prompt_hash,
         context_hash=context_hash,
         source_refs=request.brief.source_refs,
         dataset_refs=tuple(spec.dataset_paths),
+        source_content_hashes=source_content_hashes or {},
+        dataset_content_hashes=dataset_content_hashes or {},
         reproducibility_ref=reproducibility_ref,
+        ai_generated=spec.strategy in {"llm_image", "hybrid"},
+        overlay_manifest_hash=overlay_manifest_hash,
         quality_receipt=quality_receipt or {},
         warnings=warnings,
     )
@@ -592,6 +783,41 @@ def _canonical_hash(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
 
 
+def _context_hash(
+    request: AcademicVisualRenderInput,
+    prism_context_hash: str | None,
+) -> str:
+    return _canonical_hash(
+        {
+            "brief": request.brief.model_dump(mode="json", by_alias=True),
+            "prism_context_hash": prism_context_hash,
+        }
+    )
+
+
+def _normalize_content_hash(value: str) -> str:
+    normalized = value.strip().lower()
+    if not _CONTENT_HASH_PATTERN.fullmatch(normalized):
+        raise AcademicVisualRuntimeError(
+            "reproducibility_manifest_invalid",
+            "academic visual content hash is malformed",
+        )
+    return f"sha256:{normalized.removeprefix('sha256:')}"
+
+
+def _source_content_hashes(source_refs: tuple[str, ...]) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for source_ref in source_refs:
+        match = _EMBEDDED_CONTENT_HASH_PATTERN.search(source_ref.lower())
+        if match is not None:
+            hashes[source_ref] = f"sha256:{match.group(1)}"
+    return hashes
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def _sandbox_failure(status: SandboxOperationStatus) -> tuple[str, bool]:
     if status is SandboxOperationStatus.FAILED:
         return "sandbox_execution_failed", True
@@ -610,6 +836,7 @@ __all__ = [
     "AcademicVisualRuntime",
     "AcademicVisualRuntimeError",
     "PreviewWriter",
+    "RENDER_CONTRACT_VERSION",
     "RUNTIME_VERSION",
     "SandboxExecutionPort",
 ]

@@ -21,10 +21,6 @@ from src.dataservice_client.contracts.credit import (
     CreditRedeemCodeCreatePayload,
     CreditRedeemPayload,
     CreditReferralCreatePayload,
-    CreditRefundPayload,
-    CreditReservationCreatePayload,
-    CreditReservationReleasePayload,
-    CreditReservationSettlePayload,
 )
 
 router = APIRouter(
@@ -74,28 +70,6 @@ def _transaction_payload(tx: Any) -> dict[str, Any] | None:
         "admin_id": str(tx.admin_id) if tx.admin_id else None,
         "metadata": tx.tx_metadata or {},
         "created_at": tx.created_at,
-    }
-
-
-def _reservation_payload(reservation: Any) -> dict[str, Any] | None:
-    if reservation is None:
-        return None
-    return {
-        "id": str(reservation.id),
-        "user_id": str(reservation.user_id),
-        "workspace_id": str(reservation.workspace_id) if reservation.workspace_id else None,
-        "mission_id": reservation.mission_id,
-        "mission_item_seq": reservation.mission_item_seq,
-        "scope": _enum_value(reservation.scope),
-        "status": _enum_value(reservation.status),
-        "reserved_credits": int(reservation.reserved_credits),
-        "settled_credits": int(reservation.settled_credits),
-        "transaction_id": str(reservation.transaction_id) if reservation.transaction_id else None,
-        "idempotency_key": reservation.idempotency_key,
-        "expires_at": reservation.expires_at,
-        "metadata": reservation.metadata_json or {},
-        "created_at": reservation.created_at,
-        "updated_at": reservation.updated_at,
     }
 
 
@@ -386,90 +360,6 @@ async def record_consumption(
     )
     await uow.commit()
     return envelope_ok({"transaction": _transaction_payload(tx), "balance_before": balance_before})
-
-
-@router.post("/reservations")
-async def create_reservation(
-    payload: CreditReservationCreatePayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    reservation = await CreditDataService(
-        uow.required_session,
-        autocommit=False,
-    ).create_reservation(
-        user_id=payload.user_id,
-        scope=payload.scope,
-        reserved_credits=payload.reserved_credits,
-        idempotency_key=payload.idempotency_key,
-        workspace_id=payload.workspace_id,
-        mission_id=payload.mission_id,
-        mission_item_seq=payload.mission_item_seq,
-        expires_at=payload.expires_at,
-        metadata=payload.metadata,
-    )
-    response = _reservation_payload(reservation)
-    await uow.commit()
-    return envelope_ok(response)
-
-
-@router.post("/reservations/{reservation_id}/settle")
-async def settle_reservation(
-    reservation_id: str,
-    payload: CreditReservationSettlePayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    reservation, tx = await CreditDataService(
-        uow.required_session,
-        autocommit=False,
-    ).settle_reservation(
-        reservation_id=reservation_id,
-        settled_credits=payload.settled_credits,
-        description=payload.description,
-        transaction_type=CreditTransactionType(payload.transaction_type),
-        mission_policy_id=payload.mission_policy_id,
-        mission_id=payload.mission_id,
-        operation_key=payload.operation_key,
-        metadata=payload.metadata,
-    )
-    response = {
-        "reservation": _reservation_payload(reservation),
-        "transaction": _transaction_payload(tx),
-    }
-    await uow.commit()
-    return envelope_ok(response)
-
-
-@router.post("/reservations/{reservation_id}/release")
-async def release_reservation(
-    reservation_id: str,
-    payload: CreditReservationReleasePayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    reservation = await CreditDataService(
-        uow.required_session,
-        autocommit=False,
-    ).release_reservation(reservation_id, reason=payload.reason)
-    response = _reservation_payload(reservation)
-    await uow.commit()
-    return envelope_ok(response)
-
-
-@router.post("/refund")
-async def refund_consumption(
-    payload: CreditRefundPayload,
-    uow: DataServiceUnitOfWork = Depends(get_uow),
-) -> dict:
-    tx = await CreditDataService(
-        uow.required_session,
-        autocommit=False,
-    ).refund_consumption(
-        user_id=payload.user_id,
-        original_transaction_id=payload.original_transaction_id,
-        reason=payload.reason,
-        task_id=payload.task_id,
-    )
-    await uow.commit()
-    return envelope_ok(_transaction_payload(tx))
 
 
 @router.post("/admin-adjust")

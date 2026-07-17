@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class WorkspaceMemoryRewritePayload(BaseModel):
     workspace_id: str
@@ -33,6 +35,7 @@ class WorkspaceMemoryMergePayload(BaseModel):
     source_mission_id: str | None = None
     source_mission_commit_id: str | None = None
     source_thread_id: str | None = None
+    mission_write_authority: MissionWriteAuthority | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 

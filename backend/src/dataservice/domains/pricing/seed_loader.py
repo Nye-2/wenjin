@@ -14,7 +14,6 @@ DEFAULT_GLOBAL_CREDIT_POLICY_KEY = "default-global-credit"
 DEFAULT_MODEL_USAGE_POLICY_KEY = "default-model-usage"
 DEFAULT_MISSION_POLICY_KEY = "default-mission"
 DEFAULT_TOOL_POLICY_KEY = "default-tool"
-DEFAULT_SANDBOX_POLICY_KEY = "default-sandbox"
 
 
 class DataServicePricingPolicySeedLoader:
@@ -76,7 +75,7 @@ def default_pricing_policy_commands() -> list[PricingPolicyCreateCommand]:
                     "output_usd_per_1m": 0,
                     "reasoning_usd_per_1m": 0,
                 },
-                "free_tokens": 0,
+                "free_tokens": 100000,
                 "max_overdraft_credits": 100,
             },
         ),
@@ -90,6 +89,7 @@ def default_pricing_policy_commands() -> list[PricingPolicyCreateCommand]:
                 "estimate_max_credits": 0,
                 "max_charge_credits": 0,
                 "included_revision_loops": 0,
+                "reservation_ttl_seconds": 86400,
                 "platform_failed_refund": "full",
                 "user_cancel_policy": "settle_completed_usage",
             },
@@ -101,23 +101,6 @@ def default_pricing_policy_commands() -> list[PricingPolicyCreateCommand]:
             config={
                 "tool_key": "default",
                 "base_credits": 0,
-            },
-        ),
-        PricingPolicyCreateCommand(
-            policy_key=DEFAULT_SANDBOX_POLICY_KEY,
-            policy_kind=PricingPolicyKind.SANDBOX.value,
-            name="Default workspace sandbox",
-            config={
-                "operation": "workspace_sandbox",
-                "startup_fee_credits": 5,
-                "minimum_billable_seconds": 60,
-                "max_charge_credits": 120,
-                "default_tier": "standard",
-                "tiers": {
-                    "standard": {
-                        "credits_per_minute": 1,
-                    }
-                },
             },
         ),
     ]

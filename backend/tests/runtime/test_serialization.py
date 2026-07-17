@@ -10,9 +10,9 @@ from src.runtime.serialization import (
     dumps_json,
     encode_sse_data,
     serialize,
-    serialize_channel_values,
     serialize_lc_object,
     serialize_messages_tuple,
+    serialize_public_values,
 )
 
 
@@ -34,14 +34,14 @@ def test_serialize_lc_object_handles_pydantic_and_nested_values():
     }
 
 
-def test_serialize_channel_values_strips_internal_langgraph_keys():
+def test_serialize_public_values_strips_internal_runtime_keys():
     values = {
-        "__pregel_task_id": "internal",
+        "__runtime_task_id": "internal",
         "__interrupt__": {"x": 1},
         "messages": ["hello"],
         "count": 3,
     }
-    assert serialize_channel_values(values) == {"messages": ["hello"], "count": 3}
+    assert serialize_public_values(values) == {"messages": ["hello"], "count": 3}
 
 
 def test_serialize_messages_tuple_formats_chunk_and_metadata():
@@ -54,12 +54,12 @@ def test_serialize_messages_tuple_formats_chunk_and_metadata():
 def test_serialize_values_mode_applies_channel_filter():
     result = serialize(
         {
-            "__pregel_x": 1,
+            "__runtime_x": 1,
             "data": {"ts": datetime(2026, 4, 13, tzinfo=UTC)},
         },
         mode="values",
     )
-    assert "__pregel_x" not in result
+    assert "__runtime_x" not in result
     assert "2026-04-13" in str(result["data"]["ts"])
 
 

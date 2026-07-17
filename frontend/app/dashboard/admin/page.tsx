@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  BarChart3,
   Coins,
   CreditCard,
   FolderOpen,
@@ -146,7 +145,6 @@ export default function AdminOverviewPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <AnalyticsEntryCard href="/dashboard/admin/users" title="用户管理" icon={<Users className="w-5 h-5" />} />
         <AnalyticsEntryCard href="/dashboard/admin/credits" title="积分流水" icon={<Coins className="w-5 h-5" />} />
-        <AnalyticsEntryCard href="/dashboard/admin/mcp" title="MCP 配置" icon={<BarChart3 className="w-5 h-5" />} />
         <AnalyticsEntryCard href="/dashboard/admin/release-gate" title="发布门禁" icon={<FolderOpen className="w-5 h-5" />} />
       </div>
     </>

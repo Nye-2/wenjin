@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import json
 import os
@@ -174,6 +175,8 @@ class MissionPreviewStore:
         self._delete_unreferenced_object(descriptor)
 
     def _cleanup_expired(self, *, now: datetime, limit: int) -> list[str]:
+        if not 1 <= limit <= 1000:
+            raise ValueError("mission_preview_cleanup_limit_invalid")
         cutoff = _aware(now)
         deleted: list[str] = []
         referenced_objects: set[tuple[str, str]] = set()
@@ -184,7 +187,13 @@ class MissionPreviewStore:
             for ref_path in sorted(refs_root.glob("*/*.json")):
                 try:
                     descriptor = PreviewObjectDescriptor.model_validate_json(ref_path.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
+                    workspace = normalize_path_component(descriptor.workspace_id)
+                    _validate_ref(descriptor.ref)
+                    if workspace != ref_path.parent.name or descriptor.ref != ref_path.stem:
+                        raise ValueError("preview_ref_descriptor_mismatch")
+                except FileNotFoundError:
+                    continue
+                except ValueError:
                     ref_path.unlink(missing_ok=True)
                     continue
                 if descriptor.expires_at <= cutoff and len(deleted) < limit:
@@ -192,25 +201,32 @@ class MissionPreviewStore:
                     deleted.append(descriptor.ref)
                     continue
                 referenced_objects.add(
-                    (normalize_path_component(descriptor.workspace_id), descriptor.content_hash)
+                    (workspace, descriptor.content_hash)
                 )
         objects_root = self._root / "objects"
         if objects_root.exists():
+            deleted_objects = 0
             for object_path in objects_root.glob("*/*/*/payload"):
+                if deleted_objects >= limit:
+                    break
                 workspace = object_path.parents[2].name
                 content_hash = object_path.parent.name
                 if (workspace, content_hash) in referenced_objects:
                     continue
                 try:
                     modified_at = datetime.fromtimestamp(object_path.stat().st_mtime, tz=UTC)
-                except OSError:
+                except FileNotFoundError:
                     continue
                 if modified_at <= cutoff:
                     object_path.unlink(missing_ok=True)
+                    deleted_objects += 1
                     try:
                         object_path.parent.rmdir()
-                    except OSError:
-                        pass
+                    except FileNotFoundError:
+                        continue
+                    except OSError as exc:
+                        if exc.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+                            raise
         return deleted
 
     def _delete_unreferenced_object(self, descriptor: PreviewObjectDescriptor) -> None:

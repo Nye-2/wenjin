@@ -18,7 +18,6 @@ from src.dataservice.domains.asset import models as asset_models  # noqa: F401
 from src.dataservice.domains.conversation import models as conversation_models  # noqa: F401
 from src.dataservice.domains.prism import models as prism_models  # noqa: F401
 from src.dataservice.domains.provenance import models as provenance_models  # noqa: F401
-from src.dataservice.domains.sandbox import models as sandbox_models  # noqa: F401
 from src.dataservice.domains.source import models as source_models  # noqa: F401
 from src.dataservice.domains.workspace import models as workspace_models  # noqa: F401
 from src.dataservice.domains.workspace_memory import models as workspace_memory_models  # noqa: F401

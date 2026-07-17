@@ -8,30 +8,25 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class TokenBillingPolicy:
-    """Token-to-credit billing parameters for one usage surface."""
+class FreeTokenAllowance:
+    """Cumulative free-token allowance for one usage surface."""
 
     enabled: bool
     free_tokens: int
-    tokens_per_credit: int
-    max_overdraft_credits: int
 
     def as_dict(self) -> dict[str, int | bool]:
         return {
             "enabled": self.enabled,
             "free_tokens": self.free_tokens,
-            "tokens_per_credit": self.tokens_per_credit,
-            "max_overdraft_credits": self.max_overdraft_credits,
         }
 
 
 @dataclass(frozen=True, slots=True)
-class TokenBillingCharge:
-    """Calculated billing delta for one token usage event."""
+class FreeTokenUsage:
+    """Free and billable token slices for one usage event."""
 
     free_tokens_applied: int
     billable_tokens: int
-    credits_to_charge: int
     historical_tokens_after: int
 
 
@@ -98,78 +93,31 @@ class MissionPricingEstimate:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class SandboxPricingEstimate:
-    """Estimated sandbox operation charge."""
-
-    operation: str
-    tier: str
-    duration_seconds: int
-    billable_seconds: int
-    startup_fee_credits: int
-    runtime_credits: int
-    credits: int
-
-    def as_dict(self) -> dict[str, int | str]:
-        return {
-            "operation": self.operation,
-            "tier": self.tier,
-            "duration_seconds": self.duration_seconds,
-            "billable_seconds": self.billable_seconds,
-            "startup_fee_credits": self.startup_fee_credits,
-            "runtime_credits": self.runtime_credits,
-            "credits": self.credits,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class OperationBillingPolicy:
-    """Fixed credit billing parameters for non-LLM operations."""
-
-    enabled: bool
-    run_python_credits: int
-    max_overdraft_credits: int
-
-    def as_dict(self) -> dict[str, int | bool]:
-        return {
-            "enabled": self.enabled,
-            "run_python_credits": self.run_python_credits,
-            "max_overdraft_credits": self.max_overdraft_credits,
-        }
-
-
-def calculate_token_billing_charge(
+def calculate_free_token_usage(
     *,
-    policy: TokenBillingPolicy,
+    allowance: FreeTokenAllowance,
     total_tokens: int,
     historical_tokens_before: int,
-) -> TokenBillingCharge:
-    """Calculate token billing deltas under a cumulative free-token policy."""
+) -> FreeTokenUsage:
+    """Slice usage under a cumulative free-token allowance."""
     normalized_total = max(int(total_tokens or 0), 0)
     historical_before = max(int(historical_tokens_before or 0), 0)
     historical_after = historical_before + normalized_total
 
-    if not policy.enabled or normalized_total <= 0:
-        return TokenBillingCharge(
+    if not allowance.enabled or normalized_total <= 0:
+        return FreeTokenUsage(
             free_tokens_applied=0,
             billable_tokens=0,
-            credits_to_charge=0,
             historical_tokens_after=historical_after,
         )
 
-    overage_before = max(historical_before - policy.free_tokens, 0)
-    overage_after = max(historical_after - policy.free_tokens, 0)
+    overage_before = max(historical_before - allowance.free_tokens, 0)
+    overage_after = max(historical_after - allowance.free_tokens, 0)
     billable_tokens = max(overage_after - overage_before, 0)
     free_tokens_applied = max(normalized_total - billable_tokens, 0)
-    credits_to_charge = (
-        math.ceil(billable_tokens / policy.tokens_per_credit)
-        if billable_tokens > 0
-        else 0
-    )
-    return TokenBillingCharge(
+    return FreeTokenUsage(
         free_tokens_applied=free_tokens_applied,
         billable_tokens=billable_tokens,
-        credits_to_charge=credits_to_charge,
         historical_tokens_after=historical_after,
     )
 
@@ -265,47 +213,6 @@ def calculate_mission_estimate(mission_policy: Any) -> MissionPricingEstimate:
     )
 
 
-def calculate_sandbox_estimate(
-    sandbox_policy: Any,
-    *,
-    operation: str,
-    duration_seconds: int,
-    tier: str | None = None,
-) -> SandboxPricingEstimate:
-    """Estimate sandbox credits from startup fee, tier, and rounded runtime."""
-    policy = _policy_config(sandbox_policy)
-    normalized_operation = str(operation or "").strip()
-    configured_operation = str(policy.get("operation") or normalized_operation).strip()
-    if configured_operation and normalized_operation and configured_operation != normalized_operation:
-        raise ValueError(f"Unsupported sandbox operation: {operation}")
-
-    tier_name = str(tier or policy.get("default_tier") or "").strip()
-    tier_config = _resolve_tier_config(policy.get("tiers"), tier_name)
-    if not tier_name:
-        tier_name = str(tier_config.get("tier") or "default")
-    credits_per_minute = _coerce_int(tier_config.get("credits_per_minute"), default=0)
-    minimum_billable_seconds = _int_policy_value(policy, "minimum_billable_seconds", default=0)
-    normalized_duration = max(int(duration_seconds or 0), 0)
-    billable_seconds = max(normalized_duration, minimum_billable_seconds)
-    if billable_seconds > 0:
-        billable_seconds = math.ceil(billable_seconds / 60) * 60
-    startup_fee = _int_policy_value(policy, "startup_fee_credits", default=0)
-    runtime_credits = math.ceil(billable_seconds / 60) * credits_per_minute
-    credits = startup_fee + runtime_credits
-    max_charge = _int_policy_value(policy, "max_charge_credits", default=0)
-    if max_charge > 0:
-        credits = min(credits, max_charge)
-    return SandboxPricingEstimate(
-        operation=normalized_operation,
-        tier=tier_name,
-        duration_seconds=normalized_duration,
-        billable_seconds=billable_seconds,
-        startup_fee_credits=startup_fee,
-        runtime_credits=runtime_credits,
-        credits=credits,
-    )
-
-
 def _policy_config(raw: Any) -> dict[str, Any]:
     if raw is None:
         return {}
@@ -368,7 +275,7 @@ def _normalize_usage_dict(token_usage: dict[str, Any]) -> dict[str, int]:
     reasoning_tokens = _coerce_int(token_usage.get("reasoning_tokens", 0), default=0)
     total_tokens = _coerce_int(token_usage.get("total_tokens", 0), default=0)
     if total_tokens <= 0:
-        total_tokens = input_tokens + cached_input_tokens + output_tokens + reasoning_tokens
+        total_tokens = input_tokens + output_tokens
     return {
         "input_tokens": input_tokens,
         "cached_input_tokens": cached_input_tokens,
@@ -424,25 +331,6 @@ def _raw_cost_usd(policy: dict[str, Any], usage: dict[str, int]) -> float:
         + usage["output_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("output_usd_per_1m"), default=0)
         + usage["reasoning_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("reasoning_usd_per_1m"), default=0)
     )
-
-
-def _resolve_tier_config(raw_tiers: Any, tier_name: str) -> dict[str, Any]:
-    if isinstance(raw_tiers, dict):
-        if tier_name and isinstance(raw_tiers.get(tier_name), dict):
-            return dict(raw_tiers[tier_name])
-        for key, value in raw_tiers.items():
-            if isinstance(value, dict):
-                config = dict(value)
-                config.setdefault("tier", key)
-                return config
-    if isinstance(raw_tiers, list):
-        for item in raw_tiers:
-            if isinstance(item, dict) and (not tier_name or item.get("tier") == tier_name):
-                return dict(item)
-        for item in raw_tiers:
-            if isinstance(item, dict):
-                return dict(item)
-    return {}
 
 
 def _int_policy_value(policy: dict[str, Any], key: str, *, default: int) -> int:

@@ -49,6 +49,7 @@ class ToolErrorType(StrEnum):
     CAPABILITY_UNVERIFIED = "capability_unverified"
     MALFORMED_TOOL_ARGUMENTS = "malformed_tool_arguments"
     EXECUTION_FAILED = "execution_failed"
+    CANCELLED = "cancelled"
     INTERNAL_ERROR = "internal_error"
 
 
@@ -75,7 +76,8 @@ class ToolDescriptor(BaseModel):
     required_permissions: tuple[str, ...] = ()
     network_profile: str = Field(default="none", min_length=1, max_length=80)
     budget_class: str = Field(default="standard", min_length=1, max_length=80)
-    default_timeout_seconds: float = Field(default=60.0, gt=0, le=1800)
+    timeout_seconds: float = Field(gt=0, le=1800, allow_inf_nan=False)
+    max_attempts: int = Field(ge=1, le=5)
     payload_limit_bytes: int = Field(default=262_144, ge=1024, le=16_777_216)
     provenance_requirements: tuple[str, ...] = ()
 
@@ -85,7 +87,24 @@ class ToolDescriptor(BaseModel):
             raise ValueError("a tool descriptor requires at least one allowed caller")
         if len(self.allowed_callers) != len(set(self.allowed_callers)):
             raise ValueError("allowed callers must be unique")
+        if (
+            self.side_effect_class is SideEffectClass.NON_IDEMPOTENT
+            and self.max_attempts != 1
+        ):
+            raise ValueError("non-idempotent tools must allow exactly one attempt")
         return self
+
+
+class ToolExecutionLimit(BaseModel):
+    """Mission-pinned execution boundary for one catalog descriptor."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{2,100}$")
+    descriptor_schema_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    descriptor_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    timeout_seconds: float = Field(gt=0, le=1800)
+    max_attempts: int = Field(ge=1, le=5)
 
 
 class ToolPolicy(BaseModel):
@@ -97,11 +116,36 @@ class ToolPolicy(BaseModel):
     allowed_tool_ids: tuple[str, ...]
     granted_permissions: tuple[str, ...] = ()
     allowed_network_profiles: tuple[str, ...] = ("none",)
-    max_attempts: int = Field(default=2, ge=1, le=5)
-    max_timeout_seconds: float = Field(default=120.0, gt=0, le=1800)
+    execution_limits: tuple[ToolExecutionLimit, ...]
+
+    @model_validator(mode="after")
+    def _validate_execution_limits(self) -> Self:
+        if len(self.allowed_tool_ids) != len(set(self.allowed_tool_ids)):
+            raise ValueError("allowed_tool_ids must be unique")
+        tool_ids = [item.tool_id for item in self.execution_limits]
+        if len(tool_ids) != len(set(tool_ids)):
+            raise ValueError("execution_limits must use unique tool ids")
+        if set(tool_ids) != set(self.allowed_tool_ids):
+            raise ValueError("execution_limits must exactly cover allowed_tool_ids")
+        return self
 
     def allows_tool(self, tool_id: str) -> bool:
         return tool_id in self.allowed_tool_ids
+
+    def execution_limit(self, tool_id: str) -> ToolExecutionLimit:
+        for limit in self.execution_limits:
+            if limit.tool_id == tool_id:
+                return limit
+        raise ValueError(f"tool execution limit is not pinned: {tool_id}")
+
+
+class ToolContentHashRef(BaseModel):
+    """Server-observed content hash bound to a durable input reference."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ref: str = Field(min_length=1, max_length=2048)
+    content_hash: str = Field(pattern=r"^(?:sha256:)?[0-9a-f]{64}$")
 
 
 class ToolInvocationContext(BaseModel):
@@ -116,6 +160,19 @@ class ToolInvocationContext(BaseModel):
     lease_epoch: int = Field(ge=0)
     model_id: str | None = Field(default=None, max_length=100)
     input_refs: tuple[str, ...] = ()
+    source_item_seq: int | None = Field(default=None, ge=1)
+    contract_hashes: tuple[str, ...] = ()
+    content_hash_refs: tuple[ToolContentHashRef, ...] = ()
+    permission_grant_ref: str | None = Field(default=None, max_length=2048)
+    variant_ordinal: int = Field(default=0, ge=0)
+    deadline_monotonic: float = Field(gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_semantic_provenance(self) -> Self:
+        refs = [item.ref for item in self.content_hash_refs]
+        if len(refs) != len(set(refs)):
+            raise ValueError("content_hash_refs must use unique refs")
+        return self
 
 
 class ProviderToolCall(BaseModel):
@@ -140,10 +197,15 @@ class ToolOperation(BaseModel):
     caller_kind: ToolCallerKind
     model_id: str | None = None
     input_refs: tuple[str, ...] = ()
+    permission_grant_ref: str | None = Field(default=None, max_length=2048)
     tool_id: str
     tool_version: str
     descriptor_schema_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     args_hash: str
+    semantic_identity_hash: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     policy_snapshot_ref: str
     lease_epoch: int
     attempt: int = Field(ge=1)
@@ -289,8 +351,10 @@ __all__ = [
     "SideEffectClass",
     "SourceReference",
     "ToolCallerKind",
+    "ToolContentHashRef",
     "ToolDescriptor",
     "ToolErrorType",
+    "ToolExecutionLimit",
     "ToolGuardDecision",
     "ToolHandlerResult",
     "ToolInvocationContext",

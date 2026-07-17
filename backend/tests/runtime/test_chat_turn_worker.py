@@ -215,7 +215,7 @@ async def test_run_thread_turn_reports_timeout_as_timeout_error_message():
 
 
 @pytest.mark.asyncio
-async def test_run_thread_turn_rollback_interrupt_passes_rollback_flag():
+async def test_run_thread_turn_does_not_start_after_preflight_interrupt():
     manager = ChatTurnRunManager()
     bridge = MemoryStreamBridge()
     record = await manager.create_or_reject("thread-1")
@@ -243,8 +243,8 @@ async def test_run_thread_turn_rollback_interrupt_passes_rollback_flag():
     latest = await manager.get_or_load(record.run_id, refresh=True)
     assert latest is not None
     assert latest.status == ChatTurnRunStatus.interrupted
-    assert handler.interruptions == [True]
-    set_thread_status.assert_awaited_once()
+    assert handler.interruptions == []
+    set_thread_status.assert_not_awaited()
 
 
 @pytest.mark.asyncio

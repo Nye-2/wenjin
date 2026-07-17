@@ -10,10 +10,13 @@ vi.mock("@/lib/api/client", () => ({
 }));
 
 import {
+  commitMissionReviews,
+  decideMissionReviews,
   getWorkspaceMissionSummary,
   getMissionView,
   listMissionArtifacts,
   listMissionEvidence,
+  resolveMissionPermission,
   subscribeMissionEvents,
 } from "@/lib/api/missions";
 
@@ -52,8 +55,20 @@ function missionViewWire() {
     attention_request: null,
     review_summary: { pending: 0, accepted: 0, needs_more_evidence: 0, committed: 0 },
     commit_summary: { pending: 0, applying: 0, committed: 0, failed: 0 },
-    review_items: [],
-    commits: [],
+    review_items: [{
+      review_item_id: "review-1",
+      mission_id: "mission-1",
+      target_kind: "claim",
+      title: "核心论断",
+      risk_level: "high",
+      status: "pending",
+      requires_explicit_review: true,
+      batch_acceptable: true,
+      suggested_selected: false,
+      commit_status: null,
+      commit_eligible: false,
+      commit_block_reason: "review_item_not_accepted",
+    }],
     required_stage_ids: [],
     stage_summaries: [],
     team_summary: null,
@@ -78,6 +93,24 @@ describe("Mission projection API", () => {
     authorizedFetchMock.mockReset();
   });
 
+  it("resolves Mission permission decisions through the dedicated endpoint", async () => {
+    authorizedFetchMock.mockResolvedValueOnce(jsonResponse({ resumed: true }));
+
+    await resolveMissionPermission({
+      missionId: "mission-1",
+      requestId: "permission/1",
+      decision: "allow_for_mission",
+    });
+
+    expect(authorizedFetchMock).toHaveBeenCalledWith(
+      "/api/missions/mission-1/permissions/permission%2F1/resolve",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ decision: "allow_for_mission", input_json: {} }),
+      }),
+    );
+  });
+
   it("projects activity and uses the dedicated review selection revision", async () => {
     const wire = missionViewWire();
     wire.mission.artifact_count = 6;
@@ -95,6 +128,99 @@ describe("Mission projection API", () => {
     expect(view.reviewSelectionRevision).toBe("4e623f1e58e841dd80c8f16a39497f95");
     expect(view.reviewSelectionRevision).not.toBe(String(view.stateVersion));
     expect(view.artifactCount).toBe(1);
+    expect(view.reviewItems[0]).toMatchObject({
+      requiresExplicitReview: true,
+      batchAcceptable: true,
+      suggestedSelected: false,
+      commitEligible: false,
+      commitBlockReason: "review_item_not_accepted",
+    });
+  });
+
+  it("omits the removed bulk field from review decision requests", async () => {
+    authorizedFetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        outcomes: [
+          { review_item_id: "review-1", applied: true },
+          { review_item_id: "review-2", applied: true },
+        ],
+      }));
+
+    await decideMissionReviews({
+      missionId: "mission-1",
+      decisions: [
+        { reviewItemId: "review-1", decision: "accepted" },
+        { reviewItemId: "review-2", decision: "needs_more_evidence" },
+      ],
+    });
+
+    const request = authorizedFetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(request.body)) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("bulk");
+    expect(payload.decisions).toEqual([
+      { review_item_id: "review-1", action: "accept" },
+      { review_item_id: "review-2", action: "needs_more_evidence" },
+    ]);
+    expect(payload.decision_id).toMatch(/^review-[0-9a-f]{40}$/);
+  });
+
+  it("derives stable idempotency keys for repeated review and commit intents", async () => {
+    authorizedFetchMock
+      .mockResolvedValueOnce(jsonResponse({ outcomes: [] }))
+      .mockResolvedValueOnce(jsonResponse({ outcomes: [] }))
+      .mockResolvedValueOnce(jsonResponse({ outcomes: [] }))
+      .mockResolvedValueOnce(jsonResponse({ outcomes: [] }));
+
+    const decisions = [{ reviewItemId: "review-1", decision: "accepted" as const }];
+    await decideMissionReviews({ missionId: "mission-1", decisions });
+    await decideMissionReviews({ missionId: "mission-1", decisions });
+    await commitMissionReviews({
+      missionId: "mission-1",
+      reviewItemIds: ["review-2", "review-1"],
+    });
+    await commitMissionReviews({
+      missionId: "mission-1",
+      reviewItemIds: ["review-1", "review-2"],
+    });
+
+    const payloads = authorizedFetchMock.mock.calls.map((call) =>
+      JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>
+    );
+    expect(payloads[0].decision_id).toBe(payloads[1].decision_id);
+    expect(payloads[2].request_id).toBe(payloads[3].request_id);
+    expect(payloads[2].request_id).toMatch(/^commit-[0-9a-f]{40}$/);
+    expect(payloads[2].review_item_ids).toEqual(["review-1", "review-2"]);
+  });
+
+  it("follows the continuation Mission returned by terminal review feedback", async () => {
+    authorizedFetchMock.mockResolvedValueOnce(jsonResponse({
+      outcomes: [{ review_item_id: "review-1", applied: true }],
+      continuation_mission_id: "mission-child-1",
+    }));
+
+    const result = await decideMissionReviews({
+      missionId: "mission-1",
+      decisions: [{ reviewItemId: "review-1", decision: "needs_more_evidence" }],
+    });
+
+    expect(result.targetMissionId).toBe("mission-child-1");
+    expect(authorizedFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a continuation failure without losing the parent Mission view", async () => {
+    authorizedFetchMock.mockResolvedValueOnce(jsonResponse({
+      outcomes: [{ review_item_id: "review-1", applied: true }],
+      continuation_error_code: "continuation_policy_changed",
+    }));
+
+    const result = await decideMissionReviews({
+      missionId: "mission-1",
+      decisions: [{ reviewItemId: "review-1", decision: "needs_more_evidence" }],
+    });
+
+    expect(result.targetMissionId).toBe("mission-1");
+    expect(result.issueCodes).toContain("continuation_policy_changed");
+    expect(authorizedFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("loads evidence and artifacts only from typed projection endpoints", async () => {

@@ -23,6 +23,7 @@ from src.dataservice.domains.asset.projection import (
     workspace_artifact_to_projection,
 )
 from src.dataservice.domains.asset.repository import WorkspaceAssetRepository
+from src.dataservice.domains.mission.write_authority import assert_active_mission_write
 from src.dataservice.domains.workspace.service import DataServiceWorkspaceService
 
 _ARTIFACT_VERSION_UNIQUE_CONSTRAINT = "uq_artifacts_workspace_type_title_version"
@@ -38,6 +39,49 @@ class WorkspaceAssetService:
         self.repository = WorkspaceAssetRepository(session)
 
     async def register_asset(self, command: WorkspaceAssetCreateCommand) -> WorkspaceAssetProjection:
+        mission_review_asset = command.source_kind == "mission_review_item"
+        await assert_active_mission_write(
+            self.session,
+            authority=command.mission_write_authority,
+            workspace_id=command.workspace_id,
+            mission_review_item_id=command.source_id if mission_review_asset else None,
+            required=mission_review_asset,
+        )
+        if mission_review_asset:
+            if not command.source_id:
+                raise ValueError("Mission review assets require source_id")
+            await DataServiceWorkspaceService(
+                self.session,
+                autocommit=False,
+            ).lock_workspace_for_update(command.workspace_id)
+            existing = await self.repository.list_assets(
+                workspace_id=command.workspace_id,
+                source_kind=command.source_kind,
+                source_id=command.source_id,
+                include_deleted=True,
+                limit=2,
+            )
+            if existing:
+                record = existing[0]
+                if record.deleted_at is not None:
+                    raise ValueError("Mission review asset was already deleted")
+                expected = (
+                    command.asset_kind,
+                    command.mime_type,
+                    command.storage_path,
+                    command.content_hash,
+                )
+                actual = (
+                    record.asset_kind,
+                    record.mime_type,
+                    record.storage_path,
+                    record.content_hash,
+                )
+                if actual != expected:
+                    raise ValueError(
+                        "Mission review asset source was reused with different content"
+                    )
+                return asset_to_projection(record)
         record = self.repository.create_asset(
             {
                 "workspace_id": command.workspace_id,

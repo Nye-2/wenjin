@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.agents.middlewares.thread_data import get_thread_data_root
 from src.gateway.routers.thread_contracts import ThreadAttachment, ThreadUploadKind
+from src.services.thread_data_paths import get_thread_data_root
 from src.services.workspace_uploads import next_available_path
 
 

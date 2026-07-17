@@ -10,14 +10,15 @@ from src.models.capability_profile import (
     GenerationAPI,
     ModelCapabilityProbeEvidence,
     ModelCapabilityProfile,
+    ModelTransportAPI,
     ProbeCheckStatus,
     assess_profile_freshness,
-    gpt56_release_assessment,
 )
+from tests.models.capability_fixtures import verified_capability_assessment
 
 
 def test_release_profile_is_probe_derived_and_search_is_receipt_backed() -> None:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
 
     assert assessment.profile.has_strict_tools() is True
     assert assessment.profile.streaming is True
@@ -31,11 +32,11 @@ def test_release_profile_is_probe_derived_and_search_is_receipt_backed() -> None
     assert assessment.profile.native_web_search is True
     assert assessment.profile.probe_hash == assessment.evidence.evidence_hash()
     observations = {
-        item.generation_api: item.protocol_conformance
+        item.transport_api: item.protocol_conformance
         for item in assessment.profile.transport_observations
     }
-    assert observations[GenerationAPI.CHAT_COMPLETIONS] is True
-    assert observations[GenerationAPI.RESPONSES] is True
+    assert observations[ModelTransportAPI.CHAT_COMPLETIONS] is True
+    assert observations[ModelTransportAPI.RESPONSES] is True
 
 
 @pytest.mark.parametrize(
@@ -43,7 +44,7 @@ def test_release_profile_is_probe_derived_and_search_is_receipt_backed() -> None
     ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
 )
 def test_release_profile_is_bound_to_each_gpt56_model(model_id: str) -> None:
-    assessment = gpt56_release_assessment(model_id)
+    assessment = verified_capability_assessment(model_id)
 
     assert assessment.profile.model_id == model_id
     assert assessment.evidence.model_name == model_id
@@ -51,7 +52,7 @@ def test_release_profile_is_bound_to_each_gpt56_model(model_id: str) -> None:
 
 
 def test_profile_becomes_stale_when_endpoint_identity_changes() -> None:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
 
     freshness = assess_profile_freshness(
         assessment.profile,
@@ -67,7 +68,7 @@ def test_profile_becomes_stale_when_endpoint_identity_changes() -> None:
 
 
 def test_profile_becomes_stale_when_probe_hash_is_modified() -> None:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
     changed_evidence = ModelCapabilityProbeEvidence.model_validate(
         {
             **assessment.evidence.model_dump(mode="json"),
@@ -101,7 +102,7 @@ def test_profile_becomes_stale_when_probe_hash_is_modified() -> None:
 
 
 def test_assessment_rejects_a_profile_not_derived_from_probe() -> None:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
     elevated = assessment.profile.model_copy(update={"vision": True})
 
     with pytest.raises(ValidationError, match="profile is not derived"):
@@ -109,7 +110,7 @@ def test_assessment_rejects_a_profile_not_derived_from_probe() -> None:
 
 
 def test_profile_age_can_be_enforced_without_changing_hash_semantics() -> None:
-    assessment = gpt56_release_assessment(
+    assessment = verified_capability_assessment(
         "gpt-5.6-sol",
         observed_at=datetime(2026, 7, 1, tzinfo=UTC)
     )
@@ -130,7 +131,7 @@ def test_profile_age_can_be_enforced_without_changing_hash_semantics() -> None:
 
 
 def test_unknown_profile_and_probe_versions_are_rejected() -> None:
-    assessment = gpt56_release_assessment("gpt-5.6-sol")
+    assessment = verified_capability_assessment("gpt-5.6-sol")
 
     with pytest.raises(ValidationError, match="probe_version"):
         ModelCapabilityProbeEvidence.model_validate(

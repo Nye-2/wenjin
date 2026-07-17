@@ -166,6 +166,32 @@ def test_semantic_reference_projection_omits_inline_tool_payloads() -> None:
         "content_hash": f"sha256:{'b' * 64}",
         "kind": "application/json",
     }
+    assert reference.source_type == "artifact"
+
+
+def test_artifact_candidate_evidence_keeps_artifact_provenance() -> None:
+    outcome = ResearchToolOutcome(
+        operation_id="operation-artifact",
+        operation_key="c" * 64,
+        producer="worker-1",
+        tool_id="artifact.create_candidate",
+        tool_version="1.0.0",
+        status=ToolOutcomeStatus.SUCCESS,
+        observed_at=datetime.now(UTC),
+        summary="Prepared a stage artifact.",
+        evidence_refs=(
+            ToolReference(
+                ref_id=f"artifact-candidate:{'d' * 64}",
+                kind="artifact_candidate",
+                title="第一问建模边界",
+            ),
+        ),
+        verification_status=VerificationStatus.VERIFIED,
+    )
+
+    [reference] = _tool_semantic_references(outcome)
+
+    assert reference.source_type == "artifact"
 
 
 def test_selected_refs_project_to_exact_canonical_read_arguments() -> None:

@@ -6,20 +6,12 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..base import Base, TimestampMixin, UUIDMixin
-
-
-class CreditReservationScope(StrEnum):
-    """Billable surfaces that can reserve credits."""
-
-    MISSION = "mission"
-    SANDBOX_OPERATION = "sandbox_operation"
-    THREAD_TURN = "thread_turn"
 
 
 class CreditReservationStatus(StrEnum):
@@ -37,8 +29,8 @@ class CreditReservation(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "credit_reservations"
     __table_args__ = (
         Index("ix_credit_reservations_user_status", "user_id", "status"),
-        Index("ix_credit_reservations_mission", "mission_id"),
-        Index("ix_credit_reservations_idempotency", "user_id", "scope", "idempotency_key", unique=True),
+        Index("ix_credit_reservations_mission", "mission_id", unique=True),
+        Index("ix_credit_reservations_idempotency", "idempotency_key", unique=True),
     )
 
     user_id: Mapped[str] = mapped_column(
@@ -48,18 +40,9 @@ class CreditReservation(Base, UUIDMixin, TimestampMixin):
         index=True,
     )
     workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    mission_id: Mapped[str | None] = mapped_column(
+    mission_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("mission_runs.mission_id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    mission_item_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    scope: Mapped[CreditReservationScope] = mapped_column(
-        SQLEnum(
-            CreditReservationScope,
-            values_callable=lambda enum_cls: [member.value for member in enum_cls],
-            name="credit_reservation_scope",
-        ),
+        ForeignKey("mission_runs.mission_id", ondelete="CASCADE"),
         nullable=False,
     )
     status: Mapped[CreditReservationStatus] = mapped_column(
@@ -77,7 +60,12 @@ class CreditReservation(Base, UUIDMixin, TimestampMixin):
     transaction_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     idempotency_key: Mapped[str] = mapped_column(String(240), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
 
     def __repr__(self) -> str:
-        return f"<CreditReservation(id={self.id!r}, scope={self.scope!r}, status={self.status!r})>"
+        return f"<CreditReservation(id={self.id!r}, mission_id={self.mission_id!r}, status={self.status!r})>"

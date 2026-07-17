@@ -26,6 +26,12 @@ class GenerationAPI(StrEnum):
     """Wire API used for language-model generation."""
 
     CHAT_COMPLETIONS = "chat_completions"
+
+
+class ModelTransportAPI(StrEnum):
+    """Independently probed provider transport surfaces."""
+
+    CHAT_COMPLETIONS = "chat_completions"
     RESPONSES = "responses"
 
 
@@ -55,12 +61,12 @@ class CapabilityProbeCheck(BaseModel):
     detail_code: str | None = Field(default=None, max_length=160)
 
 
-class GenerationTransportObservation(BaseModel):
-    """Protocol completion result for one generation API surface."""
+class ModelTransportObservation(BaseModel):
+    """Protocol completion result for one provider transport surface."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    generation_api: GenerationAPI
+    transport_api: ModelTransportAPI
     protocol_conformance: bool
     detail_code: str | None = Field(default=None, max_length=160)
 
@@ -79,7 +85,7 @@ class ModelCapabilityProbeEvidence(BaseModel):
     checks: tuple[CapabilityProbeCheck, ...] = ()
     web_search_api: WebSearchAPI = WebSearchAPI.NONE
     search_receipts: tuple[SearchReceiptKind, ...] = ()
-    transport_observations: tuple[GenerationTransportObservation, ...] = ()
+    transport_observations: tuple[ModelTransportObservation, ...] = ()
 
     @field_validator("observed_at")
     @classmethod
@@ -93,9 +99,9 @@ class ModelCapabilityProbeEvidence(BaseModel):
         check_names = [check.name for check in self.checks]
         if len(check_names) != len(set(check_names)):
             raise ValueError("probe check names must be unique")
-        apis = [item.generation_api for item in self.transport_observations]
+        apis = [item.transport_api for item in self.transport_observations]
         if len(apis) != len(set(apis)):
-            raise ValueError("transport observations must be unique per generation API")
+            raise ValueError("transport observations must be unique per transport API")
         if self.web_search_api is WebSearchAPI.NONE and self.search_receipts:
             raise ValueError("search receipts require a web search API")
         return self
@@ -103,9 +109,9 @@ class ModelCapabilityProbeEvidence(BaseModel):
     def check_passed(self, name: str) -> bool:
         return any(check.name == name and check.status is ProbeCheckStatus.PASSED for check in self.checks)
 
-    def transport_conforms(self, generation_api: GenerationAPI) -> bool:
+    def transport_conforms(self, transport_api: ModelTransportAPI) -> bool:
         return any(
-            item.generation_api is generation_api and item.protocol_conformance
+            item.transport_api is transport_api and item.protocol_conformance
             for item in self.transport_observations
         )
 
@@ -132,7 +138,7 @@ class ModelCapabilityProfile(BaseModel):
     vision: bool = False
     response_storage_disabled: bool = False
     protocol_conformance: bool = False
-    transport_observations: tuple[GenerationTransportObservation, ...] = ()
+    transport_observations: tuple[ModelTransportObservation, ...] = ()
     observed_at: datetime
     probe_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     endpoint_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -245,7 +251,8 @@ def build_profile_from_probe(evidence: ModelCapabilityProbeEvidence) -> ModelCap
 
     generation_api = evidence.generation_api
     protocol_conformance = bool(
-        generation_api is not None and evidence.transport_conforms(generation_api)
+        generation_api is GenerationAPI.CHAT_COMPLETIONS
+        and evidence.transport_conforms(ModelTransportAPI.CHAT_COMPLETIONS)
     )
     structured_tool_calls = protocol_conformance and evidence.check_passed("structured_tool_calls")
     strict_tool_arguments = structured_tool_calls and evidence.check_passed("strict_tool_arguments")
@@ -259,7 +266,7 @@ def build_profile_from_probe(evidence: ModelCapabilityProbeEvidence) -> ModelCap
 
     search_transport_conforms = (
         evidence.web_search_api is WebSearchAPI.RESPONSES_WEB_SEARCH
-        and evidence.transport_conforms(GenerationAPI.RESPONSES)
+        and evidence.transport_conforms(ModelTransportAPI.RESPONSES)
     )
     required_receipts = {
         SearchReceiptKind.WEB_SEARCH_CALL,
@@ -366,74 +373,6 @@ def unverified_capability_assessment(
     )
 
 
-GPT56_RELEASE_MODEL_IDS = frozenset(
-    {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
-)
-
-
-def gpt56_release_assessment(
-    model_id: str,
-    *,
-    observed_at: datetime | None = None,
-) -> CapabilityProfileAssessment:
-    """Locked 2026-07-14 live-probe evidence for the GPT-5.6 release family."""
-
-    if model_id not in GPT56_RELEASE_MODEL_IDS:
-        raise ValueError(f"Unsupported GPT-5.6 release model: {model_id}")
-    observed = (observed_at or datetime(2026, 7, 14, tzinfo=UTC)).astimezone(UTC)
-    model_name = model_id
-    base_url = "https://api.nainai.love/v1"
-    evidence = ModelCapabilityProbeEvidence(
-        model_id=model_id,
-        model_name=model_name,
-        generation_api=GenerationAPI.CHAT_COMPLETIONS,
-        endpoint_fingerprint=endpoint_fingerprint(
-            model_name=model_name,
-            base_url=base_url,
-            generation_api=GenerationAPI.CHAT_COMPLETIONS,
-        ),
-        observed_at=observed,
-        checks=(
-            CapabilityProbeCheck(name="structured_tool_calls", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="strict_tool_arguments", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="streaming_termination", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="response_storage_disabled", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="reasoning_effort:low", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="reasoning_effort:medium", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="reasoning_effort:high", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="reasoning_effort:xhigh", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="native_web_search_call", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(name="search_source_citations", status=ProbeCheckStatus.PASSED),
-            CapabilityProbeCheck(
-                name="native_web_search_completed_event_boundary",
-                status=ProbeCheckStatus.PASSED,
-                detail_code=native_search_endpoint_fingerprint(base_url),
-            ),
-        ),
-        web_search_api=WebSearchAPI.RESPONSES_WEB_SEARCH,
-        search_receipts=(
-            SearchReceiptKind.WEB_SEARCH_CALL,
-            SearchReceiptKind.ANNOTATIONS_SOURCES,
-        ),
-        transport_observations=(
-            GenerationTransportObservation(
-                generation_api=GenerationAPI.CHAT_COMPLETIONS,
-                protocol_conformance=True,
-                detail_code="clean_done_and_close",
-            ),
-            GenerationTransportObservation(
-                generation_api=GenerationAPI.RESPONSES,
-                protocol_conformance=True,
-                detail_code=native_search_endpoint_fingerprint(base_url),
-            ),
-        ),
-    )
-    return CapabilityProfileAssessment(
-        profile=build_profile_from_probe(evidence),
-        evidence=evidence,
-    )
-
-
 def _canonical_hash(value: Any) -> str:
     encoded = json.dumps(
         value,
@@ -449,8 +388,8 @@ __all__ = [
     "CapabilityProfileAssessment",
     "CapabilityProfileFreshness",
     "GenerationAPI",
-    "GenerationTransportObservation",
-    "GPT56_RELEASE_MODEL_IDS",
+    "ModelTransportAPI",
+    "ModelTransportObservation",
     "ModelCapabilityProbeEvidence",
     "ModelCapabilityProfile",
     "ProbeCheckStatus",
@@ -459,7 +398,6 @@ __all__ = [
     "assess_profile_freshness",
     "build_profile_from_probe",
     "endpoint_fingerprint",
-    "gpt56_release_assessment",
     "native_search_endpoint",
     "native_search_endpoint_fingerprint",
     "unverified_capability_assessment",

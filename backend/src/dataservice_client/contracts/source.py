@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.contracts.mission_write_authority import MissionWriteAuthority
+
 
 class ReferenceSourceType(enum.StrEnum):
     """How a reference entered a workspace library."""
@@ -198,6 +200,7 @@ class SourceAssetLinkPayload(BaseModel):
 class SourceImportPayload(SourceCreatePayload):
     external_ids: list[SourceExternalIdCreatePayload] = Field(default_factory=list)
     dedupe_by_title: bool = True
+    mission_write_authority: MissionWriteAuthority | None = None
 
 
 class SourcePayload(SourceCreatePayload):

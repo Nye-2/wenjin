@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { MissionView } from "@/lib/api/mission-types";
 import {
   defaultMissionSurface,
+  mergeMissionView,
   missionDemandKey,
   missionNeedsAttention,
   suggestedReviewSelection,
@@ -27,8 +28,8 @@ function view(): MissionView {
     evidenceCount: 0,
     artifactCount: 0,
     reviewItems: [
-      { id: "r-low", title: "研究摘要", targetKind: "document", riskLevel: "low", status: "pending", suggestedSelected: true, batchAcceptable: true, requiresExplicitReview: false, previewAvailable: false },
-      { id: "r-claim", title: "核心论断", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false, requiresExplicitReview: true, previewAvailable: false },
+      { id: "r-low", title: "研究摘要", targetKind: "document", riskLevel: "low", status: "pending", suggestedSelected: true, batchAcceptable: true, requiresExplicitReview: false, previewAvailable: false, commitEligible: false },
+      { id: "r-claim", title: "核心论断", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false, requiresExplicitReview: true, previewAvailable: false, commitEligible: false },
     ],
     reviewSummary: { pending: 2, needsMoreEvidence: 0, accepted: 0, committed: 0 },
     reviewMode: "balanced_default",
@@ -59,6 +60,42 @@ describe("MissionView projection", () => {
     mission.executionStatus = "running";
 
     expect(defaultMissionSurface(mission)).toBe("progress");
+  });
+
+  it("merges one MissionView monotonically by stateVersion", () => {
+    const current = view();
+    const older = { ...current, stateVersion: 6, title: "stale title" };
+    const newer = { ...current, stateVersion: 8, title: "new title" };
+
+    expect(mergeMissionView(current, older)).toBe(current);
+    expect(mergeMissionView(current, newer)).toBe(newer);
+
+    const otherMission = { ...older, missionId: "mission-2" };
+    expect(mergeMissionView(current, otherMission)).toBe(otherMission);
+  });
+
+  it("keys demand by canonical review and attention identity, not stateVersion", () => {
+    const mission = view();
+    const key = missionDemandKey(mission);
+
+    expect(missionDemandKey({ ...mission, stateVersion: 8 })).toBe(key);
+    expect(missionDemandKey({
+      ...mission,
+      reviewSelectionRevision: "review-selection-revision-4",
+      stateVersion: 8,
+    })).not.toBe(key);
+    expect(missionDemandKey({
+      ...mission,
+      attentionRequest: {
+        requestId: "attention-1",
+        reason: "missing_input",
+        title: "需要补充信息",
+        summary: "请确认研究范围",
+        impact: "确认后继续",
+        requiredInputs: [],
+        actions: [],
+      },
+    })).not.toBe(key);
   });
 
 });

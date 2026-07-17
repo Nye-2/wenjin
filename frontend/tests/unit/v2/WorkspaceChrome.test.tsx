@@ -22,6 +22,7 @@ describe("WorkspaceChrome", () => {
         activeSurface="workbench"
         pendingReviewCount={2}
         missionStatus="running"
+        missionSummaryState="ready"
         onOpenHub={() => undefined}
       />,
     );
@@ -60,6 +61,7 @@ describe("WorkspaceChrome", () => {
           activeSurface="workbench"
           pendingReviewCount={0}
           missionStatus={null}
+          missionSummaryState="ready"
           onOpenHub={() => undefined}
         />
       </WenjinThemeProvider>,
@@ -87,11 +89,29 @@ describe("WorkspaceChrome", () => {
         activeSurface="workbench"
         pendingReviewCount={1}
         missionStatus="waiting"
+        missionSummaryState="ready"
         onOpenHub={() => undefined}
       />,
     );
 
     expect(screen.getByText("等待回应")).toBeInTheDocument();
     expect(screen.queryByText("运行中")).not.toBeInTheDocument();
+  });
+
+  it("does not present an unavailable Mission summary as a trusted zero state", () => {
+    render(
+      <WorkspaceChrome
+        workspaceId="ws-unavailable"
+        workspaceName="Unavailable Summary"
+        workspaceTypeLabel="SCI论文"
+        activeSurface="workbench"
+        pendingReviewCount={0}
+        missionStatus={null}
+        missionSummaryState="unavailable"
+        onOpenHub={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("状态待同步")).toBeInTheDocument();
   });
 });

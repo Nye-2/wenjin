@@ -114,44 +114,6 @@ def _review_payload(item: Any) -> dict[str, Any]:
     return {**preview, **payload}
 
 
-def _review_file_change_payload(item: Any) -> dict[str, Any]:
-    target_ref = _review_target_ref(item)
-    payload = _review_payload(item)
-    path = str(
-        target_ref.get("file_path")
-        or target_ref.get("path")
-        or payload.get("path")
-        or "",
-    ).strip()
-    logical_key = str(
-        target_ref.get("logical_key")
-        or payload.get("logical_key")
-        or item.source_item_seq
-        or item.review_item_id
-    )
-    result = {
-        "id": str(item.review_item_id),
-        "logical_key": logical_key,
-        "source_type": "mission_review",
-        "source_mission_id": payload.get("source_mission_id"),
-        "source_task_id": payload.get("source_task_id"),
-        "target_kind": str(item.target_kind or ""),
-        "path": path,
-        "title": str(item.title or path or logical_key),
-        "reason": str(item.summary or payload.get("reason") or ""),
-        "status": str(item.status),
-        "created_at": _isoformat(item.created_at),
-        "updated_at": _isoformat(item.updated_at),
-        "applied_at": _isoformat(item.decided_at) if str(item.status) == "committed" else None,
-    }
-    for key, value in payload.items():
-        if key in {"content_contract", "semantic_contract", "academic_style_contract"}:
-            continue
-        if key not in result and value is not None:
-            result[key] = value
-    return result
-
-
 def _prism_review_activity_payload(item: Any) -> dict[str, Any]:
     return {
         "id": item.review_item_id,
@@ -415,8 +377,6 @@ class WorkspacePrismService:
             if latex_project_id
             else []
         )
-        file_changes = [_review_file_change_payload(item) for item in pending_items]
-        applied_file_changes = [_review_file_change_payload(item) for item in applied_items]
         review_items = [
             item.model_dump(mode="json")
             for item in [*pending_items, *applied_items]
@@ -459,8 +419,11 @@ class WorkspacePrismService:
             text = str(value).strip() if value is not None else ""
             if text and text not in target_files:
                 target_files.append(text)
-        for change in [*file_changes, *applied_file_changes]:
-            text = str(change.get("path") or "").strip()
+        for review_item in [*pending_items, *applied_items]:
+            target_ref = _review_target_ref(review_item)
+            text = str(
+                target_ref.get("file_path") or target_ref.get("path") or ""
+            ).strip()
             if text and text not in target_files:
                 target_files.append(text)
 
@@ -475,10 +438,8 @@ class WorkspacePrismService:
             "url": f"/workspaces/{workspace_id}/prism",
             "main_file": main_file,
             "compile_status": None,
-            "has_pending_changes": bool(file_changes),
+            "has_pending_changes": bool(pending_items),
             "target_files": target_files,
-            "file_changes": file_changes,
-            "applied_file_changes": applied_file_changes,
             "review_items": review_items,
             "source_links": source_links,
             "protected_sections": protected_sections,
@@ -486,8 +447,8 @@ class WorkspacePrismService:
             "memory_preferences": memory_preferences,
             "recent_activity": recent_activity,
             "review_summary": {
-                "pending_count": len(file_changes),
-                "applied_count": len(applied_file_changes),
+                "pending_count": len(pending_items),
+                "applied_count": len(applied_items),
                 "source_link_count": len(source_links),
                 "protected_section_count": len(protected_sections),
             },

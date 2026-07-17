@@ -17,12 +17,13 @@ from src.dataservice_client.contracts.mission import (
     MissionReviewStatus,
     MissionRiskLevel,
     MissionStatus,
+    MissionUserCommandPayload,
 )
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
-    BillingOutcome,
     MissionAgentDecision,
     MissionAgentProtocolError,
+    MissionContinuationDirective,
     MissionPauseRequest,
     MissionPortOutcome,
     MissionPortOutcomeStatus,
@@ -102,11 +103,7 @@ def understanding_quality_decision(
         summary="Evaluate problem understanding and pin question count",
         payload_json={
             "candidate_refs": [],
-            "item_counts": (
-                {"problem_questions": item_count}
-                if item_count is not None
-                else {}
-            ),
+            "item_counts": ({"problem_questions": item_count} if item_count is not None else {}),
             "assessment": {},
         },
     )
@@ -165,15 +162,62 @@ def _per_item_runtime_context(*, terminal_outputs: bool = False) -> dict[str, An
             mode="per_item",
             source_context_key="problem_questions",
             instance_id_template="question_{index}_model",
+            previous_item_prerequisite_templates=("question_{index}_solution_validation",),
         ),
         advance_condition="The question solution passes.",
         stop_condition="The question cannot be solved reliably.",
+    )
+    solution_validation = StageAcceptanceContract(
+        schema_version="stage_acceptance_contract.v2",
+        contract_id="math_modeling_solution.question_solution_validation",
+        version=1,
+        mission_policy_id="math_modeling_solution",
+        workspace_type="math_modeling",
+        stage_id="question_solution_validation",
+        stage_goal="Validate one question solution.",
+        minimum_criteria=(
+            StageCriterion(
+                criterion_id="validated_result",
+                description="The computed result is reproducible and validated.",
+            ),
+        ),
+        allowed_actions_if_failed=("revise_existing", "stop_execution"),
+        instantiation=StageInstantiationRule(
+            mode="per_item",
+            source_context_key="problem_questions",
+            instance_id_template="question_{index}_solution_validation",
+            same_item_prerequisite_templates=("question_{index}_model",),
+        ),
+        advance_condition="The validated solution passes.",
+        stop_condition="The solution cannot be validated reliably.",
+    )
+    paper_integration = StageAcceptanceContract(
+        schema_version="stage_acceptance_contract.v2",
+        contract_id="math_modeling_solution.paper_integration",
+        version=1,
+        mission_policy_id="math_modeling_solution",
+        workspace_type="math_modeling",
+        stage_id="paper_integration",
+        stage_goal="Integrate all validated questions.",
+        minimum_criteria=(
+            StageCriterion(
+                criterion_id="integrated_paper",
+                description="All validated question results are integrated.",
+            ),
+        ),
+        allowed_actions_if_failed=("revise_existing", "stop_execution"),
+        all_item_prerequisite_templates=("question_{index}_solution_validation",),
+        all_item_source_context_key="problem_questions",
+        advance_condition="Every validated question is integrated.",
+        stop_condition="The paper cannot be integrated reliably.",
     )
     context: dict[str, Any] = {
         "required_stage_ids": ["question_model"],
         "stage_contracts": {
             understanding.stage_id: understanding.model_dump(mode="json"),
             question_model.stage_id: question_model.model_dump(mode="json"),
+            solution_validation.stage_id: solution_validation.model_dump(mode="json"),
+            paper_integration.stage_id: paper_integration.model_dump(mode="json"),
         },
     }
     if terminal_outputs:
@@ -194,7 +238,46 @@ async def test_start_and_complete_mission(runtime_factory) -> None:
     assert telemetry.outcome == MissionSliceOutcome.COMPLETED
     assert run is not None and run.status.value == "completed"
     assert run.lease_owner is None
-    assert deps["billing"].settled == [receipt.mission_id]
+
+
+@pytest.mark.asyncio
+async def test_review_mode_change_does_not_resume_waiting_mission(
+    runtime_factory,
+) -> None:
+    agent = ScriptedAgent([])
+    runtime, deps = runtime_factory(agent=agent)
+    receipt = await runtime.start(start_request())
+    stored = deps["store"].runs[receipt.mission_id]
+    stored.status = MissionStatus.WAITING
+    stored.next_wakeup_at = None
+    stored.snapshot_json.update(
+        {
+            "waiting_reason": "permission",
+            "pending_request": {"request_id": "permission-1"},
+        }
+    )
+    await deps["store"].append_command(
+        receipt.mission_id,
+        MissionUserCommandPayload(
+            command_id="review-mode-1",
+            command_type="set_review_mode",
+            payload_json={"review_mode": "review_all"},
+        ),
+    )
+
+    telemetry = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    run = await deps["store"].get(receipt.mission_id)
+    assert telemetry.outcome is MissionSliceOutcome.WAITING
+    assert run is not None
+    assert run.status is MissionStatus.WAITING
+    assert run.review_mode.value == "review_all"
+    assert run.snapshot_json["waiting_reason"] == "permission"
+    assert run.snapshot_json["pending_request"] == {"request_id": "permission-1"}
+    assert run.last_applied_command_seq == run.last_command_seq
+    assert run.lease_owner is None
+    assert run.next_wakeup_at is None
+    assert agent.contexts == []
 
 
 @pytest.mark.asyncio
@@ -226,9 +309,7 @@ async def test_per_item_count_is_pinned_atomically_with_understanding_quality(
         quality=_PassingQualityWithResult(),
         limits=MissionSliceLimits(max_model_turns=1),
     )
-    receipt = await runtime.start(
-        start_request(runtime_context_json=_per_item_runtime_context())
-    )
+    receipt = await runtime.start(start_request(runtime_context_json=_per_item_runtime_context()))
 
     await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
     await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
@@ -236,12 +317,7 @@ async def test_per_item_count_is_pinned_atomically_with_understanding_quality(
 
     assert run is not None
     assert run.snapshot_json["stage_item_counts"] == {"problem_questions": 2}
-    invalid = [
-        item
-        for item in deps["store"].items[receipt.mission_id]
-        if item.item_type == "error"
-        and item.operation_id == "decision-quality-count-2"
-    ]
+    invalid = [item for item in deps["store"].items[receipt.mission_id] if item.item_type == "error" and item.operation_id == "decision-quality-count-2"]
     assert "not_unlocked_by_stage" in invalid[-1].payload_json["detail"]
 
 
@@ -261,21 +337,14 @@ async def test_understanding_pass_is_not_persisted_without_required_item_count(
         quality=_PassingQualityWithResult(),
         limits=MissionSliceLimits(max_model_turns=1),
     )
-    receipt = await runtime.start(
-        start_request(runtime_context_json=_per_item_runtime_context())
-    )
+    receipt = await runtime.start(start_request(runtime_context_json=_per_item_runtime_context()))
 
     await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
     run = await deps["store"].get(receipt.mission_id)
 
     assert run is not None
     assert "stage_acceptance" not in run.snapshot_json
-    invalid = [
-        item
-        for item in deps["store"].items[receipt.mission_id]
-        if item.item_type == "error"
-        and item.operation_id == "decision-quality-count-missing"
-    ]
+    invalid = [item for item in deps["store"].items[receipt.mission_id] if item.item_type == "error" and item.operation_id == "decision-quality-count-missing"]
     assert "missing=problem_questions" in invalid[-1].payload_json["detail"]
 
 
@@ -285,9 +354,7 @@ async def test_completion_expands_each_per_item_stage_instance(runtime_factory) 
         agent=ScriptedAgent([complete_decision("complete-1"), complete_decision("complete-2")]),
         limits=MissionSliceLimits(max_model_turns=1),
     )
-    receipt = await runtime.start(
-        start_request(runtime_context_json=_per_item_runtime_context())
-    )
+    receipt = await runtime.start(start_request(runtime_context_json=_per_item_runtime_context()))
     persisted = deps["store"].runs[receipt.mission_id]
     persisted.snapshot_json.update(
         {
@@ -297,18 +364,12 @@ async def test_completion_expands_each_per_item_stage_instance(runtime_factory) 
     )
 
     first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
-    persisted.snapshot_json["stage_acceptance"]["question_2_model"] = {
-        "result": "pass"
-    }
+    persisted.snapshot_json["stage_acceptance"]["question_2_model"] = {"result": "pass"}
     second = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
 
     assert first.outcome == MissionSliceOutcome.YIELDED
     assert second.outcome == MissionSliceOutcome.COMPLETED
-    invalid = [
-        item
-        for item in deps["store"].items[receipt.mission_id]
-        if item.item_type == "error" and item.operation_id == "complete-1"
-    ]
+    invalid = [item for item in deps["store"].items[receipt.mission_id] if item.item_type == "error" and item.operation_id == "complete-1"]
     assert "question_2_model" in invalid[-1].payload_json["detail"]
 
 
@@ -332,13 +393,7 @@ async def test_completion_requires_each_terminal_candidate_to_be_user_viewable(r
         ),
         limits=MissionSliceLimits(max_model_turns=1),
     )
-    receipt = await runtime.start(
-        start_request(
-            runtime_context_json=_per_item_runtime_context(
-                terminal_outputs=True
-            )
-        )
-    )
+    receipt = await runtime.start(start_request(runtime_context_json=_per_item_runtime_context(terminal_outputs=True)))
     persisted = deps["store"].runs[receipt.mission_id]
     persisted.snapshot_json.update(
         {
@@ -512,11 +567,255 @@ async def test_child_mission_inherits_only_passed_stage_receipts(runtime_factory
 
 
 @pytest.mark.asyncio
+async def test_review_continuation_invalidates_only_downstream_single_stages(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
+
+    def contract(stage_id: str, prerequisites: tuple[str, ...] = ()) -> dict[str, Any]:
+        return StageAcceptanceContract(
+            schema_version="stage_acceptance_contract.v2",
+            contract_id=f"sci_research.{stage_id}",
+            version=1,
+            mission_policy_id="sci_research",
+            workspace_type="sci",
+            stage_id=stage_id,
+            stage_goal=f"Complete {stage_id}.",
+            minimum_criteria=(
+                StageCriterion(
+                    criterion_id=f"{stage_id}_quality",
+                    description=f"{stage_id} is complete and well supported.",
+                ),
+            ),
+            allowed_actions_if_failed=("revise_existing", "stop_execution"),
+            prerequisite_stage_ids=prerequisites,
+            advance_condition=f"{stage_id} passes.",
+            stop_condition=f"{stage_id} cannot be completed.",
+        ).model_dump(mode="json")
+
+    runtime_context = {
+        "policy_content_hash": "a" * 64,
+        "stage_contracts": {
+            "scope": contract("scope"),
+            "literature": contract("literature", ("scope",)),
+            "synthesis": contract("synthesis", ("literature",)),
+        },
+    }
+    parent_receipt = await runtime.start(
+        start_request(
+            mission_policy_id="sci_research",
+            runtime_context_json=runtime_context,
+        )
+    )
+    parent = deps["store"].runs[parent_receipt.mission_id]
+    parent.snapshot_json["stage_acceptance"] = {stage_id: {"stage_id": stage_id, "result": "pass"} for stage_id in ("scope", "literature", "synthesis")}
+    parent.status = MissionStatus.COMPLETED
+
+    child_receipt = await runtime.start(
+        start_request(
+            parent_mission_id=parent_receipt.mission_id,
+            mission_idempotency_key="review-continuation-single",
+            mission_policy_id="sci_research",
+            runtime_context_json=runtime_context,
+            continuation=MissionContinuationDirective(
+                reason="needs_more_evidence",
+                review_item_ids=("review-literature",),
+                reset_stage_ids=("literature",),
+                rationale="补充近期证据",
+            ),
+        )
+    )
+    child = await deps["store"].get(child_receipt.mission_id)
+
+    assert child is not None
+    assert set(child.snapshot_json["stage_acceptance"]) == {"scope"}
+    assert child.snapshot_json["mission_lineage"]["invalidated_stage_ids"] == [
+        "literature",
+        "synthesis",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_review_continuation_closes_over_math_question_dependencies(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
+    runtime_context = {
+        "policy_content_hash": "a" * 64,
+        **_per_item_runtime_context(),
+    }
+    parent_receipt = await runtime.start(
+        start_request(
+            workspace_type="math_modeling",
+            mission_policy_id="math_modeling_solution",
+            runtime_context_json=runtime_context,
+        )
+    )
+    parent = deps["store"].runs[parent_receipt.mission_id]
+    passed_stage_ids = (
+        "problem_understanding",
+        "question_1_model",
+        "question_1_solution_validation",
+        "question_2_model",
+        "question_2_solution_validation",
+        "question_3_model",
+        "question_3_solution_validation",
+        "paper_integration",
+    )
+    parent.snapshot_json["stage_acceptance"] = {stage_id: {"stage_id": stage_id, "result": "pass"} for stage_id in passed_stage_ids}
+    parent.snapshot_json["stage_item_counts"] = {"problem_questions": 3}
+    parent.status = MissionStatus.COMPLETED
+
+    child_receipt = await runtime.start(
+        start_request(
+            parent_mission_id=parent_receipt.mission_id,
+            mission_idempotency_key="review-continuation-math",
+            workspace_type="math_modeling",
+            mission_policy_id="math_modeling_solution",
+            runtime_context_json=runtime_context,
+            continuation=MissionContinuationDirective(
+                reason="regenerate",
+                review_item_ids=("review-question-2",),
+                reset_stage_ids=("question_2_model",),
+            ),
+        )
+    )
+    child = await deps["store"].get(child_receipt.mission_id)
+
+    assert child is not None
+    assert set(child.snapshot_json["stage_acceptance"]) == {
+        "problem_understanding",
+        "question_1_model",
+        "question_1_solution_validation",
+    }
+    assert set(child.snapshot_json["mission_lineage"]["invalidated_stage_ids"]) == {
+        "question_2_model",
+        "question_2_solution_validation",
+        "question_3_model",
+        "question_3_solution_validation",
+        "paper_integration",
+    }
+    assert child.snapshot_json["stage_item_counts"] == {"problem_questions": 3}
+
+
+@pytest.mark.asyncio
+async def test_review_continuation_drops_count_when_its_source_stage_is_invalidated(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    runtime_context = {
+        "policy_content_hash": "a" * 64,
+        **_per_item_runtime_context(),
+    }
+    parent_receipt = await runtime.start(
+        start_request(
+            workspace_type="math_modeling",
+            mission_policy_id="math_modeling_solution",
+            runtime_context_json=runtime_context,
+        )
+    )
+    parent = deps["store"].runs[parent_receipt.mission_id]
+    parent.snapshot_json["stage_acceptance"] = {
+        stage_id: {"stage_id": stage_id, "result": "pass"}
+        for stage_id in (
+            "problem_understanding",
+            "question_1_model",
+            "question_1_solution_validation",
+            "question_2_model",
+            "question_2_solution_validation",
+            "paper_integration",
+        )
+    }
+    parent.snapshot_json["stage_item_counts"] = {"problem_questions": 2}
+    parent.status = MissionStatus.COMPLETED
+
+    child_receipt = await runtime.start(
+        start_request(
+            parent_mission_id=parent_receipt.mission_id,
+            mission_idempotency_key="review-continuation-reset-count-source",
+            workspace_type="math_modeling",
+            mission_policy_id="math_modeling_solution",
+            runtime_context_json=runtime_context,
+            continuation=MissionContinuationDirective(
+                reason="regenerate",
+                review_item_ids=("review-problem",),
+                reset_stage_ids=("problem_understanding",),
+            ),
+        )
+    )
+    child = await deps["store"].get(child_receipt.mission_id)
+
+    assert child is not None
+    assert "stage_item_counts" not in child.snapshot_json
+
+
+@pytest.mark.asyncio
+async def test_nonterminal_review_feedback_uses_the_continuation_invalidation_closure(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    runtime_context = {
+        "policy_content_hash": "a" * 64,
+        **_per_item_runtime_context(),
+    }
+    receipt = await runtime.start(
+        start_request(
+            workspace_type="math_modeling",
+            mission_policy_id="math_modeling_solution",
+            runtime_context_json=runtime_context,
+        )
+    )
+    run = deps["store"].runs[receipt.mission_id]
+    run.snapshot_json["stage_acceptance"] = {
+        stage_id: {"stage_id": stage_id, "result": "pass"}
+        for stage_id in (
+            "problem_understanding",
+            "question_1_model",
+            "question_1_solution_validation",
+            "question_2_model",
+            "question_2_solution_validation",
+            "question_3_model",
+            "question_3_solution_validation",
+            "paper_integration",
+        )
+    }
+    run.snapshot_json["stage_item_counts"] = {"problem_questions": 3}
+    await deps["store"].append_command(
+        receipt.mission_id,
+        MissionUserCommandPayload(
+            command_id="review-feedback-1",
+            command_type="review_feedback",
+            summary="Regenerate question two",
+            payload_json={
+                "reason": "regenerate",
+                "review_item_ids": ["review-question-2"],
+                "reset_stage_ids": ["question_2_model"],
+            },
+        ),
+    )
+
+    await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    updated = await deps["store"].get(receipt.mission_id)
+
+    assert updated is not None
+    assert set(updated.snapshot_json["stage_acceptance"]) == {
+        "problem_understanding",
+        "question_1_model",
+        "question_1_solution_validation",
+    }
+    assert updated.snapshot_json["stage_item_counts"] == {"problem_questions": 3}
+    assert updated.active_stage_id == "question_2_model"
+
+
+@pytest.mark.asyncio
 async def test_continuation_inherits_pinned_inputs_and_accepted_internal_refs(
     runtime_factory,
 ) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
-    runtime_context = {"policy_content_hash": "a" * 64}
+    runtime_context = {
+        "policy_content_hash": "a" * 64,
+        **_per_item_runtime_context(),
+    }
     first_input_ref = f"mission-input:{'1' * 64}"
     second_input_ref = f"mission-input:{'2' * 64}"
     candidate_ref = f"artifact-candidate:{'3' * 64}"
@@ -549,12 +848,18 @@ async def test_continuation_inherits_pinned_inputs_and_accepted_internal_refs(
     )
     parent = deps["store"].runs[parent_receipt.mission_id]
     parent.snapshot_json["stage_acceptance"] = {
+        "problem_understanding": {
+            "stage_id": "problem_understanding",
+            "result": "pass",
+            "artifact_refs": [],
+            "evidence_refs": [],
+        },
         "question_3_model": {
             "stage_id": "question_3_model",
             "result": "pass",
             "artifact_refs": [candidate_ref],
             "evidence_refs": [first_input_ref],
-        }
+        },
     }
     parent.snapshot_json["stage_item_counts"] = {"problem_questions": 3}
     deps["store"].seed_items(
@@ -594,9 +899,7 @@ async def test_continuation_inherits_pinned_inputs_and_accepted_internal_refs(
     child = await deps["store"].get(child_receipt.mission_id)
 
     assert child is not None
-    assert [
-        item["input_ref"] for item in child.snapshot_json["mission_inputs"]
-    ] == [first_input_ref, second_input_ref]
+    assert [item["input_ref"] for item in child.snapshot_json["mission_inputs"]] == [first_input_ref, second_input_ref]
     assert child.snapshot_json["stage_item_counts"] == {"problem_questions": 3}
     assert child.snapshot_json["mission_lineage"]["upstream_refs"] == [
         {
@@ -621,9 +924,7 @@ async def test_continuation_inherits_pinned_inputs_and_accepted_internal_refs(
     await runtime.run_slice(child.mission_id, worker_id="worker-lineage-context")
 
     assert deps["agent"].contexts
-    assert [
-        item.payload_ref for item in deps["agent"].contexts[-1].reference_items
-    ] == [candidate_ref]
+    assert [item.payload_ref for item in deps["agent"].contexts[-1].reference_items] == [candidate_ref]
 
 
 @pytest.mark.asyncio
@@ -912,10 +1213,12 @@ async def test_command_arriving_during_model_turn_is_applied_at_next_safe_bounda
     async def concurrent_command(_context: Any) -> MissionAgentDecision:
         await store.append_command(
             receipt.mission_id,
-            command_id="steer-1",
-            command_type="correction",
-            summary="Focus on Non-IID evaluation",
-            payload_json={"constraint": "Non-IID"},
+            MissionUserCommandPayload(
+                command_id="steer-1",
+                command_type="correction",
+                summary="Focus on Non-IID evaluation",
+                payload_json={"constraint": "Non-IID"},
+            ),
         )
         return continue_decision("stale-decision")
 
@@ -953,13 +1256,15 @@ async def test_cancel_is_terminal_and_future_delivery_is_noop(runtime_factory) -
         request_id="cancel-1",
         reason="User changed direction",
     )
-    replay = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    applied = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    replay = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
 
-    assert cancelled.status.value == "cancelled"
+    assert cancelled.status.value == "planning"
+    assert applied.outcome == MissionSliceOutcome.TERMINAL
+    assert applied.reason == "durable_command_applied"
     assert replay.outcome == MissionSliceOutcome.TERMINAL
     assert replay.reason == "mission_already_terminal"
     assert agent.contexts == []
-    assert deps["billing"].settled == [receipt.mission_id]
 
 
 @pytest.mark.asyncio
@@ -985,7 +1290,7 @@ async def test_cancel_during_model_turn_stops_stale_driver_before_dispatch(
     run = await deps["store"].get(receipt.mission_id)
 
     assert result.outcome == MissionSliceOutcome.TERMINAL
-    assert result.reason == "mission_became_terminal_during_slice"
+    assert result.reason == "durable_command_applied"
     assert run is not None and run.status.value == "cancelled"
     assert tools.calls == []
 
@@ -1150,27 +1455,18 @@ async def test_crash_recovery_reuses_inflight_operation_id_after_higher_epoch(
 
 
 @pytest.mark.asyncio
-async def test_billing_pause_uses_waiting_status_and_can_resume(runtime_factory) -> None:
-    pause = MissionPauseRequest(
-        request_id="budget-1",
-        reason="budget",
-        summary="Confirm mission credit use",
-        pending_request={"credits": 8},
-    )
+async def test_billing_admission_creates_durable_waiting_mission(runtime_factory) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
-    deps["billing"].reservation_outcome = BillingOutcome(
-        allowed=False,
-        pause_request=pause,
-        summary="Credits need confirmation",
-    )
+    deps["store"].admission_status = MissionStatus.WAITING
     receipt = await runtime.start(start_request())
 
-    waiting = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
     run = await deps["store"].get(receipt.mission_id)
 
-    assert waiting.outcome == MissionSliceOutcome.WAITING
+    assert receipt.status == "waiting"
+    assert receipt.wakeup_published is False
     assert run is not None and run.status.value == "waiting"
     assert run.snapshot_json["waiting_reason"] == "budget"
+    assert run.snapshot_json["pending_request"]["request_type"] == "budget_confirmation"
     assert run.lease_owner is None
 
 
@@ -1195,10 +1491,7 @@ async def test_permission_pause_resume_matches_request_and_restores_inflight_too
                         pending_request={"tool_name": request.tool_name},
                     ),
                 )
-            assert any(
-                item.item_type == "resume_input" and item.operation_id.startswith("pause:permission-1:")
-                for item in request.recent_items
-            )
+            assert any(item.item_type == "resume_input" and item.operation_id == "permission-1" for item in request.recent_items)
             return MissionPortOutcome(
                 status=MissionPortOutcomeStatus.COMPLETED,
                 summary="External source access completed",
@@ -1217,8 +1510,8 @@ async def test_permission_pause_resume_matches_request_and_restores_inflight_too
     assert paused is not None
     pending_request = paused.snapshot_json["pending_request"]
     runtime_request_id = pending_request["request_id"]
-    assert runtime_request_id.startswith("pause:permission-1:")
-    assert pending_request["semantic_request_id"] == "permission-1"
+    assert runtime_request_id == "permission-1"
+    assert pending_request["summary"] == "Confirm external source access"
     with pytest.raises(MissionResumeRequestMismatchError):
         await runtime.resume(
             receipt.mission_id,
@@ -1387,16 +1680,8 @@ async def test_terminal_review_pause_completes_execution_without_accepting_outpu
     completed = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
     run = await deps["store"].get(receipt.mission_id)
     review_items = await deps["store"].list_review_items(receipt.mission_id)
-    pause_items = [
-        item
-        for item in deps["store"].items[receipt.mission_id]
-        if item.item_type == "pause_request"
-    ]
-    terminal_update = next(
-        item
-        for item in reversed(deps["store"].items[receipt.mission_id])
-        if item.item_type == "status_update"
-    )
+    pause_items = [item for item in deps["store"].items[receipt.mission_id] if item.item_type == "pause_request"]
+    terminal_update = next(item for item in reversed(deps["store"].items[receipt.mission_id]) if item.item_type == "status_update")
 
     assert first.outcome == MissionSliceOutcome.YIELDED
     assert completed.outcome == MissionSliceOutcome.COMPLETED

@@ -10,7 +10,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.contracts.prism_context import PrismContextRef
 from src.contracts.reasoning import ReasoningEffort
+from src.contracts.review_policy import ReviewMode
 
 MAX_MISSION_SNAPSHOT_BYTES = 64 * 1024
 MAX_RUNTIME_CONTEXT_BYTES = 128 * 1024
@@ -81,18 +83,21 @@ class MissionStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-class MissionReviewMode(StrEnum):
-    REVIEW_ALL = "review_all"
-    BALANCED_DEFAULT = "balanced_default"
-    AUTO_DRAFT = "auto_draft"
-
-
 class MissionItemPhase(StrEnum):
     STARTED = "started"
     PROGRESS = "progress"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+MissionEvidenceSourceType = Literal[
+    "paper",
+    "web_page",
+    "dataset",
+    "upload",
+    "artifact",
+]
 
 
 class MissionRiskLevel(StrEnum):
@@ -187,7 +192,7 @@ class MissionCreatePayload(_StrictModel):
     mission_policy_id: str | None = Field(default=None, max_length=120)
     title: str = Field(min_length=1, max_length=60)
     objective: str = Field(min_length=1, max_length=20_000)
-    review_mode: MissionReviewMode = MissionReviewMode.BALANCED_DEFAULT
+    review_mode: ReviewMode = ReviewMode.BALANCED_DEFAULT
     model_id: str = Field(min_length=1, max_length=120)
     reasoning_effort: ReasoningEffort
     snapshot_json: dict[str, Any] = Field(default_factory=dict)
@@ -211,6 +216,7 @@ class MissionCreatePayload(_StrictModel):
 
 class MissionRunPatchPayload(_StrictModel):
     status: MissionStatus | None = None
+    review_mode: ReviewMode | None = None
     active_stage_id: str | None = Field(default=None, max_length=120)
     context_checkpoint_ref: str | None = Field(default=None, max_length=2048)
     next_wakeup_at: datetime | None = None
@@ -253,9 +259,12 @@ class MissionAppendPayload(_StrictModel):
 
     @model_validator(mode="after")
     def require_change(self) -> MissionAppendPayload:
-        if not self.items and self.snapshot_json is None and not self.patch.model_fields_set:
+        if not self._contains_change():
             raise ValueError("append requires at least one item, snapshot, or scalar patch")
         return self
+
+    def _contains_change(self) -> bool:
+        return bool(self.items or self.snapshot_json is not None or self.patch.model_fields_set)
 
 
 class MissionCheckpointPayload(MissionAppendPayload):
@@ -314,6 +323,43 @@ class MissionUserCommandPayload(_StrictModel):
             label="command.payload_json",
         )
 
+    @model_validator(mode="after")
+    def validate_known_command(self) -> MissionUserCommandPayload:
+        if self.command_type == "set_review_mode":
+            ReviewMode(self.payload_json.get("review_mode"))
+        if self.command_type == "review_feedback":
+            reset_stage_ids = self.payload_json.get("reset_stage_ids")
+            if not isinstance(reset_stage_ids, list) or not reset_stage_ids:
+                raise ValueError("review_feedback requires reset_stage_ids")
+            normalized = [
+                value.strip()
+                for value in reset_stage_ids
+                if isinstance(value, str) and value.strip()
+            ]
+            if len(normalized) != len(reset_stage_ids) or len(normalized) != len(
+                set(normalized)
+            ):
+                raise ValueError(
+                    "review_feedback reset_stage_ids must be unique stage ids"
+                )
+        prism_context_ref = self.payload_json.get("prism_context_ref")
+        if prism_context_ref is not None:
+            PrismContextRef.model_validate(prism_context_ref)
+        return self
+
+
+class MissionItemSeqsPayload(_StrictModel):
+    seqs: tuple[int, ...] = Field(min_length=1, max_length=100)
+
+    @field_validator("seqs")
+    @classmethod
+    def validate_unique_seqs(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if any(seq < 1 for seq in value):
+            raise ValueError("mission item seqs must be positive")
+        if len(value) != len(set(value)):
+            raise ValueError("mission item seqs must be unique")
+        return value
+
 
 class MissionApplyCommandsPayload(MissionAppendPayload):
     through_command_seq: int = Field(ge=1)
@@ -332,10 +378,14 @@ class MissionResumePayload(_StrictModel):
     producer: str = Field(default="workspace_agent", min_length=1, max_length=160)
 
 
-class MissionCancelPayload(_StrictModel):
-    request_id: str = Field(min_length=1, max_length=160)
-    reason: str | None = Field(default=None, max_length=4000)
-    producer: str = Field(default="workspace_agent", min_length=1, max_length=160)
+class MissionReservationReconcilePayload(_StrictModel):
+    now: datetime | None = None
+    limit: int = Field(default=100, ge=1, le=1000)
+
+
+class MissionReservationReconcileResultPayload(_StrictModel):
+    expired_mission_ids: list[str] = Field(default_factory=list)
+    settled_mission_ids: list[str] = Field(default_factory=list)
 
 
 class MissionReviewItemDraftPayload(_StrictModel):
@@ -369,11 +419,25 @@ class MissionReviewItemDraftPayload(_StrictModel):
         )
 
 
-class MissionReviewItemsCreatePayload(_StrictModel):
+class MissionReviewItemsCreatePayload(MissionAppendPayload):
+    """Atomically expose review candidates and finish their Mission operation."""
+
+    review_items: list[MissionReviewItemDraftPayload] = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    def _contains_change(self) -> bool:
+        return bool(self.review_items or super()._contains_change())
+
+
+class MissionDerivedReviewItemCreatePayload(_StrictModel):
+    """Create one user-requested review candidate derived from a committed output."""
+
     expected_state_version: int = Field(ge=0)
-    lease_owner: str = Field(min_length=1, max_length=160)
-    lease_epoch: int = Field(ge=1)
-    items: list[MissionReviewItemDraftPayload] = Field(min_length=1, max_length=100)
+    actor_user_id: str = Field(min_length=1, max_length=36)
+    source_review_item_id: str = Field(min_length=1, max_length=36)
+    item: MissionReviewItemDraftPayload
 
 
 class MissionReviewDecisionPayload(_StrictModel):
@@ -478,7 +542,7 @@ class MissionRunPayload(_StrictModel):
     title: str = Field(min_length=1, max_length=60)
     objective: str
     status: MissionStatus
-    review_mode: MissionReviewMode
+    review_mode: ReviewMode
     active_stage_id: str | None = None
     model_id: str
     reasoning_effort: ReasoningEffort
@@ -518,7 +582,7 @@ class MissionViewRunPayload(_StrictModel):
     title: str
     objective: str
     status: MissionStatus
-    review_mode: MissionReviewMode
+    review_mode: ReviewMode
     active_stage_id: str | None = None
     model_id: str
     reasoning_effort: ReasoningEffort
@@ -587,7 +651,7 @@ class MissionSemanticReferencePayload(_StrictModel):
     title: str | None = Field(default=None, max_length=500)
     uri: str | None = Field(default=None, max_length=2048)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    source_type: Literal["paper", "web_page", "dataset", "upload"] | None = None
+    source_type: MissionEvidenceSourceType | None = None
     verified: bool = False
 
     @field_validator("metadata")
@@ -599,6 +663,14 @@ class MissionSemanticReferencePayload(_StrictModel):
             label="Mission semantic reference metadata",
         )
 
+    @model_validator(mode="after")
+    def validate_source_type_scope(self) -> MissionSemanticReferencePayload:
+        if self.category == "evidence" and self.source_type is None:
+            raise ValueError("evidence semantic references require source_type")
+        if self.category == "artifact" and self.source_type is not None:
+            raise ValueError("artifact semantic references cannot declare source_type")
+        return self
+
 
 class MissionOperationFinishPayload(_StrictModel):
     operation_key: str = Field(min_length=1, max_length=200)
@@ -606,6 +678,7 @@ class MissionOperationFinishPayload(_StrictModel):
     request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     claimant: str = Field(min_length=1, max_length=200)
     lease_epoch: int = Field(ge=1)
+    claim_token: str = Field(min_length=32, max_length=128)
     stage_id: str | None = Field(default=None, max_length=120)
     producer: str | None = Field(default=None, max_length=160)
     status: MissionOperationStatus
@@ -643,6 +716,7 @@ class MissionOperationReceiptPayload(_StrictModel):
     status: MissionOperationStatus
     claimant: str
     lease_epoch: int
+    claim_token: str = Field(min_length=32, max_length=128)
     lease_expires_at: datetime | None = None
     receipt_json: dict[str, Any] = Field(default_factory=dict)
     payload_ref: str | None = None
@@ -689,6 +763,16 @@ class MissionReviewItemPayload(_StrictModel):
     decided_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class MissionReviewViewItemPayload(MissionReviewItemPayload):
+    """Public MissionView projection without internal commit fencing secrets."""
+
+    commit_status: MissionCommitStatus | None = None
+    commit_eligible: bool = False
+    commit_block_reason: str | None = None
+    commit_error_code: str | None = None
+    committed_target_ref: str | None = None
 
 
 class MissionCommitPayload(_StrictModel):
@@ -794,7 +878,7 @@ class MissionEvidenceSummaryPayload(_StrictModel):
     item_id: str
     seq: int
     title: str
-    source_type: str
+    source_type: MissionEvidenceSourceType
     source_label: str | None = None
     summary: str | None = None
     citation: str | None = None
@@ -812,7 +896,7 @@ class MissionArtifactSummaryPayload(_StrictModel):
 
 
 class MissionReviewPolicyPayload(_StrictModel):
-    mode: MissionReviewMode
+    mode: ReviewMode
     protected_outputs_require_confirmation: bool = True
     draft_outputs_may_be_automatic: bool
 
@@ -828,7 +912,12 @@ class MissionAttentionInputPayload(_StrictModel):
 class MissionAttentionActionPayload(_StrictModel):
     action_id: str = Field(min_length=1, max_length=160)
     label: str = Field(min_length=1, max_length=160)
-    action_type: str = Field(pattern=r"^(reply_in_chat|upload_file|open_review)$")
+    action_type: str = Field(
+        pattern=(
+            r"^(reply_in_chat|upload_file|open_review|permission_allow_once|"
+            r"permission_allow_mission|permission_reject)$"
+        )
+    )
     primary: bool = False
 
 
@@ -846,6 +935,28 @@ class MissionProjectionPagePayload(_StrictModel):
     total: int = Field(ge=0)
     returned: int = Field(ge=0)
     next_cursor: int | None = None
+    next_tiebreaker: str | None = None
+
+
+class MissionCursorPagePayload(_StrictModel):
+    total: int = Field(ge=0)
+    returned: int = Field(ge=0)
+    next_cursor: str | None = None
+
+
+class MissionItemPagePayload(_StrictModel):
+    items: list[MissionItemPayload] = Field(default_factory=list)
+    page: MissionProjectionPagePayload
+
+
+class MissionReviewPagePayload(_StrictModel):
+    items: list[MissionReviewItemPayload] = Field(default_factory=list)
+    page: MissionCursorPagePayload
+
+
+class MissionCommitPagePayload(_StrictModel):
+    items: list[MissionCommitPayload] = Field(default_factory=list)
+    page: MissionCursorPagePayload
 
 
 class MissionEvidencePagePayload(_StrictModel):
@@ -864,8 +975,7 @@ class MissionViewPayload(_StrictModel):
     attention_request: MissionAttentionRequestPayload | None
     review_summary: MissionReviewSummaryPayload
     commit_summary: MissionCommitSummaryPayload
-    review_items: list[MissionReviewItemPayload] = Field(default_factory=list)
-    commits: list[MissionCommitPayload] = Field(default_factory=list)
+    review_items: list[MissionReviewViewItemPayload] = Field(default_factory=list)
     required_stage_ids: list[str] = Field(default_factory=list)
     stage_summaries: list[MissionStageSummaryPayload] = Field(default_factory=list)
     team_summary: str | None = None

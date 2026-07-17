@@ -1,7 +1,7 @@
 # Mission Runtime Refactor Specs
 
 Status: Implemented; production-environment acceptance pending
-Updated: 2026-07-15
+Updated: 2026-07-16
 Parent overview: `docs/superpowers/specs/mission-runtime-overview.md`
 
 This directory breaks the Mission Runtime overview into implementation-oriented specs. The specs are written for a clean cutover: no long-lived compatibility layer, no dual-write execution path, and no second frontend state system.
@@ -10,7 +10,7 @@ The parent overview is authoritative for cross-module boundaries and locked deci
 
 ## Migration Status
 
-The dependency-ordered clean cut completed in code. The strict anti-compat gate moved from an opening baseline of 490 findings to zero. The latest backend shared-tree suite passed `1890 passed, 1 skipped`; frontend handoff passed TypeScript, 235 Vitest tests, production build, and the Mission Playwright main chain. These numbers are implementation records, not permanent release guarantees; rerun the commands in `AGENTS.md` for every fresh release.
+The dependency-ordered clean cut completed in code. The strict anti-compat gate moved from an opening baseline of 490 findings to zero. Test counts are intentionally not frozen in this spec; rerun the commands in `AGENTS.md` for every release candidate.
 
 Final schema chain:
 
@@ -30,8 +30,13 @@ Final schema chain:
 - `099_thread_skill_cutover`: remove obsolete thread-level skill state.
 - `100_review_output_key_cutover`: enforce one current review item per semantic output key.
 - `101_workspace_reasoning_effort_cutover`: replace the obsolete binary thinking flag with the canonical four-level reasoning preference.
+- `102_review_policy_projection_cutover`: derive review selection policy at projection time and uniquely fence Mission-created assets by review source.
+- `103_dataservice_concurrency_fences`: serialize workspace decision and memory mutations and uniquely fence active partial decisions.
+- `104_remove_dataservice_sandbox`: remove the obsolete DataService sandbox aggregate.
+- `105_remove_latex_compile_history`: remove direct LaTeX execution and compile-history persistence.
+- `106_remove_sandbox_pricing_policy`: converge pricing and credit reservations on Mission-owned billing.
 
-Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. Empty-database online migration through `101` is the release baseline.
+Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. Empty-database online migration through `103` is the release baseline.
 
 ## Locked Decisions
 
@@ -72,7 +77,7 @@ Remaining production-environment acceptance includes the independent native-sear
 | `06_subagent_runtime.md` | Isolated bounded subagent lifecycle | `backend/src/subagent_runtime` |
 | `07_review_commit_runtime.md` | MissionReviewItem/ReviewDecision/MissionCommit and review modes | `backend/src/review_commit_runtime` |
 | `08_mission_console_frontend.md` | MissionView and on-demand Mission Console | `frontend/lib/api/missions.ts`, `frontend/app/(workbench)/workspaces/[id]/components/mission-console` |
-| `09_permission_pause.md` | Mission-level pause, deferred tool approval, user question requests | `backend/src/agents/middlewares`, tool orchestration, frontend review/action surfaces |
+| `09_permission_pause.md` | Mission-level pause, deferred tool approval, user question requests | `backend/src/permission_runtime`, MissionRuntime, tool orchestration, frontend action surfaces |
 | `10_sandbox_vnext.md` | Docker/rootless workspace sandbox contract and artifact manifest | `backend/src/sandbox`, `backend/src/tools/mission/runtime.py` |
 | `11_mission_trace_run_history.md` | Summary/full history, trace, subagent ledger, replay surface | DataService Mission domain, workspace Runs drawer |
 | `12_tool_orchestrator.md` | Canonical tool catalog, model probes, operation lifecycle, native web search | `backend/src/tools/orchestrator`, `backend/src/tools/mission`, `backend/src/services/search/model_native.py` |
@@ -100,3 +105,6 @@ Remaining production-environment acceptance includes the independent native-sear
 17. StageAcceptance reconstructs exact current-stage candidates and evidence from verified receipts; optional critic workers have no acceptance authority.
 18. MissionReviewItems expose only exact stage-accepted candidates, and Sandbox artifact reads resolve immutable content-addressed objects rather than mutable public paths.
 19. Mission input manifests bind workspace, thread, source hash, extracted-content hash, and size; pending preprocessing may promote an attachment later without trusting a client path or requiring re-upload.
+20. Terminal review rework resolves one exact source stage, creates a child Mission, and invalidates only its transitive dependency closure; missing lineage never becomes a guessed full replay.
+21. Every protected domain write validates the same `MissionWriteAuthority` in the target DataService transaction.
+22. All-item stage dependencies declare their cardinality source explicitly; template scanning is not a runtime contract.

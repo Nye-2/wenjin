@@ -9,12 +9,10 @@ from .credit_redeem_code import CreditRedeemCode
 from .credit_redemption import CreditRedemption
 from .credit_reservation import (
     CreditReservation,
-    CreditReservationScope,
     CreditReservationStatus,
 )
 from .decision import Decision
 from .document_v2 import DocumentV2
-from .latex_compile_history import LatexCompileHistory
 from .latex_project import LatexProject
 from .latex_template import LatexTemplate
 from .library_item import LibraryItem
@@ -33,7 +31,6 @@ from .model_catalog import (
 )
 from .pricing_policy import PricingPolicy, PricingPolicyKind
 from .referral import Referral
-from .sandbox import Sandbox
 from .task import TaskRecord
 from .thread import Thread
 from .user import User
@@ -59,7 +56,6 @@ __all__ = [
     "CreditGrantRuleType",
     "CreditRedeemCode",
     "CreditReservation",
-    "CreditReservationScope",
     "CreditReservationStatus",
     "CreditRedemption",
     # Admin Audit
@@ -86,7 +82,6 @@ __all__ = [
     # Latex
     "LatexProject",
     "LatexTemplate",
-    "LatexCompileHistory",
     # Generation
     # Task
     "TaskRecord",
@@ -100,8 +95,6 @@ __all__ = [
     "Decision",
     # Referral
     "Referral",
-    # Room: Sandbox
-    "Sandbox",
     # Room: Workspace Tasks
     "WorkspaceTask",
 ]

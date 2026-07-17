@@ -1,10 +1,13 @@
 import { apiClient } from "@/lib/api/client";
-import type { AdminModelCatalogItem } from "@/lib/api/types";
+import type {
+  AdminModelCatalogItem,
+  ModelGenerationApi,
+} from "@/lib/api/types";
 
 export type AdminModelCreatePayload = {
   model_id: string;
   display_name: string;
-  provider_protocol?: string;
+  generation_api: ModelGenerationApi | null;
   provider_name?: string;
   category?: string;
   model_name: string;
@@ -12,12 +15,6 @@ export type AdminModelCreatePayload = {
   api_key: string;
   enabled?: boolean;
   is_default?: boolean;
-  supports_streaming?: boolean;
-  supports_tools?: boolean;
-  supports_json_mode?: boolean;
-  supports_json_schema?: boolean;
-  supports_vision?: boolean;
-  supports_reasoning_effort?: boolean;
   max_tokens?: number;
   temperature?: number;
   timeout_seconds?: number | null;

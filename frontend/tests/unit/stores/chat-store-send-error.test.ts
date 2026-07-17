@@ -6,6 +6,7 @@ const { authorizedFetchMock, readErrorMessageMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api/client", () => ({
+  API_BASE_URL: "/api",
   authorizedFetch: authorizedFetchMock,
   readErrorMessage: readErrorMessageMock,
 }));
@@ -62,7 +63,7 @@ describe("chat send failures", () => {
         }),
       )
       .mockResolvedValueOnce(
-        new Response('event: content\ndata: {"content":"已读取"}\n\n', {
+        new Response('event: content\ndata: {"type":"content","content":"已读取"}\n\nevent: done\ndata: {"type":"done"}\n\n', {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         }),
@@ -133,7 +134,7 @@ describe("chat send failures", () => {
       )
       .mockResolvedValueOnce(
         new Response(
-          'event: block\ndata: {"block":{"kind":"status_line","label":"研究要求已更新","run_id":"mission-1","tone":"info","action":"steer_mission"}}\n\n',
+          'event: block\ndata: {"type":"block","message_id":"assistant-1","block":{"kind":"status_line","label":"研究要求已更新","run_id":"mission-1","tone":"info","action":"steer_mission"}}\n\nevent: done\ndata: {"type":"done"}\n\n',
           {
             status: 200,
             headers: { "Content-Type": "text/event-stream" },
@@ -145,7 +146,7 @@ describe("chat send failures", () => {
       useChatStoreV2
         .getState()
         .sendMessage("workspace-1", "把样本量改成 100"),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ status: "completed" });
   });
 
   it("returns a mission only for an explicit start status block", async () => {
@@ -158,7 +159,7 @@ describe("chat send failures", () => {
       )
       .mockResolvedValueOnce(
         new Response(
-          'event: block\ndata: {"block":{"kind":"status_line","label":"研究任务已开始","run_id":"mission-1","tone":"info","action":"start_mission"}}\n\n',
+          'event: block\ndata: {"type":"block","message_id":"assistant-1","block":{"kind":"status_line","label":"研究任务已开始","run_id":"mission-1","tone":"info","action":"start_mission"}}\n\nevent: done\ndata: {"type":"done"}\n\n',
           {
             status: 200,
             headers: { "Content-Type": "text/event-stream" },
@@ -210,7 +211,7 @@ describe("chat send failures", () => {
       encoder.encode('event: content\ndata: {"content":"旧工作区内容"}\n\n'),
     );
     streamState.controller!.close();
-    await pending;
+    await expect(pending).resolves.toEqual({ status: "cancelled" });
 
     expect(
       useChatStoreV2.getState().getWorkspaceMessages("workspace-2"),
@@ -221,5 +222,43 @@ describe("chat send failures", () => {
       ),
     ).not.toContain("旧工作区内容");
     expect(useChatStoreV2.getState().isSending).toBe(false);
+  });
+
+  it("stops an active run through the server cancel endpoint", async () => {
+    const stream = new ReadableStream<Uint8Array>({ start() {} });
+    authorizedFetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "thread-1", messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Content-Location": "/api/threads/thread-1/runs/run-1/stream",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("", { status: 202 }));
+
+    const pending = useChatStoreV2
+      .getState()
+      .sendMessage("workspace-1", "请生成回答");
+    await vi.waitFor(() => {
+      expect(useChatStoreV2.getState().activeStream).not.toBeNull();
+    });
+
+    await useChatStoreV2.getState().stopSending();
+
+    await expect(pending).resolves.toEqual({ status: "cancelled" });
+    expect(authorizedFetchMock.mock.calls[2]?.[0]).toBe(
+      "/api/threads/thread-1/runs/run-1/cancel?action=interrupt",
+    );
+    expect(authorizedFetchMock.mock.calls[2]?.[1]).toMatchObject({
+      method: "POST",
+    });
   });
 });

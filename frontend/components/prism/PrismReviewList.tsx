@@ -15,20 +15,6 @@ export function prismReviewItemPath(item: WorkspacePrismReviewItem): string {
   );
 }
 
-export function prismReviewItemHref(
-  workspaceId: string,
-  item?: WorkspacePrismReviewItem | null,
-): string {
-  const params = new URLSearchParams({ focus: "file_changes" });
-  if (item?.id) {
-    params.set("review_item_id", item.id);
-  }
-  if (item?.logical_key) {
-    params.set("logical_key", item.logical_key);
-  }
-  return `/workspaces/${workspaceId}/prism?${params.toString()}`;
-}
-
 export function prismReviewItemSummary(item: WorkspacePrismReviewItem): string | null {
   const summary = item.summary?.trim();
   return summary || null;
@@ -58,51 +44,6 @@ function statusClass(status: string): string {
     return "border-red-500/20 bg-red-500/10 text-red-700";
   }
   return "border-amber-500/25 bg-amber-500/10 text-amber-800";
-}
-
-export function fileChangeToPrismReviewItem(
-  change: {
-    id?: string | null;
-    logical_key: string;
-    path: string;
-    reason?: string | null;
-    status?: string | null;
-    title?: string | null;
-    source_type?: string | null;
-    source_mission_id?: string | null;
-    source_task_id?: string | null;
-    target_kind?: string | null;
-    applied_at?: string | null;
-    pending_hash?: string | null;
-    current_hash?: string | null;
-  },
-): WorkspacePrismReviewItem {
-  return {
-    id: change.id || change.logical_key,
-    kind: change.target_kind || "prism_file_change",
-    logical_key: change.logical_key,
-    status: change.status || "pending",
-    title: change.title || change.path,
-    summary: change.reason || null,
-    source: {
-      type: change.source_type || null,
-      mission_id: change.source_mission_id || null,
-      task_id: change.source_task_id || null,
-    },
-    target: {
-      kind: change.target_kind || "prism_file_change",
-      file_path: change.path,
-      room: null,
-      item_id: null,
-    },
-    preview: {
-      mode: "diff",
-      pending_hash: change.pending_hash || null,
-      current_hash: change.current_hash || null,
-    },
-    actions: [],
-    applied_at: change.applied_at || null,
-  };
 }
 
 interface PrismReviewListProps {

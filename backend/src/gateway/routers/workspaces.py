@@ -231,6 +231,7 @@ async def upsert_workspace_prism_file(
 async def get_workspace_prism_file(
     workspace_id: str,
     file_id: str,
+    prism_project_id: str | None = None,
     current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
@@ -241,7 +242,11 @@ async def get_workspace_prism_file(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    record = await dataservice.get_prism_workspace_file(workspace_id, file_id)
+    record = await dataservice.get_prism_workspace_file(
+        workspace_id,
+        file_id,
+        prism_project_id=prism_project_id,
+    )
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

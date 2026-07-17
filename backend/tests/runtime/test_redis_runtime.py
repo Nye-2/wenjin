@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.runtime.chat_turns import ChatTurnConflictError, ChatTurnRunManager, ChatTurnRunStatus
-from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL, RedisStreamBridge
+from src.application.handlers.thread_turn_handler import ThreadStreamDelta
+from src.application.results import PreparedThreadTurn, ThreadTurnRequest
+from src.runtime.chat_turns import ChatTurnConflictError, ChatTurnRunManager, ChatTurnRunStatus, run_chat_turn
+from src.runtime.stream_bridge import (
+    END_SENTINEL,
+    HEARTBEAT_SENTINEL,
+    MemoryStreamBridge,
+    RedisStreamBridge,
+)
 
 
 def _stream_id_parts(stream_id: str) -> tuple[int, int]:
@@ -167,6 +177,57 @@ class FakeRedisBackend:
         return [(key, entries)]
 
 
+class _BlockingStreamRun:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+        self.closed = False
+
+    async def _iterate(self):
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled.set()
+        if False:
+            yield ThreadStreamDelta(kind="content", text="")
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def wait_completed(self):
+        raise AssertionError("cancelled stream must not complete")
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _BlockingHandler:
+    def __init__(self, stream: _BlockingStreamRun) -> None:
+        self.stream = stream
+        self.interruptions: list[bool] = []
+
+    async def prepare_turn(self, request: ThreadTurnRequest, *, actor_id: str):  # noqa: ARG002
+        return PreparedThreadTurn(
+            request=request,
+            thread=SimpleNamespace(
+                id=request.thread_id or "thread-1",
+                workspace_id=request.workspace_id or "workspace-1",
+            ),
+        )
+
+    def stream_turn(self, prepared: PreparedThreadTurn, *, actor_id: str):  # noqa: ARG002
+        return self.stream
+
+    async def handle_run_interruption(
+        self,
+        prepared: PreparedThreadTurn,  # noqa: ARG002
+        *,
+        rollback: bool,
+    ) -> None:
+        self.interruptions.append(rollback)
+
+
 @pytest.mark.asyncio
 async def test_run_manager_hydrates_from_redis_and_recovers_inflight_runs():
     backend = FakeRedisBackend()
@@ -220,6 +281,70 @@ async def test_run_manager_cancel_respects_refreshed_terminal_status():
     latest = await manager.get_or_load(created.run_id, refresh=True)
     assert latest is not None
     assert latest.status == ChatTurnRunStatus.success
+
+
+@pytest.mark.asyncio
+async def test_cross_manager_cancel_wins_over_worker_start_transition():
+    backend = FakeRedisBackend()
+    gateway_manager = ChatTurnRunManager(redis_backend=backend)
+    worker_manager = ChatTurnRunManager(redis_backend=backend)
+    created = await gateway_manager.create_or_reject("thread-1")
+    await worker_manager.get_or_load(created.run_id)
+
+    assert await gateway_manager.cancel(created.run_id) is True
+    started = await worker_manager.transition_status(
+        created.run_id,
+        ChatTurnRunStatus.running,
+        expected=(ChatTurnRunStatus.pending,),
+    )
+
+    assert started is False
+    latest = await worker_manager.get_or_load(created.run_id, refresh=True)
+    assert latest is not None
+    assert latest.status == ChatTurnRunStatus.interrupted
+
+
+@pytest.mark.asyncio
+async def test_cross_manager_cancel_interrupts_blocked_provider_stream():
+    backend = FakeRedisBackend()
+    gateway_manager = ChatTurnRunManager(redis_backend=backend)
+    worker_manager = ChatTurnRunManager(redis_backend=backend)
+    record = await gateway_manager.create_or_reject("thread-1")
+    worker_record = await worker_manager.get_or_load(record.run_id)
+    assert worker_record is not None
+    stream = _BlockingStreamRun()
+    handler = _BlockingHandler(stream)
+    bridge = MemoryStreamBridge()
+    request = ThreadTurnRequest(
+        message="hello",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+    )
+
+    with patch(
+        "src.runtime.chat_turns.worker.set_thread_status",
+        new=AsyncMock(),
+    ):
+        worker = asyncio.create_task(
+            run_chat_turn(
+                bridge,
+                worker_manager,
+                worker_record,
+                handler=handler,  # type: ignore[arg-type]
+                request=request,
+                actor_id="user-1",
+            )
+        )
+        await asyncio.wait_for(stream.started.wait(), timeout=1)
+        assert await gateway_manager.cancel(record.run_id) is True
+        await asyncio.wait_for(worker, timeout=1)
+
+    latest = await worker_manager.get_or_load(record.run_id, refresh=True)
+    assert latest is not None
+    assert latest.status == ChatTurnRunStatus.interrupted
+    assert stream.cancelled.is_set()
+    assert stream.closed is True
+    assert handler.interruptions == [False]
 
 
 @pytest.mark.asyncio

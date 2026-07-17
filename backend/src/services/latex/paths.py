@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-_RESERVED_PATH_SEGMENTS = frozenset({".git", ".compile", "__pycache__"})
+_RESERVED_PATH_SEGMENTS = frozenset({".git", "__pycache__"})
 _RESERVED_ROOT_FILES = frozenset({"project.json"})
 
 
@@ -51,13 +51,6 @@ def get_latex_template_dir() -> Path:
 def project_root(project_id: str) -> Path:
     """Resolve a project's absolute root directory."""
     return (get_latex_data_dir() / str(project_id)).resolve()
-
-
-def compile_runs_root(project_id: str) -> Path:
-    """Resolve dedicated compile run root for a project."""
-    path = (get_latex_data_dir() / "_compile_runs" / str(project_id)).resolve()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def normalize_relative_path(path: str) -> str:

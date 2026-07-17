@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -11,6 +10,10 @@ import pytest
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.account import AccountUserPayload
+from src.dataservice_client.contracts.pricing import (
+    PublicModelPricingPayload,
+    PublicPricingCatalogPayload,
+)
 from src.dataservice_client.contracts.workspace import WorkspaceStatsPayload
 from src.services.user_dashboard_service import UserDashboardService
 
@@ -42,6 +45,21 @@ class FakeDashboardDataServiceClient:
     async def get_workspace_stats_for_member(self, user_id: str) -> WorkspaceStatsPayload:
         return self.workspace_stats
 
+    async def get_public_pricing_catalog(self) -> PublicPricingCatalogPayload:
+        return PublicPricingCatalogPayload(
+            chat_models=[
+                PublicModelPricingPayload(
+                    model_id="gpt-5.6-terra",
+                    display_name="GPT-5.6 Terra",
+                    is_default=True,
+                    policy_id="policy-1",
+                    policy_key="terra",
+                    policy_version=1,
+                    minimum_credits=3,
+                )
+            ]
+        )
+
 
 @pytest.mark.asyncio
 async def test_get_dashboard_includes_thread_credit_status() -> None:
@@ -65,10 +83,6 @@ async def test_get_dashboard_includes_thread_credit_status() -> None:
 
     with (
         patch(
-            "src.services.user_dashboard_service.CreditService.get_thread_billing_policy",
-            return_value=SimpleNamespace(enabled=True, free_tokens=100000, tokens_per_credit=10000),
-        ),
-        patch(
             "src.services.user_dashboard_service.CreditService.get_consumed_thread_tokens",
             AsyncMock(return_value=120000),
         ),
@@ -86,10 +100,28 @@ async def test_get_dashboard_includes_thread_credit_status() -> None:
         "billing_unit": "credits",
         "pricing": "usage_based",
     }
+    assert payload["credits"]["pricing"] == {
+        "unit": "credits",
+        "chat_models": [
+            {
+                "model_id": "gpt-5.6-terra",
+                "display_name": "GPT-5.6 Terra",
+                "is_default": True,
+                "policy_id": "policy-1",
+                "policy_key": "terra",
+                "policy_version": 1,
+                "minimum_credits": 3,
+            }
+        ],
+        "missions": [],
+    }
     assert "token_usage" not in payload
     assert "tokens_per_credit" not in payload["credits"]["thread"]
     assert "free_tokens" not in payload["credits"]["thread"]
-    can_start_thread_turn.assert_not_called()
+    can_start_thread_turn.assert_awaited_once_with(
+        "user-1",
+        model_name="gpt-5.6-terra",
+    )
 
 
 @pytest.mark.asyncio
