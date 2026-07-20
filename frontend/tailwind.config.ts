@@ -9,8 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        display: ["var(--font-display)", "Georgia", "serif"],
-        serif: ["var(--font-serif)", '"STSong"', '"SimSun"', "serif"],
+        serif: ["var(--font-serif)", '"Songti SC"', '"STSong"', '"Noto Serif SC"', "Georgia", "serif"],
         sans: [
           "var(--font-sans)",
           '"Noto Sans SC"',
@@ -19,48 +18,7 @@ const config: Config = {
           '"PingFang SC"',
           "sans-serif",
         ],
-        inter: ["Inter", "var(--font-sans)", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "var(--font-mono)", "monospace"],
-      },
-      colors: {
-        wenjin: {
-          ink: "#132235",
-          navy: "#1F4263",
-          teal: "#2E6F6D",
-          cyan: "#5C97A5",
-          line: "#D7DEE2",
-          brass: "#A67C39",
-          paper: "#F7F4EE",
-          wash: "#EEF2F3",
-          success: "#0D9265",
-          warning: "#C68A1A",
-          error: "#C42B2B",
-        },
-        background: {
-          base: "#F5F7FA",
-          elevated: "#FAFBFE",
-          surface: "#EBF0F7",
-          muted: "#DDE5F0",
-        },
-        border: {
-          DEFAULT: "#D8E1ED",
-          subtle: "#E8EFF7",
-          focus: "#3B82C4",
-        },
-        // Compute Stage dark theme colors
-        compute: {
-          base: "#0B0F14",
-          elevated: "#111820",
-          surface: "#1A2330",
-          border: "#232D3D",
-          "text-primary": "#E8ECF2",
-          "text-secondary": "#8A94A6",
-          "text-muted": "#5A6378",
-          cyan: "#5C97A5",
-          gold: "#C8A050",
-          green: "#2D9D78",
-          red: "#D14B4B",
-        },
+        mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
       },
       animation: {
         shimmer: "shimmer 3s ease-in-out infinite",

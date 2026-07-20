@@ -64,7 +64,7 @@ export function BatchGenerateDialog({ open, onClose }: Props) {
           </div>
           <div className="space-y-1"><Label>有效期（可选）</Label><Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} /></div>
           <div className="space-y-1"><Label>批次说明</Label><Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="例如：双 11 营销" /></div>
-          {error && <div className="text-sm text-rose-600">{error}</div>}
+          {error && <div className="text-sm text-[var(--wjn-error)]">{error}</div>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onClose(null)} disabled={loading}>取消</Button>

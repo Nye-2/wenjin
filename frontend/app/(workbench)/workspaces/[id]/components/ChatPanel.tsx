@@ -17,6 +17,7 @@ import {
   Circle,
   SendHorizontal,
   Square,
+  X,
 } from "lucide-react";
 import {
   getWorkspaceSettings,
@@ -606,7 +607,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
                     lineHeight: 1,
                   }}
                 >
-                  ×
+                  <X size={12} strokeWidth={2.4} aria-hidden="true" />
                 </button>
               </span>
             ))}
@@ -676,7 +677,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
               padding: "8px 12px",
               borderRadius: "var(--wjn-radius)",
               border: "1px solid var(--wjn-line)",
-              background: "#fff",
+              background: "var(--wjn-surface)",
               fontSize: 13.5,
               outline: "none",
               fontFamily: "var(--wjn-font-sans)",
@@ -723,7 +724,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
                 gap: 7,
                 borderRadius: "var(--wjn-radius)",
                 border: "1px solid var(--wjn-line)",
-                background: "#fff",
+                background: "var(--wjn-surface)",
                 color: "var(--wjn-text-secondary)",
                 fontSize: 12.5,
                 fontWeight: 650,
@@ -1195,12 +1196,14 @@ const MessageRow = memo(function MessageRow({
         style={{
           maxWidth: "85%",
           padding: isUser ? "10px 14px" : "0 4px",
-          borderRadius: isUser ? "var(--wjn-radius-lg)" : 0,
-          background: isUser ? "var(--wjn-surface-subtle)" : "transparent",
+          borderRadius: isUser
+            ? "var(--wjn-radius-lg) var(--wjn-radius-lg) 4px var(--wjn-radius-lg)"
+            : 0,
+          background: isUser ? "var(--wjn-accent-soft)" : "transparent",
           fontSize: 13.5,
           lineHeight: 1.55,
           color: "var(--wjn-text)",
-          border: isUser ? "1px solid var(--wjn-line)" : "none",
+          border: isUser ? "1px solid var(--wjn-accent-line)" : "none",
         }}
       >
         {pending ? (

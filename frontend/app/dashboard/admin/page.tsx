@@ -62,7 +62,7 @@ export default function AdminOverviewPage() {
       />
 
       {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 flex items-center gap-2 mb-4">
+        <div className="p-4 rounded-xl bg-[var(--wjn-error-soft)] border border-[rgba(179,52,62,0.22)] text-[var(--wjn-error)] flex items-center gap-2 mb-4">
           <TriangleAlert className="w-4 h-4" />
           {error}
         </div>
@@ -136,7 +136,7 @@ export default function AdminOverviewPage() {
       ) : null}
 
       {hasOverdraft ? (
-        <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-700 mb-6">
+        <section className="rounded-2xl border border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)] p-4 text-sm text-[var(--wjn-error)] mb-6">
           当前有 {overdraftUsers} 个账号处于负余额，总计透支 {dashboard?.summary.credits.overdraft_credits_total ?? 0} 积分。
           这些用户当前轮次允许完成结算，但下一次纯主线对话会被拦截；要恢复使用，直接补发积分即可。
         </section>
@@ -166,12 +166,12 @@ function SummaryCard({
 }) {
   const isDanger = variant === "danger";
   return (
-    <div className={`rounded-2xl border p-5 ${isDanger ? "border-rose-500/30 bg-rose-500/10" : "route-card"}`}>
+    <div className={`rounded-2xl border p-5 ${isDanger ? "border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)]" : "route-card"}`}>
       <div className="flex items-center justify-between">
         <span className="text-sm text-[var(--wjn-text-secondary)]">{label}</span>
         {icon}
       </div>
-      <div className={`mt-3 text-3xl font-bold ${isDanger ? "text-rose-600" : "text-[var(--wjn-text)]"}`}>
+      <div className={`mt-3 text-3xl font-bold ${isDanger ? "text-[var(--wjn-error)]" : "text-[var(--wjn-text)]"}`}>
         {value.toLocaleString()}
       </div>
       <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">{hint}</div>

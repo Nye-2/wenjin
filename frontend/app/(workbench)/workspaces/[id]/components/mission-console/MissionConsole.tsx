@@ -24,6 +24,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+import { StatusPill } from "@/components/ui/status-pill";
+import { TypeChip, resolveMaterialType } from "@/components/ui/type-chip";
 import {
   commitMissionReviews,
   decideMissionReviews,
@@ -64,7 +66,7 @@ export type MissionChatAction = "focus" | "attach";
 const SURFACES = [
   { id: "progress", label: "进展", icon: CircleDot },
   { id: "review", label: "确认", icon: Check },
-  { id: "evidence", label: "证据", icon: BookOpen },
+  { id: "evidence", label: "来源与结果", icon: BookOpen },
   { id: "artifacts", label: "成果", icon: Archive },
   { id: "trace", label: "轨迹", icon: History },
 ] as const;
@@ -259,7 +261,7 @@ function activityStateLabel(state: MissionView["activity"]["state"]): string {
     collaborating: "协作中",
     retrying: "重试中",
     recovering: "调整中",
-    waiting: "等待回应",
+    waiting: "待你回应",
     reviewing: "等待确认",
     completed: "已完成",
     unavailable: "稍后再试",
@@ -733,7 +735,7 @@ function ReviewSurface({
 
       {view.reviewSummary.needsMoreEvidence > 0 ? (
         <div className="mt-3 rounded-[var(--wjn-radius)] bg-[var(--wjn-review-soft)] px-3 py-2 text-xs leading-5 text-[var(--wjn-review)]">
-          {view.reviewSummary.needsMoreEvidence} 项内容还需要补充证据，暂不会写入工作区。
+          {view.reviewSummary.needsMoreEvidence} 项内容还需要补充材料，暂不会写入工作区。
         </div>
       ) : null}
       {view.reviewItems.some((item) => item.status !== "pending" && item.status !== "superseded") ? (
@@ -966,7 +968,7 @@ function EvidenceSurface({ view }: { view: MissionView }) {
       setNextCursor(page.nextCursor);
     } catch (reason) {
       if (requestEpoch !== requestEpochRef.current) return;
-      setLoadError(reason instanceof Error ? reason.message : "更多证据加载失败");
+      setLoadError(reason instanceof Error ? reason.message : "更多内容加载失败");
     } finally {
       if (requestEpoch === requestEpochRef.current) {
         requestInFlightRef.current = false;
@@ -979,28 +981,31 @@ function EvidenceSurface({ view }: { view: MissionView }) {
     <div className="px-5 py-5" data-testid="mission-evidence">
       <label className="flex h-9 items-center gap-2 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] px-3 focus-within:border-[var(--wjn-accent-line)]">
         <Search size={14} className="text-[var(--wjn-text-muted)]" />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="查找证据" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--wjn-text-muted)]" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="查找来源" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--wjn-text-muted)]" />
       </label>
       {items.length ? (
         <div className="mt-3 divide-y divide-[var(--wjn-line)]">
           {items.map((item) => (
             <article key={item.id} className="py-4">
               <div className="flex items-start gap-3">
-                <BookOpen size={15} className="mt-0.5 shrink-0 text-[var(--wjn-evidence)]" />
                 <div className="min-w-0 flex-1">
-                  <h4 className="text-sm font-medium leading-5 text-[var(--wjn-text)]">{item.title}</h4>
-                  <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">{item.sourceLabel ?? item.sourceType}</div>
+                  <div className="flex items-center gap-2">
+                    <TypeChip type={resolveMaterialType(item.sourceType)} />
+                    <h4 className="min-w-0 truncate text-sm font-medium leading-5 text-[var(--wjn-text)]">{item.title}</h4>
+                    {item.verified ? <StatusPill label="已查证" tone="verified" dot={false} className="ml-auto shrink-0" /> : null}
+                  </div>
+                  <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">{item.sourceLabel ?? resolveMaterialType(item.sourceType)}</div>
                   {item.summary ? <p className="mt-2 text-xs leading-5 text-[var(--wjn-text-secondary)]">{item.summary}</p> : null}
                 </div>
               </div>
             </article>
           ))}
         </div>
-      ) : <QuietEmpty icon={BookOpen} title="还没有沉淀证据" detail="可核验的论文、网页、数据和上传材料会汇总在这里。" />}
+      ) : <QuietEmpty icon={BookOpen} title="还没有沉淀来源材料" detail="可查证的论文、网页、数据和上传材料会汇总在这里。" />}
       {loadError ? <p className="mt-3 text-xs text-[var(--wjn-error)]">{loadError}</p> : null}
       {nextCursor !== null && !query.trim() ? (
         <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="wjn-button-secondary mt-3 h-8 w-full text-xs disabled:opacity-45">
-          {loadingMore ? "正在加载…" : `加载更多证据（已显示 ${evidenceItems.length}/${view.evidenceCount}）`}
+          {loadingMore ? "正在加载…" : `加载更多（已显示 ${evidenceItems.length}/${view.evidenceCount}）`}
         </button>
       ) : null}
     </div>
@@ -1166,7 +1171,7 @@ function semanticItemLabel(value: string): string {
   const labels: Record<string, string> = {
     stage: "研究阶段更新",
     subagent: "研究成员更新",
-    evidence: "发现新证据",
+    evidence: "发现新材料",
     artifact: "生成新成果",
     review: "内容进入确认",
     commit: "内容保存状态更新",

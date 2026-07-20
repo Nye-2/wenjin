@@ -80,6 +80,16 @@ export function formatMissionDuration(seconds?: number | null): string {
   if (!seconds || seconds < 1) return "刚刚";
   if (seconds < 60) return `${Math.round(seconds)} 秒`;
   const minutes = Math.floor(seconds / 60);
-  const remaining = Math.round(seconds % 60);
-  return remaining ? `${minutes} 分 ${remaining} 秒` : `${minutes} 分钟`;
+  if (minutes < 60) {
+    const remaining = Math.round(seconds % 60);
+    return remaining ? `${minutes} 分 ${remaining} 秒` : `${minutes} 分钟`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const restMinutes = minutes % 60;
+    return restMinutes ? `${hours} 小时 ${restMinutes} 分` : `${hours} 小时`;
+  }
+  const days = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  return restHours ? `${days} 天 ${restHours} 小时` : `${days} 天`;
 }

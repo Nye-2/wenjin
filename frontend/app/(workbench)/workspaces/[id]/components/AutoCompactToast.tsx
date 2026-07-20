@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { authorizedFetch } from "@/lib/api/client";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ export function AutoCompactToast({
     >
       {done ? (
         <>
-          <span style={{ fontSize: 16 }}>&#10003;</span>
+          <Check size={15} strokeWidth={2.4} style={{ color: "var(--wjn-blue)", flexShrink: 0 }} aria-hidden="true" />
           <span>上下文已压缩</span>
         </>
       ) : (

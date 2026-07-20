@@ -80,9 +80,9 @@ function ActionPill({
         }
       : tone === "warn"
         ? {
-            background: "rgba(185, 28, 28, 0.08)",
-            color: "#B91C1C",
-            border: "rgba(185, 28, 28, 0.16)",
+            background: "var(--wjn-error-soft)",
+            color: "var(--wjn-error)",
+            border: "rgba(179, 52, 62, 0.22)",
           }
         : {
             background: "var(--wjn-bg-base)",

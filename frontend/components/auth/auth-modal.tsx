@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, Eye, EyeOff } from "lucide-react";
-import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalProps) {
-  const { t } = useI18n();
   const [mode, setMode] = useState<"login" | "register">(initialMode);
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState("");
@@ -82,7 +80,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
-      setVerificationError(t("auth.register.invalidEmail"));
+      setVerificationError("请输入有效的邮箱地址");
       return;
     }
 
@@ -98,7 +96,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
     }
 
     setIsSendingCode(false);
-  }, [formData.email, countdown, sendVerificationCode, t]);
+  }, [formData.email, countdown, sendVerificationCode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,12 +113,12 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setPasswordError(t("auth.register.passwordMismatch"));
+      setPasswordError("两次输入的密码不一致");
       return;
     }
 
     if (formData.password.length < 8) {
-      setPasswordError(t("auth.register.passwordTooShort"));
+      setPasswordError("密码长度至少为8位");
       return;
     }
 
@@ -179,10 +177,10 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
                   <h2 id="auth-modal-title" className="text-2xl font-semibold tracking-tight text-[var(--wjn-text)]">
-                    {mode === "login" ? t("auth.login.button") : t("auth.register.button")}
+                    {mode === "login" ? "登录" : "创建账户"}
                   </h2>
                   <p className="text-sm text-[var(--wjn-text-secondary)]">
-                    {mode === "login" ? t("auth.login.subtitle") : t("auth.register.subtitle")}
+                    {mode === "login" ? "继续推进来源整理、结构设计、写作修订与成果交付。" : "从第一份来源开始，建立一条可持续推进的工作路径。"}
                   </p>
                 </div>
 
@@ -206,7 +204,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                       : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)]"
                   }`}
                 >
-                  {t("auth.login.button")}
+                  登录
                 </button>
                 <button
                   type="button"
@@ -217,7 +215,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                       : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)]"
                   }`}
                 >
-                  {t("auth.register.button")}
+                  创建账户
                 </button>
               </div>
             </header>
@@ -231,7 +229,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
               <div className="space-y-2">
                 <Label htmlFor="auth-modal-email">
-                  {t("auth.login.email")} <span className="text-[var(--wjn-error)]">*</span>
+                  邮箱 <span className="text-[var(--wjn-error)]">*</span>
                 </Label>
                 <Input
                   id="auth-modal-email"
@@ -240,27 +238,27 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                   autoComplete="email"
                   value={formData.email}
                   onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                  placeholder={t("auth.login.emailPlaceholder")}
+                  placeholder="your@email.com"
                 />
               </div>
 
               {mode === "register" && (
                 <div className="space-y-2">
-                  <Label htmlFor="auth-modal-name">{t("auth.register.name")}</Label>
+                  <Label htmlFor="auth-modal-name">姓名</Label>
                   <Input
                     id="auth-modal-name"
                     type="text"
                     autoComplete="name"
                     value={formData.name}
                     onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                    placeholder={t("auth.register.namePlaceholder")}
+                    placeholder="输入您的姓名"
                   />
                 </div>
               )}
 
               <div className="space-y-2">
                 <Label htmlFor="auth-modal-password">
-                  {t("auth.login.password")} <span className="text-[var(--wjn-error)]">*</span>
+                  密码 <span className="text-[var(--wjn-error)]">*</span>
                 </Label>
                 <div className="relative">
                   <Input
@@ -270,7 +268,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                     autoComplete={mode === "login" ? "current-password" : "new-password"}
                     value={formData.password}
                     onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
-                    placeholder={t("auth.login.passwordPlaceholder")}
+                    placeholder="••••••••"
                     className="pr-12"
                   />
                   <button
@@ -288,7 +286,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                 <>
                   <div className="space-y-2">
                     <Label htmlFor="auth-modal-confirm-password">
-                      {t("auth.register.confirmPassword")} <span className="text-[var(--wjn-error)]">*</span>
+                      确认密码 <span className="text-[var(--wjn-error)]">*</span>
                     </Label>
                     <Input
                       id="auth-modal-confirm-password"
@@ -297,14 +295,14 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                       autoComplete="new-password"
                       value={formData.confirmPassword}
                       onChange={(e) => setFormData((prev) => ({ ...prev, confirmPassword: e.target.value }))}
-                      placeholder={t("auth.login.passwordPlaceholder")}
+                      placeholder="••••••••"
                     />
-                    <p className="text-xs text-[var(--wjn-text-muted)]">{t("auth.register.passwordTooShort")}</p>
+                    <p className="text-xs text-[var(--wjn-text-muted)]">密码长度至少为8位</p>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="auth-modal-code">
-                      {t("auth.register.verificationCode")} <span className="text-[var(--wjn-error)]">*</span>
+                      验证码 <span className="text-[var(--wjn-error)]">*</span>
                     </Label>
                     <div className="flex gap-2">
                       <Input
@@ -336,7 +334,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                         ) : countdown > 0 ? (
                           `${countdown}s`
                         ) : (
-                          t("auth.register.sendCode")
+                          "发送验证码"
                         )}
                       </Button>
                     </div>
@@ -348,23 +346,23 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {mode === "login" ? t("auth.login.signingIn") : t("auth.register.creating")}
+                    {mode === "login" ? "登录中..." : "创建中..."}
                   </>
                 ) : mode === "login" ? (
-                  t("auth.login.button")
+                  "登录"
                 ) : (
-                  t("auth.register.button")
+                  "创建账户"
                 )}
               </Button>
 
               <p className="border-t border-[var(--wjn-line)] pt-4 text-center text-sm text-[var(--wjn-text-secondary)]">
-                {mode === "login" ? t("auth.login.noAccount") : t("auth.register.hasAccount")}{" "}
+                {mode === "login" ? "还没有账户？" : "已有账户？"}{" "}
                 <button
                   type="button"
                   onClick={switchMode}
                   className="font-semibold text-[var(--wjn-navy)] transition-colors hover:text-[var(--wjn-blue)]"
                 >
-                  {mode === "login" ? t("auth.login.createOne") : t("auth.register.signIn")}
+                  {mode === "login" ? "创建一个" : "登录"}
                 </button>
               </p>
             </form>

@@ -110,7 +110,7 @@ export function CreditAdjustDialog({ mode, user, onClose }: Props) {
             />
           </div>
           {error && (
-            <div className="text-sm text-red-600 bg-red-500/10 border border-red-500/20 rounded-lg p-2">
+            <div className="text-sm text-[var(--wjn-error)] bg-[var(--wjn-error-soft)] border border-[rgba(179,52,62,0.22)] rounded-lg p-2">
               {error}
             </div>
           )}

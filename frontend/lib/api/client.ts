@@ -353,12 +353,18 @@ apiClient.interceptors.response.use(
         }
       }
       expireSession();
+      // Session expiry is an expected lifecycle event (the app redirects to
+      // login). Tag it so callers can stay quiet instead of surfacing a
+      // misleading "Invalid or expired token" error.
+      (error as { isAuthExpired?: boolean }).isAuthExpired = true;
     }
 
     const normalizedMessage =
       extractApiErrorMessage(error.response?.data) || error.message;
     error.message = normalizedMessage;
-    console.error("API Error:", normalizedMessage);
+    if (!(error as { isAuthExpired?: boolean }).isAuthExpired) {
+      console.error("API Error:", normalizedMessage);
+    }
     return Promise.reject(error);
   }
 );

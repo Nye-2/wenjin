@@ -2,12 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import PricingPage from "@/app/pricing/page";
-import { useLocaleStore } from "@/stores/locale";
 
 describe("PricingPage", () => {
   beforeEach(() => {
     localStorage.clear();
-    useLocaleStore.setState({ locale: "cn" });
   });
 
   it("explains credit-based pricing without turning the home hero into a billing surface", () => {
@@ -28,19 +26,5 @@ describe("PricingPage", () => {
       "href",
       "/workspaces",
     );
-  });
-
-  it("renders the pricing page in English", () => {
-    useLocaleStore.setState({ locale: "en" });
-
-    render(<PricingPage />);
-
-    expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: "Transparent credits pricing for research work.",
-      }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Credits-based billing")).toBeInTheDocument();
   });
 });

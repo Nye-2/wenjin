@@ -11,12 +11,10 @@ import {
   Shield,
   Coins,
 } from "lucide-react";
-import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
 import { useRouter } from "next/navigation";
 
 export function UserDropdown() {
-  const { t } = useI18n();
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -58,7 +56,7 @@ export function UserDropdown() {
   const menuItems = [
     {
       icon: LayoutDashboard,
-      label: t("nav.userDashboard"),
+      label: "账户概览",
       onClick: () => {
         router.push("/dashboard/me");
         setIsOpen(false);
@@ -66,7 +64,7 @@ export function UserDropdown() {
     },
     {
       icon: FolderOpen,
-      label: t("nav.workspaces"),
+      label: "工作空间",
       onClick: () => {
         router.push("/workspaces");
         setIsOpen(false);
@@ -76,7 +74,7 @@ export function UserDropdown() {
       ? [
           {
             icon: Shield,
-            label: t("nav.adminDashboard"),
+            label: "管理总览",
             onClick: () => {
               router.push("/dashboard/admin");
               setIsOpen(false);
@@ -86,7 +84,7 @@ export function UserDropdown() {
       : []),
     {
       icon: Settings,
-      label: t("nav.settings"),
+      label: "设置",
       onClick: () => {
         setIsOpen(false);
       },
@@ -99,7 +97,7 @@ export function UserDropdown() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--wjn-surface)] border border-[var(--wjn-line)] hover:bg-[var(--wjn-surface-subtle)] transition-colors"
       >
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--wjn-navy)] to-[#2563EB] flex items-center justify-center text-white font-medium text-sm">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--wjn-navy)] to-[var(--wjn-blue)] flex items-center justify-center text-white font-medium text-sm">
           {userInitial}
         </div>
         <span className="text-sm font-medium text-[var(--wjn-text)] max-w-[120px] truncate">
@@ -130,7 +128,7 @@ export function UserDropdown() {
                     <Coins className="h-4 w-4" />
                   </span>
                   <span className="text-sm font-medium text-[var(--wjn-text-secondary)]">
-                    {t("nav.creditBalance")}
+                    当前积分
                   </span>
                 </div>
                 <span className="text-lg font-semibold tabular-nums text-[var(--wjn-text)]">
@@ -145,7 +143,7 @@ export function UserDropdown() {
                 }}
                 className="mt-3 w-full rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 py-2 text-left text-sm font-medium text-[var(--wjn-text)] transition-colors hover:bg-[var(--wjn-surface-subtle)]"
               >
-                {t("nav.creditDashboard")}
+                查看积分后台
               </button>
             </div>
 
@@ -167,10 +165,10 @@ export function UserDropdown() {
             <div className="border-t border-[var(--wjn-line)] py-2">
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-500/10 transition-colors"
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--wjn-error-soft)] transition-colors"
               >
-                <LogOut className="w-4 h-4 text-red-500" />
-                <span className="text-sm text-red-500">{t("nav.logout")}</span>
+                <LogOut className="w-4 h-4 text-[var(--wjn-error)]" />
+                <span className="text-sm text-[var(--wjn-error)]">退出登录</span>
               </button>
             </div>
           </motion.div>

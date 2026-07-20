@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import {
   listTasks,
@@ -24,10 +25,10 @@ const STATUS_COLORS: Record<WorkspaceTask["status"], string> = {
 };
 
 const STATUS_BG: Record<WorkspaceTask["status"], string> = {
-  pending: "rgba(100, 100, 120, 0.08)",
+  pending: "var(--wjn-change-neutral-soft)",
   in_progress: "var(--wjn-accent-soft)",
-  completed: "rgba(34, 197, 94, 0.1)",
-  cancelled: "rgba(100, 100, 120, 0.06)",
+  completed: "var(--wjn-success-soft)",
+  cancelled: "var(--wjn-change-neutral-soft)",
 };
 
 const STATUS_LABELS: Record<WorkspaceTask["status"], string> = {
@@ -145,7 +146,7 @@ export function TasksDrawer({
         bottom: 0,
         width: "min(420px, 100%)",
         background: "var(--wjn-surface)",
-        borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
+        borderLeft: "1px solid var(--wjn-line)",
         boxShadow: "var(--wjn-shadow-md)",
         display: "flex",
         flexDirection: "column",
@@ -168,7 +169,7 @@ export function TasksDrawer({
           alignItems: "center",
           height: 48,
           padding: "0 16px",
-          borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
+          borderBottom: "1px solid var(--wjn-line)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -215,7 +216,7 @@ export function TasksDrawer({
               padding: 4,
             }}
           >
-            ✕
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -225,7 +226,7 @@ export function TasksDrawer({
         <div
           style={{
             padding: "12px 16px",
-            borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
+            borderBottom: "1px solid var(--wjn-line)",
             display: "flex",
             gap: 8,
           }}
@@ -244,7 +245,7 @@ export function TasksDrawer({
               flex: 1,
               padding: "8px 12px",
               borderRadius: "var(--wjn-radius-md)",
-              border: "1px solid rgba(20, 20, 30, 0.08)",
+              border: "1px solid var(--wjn-line)",
               background: "var(--wjn-surface-raised)",
               fontSize: 13,
               fontFamily: "var(--wjn-font-sans)",
@@ -286,7 +287,7 @@ export function TasksDrawer({
             boxSizing: "border-box",
             padding: "8px 12px",
             borderRadius: "var(--wjn-radius-md)",
-            border: "1px solid rgba(20, 20, 30, 0.08)",
+            border: "1px solid var(--wjn-line)",
             background: "var(--wjn-surface-raised)",
             fontSize: 13,
             fontFamily: "var(--wjn-font-sans)",
@@ -352,7 +353,7 @@ export function TasksDrawer({
               style={{
                 background: "var(--wjn-surface-raised)",
                 borderRadius: "var(--wjn-radius-md)",
-                border: "1px solid rgba(20, 20, 30, 0.06)",
+                border: "1px solid var(--wjn-change-neutral-soft)",
                 padding: 12,
                 marginBottom: 8,
               }}

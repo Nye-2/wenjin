@@ -1,277 +1,84 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArrowRight,
+  BookOpen,
+  CheckCircle2,
   ChevronDown,
-  Database,
-  FileCheck2,
+  Eye,
   FileText,
-  Library,
+  FlaskConical,
+  Footprints,
+  Landmark,
+  ScrollText,
+  ShieldCheck,
+  Sigma,
+  Stamp,
+  Timer,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
+
 import { AuthModal } from "@/components/auth/auth-modal";
 import { UserDropdown } from "@/components/auth/user-dropdown";
 import { useAuthStore } from "@/stores/auth";
-import { useLocaleStore, type Locale } from "@/stores/locale";
+import { WORKSPACE_TYPES, type WorkspaceType } from "@/lib/workspace-types";
+import LandingTheater from "@/components/landing-theater";
 
 type AuthMode = "login" | "register";
-type WorkspaceType =
-  | "sci"
-  | "thesis"
-  | "proposal"
-  | "math_modeling"
-  | "patent"
-  | "software_copyright";
 
-interface LandingCopy {
-  nav: {
-    product: string;
-    docs: string;
-    login: string;
-    register: string;
-    enter: string;
-    quickStart: string;
-    pricing: string;
-  };
-  hero: {
-    eyebrow: string;
-    title: string;
-    subtitle: string;
-    caption: string;
-    previewAlt: string;
-    signals: string[];
-  };
-  positioning: {
-    eyebrow: string;
-    title: string;
-    body: string;
-    ordinaryLabel: string;
-    ordinaryTitle: string;
-    ordinaryBody: string;
-    wenjinLabel: string;
-    wenjinTitle: string;
-    wenjinBody: string;
-  };
-  loop: {
-    eyebrow: string;
-    title: string;
-    body: string;
-    steps: Array<{ index: string; title: string; body: string }>;
-  };
-  scenes: {
-    eyebrow: string;
-    title: string;
-  };
-  final: {
-    eyebrow: string;
-    title: string;
-    body: string;
-  };
-  quickStartItems: Record<WorkspaceType, string>;
-}
+const serif = "var(--wjn-font-serif)";
+const PAPER = "var(--wjn-bg-base)";
+const PAPER_DEEP = "var(--wjn-bg-rail)";
+const SURFACE = "var(--wjn-surface)";
+const INK = "var(--wjn-text)";
+const INK_SOFT = "var(--wjn-text-secondary)";
+const INK_FAINT = "var(--wjn-text-muted)";
+const LINE = "var(--wjn-line)";
+const ACCENT = "var(--wjn-blue)";
+const ACCENT_SOFT = "var(--wjn-accent-soft)";
+const BRASS = "var(--wjn-review)";
 
-const COPY: Record<Locale, LandingCopy> = {
-  cn: {
-    nav: {
-      product: "产品",
-      docs: "文档",
-      login: "登录",
-      register: "注册",
-      enter: "进入工作台",
-      quickStart: "快速开始",
-      pricing: "定价",
-    },
-    hero: {
-      eyebrow: "科研工作区 / 写作台原生",
-      title: "问津 Wenjin",
-      subtitle:
-        "从一个研究想法开始，学术 Harness 召集定制化专家助手，组织文献、证据、实验与稿件；你在 Prism 里复核引用、修改和最终成稿。",
-      caption: "学术 Harness、研究成员、资料库、研究任务与 Prism 在同一个工作空间里协作。",
-      previewAlt: "Wenjin Prism 研究工作台产品预览",
-      signals: ["学术 Harness", "专家助手", "证据链", "Prism"],
-    },
-    positioning: {
-      eyebrow: "Positioning",
-      title: "不是聊天框，也不是模板库。它是研究任务的执行环境。",
-      body:
-        "Wenjin 的价值不是生成一段文字，而是让研究上下文持续沉淀：文献、证据、实验材料、项目记忆和稿件确认都在同一个工作空间里推进。",
-      ordinaryLabel: "普通智能写作",
-      ordinaryTitle: "回答结束后，工作流也断了。",
-      ordinaryBody:
-        "用户还要自己搬运文献、引用、实验、图表和正文。结果能看，但很难变成稳定的研究过程。",
-      wenjinLabel: "Wenjin",
-      wenjinTitle: "研究团队带着 workspace 上下文持续工作。",
-      wenjinBody:
-        "每次研究任务都会沉淀资料、证据、Prism 稿件、关键决策与项目记忆，形成可确认、可复用、可继续推进的研究链路。",
-    },
-    loop: {
-      eyebrow: "Operating Loop",
-      title: "用户掌方向，研究团队跑链路。",
-      body:
-        "系统自动推进文献、证据、实验和写作；关键结果回到用户确认。它不是把人排除在外，而是把人的判断放在最重要的位置。",
-      steps: [
-        {
-          index: "01",
-          title: "确定研究意图",
-          body: "把模糊想法变成清晰目标、约束和交付物。",
-        },
-        {
-          index: "02",
-          title: "自动组织上下文",
-          body: "文献、引用、材料和项目上下文进入同一个工作空间。",
-        },
-        {
-          index: "03",
-          title: "复核成为稿件",
-          body: "最终产出进入 Prism，由用户复核修改和引用。",
-        },
-      ],
-    },
-    scenes: {
-      eyebrow: "Use Cases",
-      title: "为长流程研究与写作任务设计。",
-    },
-    final: {
-      eyebrow: "Deliver",
-      title: "把科研从临时问答推进到可持续交付。",
-      body:
-        "从一个想法开始，进入工作空间，让研究团队组织上下文、推进任务，并在 Prism 中完成最终复核。",
-    },
-    quickStartItems: {
-      sci: "SCI",
-      thesis: "学位论文",
-      proposal: "项目书",
-      math_modeling: "数学建模",
-      patent: "专利",
-      software_copyright: "软著",
-    },
-  },
-  en: {
-    nav: {
-      product: "Product",
-      docs: "Docs",
-      login: "Log in",
-      register: "Sign up",
-      enter: "Enter Workbench",
-      quickStart: "Quick Start",
-      pricing: "Pricing",
-    },
-    hero: {
-      eyebrow: "Research workbench / Prism-native",
-      title: "Wenjin",
-      subtitle:
-        "From a research idea, an academic harness recruits custom expert assistants to organize literature, evidence, experiments, and drafts while you review citations, edits, and final manuscript state in Prism.",
-      caption: "The academic harness, research members, library, Missions, and Prism work together in one workspace.",
-      previewAlt: "Wenjin Prism research workbench preview",
-      signals: ["Academic Harness", "Expert Assistants", "Evidence Graph", "Prism"],
-    },
-    positioning: {
-      eyebrow: "Positioning",
-      title: "Not a chat box or a template library. A runtime for research work.",
-      body:
-        "Wenjin is not built to generate one isolated answer. It keeps literature, evidence, experiments, project memory, and manuscript confirmation moving inside one workspace.",
-      ordinaryLabel: "Ordinary assisted writing",
-      ordinaryTitle: "Once the answer ends, the workflow breaks.",
-      ordinaryBody:
-        "Researchers still have to move references, citations, charts, and drafts across tools. The output may be usable, but the process is fragile.",
-      wenjinLabel: "Wenjin",
-      wenjinTitle: "The research team keeps working with workspace context.",
-      wenjinBody:
-        "Each Mission preserves sources, evidence, Prism drafts, key decisions, and project memory in a research loop that can be confirmed, reused, and continued.",
-    },
-    loop: {
-      eyebrow: "Operating Loop",
-      title: "You steer. The research team runs the loop.",
-      body:
-        "Wenjin advances literature, evidence, experiments, and writing automatically while returning critical decisions to the user.",
-      steps: [
-        {
-          index: "01",
-          title: "Frame intent",
-          body: "Turn a rough idea into goals, constraints, and deliverables.",
-        },
-        {
-          index: "02",
-          title: "Organize context",
-          body: "Literature, citations, materials, and project context stay in one workspace.",
-        },
-        {
-          index: "03",
-          title: "Confirm into manuscript",
-          body: "Final outputs enter Prism for user-confirmed edits and citations.",
-        },
-      ],
-    },
-    scenes: {
-      eyebrow: "Use Cases",
-      title: "Built for long-form research and writing work.",
-    },
-    final: {
-      eyebrow: "Deliver",
-      title: "Move research from one-off answers to sustained delivery.",
-      body:
-        "Start from an idea, enter a workspace, let agents organize context and progress the work, then confirm the manuscript in Prism.",
-    },
-    quickStartItems: {
-      sci: "SCI",
-      thesis: "Thesis",
-      proposal: "Proposal",
-      math_modeling: "Math modeling",
-      patent: "Patent",
-      software_copyright: "Software copyright",
-    },
-  },
+const QUICK_START_ORDER: WorkspaceType[] = [...WORKSPACE_TYPES];
+
+const QUICK_START_LABELS: Record<WorkspaceType, string> = {
+  sci: "SCI",
+  thesis: "学位论文",
+  proposal: "项目书",
+  software_copyright: "软著",
+  math_modeling: "数学建模",
+  patent: "专利",
 };
-
-const QUICK_START_ORDER: WorkspaceType[] = [
-  "sci",
-  "thesis",
-  "proposal",
-  "math_modeling",
-  "patent",
-  "software_copyright",
-];
-
-const HERO_SIGNAL_ICONS: LucideIcon[] = [Library, Database, FileText, FileCheck2];
 
 function quickStartHref(type: WorkspaceType): string {
   return `/workspaces?create=${type}`;
 }
 
-function LandingLanguageToggle() {
-  const { locale, setLocale } = useLocaleStore();
-
+function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      aria-label="Language"
-      className="hidden min-h-10 items-center rounded-full border border-[rgba(16,24,40,0.1)] bg-white p-1 text-xs font-semibold text-[#475467] shadow-[0_10px_28px_rgba(16,24,40,0.06)] sm:inline-flex"
-    >
-      <button
-        type="button"
-        onClick={() => setLocale("cn")}
-        className={`rounded-full px-3 py-1.5 transition ${
-          locale === "cn" ? "bg-[#101828] text-white" : "hover:bg-[#f2f4f7]"
-        }`}
-      >
-        中
-      </button>
-      <button
-        type="button"
-        onClick={() => setLocale("en")}
-        className={`rounded-full px-3 py-1.5 transition ${
-          locale === "en" ? "bg-[#101828] text-white" : "hover:bg-[#f2f4f7]"
-        }`}
-      >
-        EN
-      </button>
+    <div className="flex items-center gap-3">
+      <span className="h-px w-8" style={{ background: BRASS }} />
+      <span className="text-[11px] font-semibold tracking-[0.32em]" style={{ color: BRASS }}>
+        {children}
+      </span>
     </div>
   );
 }
 
-function QuickStartMenu({ copy }: { copy: LandingCopy }) {
+function Seal() {
+  return (
+    <div
+      className="flex h-8 w-8 items-center justify-center rounded-[6px] text-[15px] font-bold text-[#f5f1e8]"
+      style={{ background: INK, fontFamily: serif }}
+    >
+      问
+    </div>
+  );
+}
+
+function QuickStartMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -281,13 +88,11 @@ function QuickStartMenu({ copy }: { copy: LandingCopy }) {
         setIsOpen(false);
       }
     }
-
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setIsOpen(false);
       }
     }
-
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -303,25 +108,27 @@ function QuickStartMenu({ copy }: { copy: LandingCopy }) {
         aria-expanded={isOpen}
         aria-haspopup="menu"
         onClick={() => setIsOpen((current) => !current)}
-        className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-[#f2f4f7] px-4 text-sm font-bold text-[#101828] transition hover:bg-[#e8ebf0]"
+        className="inline-flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-4 text-[13px] font-medium transition-colors hover:bg-[rgba(28,36,32,0.04)]"
+        style={{ borderColor: LINE, color: INK }}
       >
-        {copy.nav.quickStart}
-        <ChevronDown aria-hidden="true" className="ml-1 h-4 w-4 text-[#667085]" />
+        快速开始
+        <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" style={{ color: INK_FAINT }} />
       </button>
 
       {isOpen ? (
         <div
           role="menu"
-          className="absolute right-0 top-14 z-50 w-56 rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-white p-2 shadow-[var(--wjn-shadow-md)]"
+          className="absolute right-0 top-12 z-50 w-52 rounded-[var(--wjn-radius-xl)] border p-2"
+          style={{ borderColor: LINE, background: SURFACE, boxShadow: "var(--wjn-shadow-md)" }}
         >
           {QUICK_START_ORDER.map((type) => (
             <Link
               key={type}
-              role="menuitem"
               href={quickStartHref(type)}
-              className="flex min-h-11 items-center rounded-[var(--wjn-radius)] px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f2f4f7]"
+              className="flex min-h-10 items-center rounded-[var(--wjn-radius)] px-3 text-[13px] font-medium transition-colors hover:bg-[var(--wjn-surface-subtle)]"
+              style={{ color: INK }}
             >
-              {copy.quickStartItems[type]}
+              {QUICK_START_LABELS[type]}
             </Link>
           ))}
         </div>
@@ -330,298 +137,387 @@ function QuickStartMenu({ copy }: { copy: LandingCopy }) {
   );
 }
 
-function LandingNav({
-  copy,
-  onAuth,
-}: {
-  copy: LandingCopy;
-  onAuth: (mode: AuthMode) => void;
-}) {
+function LandingNav({ onAuth }: { onAuth: (mode: AuthMode) => void }) {
   const { isAuthenticated } = useAuthStore();
 
   return (
-    <header className="fixed left-0 right-0 top-0 z-50 border-b border-[rgba(16,24,40,0.08)] bg-[rgba(251,252,254,0.9)] backdrop-blur-xl">
-      <nav className="mx-auto grid h-20 max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-6 px-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-3 text-base font-bold text-[#101828]">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#101828] text-sm font-black text-white">
-            问
-          </span>
-          <span>问津 Wenjin</span>
+    <header className="relative z-10 mx-auto flex h-[68px] max-w-[1200px] items-center justify-between px-8">
+      <div className="flex items-center gap-3">
+        <Seal />
+        <div className="leading-none">
+          <div className="text-[15px] font-semibold tracking-[0.02em]" style={{ color: INK, fontFamily: serif }}>
+            问津
+          </div>
+          <div className="mt-[3px] text-[9.5px] font-medium tracking-[0.28em]" style={{ color: INK_FAINT }}>
+            WENJIN
+          </div>
+        </div>
+      </div>
+      <nav className="hidden items-center gap-8 text-[13px] md:flex" style={{ color: INK_SOFT }}>
+        <Link href="/pricing" className="transition-colors hover:text-[var(--wjn-text)]">
+          定价
         </Link>
-
-        <div className="hidden items-center justify-center gap-1 md:flex">
-          <a
-            href="#product"
-            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
-          >
-            {copy.nav.product}
-          </a>
-          <Link
-            href="/docs"
-            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
-          >
-            {copy.nav.docs}
-          </Link>
-          <Link
-            href="/pricing"
-            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
-          >
-            {copy.nav.pricing}
-          </Link>
-        </div>
-
-        <div className="flex items-center justify-end gap-2">
-          <LandingLanguageToggle />
-
-          {isAuthenticated ? (
-            <div className="hidden sm:block">
-              <UserDropdown />
-            </div>
-          ) : (
-            <div className="hidden items-center gap-1 sm:flex">
-              <button
-                type="button"
-                onClick={() => onAuth("login")}
-                className="inline-flex min-h-10 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
-              >
-                {copy.nav.login}
-              </button>
-              <button
-                type="button"
-                onClick={() => onAuth("register")}
-                className="inline-flex min-h-10 items-center rounded-full border border-[rgba(16,24,40,0.12)] bg-white px-4 text-sm font-bold text-[#101828] transition hover:bg-[#f9fafb]"
-              >
-                {copy.nav.register}
-              </button>
-            </div>
-          )}
-
-          <Link
-            href="/workspaces"
-            className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-[#101828] px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
-          >
-            {copy.nav.enter}
-          </Link>
-
-          <QuickStartMenu copy={copy} />
-        </div>
+        <Link href="/docs" className="transition-colors hover:text-[var(--wjn-text)]">
+          文档
+        </Link>
       </nav>
+      <div className="flex items-center gap-3">
+        <QuickStartMenu />
+        {isAuthenticated ? (
+          <>
+            <Link
+              href="/workspaces"
+              className="flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-medium text-[#f5f1e8] transition-transform hover:-translate-y-px"
+              style={{ background: INK }}
+            >
+              进入工作台
+              <ArrowRight size={14} strokeWidth={2.2} />
+            </Link>
+            <UserDropdown />
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onAuth("login")}
+              className="text-[13px]"
+              style={{ color: INK_SOFT }}
+            >
+              登录
+            </button>
+            <button
+              type="button"
+              onClick={() => onAuth("register")}
+              className="flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-medium text-[#f5f1e8] transition-transform hover:-translate-y-px"
+              style={{ background: INK }}
+            >
+              创建账户
+              <ArrowRight size={14} strokeWidth={2.2} />
+            </button>
+          </>
+        )}
+      </div>
     </header>
   );
 }
 
-function SectionHeader({
-  eyebrow,
-  title,
-  body,
-}: {
-  eyebrow: string;
-  title: string;
-  body?: string;
-}) {
+function HeroCopy({ onStart }: { onStart: () => void }) {
   return (
-    <div>
-      <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--wjn-text-secondary)]">
-        {eyebrow}
+    <div className="relative z-10 mx-auto max-w-[1200px] px-8 pt-[92px]">
+      <Eyebrow>有据可查的研究执行环境</Eyebrow>
+      <h1
+        className="mt-7 text-[76px] font-bold leading-[1.08] tracking-[0.01em]"
+        style={{ color: INK, fontFamily: serif }}
+      >
+        向研究深处，
+        <br />
+        <span style={{ color: ACCENT }}>问津。</span>
+      </h1>
+      <p className="mt-4 text-[15px] italic tracking-[0.04em]" style={{ color: INK_FAINT, fontFamily: "Georgia, serif" }}>
+        Ask where the river deepens — evidence visible, process traceable.
       </p>
-      <h2 className="mt-4 max-w-4xl text-3xl font-bold leading-tight text-[var(--wjn-text)] sm:text-4xl lg:text-5xl">
-        {title}
-      </h2>
-      {body ? (
-        <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--wjn-text-secondary)] sm:text-lg">
-          {body}
-        </p>
-      ) : null}
+      <p className="mt-8 max-w-[520px] text-[15.5px] leading-[1.9]" style={{ color: INK_SOFT }}>
+        不是聊天框，也不是模板库。从一个研究想法开始，AI 研究团队在你的工作空间里持续跑链路：
+        组织文献、设计实验、留下依据，把关键判断留给你确认。
+      </p>
+      <div className="mt-10 flex items-center gap-4">
+        <button
+          type="button"
+          onClick={onStart}
+          className="group flex h-12 items-center gap-2.5 rounded-full px-7 text-[14.5px] font-medium text-[#f5f1e8] transition-all hover:-translate-y-0.5"
+          style={{ background: ACCENT, boxShadow: "0 10px 30px rgba(20, 84, 74, 0.28)" }}
+        >
+          开始一个研究任务
+          <ArrowRight size={16} strokeWidth={2.2} className="transition-transform group-hover:translate-x-0.5" />
+        </button>
+        <a
+          href="#demo"
+          className="flex h-12 items-center gap-2 rounded-full border px-6 text-[14px] transition-colors hover:bg-[rgba(28,36,32,0.04)]"
+          style={{ borderColor: LINE, color: INK }}
+        >
+          <Eye size={15} style={{ color: ACCENT }} />
+          看看它怎么做研究
+        </a>
+      </div>
+      <div className="mt-16 flex items-center gap-7 text-[12px]" style={{ color: INK_FAINT }}>
+        {(
+          [
+            [ScrollText, "SCI 论文"],
+            [Landmark, "项目申报书"],
+            [Sigma, "数学建模"],
+            [FileText, "专利申请"],
+            [FlaskConical, "实验设计"],
+          ] as Array<[LucideIcon, string]>
+        ).map(([Icon, label]) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <Icon size={13} strokeWidth={1.8} />
+            {label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
 
+function PainBand() {
+  const pains = ["引用看着像真的，查无此文", "过程黑箱，导师问起来答不上", "长任务跑到一半，上下文就丢了"];
+  const gains = ["每条结论都有可查证的出处", "检索、计算、判断全程留痕", "关键写入必须经你确认才落稿"];
+  return (
+    <section className="relative z-10 mx-auto max-w-[1200px] px-8 pt-[72px]">
+      <div
+        className="grid overflow-hidden rounded-[18px] border md:grid-cols-2"
+        style={{ borderColor: LINE, background: SURFACE }}
+      >
+        <div className="border-b px-8 py-8 md:border-b-0 md:border-r" style={{ borderColor: LINE }}>
+          <div className="text-[11px] font-semibold tracking-[0.24em]" style={{ color: INK_FAINT }}>
+            普通 AI 聊天给你的
+          </div>
+          <div className="mt-5 space-y-3.5">
+            {pains.map((p) => (
+              <div key={p} className="flex items-center gap-3 text-[13.5px]" style={{ color: INK_FAINT }}>
+                <XCircle size={15} style={{ color: "#c9bfa9" }} />
+                <span className="line-through decoration-[rgba(28,36,32,0.25)]">{p}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="px-8 py-8" style={{ background: ACCENT_SOFT }}>
+          <div className="text-[11px] font-semibold tracking-[0.24em]" style={{ color: ACCENT }}>
+            问津给你的
+          </div>
+          <div className="mt-5 space-y-3.5">
+            {gains.map((g) => (
+              <div key={g} className="flex items-center gap-3 text-[13.5px] font-medium" style={{ color: INK }}>
+                <CheckCircle2 size={15} style={{ color: ACCENT }} />
+                {g}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <p className="mt-6 text-center text-[15px]" style={{ color: INK_SOFT, fontFamily: serif }}>
+        别的 AI 给你答案，问津给你<span style={{ color: ACCENT, fontWeight: 700 }}>敢交上去的</span>答案。
+      </p>
+    </section>
+  );
+}
+
+function Highlights() {
+  const items = [
+    {
+      icon: ShieldCheck,
+      title: "结论有据可查",
+      body: "每条结论后面都挂着可查证的文献与数据回执。引用不编造——没有出处的话，它宁可说不知道。",
+    },
+    {
+      icon: Footprints,
+      title: "轨迹可追溯",
+      body: "检索了什么、算了什么、为什么这么判断，全程留痕。答辩和组会上，每一步都有据可查。",
+    },
+    {
+      icon: Stamp,
+      title: "你掌方向",
+      body: "研究团队跑链路，但关键产出必须经你确认才会写进论文。AI 不会背着你改动任何一个字。",
+    },
+    {
+      icon: Timer,
+      title: "长任务跑得完",
+      body: "小时级的建模与综述任务在服务端持续执行，断线自动续跑、失败断点恢复，不是聊十轮就忘的玩具。",
+    },
+  ];
+  return (
+    <section className="relative z-10 mx-auto max-w-[1200px] px-8 pt-[110px]">
+      <Eyebrow>为什么是问津</Eyebrow>
+      <h2 className="mt-5 text-[38px] font-bold leading-snug" style={{ color: INK, fontFamily: serif }}>
+        为「敢不敢用」而生的四件事
+      </h2>
+      <div className="mt-10 grid gap-4 md:grid-cols-2">
+        {items.map(({ icon: Icon, title, body }) => (
+          <div
+            key={title}
+            className="group rounded-[16px] border p-7 transition-all hover:-translate-y-1 hover:shadow-[var(--wjn-shadow-md)]"
+            style={{ borderColor: LINE, background: SURFACE }}
+          >
+            <div
+              className="flex h-11 w-11 items-center justify-center rounded-[10px]"
+              style={{ background: ACCENT_SOFT, color: ACCENT }}
+            >
+              <Icon size={20} strokeWidth={1.8} />
+            </div>
+            <h3 className="mt-5 text-[19px] font-bold" style={{ color: INK, fontFamily: serif }}>
+              {title}
+            </h3>
+            <p className="mt-2.5 text-[13.5px] leading-[1.85]" style={{ color: INK_SOFT }}>
+              {body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HowItWorks() {
+  const steps = [
+    ["提一个研究问题", "一句话描述你的题目或材料，剩下的拆解、规划交给研究团队。"],
+    ["团队跑链路，依据随行", "文献、计算、草稿在工作空间里持续推进，每一步都有据可查。"],
+    ["你确认，然后成稿", "关键产出送审到你手里，确认之后才写入论文，导出即交付。"],
+  ];
+  return (
+    <section className="relative z-10 mx-auto max-w-[1200px] px-8 pt-[110px]">
+      <Eyebrow>它怎么工作</Eyebrow>
+      <h2 className="mt-5 text-[38px] font-bold leading-snug" style={{ color: INK, fontFamily: serif }}>
+        三步，从问题到交付
+      </h2>
+      <div className="mt-10 grid gap-4 md:grid-cols-3">
+        {steps.map(([title, body], i) => (
+          <div key={title} className="relative rounded-[16px] border p-7" style={{ borderColor: LINE, background: SURFACE }}>
+            <div
+              className="text-[34px] font-bold italic"
+              style={{ color: "rgba(181,133,47,0.55)", fontFamily: "Georgia, serif" }}
+            >
+              {String(i + 1).padStart(2, "0")}
+            </div>
+            <h3 className="mt-4 text-[17px] font-bold" style={{ color: INK, fontFamily: serif }}>
+              {title}
+            </h3>
+            <p className="mt-2 text-[13px] leading-[1.85]" style={{ color: INK_SOFT }}>
+              {body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function UseCases() {
+  const cases = [
+    { icon: ScrollText, title: "SCI 论文", body: "从选题综述到成稿修订，引用全部可溯源。", href: quickStartHref("sci") },
+    { icon: BookOpen, title: "毕业论文", body: "开题、综述、实验设计，按学校规范推进。", href: quickStartHref("thesis") },
+    { icon: Sigma, title: "数学建模", body: "模型设计、求解验证、论文撰写一站完成。", href: quickStartHref("math_modeling") },
+    { icon: Landmark, title: "项目申报", body: "立项依据与技术路线，经得起评审追问。", href: quickStartHref("proposal") },
+  ];
+  return (
+    <section className="relative z-10 mx-auto max-w-[1200px] px-8 pt-[110px]">
+      <Eyebrow>为长流程研究与写作设计</Eyebrow>
+      <div className="mt-10 grid gap-4 md:grid-cols-4">
+        {cases.map(({ icon: Icon, title, body, href }) => (
+          <Link
+            key={title}
+            href={href}
+            className="rounded-[16px] border p-6 transition-all hover:-translate-y-1 hover:shadow-[var(--wjn-shadow-md)]"
+            style={{ borderColor: LINE, background: SURFACE }}
+          >
+            <Icon size={18} strokeWidth={1.8} style={{ color: ACCENT }} />
+            <h3 className="mt-4 text-[16px] font-bold" style={{ color: INK, fontFamily: serif }}>
+              {title}
+            </h3>
+            <p className="mt-2 text-[12.5px] leading-[1.8]" style={{ color: INK_SOFT }}>
+              {body}
+            </p>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FinalCta({ onStart }: { onStart: () => void }) {
+  return (
+    <section className="relative z-10 mx-auto max-w-[1200px] px-8 py-[110px]">
+      <div className="relative overflow-hidden rounded-[20px] px-10 py-16 text-center" style={{ background: INK }}>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage: "linear-gradient(to right, rgba(245,241,232,0.05) 1px, transparent 1px)",
+            backgroundSize: "120px 100%",
+          }}
+        />
+        <div className="relative">
+          <div className="text-[11px] font-semibold tracking-[0.32em] text-[#c8b585]">开始你的第一个研究任务</div>
+          <h2 className="mt-5 text-[40px] font-bold leading-snug text-[#f5f1e8]" style={{ fontFamily: serif }}>
+            把科研从临时问答，
+            <br />
+            推进到可持续交付。
+          </h2>
+          <p className="mx-auto mt-5 max-w-[440px] text-[14px] leading-[1.85] text-[rgba(245,241,232,0.62)]">
+            从一个想法开始，进入工作空间，让研究团队组织上下文、推进任务，并在你的确认下完成最终复核。
+          </p>
+          <button
+            type="button"
+            onClick={onStart}
+            className="group mx-auto mt-9 flex h-12 w-fit items-center gap-2.5 rounded-full px-8 text-[14.5px] font-medium text-[#1c2420] transition-transform hover:-translate-y-0.5"
+            style={{ background: "#f5f1e8" }}
+          >
+            开始一个研究任务
+            <ArrowRight size={16} strokeWidth={2.2} className="transition-transform group-hover:translate-x-0.5" />
+          </button>
+        </div>
+      </div>
+      <footer className="mt-14 flex items-center justify-between border-t pt-7 text-[12px]" style={{ borderColor: LINE, color: INK_FAINT }}>
+        <div className="flex items-center gap-2.5">
+          <Seal />
+          <span>问津 WENJIN · 结论有依据，过程可回溯</span>
+        </div>
+        <span className="italic" style={{ fontFamily: "Georgia, serif" }}>
+          Evidence visible. Process traceable.
+        </span>
+      </footer>
+    </section>
+  );
+}
+
 export default function HomePage() {
-  const { locale } = useLocaleStore();
+  const { isAuthenticated } = useAuthStore();
   const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const copy = COPY[locale];
+  const [authOpen, setAuthOpen] = useState(false);
 
   const openAuth = useCallback((mode: AuthMode) => {
     setAuthMode(mode);
-    setIsAuthOpen(true);
+    setAuthOpen(true);
   }, []);
 
+  const closeAuth = useCallback(() => setAuthOpen(false), []);
+
+  const start = useCallback(() => {
+    if (isAuthenticated) {
+      window.location.href = "/workspaces";
+    } else {
+      openAuth("register");
+    }
+  }, [isAuthenticated, openAuth]);
+
   return (
-    <main className="min-h-screen bg-[var(--wjn-bg-base)] text-[var(--wjn-text)]">
-      <LandingNav copy={copy} onAuth={openAuth} />
-
-      <section className="relative isolate min-h-[86dvh] overflow-hidden border-b border-[var(--wjn-line)] px-4 pb-12 pt-28 sm:px-6 lg:pt-32">
-        <Image
-          priority
-          alt={copy.hero.previewAlt}
-          className="absolute inset-0 -z-30 h-full w-full object-cover object-[62%_50%]"
-          data-testid="landing-hero-visual"
-          fill
-          sizes="100vw"
-          src="/hero-prism-workbench.jpg"
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 -z-20 bg-[linear-gradient(90deg,rgba(251,252,254,0.98)_0%,rgba(251,252,254,0.92)_34%,rgba(251,252,254,0.56)_58%,rgba(251,252,254,0.12)_100%)]"
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-0 -z-10 h-40 bg-[linear-gradient(180deg,transparent,rgba(245,247,250,0.98))]"
-        />
-
-        <div className="mx-auto flex min-h-[calc(86dvh-10rem)] w-full max-w-7xl items-center">
-          <div className="max-w-2xl py-10">
-            <p className="inline-flex items-center gap-3 text-xs font-bold uppercase tracking-[0.08em] text-[var(--wjn-text-secondary)] before:h-px before:w-7 before:bg-[var(--wjn-text)]">
-              {copy.hero.eyebrow}
-            </p>
-            <h1 className="mt-6 text-6xl font-black leading-[0.95] text-[var(--wjn-text)] sm:text-7xl lg:text-8xl">
-              {copy.hero.title}
-            </h1>
-            <p className="mt-7 max-w-xl text-lg leading-8 text-[var(--wjn-text-secondary)]">
-              {copy.hero.subtitle}
-            </p>
-            <div className="mt-9 flex flex-wrap items-center gap-4">
-              <Link
-                href="/workspaces"
-                className="inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-full bg-[var(--wjn-text)] px-6 text-sm font-bold text-white shadow-[0_16px_44px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
-              >
-                {copy.nav.enter}
-                <ArrowRight aria-hidden="true" className="ml-2 h-4 w-4" />
-              </Link>
-              <span className="max-w-md text-sm font-semibold leading-6 text-[var(--wjn-text-secondary)]">
-                {copy.hero.caption}
-              </span>
-            </div>
-            <div className="mt-10 grid max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4">
-              {copy.hero.signals.map((signal, index) => {
-                const Icon = HERO_SIGNAL_ICONS[index] ?? FileText;
-                return (
-                  <div
-                    key={signal}
-                    className="flex min-h-11 items-center gap-2 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white/78 px-3 text-sm font-bold text-[var(--wjn-text)] shadow-[var(--wjn-shadow-sm)] backdrop-blur"
-                  >
-                    <Icon aria-hidden="true" className="h-4 w-4 text-[var(--wjn-blue)]" />
-                    {signal}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="product" className="px-4 py-20 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <SectionHeader
-            eyebrow={copy.positioning.eyebrow}
-            title={copy.positioning.title}
-            body={copy.positioning.body}
-          />
-
-          <div className="mt-11 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-            <article className="min-h-72 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white p-8 shadow-[var(--wjn-shadow-sm)]">
-              <span className="inline-flex rounded-full bg-[var(--wjn-surface-subtle)] px-3 py-2 text-xs font-bold text-[var(--wjn-text-secondary)]">
-                {copy.positioning.ordinaryLabel}
-              </span>
-              <h3 className="mt-7 max-w-lg text-3xl font-bold leading-tight text-[var(--wjn-text)]">
-                {copy.positioning.ordinaryTitle}
-              </h3>
-              <p className="mt-4 max-w-xl text-base leading-8 text-[var(--wjn-text-secondary)]">
-                {copy.positioning.ordinaryBody}
-              </p>
-            </article>
-
-            <article className="min-h-72 rounded-[var(--wjn-radius)] bg-[var(--wjn-text)] p-8 text-white shadow-[var(--wjn-shadow-md)]">
-              <span className="inline-flex rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-white/70">
-                {copy.positioning.wenjinLabel}
-              </span>
-              <h3 className="mt-7 max-w-lg text-3xl font-bold leading-tight">
-                {copy.positioning.wenjinTitle}
-              </h3>
-              <p className="mt-4 max-w-xl text-base leading-8 text-white/65">
-                {copy.positioning.wenjinBody}
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section className="px-4 py-20 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <SectionHeader
-            eyebrow={copy.loop.eyebrow}
-            title={copy.loop.title}
-            body={copy.loop.body}
-          />
-
-          <div className="mt-11 grid gap-4 lg:grid-cols-3">
-            {copy.loop.steps.map((step, index) => (
-              <article
-                key={step.index}
-                className={`min-h-56 rounded-[var(--wjn-radius)] border bg-white p-7 shadow-[var(--wjn-shadow-sm)] ${
-                  index === 1
-                    ? "border-[var(--wjn-accent-line)] shadow-[var(--wjn-shadow-md)]"
-                    : "border-[var(--wjn-line)]"
-                }`}
-              >
-                <span className="text-xs font-bold text-[#98a2b3]">{step.index}</span>
-                <h3 className="mt-14 text-2xl font-bold leading-tight text-[var(--wjn-text)]">
-                  {step.title}
-                </h3>
-                <p className="mt-4 text-sm leading-7 text-[var(--wjn-text-secondary)]">
-                  {step.body}
-                </p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="px-4 py-20 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <SectionHeader eyebrow={copy.scenes.eyebrow} title={copy.scenes.title} />
-          <div className="mt-9 flex flex-wrap gap-3">
-            {QUICK_START_ORDER.map((type) => (
-              <Link
-                key={type}
-                href={quickStartHref(type)}
-                className="inline-flex min-h-11 items-center rounded-full border border-[var(--wjn-line)] bg-white px-5 text-sm font-bold text-[var(--wjn-text-secondary)] shadow-[var(--wjn-shadow-sm)] transition hover:bg-[#f9fafb]"
-              >
-                {copy.quickStartItems[type]}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="px-4 pb-28 pt-20 sm:px-6">
-        <div className="mx-auto grid min-h-80 max-w-6xl items-end gap-8 rounded-[var(--wjn-radius-xl)] bg-[var(--wjn-text)] p-8 text-white shadow-[var(--wjn-shadow-lg)] lg:grid-cols-[1fr_auto] lg:p-11">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-white/55">
-              {copy.final.eyebrow}
-            </p>
-            <h2 className="mt-4 max-w-4xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
-              {copy.final.title}
-            </h2>
-            <p className="mt-5 max-w-3xl text-base leading-8 text-white/65">
-              {copy.final.body}
-            </p>
-          </div>
-          <Link
-            href="/workspaces"
-            className="inline-flex min-h-12 items-center justify-center rounded-full bg-white px-6 text-sm font-bold text-[#101828] transition hover:bg-[#f2f4f7]"
-          >
-            {copy.nav.enter}
-          </Link>
-        </div>
-      </section>
-
-      <AuthModal
-        isOpen={isAuthOpen}
-        initialMode={authMode}
-        onClose={() => setIsAuthOpen(false)}
+    <main className="relative min-h-screen overflow-hidden" style={{ background: PAPER, color: INK }}>
+      {/* faint column hairlines */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: "linear-gradient(to right, rgba(28,36,32,0.045) 1px, transparent 1px)",
+          backgroundSize: "120px 100%",
+          maskImage: "linear-gradient(to bottom, black 0%, transparent 78%)",
+          WebkitMaskImage: "linear-gradient(to bottom, black 0%, transparent 78%)",
+        }}
       />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
+        style={{ background: "linear-gradient(180deg, rgba(20,84,74,0.06), transparent)" }}
+      />
+      <LandingNav onAuth={openAuth} />
+      <HeroCopy onStart={start} />
+      <PainBand />
+      <section id="demo" className="relative z-10 mx-auto max-w-[1200px] px-8 pt-[72px]">
+        <LandingTheater accent={ACCENT} soft={ACCENT_SOFT} panel={PAPER_DEEP} meta={BRASS} surface={SURFACE} />
+      </section>
+      <Highlights />
+      <HowItWorks />
+      <UseCases />
+      <FinalCta onStart={start} />
+      <AuthModal isOpen={authOpen} onClose={closeAuth} initialMode={authMode} />
     </main>
   );
 }

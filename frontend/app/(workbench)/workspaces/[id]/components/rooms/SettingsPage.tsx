@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DecisionsViewer } from "./DecisionsViewer";
 import { SettingsForm } from "./SettingsForm";
@@ -73,7 +74,7 @@ export function SettingsPage({
         bottom: 0,
         width: 560,
         background: "var(--wjn-surface)",
-        borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
+        borderLeft: "1px solid var(--wjn-line)",
         boxShadow: "var(--wjn-shadow-md)",
         display: "flex",
         flexDirection: "column",
@@ -93,7 +94,7 @@ export function SettingsPage({
           alignItems: "center",
           height: 48,
           padding: "0 16px",
-          borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
+          borderBottom: "1px solid var(--wjn-line)",
         }}
       >
         <span
@@ -118,7 +119,7 @@ export function SettingsPage({
             padding: 4,
           }}
         >
-          ✕
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
 
@@ -127,7 +128,7 @@ export function SettingsPage({
         data-testid="settings-tabs"
         style={{
           display: "flex",
-          borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
+          borderBottom: "1px solid var(--wjn-line)",
           padding: "0 16px",
         }}
       >

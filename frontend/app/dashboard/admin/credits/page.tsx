@@ -157,7 +157,7 @@ export default function AdminCreditsPage() {
       />
 
       {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 flex items-center gap-2 mb-4">
+        <div className="p-4 rounded-xl bg-[var(--wjn-error-soft)] border border-[rgba(179,52,62,0.22)] text-[var(--wjn-error)] flex items-center gap-2 mb-4">
           {error}
         </div>
       )}
@@ -269,14 +269,14 @@ export default function AdminCreditsPage() {
                   <td className="py-2 text-[var(--wjn-text-secondary)]">{formatCreditTransactionType(item.type)}</td>
                   <td
                     className={`py-2 font-medium ${
-                      item.amount >= 0 ? "text-emerald-600" : "text-rose-600"
+                      item.amount >= 0 ? "text-[var(--wjn-success)]" : "text-[var(--wjn-error)]"
                     }`}
                   >
                     {item.amount >= 0 ? `+${item.amount}` : item.amount}
                   </td>
                   <td
                     className={`py-2 ${
-                      item.balance_after < 0 ? "text-rose-600" : "text-[var(--wjn-text)]"
+                      item.balance_after < 0 ? "text-[var(--wjn-error)]" : "text-[var(--wjn-text)]"
                     }`}
                   >
                     {item.balance_after}

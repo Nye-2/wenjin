@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import {
   listLibraryItems,
@@ -161,7 +162,7 @@ export function LibraryDrawer({
         bottom: 0,
         width: "min(760px, 100%)",
         background: "var(--wjn-surface)",
-        borderLeft: "1px solid rgba(20, 20, 30, 0.08)",
+        borderLeft: "1px solid var(--wjn-line)",
         boxShadow: "var(--wjn-shadow-md)",
         display: "flex",
         flexDirection: "column",
@@ -184,7 +185,7 @@ export function LibraryDrawer({
           alignItems: "center",
           height: 48,
           padding: "0 16px",
-          borderBottom: "1px solid rgba(20, 20, 30, 0.08)",
+          borderBottom: "1px solid var(--wjn-line)",
         }}
       >
         <span
@@ -211,7 +212,7 @@ export function LibraryDrawer({
             padding: 4,
           }}
         >
-          ✕
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
 
@@ -228,7 +229,7 @@ export function LibraryDrawer({
             boxSizing: "border-box",
             padding: "8px 12px",
             borderRadius: "var(--wjn-radius-md)",
-            border: "1px solid rgba(20, 20, 30, 0.08)",
+            border: "1px solid var(--wjn-line)",
             background: "var(--wjn-surface-raised)",
             fontSize: 13,
             fontFamily: "var(--wjn-font-sans)",
@@ -304,7 +305,7 @@ export function LibraryDrawer({
                 border:
                   item.id === selectedId
                     ? "1px solid var(--wjn-accent-line)"
-                    : "1px solid rgba(20, 20, 30, 0.06)",
+                    : "1px solid var(--wjn-change-neutral-soft)",
                 boxShadow:
                   item.id === selectedId
                     ? "0 0 0 3px var(--wjn-accent-soft)"

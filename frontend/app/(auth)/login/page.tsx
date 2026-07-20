@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth';
@@ -9,14 +9,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthShell } from '@/components/auth/auth-shell';
-import { useI18n } from '@/components/i18n-provider';
 import { resolvePostAuthRedirect } from '@/lib/auth-redirect';
 import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { t } = useI18n();
   const { login, isLoading, error, clearError, isAuthenticated } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,16 +45,16 @@ export default function LoginPage() {
   return (
     <AuthShell
       mode="login"
-      title={t("auth.login.title")}
-      description={t("auth.login.subtitle")}
+      title="进入你的工作空间"
+      description="继续推进来源整理、结构设计、写作修订与成果交付。"
       footer={(
         <p className="text-center">
-          {t("auth.login.noAccount")}{" "}
+          还没有账户？{" "}
           <Link
             href="/register"
             className="font-semibold text-[var(--wjn-navy)] hover:text-[var(--wjn-blue)]"
           >
-            {t("auth.login.createOne")}
+            创建一个
           </Link>
         </p>
       )}
@@ -63,12 +69,12 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <Label htmlFor="email">
-              {t("auth.login.email")} <span className="text-[var(--wjn-error)]">*</span>
+              邮箱 <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <Input
               id="email"
               type="email"
-              placeholder={t("auth.login.emailPlaceholder")}
+              placeholder="your@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
@@ -78,13 +84,13 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <Label htmlFor="password">
-              {t("auth.login.password")} <span className="text-[var(--wjn-error)]">*</span>
+              密码 <span className="text-[var(--wjn-error)]">*</span>
             </Label>
             <div className="relative">
               <Input
                 id="password"
                 type={showPassword ? 'text' : 'password'}
-                placeholder={t("auth.login.passwordPlaceholder")}
+                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
@@ -107,12 +113,12 @@ export default function LoginPage() {
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t("auth.login.signingIn")}
+              登录中...
             </>
           ) : (
             <>
               <LogIn className="mr-2 h-4 w-4" />
-              {t("auth.login.button")}
+              登录
             </>
           )}
         </Button>

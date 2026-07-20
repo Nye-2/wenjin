@@ -4,6 +4,14 @@
 
 前端是问津科研工作台的统一交互层，负责 workspace shell、WorkspaceAgent 对话入口、MissionView、Prism 主稿台、Reference Library、Review/Commit 与 Admin Console。
 
+## 设计约定（2026-07 定稿）
+
+- 纯中文界面，无 i18n 层；单主题（暖纸），无主题切换。
+- 颜色/圆角/阴影一律使用 `app/globals.css` 的 `--wjn-*` token，禁止硬编码 hex 与 Tailwind 标准色板。
+- 标题衬线 `var(--wjn-font-serif)`，正文 sans，数据/微标签用 mono。
+- 文案两级命名：面板级「来源与结果」；类型 chip（文献源/数据/代码/结果/图表/材料）用 `components/ui/type-chip.tsx`；状态 pill（已查证/待你确认/待你补充）用 `components/ui/status-pill.tsx`。
+- 图标统一 lucide-react，不用文本字符当图标。
+
 ## 技术栈
 
 - Next.js 16 App Router
@@ -18,7 +26,7 @@
 - 登录注册与鉴权跳转
 - Workspace 列表与科研工作台 shell
 - Chat Panel：主对话、streaming、Mission 启动与 steer、任务反馈、结果回写
-- MissionView：当前 Mission、阶段进度、Worker、证据、产物、review items 与运行历史
+- MissionView：当前 Mission、阶段进度、Worker、来源与结果、产物、review items 与运行历史
 - Prism：LaTeX 文件树、编辑器、编译、PDF 对照、AI 改稿、file-change preview/apply/revert
 - Reference Library：文献列表、上传、导入、详情、BibTeX、source link 回跳
 - Admin Console：模型目录、MissionPolicy/WorkerSkill 目录、定价、积分与系统配置
@@ -47,7 +55,7 @@ frontend/
 
 ### MissionView
 
-- 当前 Mission、Worker、候选结果、证据预览和运行历史统一读取 Mission API projection。
+- 当前 Mission、Worker、候选结果、来源预览和运行历史统一读取 Mission API projection。
 - Chat receipt 与 Mission Console 共享 `frontend/lib/api/missions.ts` 的规范化视图。
 - 前端 store 只保存 UI focus、badge、panel state，不承载 Mission 业务事实。
 - 默认 UI 不展示 raw stdout/stderr、raw args、template id、schema id 或日志墙。

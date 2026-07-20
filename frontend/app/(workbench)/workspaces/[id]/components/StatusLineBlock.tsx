@@ -1,5 +1,7 @@
 "use client";
 
+import { AlertTriangle, Sparkles, XCircle } from "lucide-react";
+
 import type { StatusTone } from "@/lib/api/blocks";
 
 interface StatusLineBlockProps {
@@ -8,21 +10,24 @@ interface StatusLineBlockProps {
   phaseIndex?: number | null;
 }
 
-const TONE_STYLES: Record<StatusTone, { accent: string; background: string; icon: string }> = {
+const TONE_STYLES: Record<
+  StatusTone,
+  { accent: string; background: string; Icon: typeof Sparkles }
+> = {
   info: {
     accent: "var(--wjn-blue)",
     background: "var(--wjn-accent-soft)",
-    icon: "→",
+    Icon: Sparkles,
   },
   warn: {
     accent: "var(--wjn-review)",
     background: "var(--wjn-review-soft)",
-    icon: "!",
+    Icon: AlertTriangle,
   },
   error: {
     accent: "var(--wjn-error)",
     background: "var(--wjn-error-soft)",
-    icon: "×",
+    Icon: XCircle,
   },
 };
 
@@ -47,7 +52,7 @@ export function StatusLineBlock({
         color: "var(--wjn-text-secondary)",
       }}
     >
-      <span style={{ color: toneStyle.accent }}>{toneStyle.icon}</span>
+      <toneStyle.Icon size={13} strokeWidth={2} style={{ color: toneStyle.accent, flexShrink: 0 }} aria-hidden="true" />
       <span>
         {phaseIndex != null ? `阶段 ${phaseIndex} · ` : ""}
         {label}

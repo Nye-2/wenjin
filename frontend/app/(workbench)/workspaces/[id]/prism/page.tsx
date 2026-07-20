@@ -3,7 +3,6 @@
 import { use, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { useOptionalI18n } from "@/components/i18n-provider";
 import { WorkspaceSurfaceState } from "@/components/workspace/WorkspaceSurfaceState";
 import {
   ensureWorkspacePrismProject,
@@ -36,8 +35,6 @@ export default function WorkspacePrismPage({
   const { id } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const i18n = useOptionalI18n();
-  const t = i18n?.t;
   const [loadState, setLoadState] = useState<PrismSurfaceLoadState>({
     workspaceId: id,
     surface: null,
@@ -97,7 +94,7 @@ export default function WorkspacePrismPage({
             error:
               err instanceof Error
                 ? err.message
-                : "Unable to open Prism manuscript surface",
+                : "无法打开 Prism 主稿面，请稍后重试。",
           });
         }
       });
@@ -169,23 +166,14 @@ export default function WorkspacePrismPage({
         ) : error ? (
           <WorkspaceSurfaceState
             tone="error"
-            title={
-              t?.("workspaceSurfaces.prismErrorTitle") ??
-              "Unable to open Prism manuscript surface"
-            }
+            title="无法打开 Prism 主稿台"
             description={error}
           />
         ) : (
           <WorkspaceSurfaceState
             tone="loading"
-            title={
-              t?.("workspaceSurfaces.prismLoadingTitle") ??
-              "正在打开论文写作台"
-            }
-            description={
-              t?.("workspaceSurfaces.prismLoadingDescription") ??
-              "正在加载工作区主稿和待复核修改。"
-            }
+            title="正在打开 Prism 主稿台"
+            description="正在载入工作区绑定的主稿项目与待确认写入状态。"
           />
         )}
       </div>

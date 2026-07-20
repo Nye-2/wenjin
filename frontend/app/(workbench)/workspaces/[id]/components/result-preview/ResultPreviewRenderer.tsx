@@ -260,7 +260,7 @@ export function ResultPreviewRenderer({
       <DocumentPreviewFrame
         testId="result-preview-document-diff"
         title="文档修改对比"
-        subtitle="请确认修改是否符合你的材料和证据要求。"
+        subtitle="请确认修改是否符合你的材料与研究要求。"
       >
         <pre
           style={{

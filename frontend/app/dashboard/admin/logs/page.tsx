@@ -171,7 +171,7 @@ export default function AdminLogsPage() {
       />
 
       {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 flex items-center gap-2 mb-4">
+        <div className="p-4 rounded-xl bg-[var(--wjn-error-soft)] border border-[rgba(179,52,62,0.22)] text-[var(--wjn-error)] flex items-center gap-2 mb-4">
           {error}
         </div>
       )}

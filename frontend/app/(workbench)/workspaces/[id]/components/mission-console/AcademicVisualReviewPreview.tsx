@@ -165,7 +165,7 @@ function visualMetadataLines(metadata: MissionVisualReviewMetadata): string[] {
 
 function evidenceLevelLabel(level: string): string {
   const labels: Record<string, string> = {
-    evidence: "证据图",
+    evidence: "数据图",
     explanatory: "说明图",
     decorative: "视觉辅助",
   };

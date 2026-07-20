@@ -90,7 +90,7 @@ test("MissionView opens on demand, reviews changes, and lazy-loads semantic trac
   await expect(page.getByText("已确认，待保存")).toBeVisible();
   await page.getByRole("checkbox", { name: "选择 文献脉络草稿" }).check();
   await page.getByRole("button", { name: "需要补证", exact: true }).last().click();
-  await expect(page.getByText("1 项内容还需要补充证据，暂不会写入工作区。" )).toBeVisible();
+  await expect(page.getByText("1 项内容还需要补充材料，暂不会写入工作区。" )).toBeVisible();
   await page.getByRole("button", { name: "保存已确认内容" }).click();
   await expect(page.getByText("已保存")).toBeVisible();
   await expect.poll(() => missionViewRequests).toBeGreaterThan(1);

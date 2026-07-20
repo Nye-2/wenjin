@@ -208,7 +208,7 @@ export default function AdminUsersPage() {
       />
 
       {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 flex items-center gap-2 mb-4">
+        <div className="p-4 rounded-xl bg-[var(--wjn-error-soft)] border border-[rgba(179,52,62,0.22)] text-[var(--wjn-error)] flex items-center gap-2 mb-4">
           {error}
         </div>
       )}
@@ -337,14 +337,14 @@ export default function AdminUsersPage() {
                   <tr
                     key={item.id}
                     className={`border-b border-[var(--wjn-line)]/50 ${
-                      isOverdraft ? "bg-rose-500/5" : ""
+                      isOverdraft ? "bg-[var(--wjn-error-soft)]0/5" : ""
                     }`}
                   >
                     <td className="py-2 text-[var(--wjn-text)]">
                       <div className="flex items-center gap-2">
                         <span>{item.email}</span>
                         {isOverdraft ? (
-                          <span className="rounded-md bg-rose-500/10 px-2 py-1 text-xs text-rose-600">
+                          <span className="rounded-md bg-[var(--wjn-error-soft)] px-2 py-1 text-xs text-[var(--wjn-error)]">
                             透支
                           </span>
                         ) : null}
@@ -355,8 +355,8 @@ export default function AdminUsersPage() {
                       <span
                         className={`px-2 py-1 rounded-md text-xs ${
                           item.is_active
-                            ? "bg-emerald-500/10 text-emerald-600"
-                            : "bg-rose-500/10 text-rose-600"
+                            ? "bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]"
+                            : "bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]"
                         }`}
                       >
                         {item.is_active ? "正常" : "禁用"}
@@ -364,7 +364,7 @@ export default function AdminUsersPage() {
                     </td>
                     <td
                       className={`py-2 font-medium ${
-                        isOverdraft ? "text-rose-600" : "text-[var(--wjn-text)]"
+                        isOverdraft ? "text-[var(--wjn-error)]" : "text-[var(--wjn-text)]"
                       }`}
                     >
                       {item.credits}
@@ -381,7 +381,7 @@ export default function AdminUsersPage() {
                             setCreditDialogMode("grant");
                             setCreditDialogUser(item);
                           }}
-                          className="px-2 py-1 rounded-md text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 disabled:opacity-60"
+                          className="px-2 py-1 rounded-md text-xs bg-[var(--wjn-success-soft)] text-[var(--wjn-success)] hover:bg-[var(--wjn-success-soft)] disabled:opacity-60"
                         >
                           发放
                         </button>
@@ -391,7 +391,7 @@ export default function AdminUsersPage() {
                             setCreditDialogMode("deduct");
                             setCreditDialogUser(item);
                           }}
-                          className="px-2 py-1 rounded-md text-xs bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 disabled:opacity-60"
+                          className="px-2 py-1 rounded-md text-xs bg-[var(--wjn-review-soft)] text-[var(--wjn-review)] hover:bg-[var(--wjn-review-soft)] disabled:opacity-60"
                         >
                           扣除
                         </button>
@@ -405,7 +405,7 @@ export default function AdminUsersPage() {
                               );
                             })
                           }
-                          className="px-2 py-1 rounded-md text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 disabled:opacity-60"
+                          className="px-2 py-1 rounded-md text-xs bg-[var(--wjn-accent-soft)] text-[var(--wjn-accent-strong)] hover:bg-[rgba(20,84,74,0.16)] disabled:opacity-60"
                         >
                           {item.role === "admin" ? "设为用户" : "设为管理员"}
                         </button>
@@ -416,7 +416,7 @@ export default function AdminUsersPage() {
                               await updateAdminUserStatus(item.id, !item.is_active);
                             })
                           }
-                          className="px-2 py-1 rounded-md text-xs bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 disabled:opacity-60"
+                          className="px-2 py-1 rounded-md text-xs bg-[var(--wjn-error-soft)] text-[var(--wjn-error)] hover:bg-[var(--wjn-error-soft)]0/20 disabled:opacity-60"
                         >
                           {item.is_active ? "禁用" : "启用"}
                         </button>

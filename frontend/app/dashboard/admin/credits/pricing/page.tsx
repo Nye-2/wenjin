@@ -65,7 +65,7 @@ export default function AdminPricingPage() {
       />
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)] px-4 py-3 text-sm text-[var(--wjn-error)]">
           <ShieldAlert className="w-4 h-4" />
           {error}
         </div>
@@ -93,7 +93,7 @@ export default function AdminPricingPage() {
                   <div className="mt-1 flex gap-2 text-xs text-[var(--wjn-text-muted)]">
                     <span className="font-mono">{policy.policy_key}</span>
                     <span>v{policy.version}</span>
-                    {!policy.enabled && <span className="text-slate-500">停用</span>}
+                    {!policy.enabled && <span className="text-[var(--wjn-text-muted)]">停用</span>}
                   </div>
                 </td>
                 <td className="px-4 py-3 font-mono text-[var(--wjn-text-secondary)]">{policy.policy_kind}</td>
@@ -115,7 +115,7 @@ export default function AdminPricingPage() {
                     <button
                       type="button"
                       onClick={() => handleDisable(policy)}
-                      className="text-rose-600 hover:underline"
+                      className="text-[var(--wjn-error)] hover:underline"
                     >
                       停用
                     </button>

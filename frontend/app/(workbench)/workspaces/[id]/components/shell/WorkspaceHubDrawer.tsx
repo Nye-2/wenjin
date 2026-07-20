@@ -46,7 +46,7 @@ export const WORKSPACE_HUB_ROOMS: readonly WorkspaceHubRoom[] = [
   {
     key: "missions",
     label: "研究任务记录",
-    description: "历史研究任务、过程证据与成果摘要",
+    description: "历史研究任务、过程记录与成果摘要",
     icon: History,
     countKind: "missions",
   },

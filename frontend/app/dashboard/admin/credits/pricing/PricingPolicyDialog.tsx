@@ -209,7 +209,7 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
             className="h-64 w-full rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3 font-mono text-xs text-[var(--wjn-text)] outline-none focus:border-[var(--wjn-navy)]"
           />
         </div>
-        {error && <div className="text-sm text-rose-600">{error}</div>}
+        {error && <div className="text-sm text-[var(--wjn-error)]">{error}</div>}
         <DialogFooter>
           <Button
             variant="outline"

@@ -147,7 +147,7 @@ export function CreditRuleDialog({ open, rule, onClose }: Props) {
             <Input value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
 
-          {error && <div className="text-sm text-rose-600">{error}</div>}
+          {error && <div className="text-sm text-[var(--wjn-error)]">{error}</div>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onClose(false)} disabled={loading}>取消</Button>

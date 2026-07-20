@@ -50,12 +50,12 @@ export function CreditPanel({
             <AreaChart data={data?.credit_series ?? []}>
               <defs>
                 <linearGradient id="inflowGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                  <stop offset="5%" stopColor="var(--wjn-success)" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="var(--wjn-success)" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="outflowGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                  <stop offset="5%" stopColor="var(--wjn-error)" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="var(--wjn-error)" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--wjn-line)" />
@@ -81,7 +81,7 @@ export function CreditPanel({
               <Area
                 type="monotone"
                 dataKey="inflow"
-                stroke="#22c55e"
+                stroke="var(--wjn-success)"
                 fill="url(#inflowGrad)"
                 strokeWidth={2}
                 name="流入"
@@ -89,7 +89,7 @@ export function CreditPanel({
               <Area
                 type="monotone"
                 dataKey="outflow"
-                stroke="#ef4444"
+                stroke="var(--wjn-error)"
                 fill="url(#outflowGrad)"
                 strokeWidth={2}
                 name="流出"

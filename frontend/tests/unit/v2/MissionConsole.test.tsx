@@ -463,8 +463,8 @@ describe("MissionConsole", () => {
     view.artifactNextCursor = 14;
     render(<MissionConsole view={view} onClose={() => undefined} />);
 
-    fireEvent.click(screen.getByRole("tab", { name: /证据/ }));
-    fireEvent.click(screen.getByRole("button", { name: /加载更多证据/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
     await waitFor(() => expect(screen.getByText("后续核验证据")).toBeInTheDocument());
     expect(listMissionEvidenceMock).toHaveBeenCalledWith({ missionId: "mission-1", cursor: 12 });
 
@@ -486,8 +486,8 @@ describe("MissionConsole", () => {
     first.evidenceCount = 2;
     first.evidenceNextCursor = 12;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /证据/ }));
-    fireEvent.click(screen.getByRole("button", { name: /加载更多证据/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
 
     const second = makeView("mission-2");
     second.evidenceItems = [{ id: "ev-b", title: "任务 B 证据", sourceType: "paper", verified: true }];
@@ -609,7 +609,7 @@ describe("MissionConsole", () => {
       reason: "external_data",
       title: "需要你补充研究材料",
       summary: "请上传题目 PDF 和已有数据表。",
-      impact: "收到材料前，相关证据核验与后续写作会暂停。",
+      impact: "收到材料前，相关查证与后续写作会暂停。",
       requiredInputs: [{ id: "pdf", label: "题目 PDF", inputType: "file", required: true }],
       actions: [
         { id: "reply", label: "回到对话回复", actionType: "reply_in_chat", primary: true },
@@ -635,7 +635,7 @@ describe("MissionConsole", () => {
       reason: "external_data",
       title: "需要你补充研究材料",
       summary: "请上传题目 PDF 和已有数据表。",
-      impact: "收到材料前，相关证据核验与后续写作会暂停。",
+      impact: "收到材料前，相关查证与后续写作会暂停。",
       requiredInputs: [{ id: "pdf", label: "题目 PDF", inputType: "file", required: true }],
       actions: [{ id: "reply", label: "回到对话回复", actionType: "reply_in_chat", primary: true }],
     };
@@ -650,7 +650,7 @@ describe("MissionConsole", () => {
       />,
     );
     expect(screen.getByTestId("mission-attention-request")).toHaveTextContent("题目 PDF");
-    expect(screen.getByTestId("mission-attention-request")).toHaveTextContent("相关证据核验与后续写作会暂停");
+    expect(screen.getByTestId("mission-attention-request")).toHaveTextContent("相关查证与后续写作会暂停");
     fireEvent.click(screen.getByRole("button", { name: "回到对话回复" }));
 
     expect(onChatAction).toHaveBeenCalledWith("focus");

@@ -27,23 +27,23 @@ const REVIEW_ISSUE_PATTERNS: Array<{
   {
     test: /No claim-bearing Review Packet item was produced/i,
     copy: {
-      title: "需要补充论断与证据对应",
+      title: "需要补充论断与出处对应",
       summary:
-        "这次运行没有给出“论断-证据”的对应关系。涉及论文论断前，需要补齐引用或证据说明。",
+        "这次运行没有给出“论断-出处”的对应关系。涉及论文论断前，需要补齐引用或来源说明。",
     },
   },
   {
     test: /unsupported claim/i,
     copy: {
-      title: "有论断还缺少证据支撑",
-      summary: "这项内容还没有足够证据支撑。建议补充来源后再保存。",
+      title: "有论断还缺少来源支撑",
+      summary: "这项内容还没有足够来源支撑。建议补充来源后再保存。",
     },
   },
   {
     test: /citation evidence requires manual confirmation/i,
     copy: {
-      title: "引用或证据需要确认",
-      summary: "这项内容涉及引用或证据，需要你看过来源后再保存。",
+      title: "引用或来源需要确认",
+      summary: "这项内容涉及引用或来源，需要你看过来源后再保存。",
     },
   },
   {
@@ -72,7 +72,7 @@ const TECHNICAL_REASON_PATTERNS: Array<{
   },
   {
     test: /No claim-bearing Review Packet item was produced/i,
-    label: "没有给出“论断-证据”的对应关系。",
+    label: "没有给出“论断-出处”的对应关系。",
   },
   {
     test: /review warning requires manual resolution/i,
@@ -80,7 +80,7 @@ const TECHNICAL_REASON_PATTERNS: Array<{
   },
   {
     test: /item touches claims, citations, evidence, or trust state/i,
-    label: "涉及论断、引用、证据或可信状态。",
+    label: "涉及论断、引用、来源或可信状态。",
   },
   {
     test: /item is unchecked by default/i,
@@ -92,7 +92,7 @@ const TECHNICAL_REASON_PATTERNS: Array<{
   },
   {
     test: /citation evidence requires manual confirmation/i,
-    label: "引用或证据需要人工确认。",
+    label: "引用或来源需要人工确认。",
   },
   {
     test: /document draft changes require review/i,
@@ -104,7 +104,7 @@ const TECHNICAL_REASON_PATTERNS: Array<{
   },
   {
     test: /unsupported claim/i,
-    label: "有论断还缺少证据支撑。",
+    label: "有论断还缺少来源支撑。",
   },
   {
     test: /^(high|medium|low|critical|blocked|staged)$/i,

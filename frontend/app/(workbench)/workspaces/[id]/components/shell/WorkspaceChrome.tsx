@@ -2,11 +2,10 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Archive, BookOpenText, Eye, PanelsTopLeft } from "lucide-react";
+import { Archive, BookOpenText, PanelsTopLeft } from "lucide-react";
 
 import { CountBadge } from "@/components/ui/count-badge";
 import { StatusChip } from "@/components/ui/status-chip";
-import { useWenjinThemeStore } from "@/stores/wenjin-theme-store";
 
 export type WorkspaceSurface = "workbench" | "prism";
 export type WorkspaceMissionStatus = "running" | "waiting" | null;
@@ -30,10 +29,6 @@ export function WorkspaceChrome({
   missionSummaryState: "loading" | "ready" | "stale" | "unavailable";
   onOpenHub: () => void;
 }) {
-  const theme = useWenjinThemeStore((state) => state.theme);
-  const toggleTheme = useWenjinThemeStore((state) => state.toggleTheme);
-  const isGraphite = theme === "graphite";
-
   return (
     <header className="wjn-topbar flex shrink-0 items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4">
       <Link
@@ -41,7 +36,10 @@ export function WorkspaceChrome({
         aria-label="Wenjin"
         className="flex min-w-0 shrink-0 items-center gap-3 rounded-[var(--wjn-radius)] text-[var(--wjn-text)] no-underline outline-none transition-colors hover:text-[var(--wjn-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--wjn-accent-line)]"
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border border-[var(--wjn-accent-line)] bg-[var(--wjn-navy)] text-[13px] font-semibold text-white shadow-[var(--wjn-shadow-sm)]">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[7px] text-[15px] font-bold text-[#f5f1e8] shadow-[var(--wjn-shadow-sm)]"
+          style={{ background: "var(--wjn-text)", fontFamily: "var(--wjn-font-serif)" }}
+        >
           问
         </div>
         <div className="hidden min-w-0 sm:block">
@@ -64,7 +62,7 @@ export function WorkspaceChrome({
           </div>
         </div>
         {missionStatus === "running" ? <StatusChip label="运行中" tone="running" /> : null}
-        {missionStatus === "waiting" ? <StatusChip label="等待回应" tone="review" /> : null}
+        {missionStatus === "waiting" ? <StatusChip label="待你回应" tone="review" /> : null}
         {pendingReviewCount > 0 ? <StatusChip label="待确认" tone="review" /> : null}
         {missionSummaryState === "stale" || missionSummaryState === "unavailable" ? (
           <StatusChip label="状态待同步" tone="neutral" />
@@ -91,17 +89,6 @@ export function WorkspaceChrome({
             icon={<BookOpenText className="h-3.5 w-3.5" aria-hidden="true" />}
           />
         </nav>
-        <button
-          type="button"
-          aria-label={isGraphite ? "切换到标准模式" : "切换到护眼模式"}
-          title={isGraphite ? "切换到标准模式" : "切换到护眼模式"}
-          aria-pressed={isGraphite}
-          onClick={toggleTheme}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 text-xs font-semibold text-[var(--wjn-text-secondary)] shadow-[var(--wjn-shadow-sm)] transition-colors hover:border-[var(--wjn-accent-line)] hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-text)]"
-        >
-          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="hidden sm:inline">{isGraphite ? "标准" : "护眼"}</span>
-        </button>
         <button
           type="button"
           aria-label={

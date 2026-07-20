@@ -65,7 +65,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
             boxSizing: "border-box",
             padding: "8px 12px",
             borderRadius: "var(--wjn-radius-md)",
-            border: "1px solid rgba(20, 20, 30, 0.08)",
+            border: "1px solid var(--wjn-line)",
             background: "var(--wjn-surface-raised)",
             fontSize: 13,
             fontFamily: "var(--wjn-font-sans)",
@@ -113,7 +113,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
               style={{
                 background: "var(--wjn-surface-raised)",
                 borderRadius: "var(--wjn-radius-md)",
-                border: "1px solid rgba(20, 20, 30, 0.06)",
+                border: "1px solid var(--wjn-change-neutral-soft)",
                 padding: 12,
                 marginBottom: 8,
               }}

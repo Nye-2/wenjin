@@ -1,18 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { WorkspaceChrome } from "@/app/(workbench)/workspaces/[id]/components/shell/WorkspaceChrome";
-import { WenjinThemeProvider } from "@/components/wenjin-theme-provider";
-import { DEFAULT_WENJIN_THEME } from "@/lib/wenjin-theme";
-import { useWenjinThemeStore } from "@/stores/wenjin-theme-store";
 
 describe("WorkspaceChrome", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    document.documentElement.setAttribute("data-wjn-theme", DEFAULT_WENJIN_THEME);
-    useWenjinThemeStore.setState({ theme: DEFAULT_WENJIN_THEME });
-  });
-
   it("renders one trusted chrome with surface switch and hub entry without exposing the raw workspace id", () => {
     render(
       <WorkspaceChrome
@@ -51,35 +42,6 @@ describe("WorkspaceChrome", () => {
     expect(screen.queryByText("787153")).not.toBeInTheDocument();
   });
 
-  it("switches between standard and eye comfort themes from the trusted chrome", async () => {
-    render(
-      <WenjinThemeProvider>
-        <WorkspaceChrome
-          workspaceId="ws-1"
-          workspaceName="Federated LLM Study"
-          workspaceTypeLabel="SCI论文"
-          activeSurface="workbench"
-          pendingReviewCount={0}
-          missionStatus={null}
-          missionSummaryState="ready"
-          onOpenHub={() => undefined}
-        />
-      </WenjinThemeProvider>,
-    );
-
-    expect(document.documentElement).toHaveAttribute("data-wjn-theme", "mineral");
-
-    fireEvent.click(screen.getByRole("button", { name: "切换到护眼模式" }));
-
-    await waitFor(() => {
-      expect(document.documentElement).toHaveAttribute("data-wjn-theme", "graphite");
-    });
-    expect(screen.getByRole("button", { name: "切换到标准模式" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  });
-
   it("distinguishes a mission waiting for the user from active research", () => {
     render(
       <WorkspaceChrome
@@ -94,7 +56,7 @@ describe("WorkspaceChrome", () => {
       />,
     );
 
-    expect(screen.getByText("等待回应")).toBeInTheDocument();
+    expect(screen.getByText("待你回应")).toBeInTheDocument();
     expect(screen.queryByText("运行中")).not.toBeInTheDocument();
   });
 

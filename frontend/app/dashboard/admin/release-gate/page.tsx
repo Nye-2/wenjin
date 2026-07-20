@@ -19,10 +19,10 @@ function formatDate(dateText: string | null | undefined): string {
 }
 
 function getCheckStatusClass(status: ReleaseGateCheck["status"]): string {
-  if (status === "passed") return "bg-emerald-500/10 text-emerald-600";
-  if (status === "failed") return "bg-rose-500/10 text-rose-600";
-  if (status === "pending") return "bg-amber-500/10 text-amber-600";
-  return "bg-slate-500/10 text-slate-600";
+  if (status === "passed") return "bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]";
+  if (status === "failed") return "bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]";
+  if (status === "pending") return "bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]";
+  return "bg-[var(--wjn-change-neutral-soft)] text-[var(--wjn-text-secondary)]";
 }
 
 export default function AdminReleaseGatePage() {
@@ -95,7 +95,7 @@ export default function AdminReleaseGatePage() {
       />
 
       {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 flex items-center gap-2 mb-4">
+        <div className="p-4 rounded-xl bg-[var(--wjn-error-soft)] border border-[rgba(179,52,62,0.22)] text-[var(--wjn-error)] flex items-center gap-2 mb-4">
           {error}
         </div>
       )}
@@ -111,8 +111,8 @@ export default function AdminReleaseGatePage() {
               <span
                 className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
                   releaseGateReport.status === "passed"
-                    ? "bg-emerald-500/10 text-emerald-600"
-                    : "bg-rose-500/10 text-rose-600"
+                    ? "bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]"
+                    : "bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]"
                 }`}
               >
                 {releaseGateReport.status === "passed" ? (
@@ -134,8 +134,8 @@ export default function AdminReleaseGatePage() {
                   <span
                     className={`text-xs ${
                       releaseGateReport.core_gate.status === "passed"
-                        ? "text-emerald-600"
-                        : "text-rose-600"
+                        ? "text-[var(--wjn-success)]"
+                        : "text-[var(--wjn-error)]"
                     }`}
                   >
                     {releaseGateReport.core_gate.status}
@@ -151,10 +151,10 @@ export default function AdminReleaseGatePage() {
                   <span
                     className={`text-xs ${
                       releaseGateReport.extended_gate.status === "passed"
-                        ? "text-emerald-600"
+                        ? "text-[var(--wjn-success)]"
                         : releaseGateReport.extended_gate.status === "pending"
-                          ? "text-amber-600"
-                          : "text-rose-600"
+                          ? "text-[var(--wjn-review)]"
+                          : "text-[var(--wjn-error)]"
                     }`}
                   >
                     {releaseGateReport.extended_gate.status}
@@ -191,7 +191,7 @@ export default function AdminReleaseGatePage() {
                     onClick={() => setFilterFailed((prev) => !prev)}
                     className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
                       filterFailed
-                        ? "bg-rose-500/15 text-rose-600"
+                        ? "bg-[var(--wjn-error-soft)]0/15 text-[var(--wjn-error)]"
                         : "bg-[var(--wjn-surface-muted)] text-[var(--wjn-text-muted)]"
                     }`}
                   >

@@ -6,11 +6,11 @@ const STATUS_CLASS = {
   running:
     "border-[var(--wjn-accent-line)] bg-[var(--wjn-accent-soft)] text-[var(--wjn-blue-strong)]",
   review:
-    "border-[rgba(180,83,9,0.24)] bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]",
+    "border-[rgba(181,133,47,0.24)] bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]",
   success:
-    "border-[rgba(21,128,61,0.22)] bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]",
+    "border-[rgba(46,125,82,0.22)] bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]",
   error:
-    "border-[rgba(185,28,28,0.22)] bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]",
+    "border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]",
 } as const;
 
 export function StatusChip({

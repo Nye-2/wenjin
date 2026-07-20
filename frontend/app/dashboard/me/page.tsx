@@ -178,7 +178,7 @@ export default function MyDashboardPage() {
         </div>
 
         {error && (
-          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600">
+          <div className="p-4 rounded-xl bg-[var(--wjn-error-soft)] border border-[rgba(179,52,62,0.22)] text-[var(--wjn-error)]">
             {error}
           </div>
         )}
@@ -187,7 +187,7 @@ export default function MyDashboardPage() {
           <div
             className={`rounded-[1.5rem] border p-5 ${
               creditBalance < 0
-                ? "border-rose-500/30 bg-rose-500/10"
+                ? "border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)]"
                 : "route-card"
             }`}
           >
@@ -197,7 +197,7 @@ export default function MyDashboardPage() {
             </div>
             <div
               className={`mt-3 text-3xl font-bold ${
-                creditBalance < 0 ? "text-rose-600" : "text-[var(--wjn-text)]"
+                creditBalance < 0 ? "text-[var(--wjn-error)]" : "text-[var(--wjn-text)]"
               }`}
             >
               {creditBalance.toLocaleString()}
@@ -206,7 +206,7 @@ export default function MyDashboardPage() {
               累计获得 {dashboard?.credits.total_earned ?? 0} / 累计消费 {dashboard?.credits.total_spent ?? 0}
             </div>
             {threadCredit?.overdraft_credits ? (
-              <div className="mt-2 text-xs text-rose-600">
+              <div className="mt-2 text-xs text-[var(--wjn-error)]">
                 已透支 {threadCredit.overdraft_credits} 积分，补充积分后可恢复主线对话。
               </div>
             ) : null}
@@ -303,10 +303,10 @@ export default function MyDashboardPage() {
                 </button>
               </div>
               {redeemMessage ? (
-                <div className="mt-2 text-sm text-emerald-600">{redeemMessage}</div>
+                <div className="mt-2 text-sm text-[var(--wjn-success)]">{redeemMessage}</div>
               ) : null}
               {redeemError ? (
-                <div className="mt-2 text-sm text-rose-600">{redeemError}</div>
+                <div className="mt-2 text-sm text-[var(--wjn-error)]">{redeemError}</div>
               ) : null}
             </form>
           </div>
@@ -317,7 +317,7 @@ export default function MyDashboardPage() {
             className={`rounded-2xl border p-5 ${
               threadCredit.can_start_thread
                 ? "route-card"
-                : "border-amber-500/30 bg-amber-500/10"
+                : "border-[rgba(181,133,47,0.24)] bg-[var(--wjn-review-soft)]"
             }`}
           >
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -330,8 +330,8 @@ export default function MyDashboardPage() {
               <div
                 className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
                   threadCredit.can_start_thread
-                    ? "bg-emerald-500/10 text-emerald-600"
-                    : "bg-rose-500/10 text-rose-600"
+                    ? "bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]"
+                    : "bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]"
                 }`}
               >
                 {threadCredit.can_start_thread ? "主线对话可用" : "主线对话已暂停"}
@@ -358,7 +358,7 @@ export default function MyDashboardPage() {
               </div>
             </div>
             {!threadCredit.can_start_thread ? (
-              <div className="mt-4 text-sm text-rose-600">
+              <div className="mt-4 text-sm text-[var(--wjn-error)]">
                 当前轮次已允许结算，但下一次主线对话会被拦截。请先补充积分后再继续推进。
               </div>
             ) : null}
@@ -433,14 +433,14 @@ export default function MyDashboardPage() {
                     <td className="py-2 text-[var(--wjn-text)]">{formatCreditTransactionType(item.type)}</td>
                     <td
                       className={`py-2 font-medium ${
-                        item.amount >= 0 ? "text-emerald-600" : "text-rose-600"
+                        item.amount >= 0 ? "text-[var(--wjn-success)]" : "text-[var(--wjn-error)]"
                       }`}
                     >
                       {item.amount >= 0 ? `+${item.amount}` : item.amount}
                     </td>
                     <td
                       className={`py-2 ${
-                        item.balance_after < 0 ? "text-rose-600" : "text-[var(--wjn-text)]"
+                        item.balance_after < 0 ? "text-[var(--wjn-error)]" : "text-[var(--wjn-text)]"
                       }`}
                     >
                       {item.balance_after}

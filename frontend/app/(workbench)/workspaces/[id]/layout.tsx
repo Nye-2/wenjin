@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -17,6 +17,7 @@ interface WorkbenchLayoutProps {
 export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const pathname = usePathname();
   const workspaceId = params?.id ?? "";
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const workspaceNotFound = useWorkspaceStore(
@@ -37,9 +38,10 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      router.replace(`/login?redirect=${encodeURIComponent(`/workspaces/${workspaceId}`)}`);
+      const target = pathname || `/workspaces/${workspaceId}`;
+      router.replace(`/login?redirect=${encodeURIComponent(target)}`);
     }
-  }, [isAuthenticated, router, workspaceId]);
+  }, [isAuthenticated, router, pathname, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId || !isAuthenticated) {

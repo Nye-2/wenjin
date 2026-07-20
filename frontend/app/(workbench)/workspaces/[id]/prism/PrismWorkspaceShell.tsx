@@ -3,6 +3,7 @@
 import {
   FilePlus2,
   FileText,
+  Hash,
   Image as ImageIcon,
   Loader2,
   RefreshCw,
@@ -161,11 +162,13 @@ export function PrismWorkspaceShell({
   const dirty = editorReady && textEditable && editorValue !== baseContent;
   const assetUrl = readAssetUrl(activeContent);
 
-  selectedFileIdRef.current = selectedFileId;
-  loadedFileIdRef.current = loadedFileId;
-  editorValueRef.current = editorValue;
-  baseContentRef.current = baseContent;
-  baseHashRef.current = baseHash;
+  useEffect(() => {
+    selectedFileIdRef.current = selectedFileId;
+    loadedFileIdRef.current = loadedFileId;
+    editorValueRef.current = editorValue;
+    baseContentRef.current = baseContent;
+    baseHashRef.current = baseHash;
+  });
 
   const readSelectionContext = useCallback(async (): Promise<PrismContextRef | null> => {
     const editor = editorRef.current;
@@ -497,9 +500,9 @@ export function PrismWorkspaceShell({
   return (
     <section
       data-testid="prism-workspace-shell"
-      className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--wjn-surface)] text-[var(--wjn-text)] md:grid md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-[minmax(320px,1fr)_minmax(240px,0.7fr)] md:overflow-hidden xl:grid-cols-[260px_minmax(320px,1fr)_minmax(320px,0.9fr)] xl:grid-rows-1"
+      className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--wjn-surface)] text-[var(--wjn-text)] md:grid md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-[minmax(320px,1fr)_minmax(240px,0.7fr)] md:overflow-hidden lg:grid-cols-[240px_minmax(300px,1fr)_minmax(300px,0.9fr)] lg:grid-rows-1"
     >
-      <aside className="flex min-h-[120px] max-h-44 shrink-0 flex-col border-b border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] md:row-span-2 md:max-h-none md:min-h-0 md:border-b-0 md:border-r xl:row-span-1">
+      <aside className="flex min-h-[120px] max-h-44 shrink-0 flex-col border-b border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] md:row-span-2 md:max-h-none md:min-h-0 md:border-b-0 md:border-r lg:row-span-1">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--wjn-line)] px-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">文件</div>
@@ -546,13 +549,21 @@ export function PrismWorkspaceShell({
         </div>
       </aside>
 
-      <main className="flex min-h-[360px] shrink-0 flex-col border-b border-[var(--wjn-line)] md:min-h-0 md:border-r xl:border-b-0">
+      <main className="flex min-h-[360px] shrink-0 flex-col border-b border-[var(--wjn-line)] md:min-h-0 md:border-r lg:border-b-0">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--wjn-line)] px-4">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{activeFile?.path ?? "WenjinPrism"}</div>
-            {activeFile?.content_hash ? (
-              <div className="truncate text-xs text-[var(--wjn-text-muted)]">{activeFile.content_hash}</div>
-            ) : null}
+            <div className="flex items-center gap-1.5">
+              <div className="truncate text-sm font-semibold">{activeFile?.path ?? "WenjinPrism"}</div>
+              {activeFile?.content_hash ? (
+                <span
+                  className="shrink-0 text-[var(--wjn-text-muted)]"
+                  title={`内容哈希：${activeFile.content_hash}`}
+                  aria-label={`内容哈希：${activeFile.content_hash}`}
+                >
+                  <Hash className="h-3 w-3" aria-hidden="true" />
+                </span>
+              ) : null}
+            </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--wjn-text-muted)]">
             {textEditable && !visualInsertionSource ? (
@@ -603,7 +614,7 @@ export function PrismWorkspaceShell({
           </div>
         ) : null}
         {errorText ? (
-          <div className="border-b border-[rgba(185,28,28,0.18)] bg-[rgba(254,242,242,0.86)] px-4 py-2 text-xs text-[var(--wjn-error)]">
+          <div className="border-b border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)] px-4 py-2 text-xs text-[var(--wjn-error)]">
             {errorText}
           </div>
         ) : null}
@@ -638,7 +649,7 @@ export function PrismWorkspaceShell({
         </div>
       </main>
 
-      <aside className="flex min-h-[260px] shrink-0 flex-col bg-[var(--wjn-surface)] md:col-start-2 md:min-h-0 xl:col-start-auto">
+      <aside className="flex min-h-[260px] shrink-0 flex-col bg-[var(--wjn-surface)] md:col-start-2 md:min-h-0 lg:col-start-auto">
         <div className="flex h-12 shrink-0 items-center border-b border-[var(--wjn-line)] px-4 text-sm font-semibold">
           预览
         </div>

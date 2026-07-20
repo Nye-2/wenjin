@@ -96,7 +96,7 @@ export default function AdminModelsPage() {
       />
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)] px-4 py-3 text-sm text-[var(--wjn-error)]">
           <ShieldAlert className="w-4 h-4" />
           {error}
         </div>
@@ -124,10 +124,10 @@ export default function AdminModelsPage() {
                     <span>·</span>
                     <span>{model.model_name}</span>
                     {model.is_default && (
-                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-700">默认</span>
+                      <span className="rounded bg-[var(--wjn-success-soft)] px-1.5 py-0.5 text-[var(--wjn-success)]">默认</span>
                     )}
                     {!model.enabled && (
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">停用</span>
+                      <span className="rounded bg-[var(--wjn-surface-subtle)] px-1.5 py-0.5 text-[var(--wjn-text-secondary)]">停用</span>
                     )}
                   </div>
                 </td>
@@ -144,7 +144,7 @@ export default function AdminModelsPage() {
                 <td className="px-4 py-3 text-xs text-[var(--wjn-text-secondary)]">
                   {summarizeCapabilities(model)}
                   <div className="mt-1 flex items-center gap-1">
-                    {model.health_status === "healthy" && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                    {model.health_status === "healthy" && <CheckCircle2 className="w-3 h-3 text-[var(--wjn-success)]" />}
                     <span>{model.health_status}</span>
                   </div>
                 </td>
@@ -187,7 +187,7 @@ export default function AdminModelsPage() {
                         type="button"
                         aria-label={`禁用 ${model.model_id}`}
                         onClick={() => handleDisable(model)}
-                        className="text-rose-600 hover:underline"
+                        className="text-[var(--wjn-error)] hover:underline"
                       >
                         禁用
                       </button>

@@ -16,12 +16,12 @@ import type { MissionStatsResponse } from "@/lib/api/admin-analytics";
 import { ChartContainer, DateRangePicker, KpiCard } from "./components";
 
 const STATUS_COLORS: Record<string, string> = {
-  completed: "#22c55e",
-  running: "#3b82f6",
-  planning: "#0f766e",
-  waiting: "#d97706",
-  failed: "#ef4444",
-  cancelled: "#a1a1aa",
+  completed: "var(--wjn-success)",
+  running: "var(--wjn-blue)",
+  planning: "var(--wjn-blue)",
+  waiting: "var(--wjn-review)",
+  failed: "var(--wjn-error)",
+  cancelled: "var(--wjn-text-muted)",
 };
 
 export function MissionPanel({
@@ -61,7 +61,7 @@ export function MissionPanel({
               <YAxis tick={{ fontSize: 11 }} stroke="var(--wjn-text-muted)" width={40} />
               <Tooltip contentStyle={{ background: "var(--wjn-surface-subtle)", border: "1px solid var(--wjn-line)", borderRadius: "var(--wjn-radius)", fontSize: 12 }} />
               <Legend />
-              {statuses.map((status) => <Bar key={status} dataKey={status} stackId="status" fill={STATUS_COLORS[status] ?? "#94a3b8"} name={status} />)}
+              {statuses.map((status) => <Bar key={status} dataKey={status} stackId="status" fill={STATUS_COLORS[status] ?? "var(--wjn-text-muted)"} name={status} />)}
             </BarChart>
           </ResponsiveContainer>
         </div>

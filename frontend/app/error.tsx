@@ -14,11 +14,11 @@ export default function Error({
   }, [error]);
 
   return (
-    <div style={{ fontFamily: "monospace", padding: "2rem", background: "#0a1628", color: "#e2e8f0", minHeight: "100vh" }}>
-      <h2 style={{ color: "#f87171", marginBottom: "1rem" }}>Page Error</h2>
+    <div style={{ fontFamily: "monospace", padding: "2rem", background: "var(--wjn-text)", color: "var(--wjn-line)", minHeight: "100vh" }}>
+      <h2 style={{ color: "var(--wjn-error)", marginBottom: "1rem" }}>Page Error</h2>
       <pre
         style={{
-          background: "#1e293b",
+          background: "var(--wjn-text)",
           padding: "1rem",
           borderRadius: "8px",
           overflow: "auto",
@@ -33,7 +33,7 @@ export default function Error({
         {error?.stack}
       </pre>
       {error?.digest && (
-        <p style={{ marginTop: "1rem", color: "#94a3b8", fontSize: "0.8rem" }}>
+        <p style={{ marginTop: "1rem", color: "var(--wjn-text-muted)", fontSize: "0.8rem" }}>
           Digest: {error.digest}
         </p>
       )}
@@ -42,7 +42,7 @@ export default function Error({
         style={{
           marginTop: "1.5rem",
           padding: "0.5rem 1.5rem",
-          background: "#3b82c4",
+          background: "var(--wjn-blue)",
           color: "white",
           border: "none",
           borderRadius: "6px",

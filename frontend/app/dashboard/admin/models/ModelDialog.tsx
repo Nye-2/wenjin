@@ -393,7 +393,7 @@ export function ModelDialog({ open, model, onClose }: Props) {
           })}
         </div>
 
-        {error && <div className="text-sm text-rose-600">{error}</div>}
+        {error && <div className="text-sm text-[var(--wjn-error)]">{error}</div>}
 
         <DialogFooter>
           <Button

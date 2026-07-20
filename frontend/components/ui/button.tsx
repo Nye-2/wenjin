@@ -9,15 +9,15 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[var(--wjn-navy)] text-white shadow-[0_8px_20px_rgba(15,31,53,0.16)] hover:bg-[var(--wjn-blue-strong)] active:translate-y-0",
+          "bg-[var(--wjn-navy)] text-white shadow-[0_8px_20px_rgba(28,36,32,0.16)] hover:bg-[var(--wjn-blue-strong)] active:translate-y-0",
         destructive:
-          "border border-[rgba(185,28,28,0.28)] bg-[var(--wjn-error-soft)] text-[var(--wjn-error)] hover:bg-[rgba(185,28,28,0.16)]",
+          "border border-[rgba(179,52,62,0.28)] bg-[var(--wjn-error-soft)] text-[var(--wjn-error)] hover:bg-[rgba(179,52,62,0.16)]",
         outline:
           "border border-[var(--wjn-line)] bg-[var(--wjn-surface)] text-[var(--wjn-text)] shadow-[var(--wjn-shadow-sm)] hover:border-[var(--wjn-accent-line)] hover:bg-[var(--wjn-surface-subtle)]",
         secondary:
-          "border border-[var(--wjn-accent-line)] bg-[var(--wjn-accent-soft)] text-[var(--wjn-blue-strong)] hover:bg-[rgba(44,93,160,0.16)]",
+          "border border-[var(--wjn-accent-line)] bg-[var(--wjn-accent-soft)] text-[var(--wjn-blue-strong)] hover:bg-[rgba(20,84,74,0.16)]",
         ghost:
-          "text-[var(--wjn-text-secondary)] hover:bg-[rgba(15,31,53,0.055)] hover:text-[var(--wjn-text)]",
+          "text-[var(--wjn-text-secondary)] hover:bg-[rgba(28,36,32,0.05)] hover:text-[var(--wjn-text)]",
         link:
           "text-[var(--wjn-blue)] underline-offset-4 hover:underline hover:text-[var(--wjn-blue-strong)]",
       },

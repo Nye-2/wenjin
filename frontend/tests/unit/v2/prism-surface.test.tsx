@@ -224,7 +224,7 @@ describe("workspace prism surface", () => {
     expect(mockEnsureWorkspacePrismProject).toHaveBeenCalledWith("ws-1");
     expect(mockGetWorkspacePrismSurface).toHaveBeenCalledTimes(1);
     expect(
-      await screen.findByText("Unable to open Prism manuscript surface"),
+      await screen.findByText("无法打开 Prism 主稿台"),
     ).toBeInTheDocument();
     expect(screen.getByText("Workspace Prism surface not found")).toBeInTheDocument();
   });
@@ -241,10 +241,10 @@ describe("workspace prism surface", () => {
     });
 
     expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
-      "正在打开论文写作台",
+      "正在打开 Prism 主稿台",
     );
     expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
-      "正在加载工作区主稿和待复核修改。",
+      "正在载入工作区绑定的主稿项目与待确认写入状态。",
     );
   });
 
@@ -260,7 +260,7 @@ describe("workspace prism surface", () => {
     });
 
     expect(
-      await screen.findByText("Unable to open Prism manuscript surface"),
+      await screen.findByText("无法打开 Prism 主稿台"),
     ).toBeInTheDocument();
     expect(screen.getByText("Prism unavailable")).toBeInTheDocument();
   });

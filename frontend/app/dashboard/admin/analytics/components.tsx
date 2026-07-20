@@ -28,10 +28,10 @@ export function KpiCard({
           {formattedValue}
         </span>
         {trend === "up" && (
-          <TrendingUp className="w-4 h-4 text-emerald-500" />
+          <TrendingUp className="w-4 h-4 text-[var(--wjn-success)]" />
         )}
         {trend === "down" && (
-          <TrendingDown className="w-4 h-4 text-rose-500" />
+          <TrendingDown className="w-4 h-4 text-[var(--wjn-error)]" />
         )}
         {trend === "neutral" && (
           <Minus className="w-4 h-4 text-[var(--wjn-text-muted)]" />

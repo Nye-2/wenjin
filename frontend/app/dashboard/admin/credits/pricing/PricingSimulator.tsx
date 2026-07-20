@@ -164,7 +164,7 @@ export function PricingSimulator() {
           </div>
         </div>
       </div>
-      {error && <div className="mt-3 text-sm text-rose-600">{error}</div>}
+      {error && <div className="mt-3 text-sm text-[var(--wjn-error)]">{error}</div>}
       {result?.breakdown && (
         <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-[var(--wjn-surface)] p-3 text-xs text-[var(--wjn-text-secondary)]">
           {JSON.stringify(result.breakdown, null, 2)}

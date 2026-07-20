@@ -214,7 +214,7 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
       canCommit: false,
     });
     expect(previews[0]?.metadataLines.join(" ")).toContain("状态 需确认");
-    expect(previews[0]?.metadataLines.join(" ")).toContain("证据 1");
+    expect(previews[0]?.metadataLines.join(" ")).toContain("来源 1");
     expect(previews[1]).toMatchObject({
       kind: "warning",
       badge: "需补充",

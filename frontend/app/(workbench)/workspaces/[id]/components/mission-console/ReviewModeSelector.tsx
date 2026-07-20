@@ -9,8 +9,8 @@ export const REVIEW_MODE_LABELS: Record<MissionReviewMode, string> = {
   review_all: "每项确认",
 };
 export const REVIEW_MODE_DESCRIPTIONS: Record<MissionReviewMode, string> = {
-  auto_draft: "低风险草稿可自动保存；引用、论断、证据和长期记忆仍需确认。",
-  balanced_default: "普通内容按建议处理，影响证据与论文可信度的内容逐项确认。",
+  auto_draft: "低风险草稿可自动保存；引用、论断、来源和长期记忆仍需确认。",
+  balanced_default: "普通内容按建议处理，影响论文依据与可信度的内容逐项确认。",
   review_all: "所有任务结果都先进入确认区，由你决定是否保存。",
 };
 export function normalizeReviewMode(value: unknown): MissionReviewMode {

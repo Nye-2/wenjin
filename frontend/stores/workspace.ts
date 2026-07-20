@@ -106,6 +106,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         isWorkspacesLoading: false,
       });
     } catch (error) {
+      if ((error as { isAuthExpired?: boolean }).isAuthExpired) {
+        // Session expired — the app is already redirecting to login; do not
+        // surface a transient auth error in the UI.
+        set({ isWorkspacesLoading: false });
+        return;
+      }
       set({
         error: (error as Error).message,
         isWorkspacesLoading: false,

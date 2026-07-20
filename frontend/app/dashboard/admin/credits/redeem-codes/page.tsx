@@ -90,7 +90,7 @@ export default function RedeemCodesPage() {
             {codes.map((c) => (
               <tr key={c.id} className="border-t border-[var(--wjn-line)]/50">
                 <td className="px-4 py-3">
-                  <span className={`inline-flex w-2.5 h-2.5 rounded-full ${c.enabled ? "bg-emerald-500" : "bg-slate-400"}`} />
+                  <span className={`inline-flex w-2.5 h-2.5 rounded-full ${c.enabled ? "bg-[var(--wjn-success)]" : "bg-[var(--wjn-surface-muted)]"}`} />
                 </td>
                 <td className="px-4 py-3 font-mono text-xs">{c.code}</td>
                 <td className="px-4 py-3 text-right font-medium">+{c.amount}</td>
@@ -98,7 +98,7 @@ export default function RedeemCodesPage() {
                 <td className="px-4 py-3 text-[var(--wjn-text-secondary)]">{formatDate(c.expires_at)}</td>
                 <td className="px-4 py-3 font-mono text-xs text-[var(--wjn-text-muted)]">{c.batch_id?.slice(0, 8) ?? "-"}</td>
                 <td className="px-4 py-3 text-right">
-                  {c.enabled && <button onClick={() => handleDisable(c)} className="text-rose-600 hover:underline text-sm">下线</button>}
+                  {c.enabled && <button onClick={() => handleDisable(c)} className="text-[var(--wjn-error)] hover:underline text-sm">下线</button>}
                 </td>
               </tr>
             ))}

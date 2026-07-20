@@ -422,7 +422,7 @@ export async function listMissionEvidence(options: {
   const payload = await readJson<{
     items: MissionViewWire["evidence_items"];
     page: MissionViewWire["evidence_page"];
-  }>(response, "证据加载失败");
+  }>(response, "来源加载失败");
   return {
     items: payload.items.map((item) => ({ id: item.item_id, title: item.title, sourceType: item.source_type, sourceLabel: item.source_label, summary: item.summary, citation: item.citation, verified: item.verified })),
     nextCursor: payload.page.next_cursor ?? null,

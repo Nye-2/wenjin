@@ -939,7 +939,7 @@ function buildReviewPacketMetadataLines(options: {
     expert ? `专家 ${humanizeMetadataToken(expert)}` : null,
     riskLevel ? `确认级别 ${reviewRiskLevelLabel(riskLevel)}` : null,
     options.claimRefs.length ? `论断 ${options.claimRefs.length}` : null,
-    options.evidenceRefs.length ? `证据 ${options.evidenceRefs.length}` : null,
+    options.evidenceRefs.length ? `来源 ${options.evidenceRefs.length}` : null,
     options.artifactRefs.length ? `结果 ${options.artifactRefs.length}` : null,
     options.qualitySurfaces.length ? `质量面 ${options.qualitySurfaces.length}` : null,
   ].filter((value): value is string => Boolean(value));

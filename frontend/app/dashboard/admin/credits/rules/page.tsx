@@ -88,7 +88,7 @@ export default function CreditRulesPage() {
                 <td className="px-4 py-3">
                   <button
                     onClick={() => handleToggle(rule)}
-                    className={`inline-flex w-2.5 h-2.5 rounded-full ${rule.enabled ? "bg-emerald-500" : "bg-slate-400"}`}
+                    className={`inline-flex w-2.5 h-2.5 rounded-full ${rule.enabled ? "bg-[var(--wjn-success)]" : "bg-[var(--wjn-surface-muted)]"}`}
                   />
                 </td>
                 <td className="px-4 py-3 text-[var(--wjn-text)]">{rule.name}</td>
@@ -99,7 +99,7 @@ export default function CreditRulesPage() {
                 <td className="px-4 py-3 text-right font-medium">+{rule.amount}</td>
                 <td className="px-4 py-3 text-right space-x-2">
                   <button onClick={() => { setEditing(rule); setDialogOpen(true); }} className="text-[var(--wjn-navy)] hover:underline">编辑</button>
-                  <button onClick={() => handleDelete(rule)} className="text-rose-600 hover:underline">删除</button>
+                  <button onClick={() => handleDelete(rule)} className="text-[var(--wjn-error)] hover:underline">删除</button>
                 </td>
               </tr>
             ))}

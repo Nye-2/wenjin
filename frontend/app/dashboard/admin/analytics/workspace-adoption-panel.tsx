@@ -14,14 +14,14 @@ import { ChartContainer, KpiCard } from "./components";
 import type { WorkspaceAdoptionResponse } from "@/lib/api/admin-analytics";
 
 const PALETTE = [
-  "#6366f1",
-  "#3b82f6",
-  "#14b8a6",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#06b6d4",
-  "#84cc16",
+  "var(--wjn-blue)",
+  "var(--wjn-blue)",
+  "var(--wjn-blue)",
+  "var(--wjn-review)",
+  "var(--wjn-error)",
+  "var(--wjn-blue)",
+  "var(--wjn-blue)",
+  "var(--wjn-blue)",
 ];
 
 const WORKSPACE_LABELS: Record<string, string> = {

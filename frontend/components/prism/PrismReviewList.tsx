@@ -38,12 +38,12 @@ function statusLabel(status: string): string {
 
 function statusClass(status: string): string {
   if (status === "applied") {
-    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700";
+    return "border-[rgba(46,125,82,0.22)] bg-[var(--wjn-success-soft)] text-[var(--wjn-success)]";
   }
   if (status === "rejected" || status === "reverted") {
-    return "border-red-500/20 bg-red-500/10 text-red-700";
+    return "border-[rgba(179,52,62,0.22)] bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]";
   }
-  return "border-amber-500/25 bg-amber-500/10 text-amber-800";
+  return "border-[rgba(181,133,47,0.24)] bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]";
 }
 
 interface PrismReviewListProps {

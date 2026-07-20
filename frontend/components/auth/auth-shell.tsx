@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { FileText, SearchCheck, Sparkles } from "lucide-react";
 import { ReactNode } from "react";
-import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
 
 type AuthMode = "login" | "register";
@@ -19,20 +18,22 @@ interface AuthShellProps {
 const highlights = [
   {
     icon: SearchCheck,
-    titleKey: "auth.shell.highlights.sources.title",
-    descriptionKey: "auth.shell.highlights.sources.description",
+    title: "来源入库",
+    description: "把文献、参考与任务背景从一开始就放进同一条线。",
   },
   {
     icon: FileText,
-    titleKey: "auth.shell.highlights.drafts.title",
-    descriptionKey: "auth.shell.highlights.drafts.description",
+    title: "结构成稿",
+    description: "让大纲、章节草稿与修订动作在连续上下文里推进。",
   },
   {
     icon: Sparkles,
-    titleKey: "auth.shell.highlights.delivery.title",
-    descriptionKey: "auth.shell.highlights.delivery.description",
+    title: "评审交付",
+    description: "把审阅记录、交付物与成果沉淀统一收束。",
   },
 ];
+
+const supportedTypes = ["SCI论文", "项目申报书", "专利申请"];
 
 export function AuthShell({
   mode,
@@ -41,57 +42,43 @@ export function AuthShell({
   children,
   footer,
 }: AuthShellProps) {
-  const { t } = useI18n();
-  const supportedTypes = [
-    t("workspace.types.sci"),
-    t("workspace.types.proposal"),
-    t("workspace.types.patent"),
-  ];
 
   return (
     <div className="wjn-shell-bg relative min-h-screen overflow-hidden px-4 py-8 sm:px-6 lg:px-8">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--wjn-navy),var(--wjn-blue)_72%,var(--wjn-gold)_72%,var(--wjn-gold)_74%,var(--wjn-blue)_74%,var(--wjn-navy))]" />
 
       <div className="relative mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1.08fr_0.92fr]">
-        <aside className="hidden rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-[rgba(255,255,255,0.82)] p-10 shadow-[var(--wjn-shadow-md)] backdrop-blur-md lg:flex lg:flex-col">
-          <div className="inline-flex w-fit items-center gap-3 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--wjn-navy)] shadow-[var(--wjn-shadow-sm)]">
-            <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-[12px] bg-[linear-gradient(145deg,var(--wjn-navy),var(--wjn-blue)_72%,#4d78b9)] shadow-[0_10px_24px_rgba(44,93,160,0.20)]">
-              <svg className="absolute inset-0 h-full w-full opacity-95" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-                <path
-                  d="M8 31C14 24 20 22 26 19C31 17 34 14 36 10"
-                  stroke="rgba(255,255,255,0.92)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-                <circle cx="8" cy="31" r="3" fill="rgba(255,255,255,0.92)" />
-                <circle cx="26" cy="19" r="2.4" fill="rgba(255,255,255,0.72)" />
-                <circle cx="36" cy="10" r="3.1" fill="var(--wjn-gold)" />
-              </svg>
+        <aside className="hidden rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] p-10 shadow-[var(--wjn-shadow-md)] backdrop-blur-md lg:flex lg:flex-col">
+          <div className="inline-flex w-fit items-center gap-3 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-4 py-2 text-sm font-semibold text-[var(--wjn-text)] shadow-[var(--wjn-shadow-sm)]">
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[17px] font-bold text-[#f5f1e8]"
+              style={{ background: "var(--wjn-text)", fontFamily: "var(--wjn-font-serif)" }}
+            >
+              问
             </div>
-            <span>{t("brand.cn")}</span>
+            <span>问津</span>
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--wjn-text-muted)]">
-              {t("brand.en")}
+              Wenjin
             </span>
           </div>
 
           <div className="mt-10 space-y-4">
-            <h2 className="max-w-xl text-4xl font-semibold tracking-[-0.03em] text-[var(--wjn-text)]">
-              {t("auth.shell.title")}
+            <h2 className="max-w-xl text-4xl font-bold leading-[1.2] tracking-[0.01em] text-[var(--wjn-text)]" style={{ fontFamily: "var(--wjn-font-serif)" }}>
+              向研究深处问津
             </h2>
             <p className="max-w-lg text-base leading-8 text-[var(--wjn-text-secondary)]">
-              {t("auth.shell.subtitle")}
+              一个工作空间，连接来源、判断、草稿与成果。
             </p>
           </div>
 
           <div className="mt-8">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--wjn-text-muted)]">
-              {t("auth.shell.supported")}
+              支持的任务类型
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {supportedTypes.map((type) => (
                 <span
                   key={type}
-                  className="rounded-full border border-[var(--wjn-line)] bg-white px-3 py-1.5 text-sm text-[var(--wjn-text-secondary)]"
+                  className="rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 py-1.5 text-sm text-[var(--wjn-text-secondary)]"
                 >
                   {type}
                 </span>
@@ -102,15 +89,15 @@ export function AuthShell({
           <div className="mt-10 space-y-4">
             {highlights.map((item) => (
               <div
-                key={item.titleKey}
-                className="rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-white px-5 py-4 shadow-[var(--wjn-shadow-sm)]"
+                key={item.title}
+                className="rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-5 py-4 shadow-[var(--wjn-shadow-sm)]"
               >
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--wjn-text)]">
                   <item.icon className="h-4 w-4 text-[var(--wjn-blue)]" />
-                  {t(item.titleKey)}
+                  {item.title}
                 </div>
                 <p className="text-sm leading-7 text-[var(--wjn-text-secondary)]">
-                  {t(item.descriptionKey)}
+                  {item.description}
                 </p>
               </div>
             ))}
@@ -125,22 +112,22 @@ export function AuthShell({
                 className={cn(
                   "rounded-[var(--wjn-radius)] px-4 py-1.5 text-sm font-medium transition-colors",
                   mode === "login"
-                    ? "bg-white text-[var(--wjn-text)] shadow-sm"
+                    ? "bg-[var(--wjn-surface)] text-[var(--wjn-text)] shadow-sm"
                     : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)]"
                 )}
               >
-                {t("auth.login.button")}
+                登录
               </Link>
               <Link
                 href="/register"
                 className={cn(
                   "rounded-[var(--wjn-radius)] px-4 py-1.5 text-sm font-medium transition-colors",
                   mode === "register"
-                    ? "bg-white text-[var(--wjn-text)] shadow-sm"
+                    ? "bg-[var(--wjn-surface)] text-[var(--wjn-text)] shadow-sm"
                     : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)]"
                 )}
               >
-                {t("auth.register.button")}
+                创建账户
               </Link>
             </div>
 
