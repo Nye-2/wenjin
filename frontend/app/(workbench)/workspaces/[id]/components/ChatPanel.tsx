@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  Paperclip,
   SendHorizontal,
   Square,
   X,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/api";
 import type { PrismContextRef } from "@/lib/api/mission-types";
 import type { ThreadAttachment } from "@/lib/api/types";
+import { openAuthorizedAsset } from "@/lib/public-assets";
 import {
   chooseReasoningEffort,
   REASONING_EFFORT_OPTIONS,
@@ -236,7 +238,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
   const showThinking = isSending && messages.length > 0 && messages[messages.length - 1].role === "user";
   const sendDisabled =
-    isSending || attachmentUploading || !inputValue.trim();
+    isSending ||
+    attachmentUploading ||
+    (!inputValue.trim() && attachments.length === 0);
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
   const selectedModelLabel =
     modelOptions.find((model) => model.name === selectedModel)?.display_name ??
@@ -458,7 +462,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
   function handleSubmit() {
     const trimmed = inputValue.trim();
-    if (!trimmed || isSending || attachmentUploading) return;
+    if ((!trimmed && attachments.length === 0) || isSending || attachmentUploading) return;
+    const content = trimmed || "请查看我上传的材料。";
     setInputValue("");
     const currentAttachments = [...attachments];
     const currentPrismContext = prismContextRef;
@@ -467,7 +472,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
     void sendMessage(
       workspaceId,
-      trimmed,
+      content,
       currentAttachments,
       withPrismContext(
         withMissionContinuationContext(
@@ -538,6 +543,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
               key={msg.id}
               message={msg}
               workspaceId={workspaceId}
+              threadId={threadId}
               onIntent={handleBlockIntent}
               intentDisabled={isSending}
               pending={
@@ -865,9 +871,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
                     aria-label="模型"
                     style={{
                       position: "absolute",
-                      left: "calc(100% + 4px)",
+                      right: "calc(100% + 4px)",
                       bottom: 0,
                       width: 212,
+                      maxHeight: 320,
+                      overflowY: "auto",
                       padding: 6,
                       borderRadius: "var(--wjn-radius-lg)",
                       border: "1px solid var(--wjn-line)",
@@ -1170,12 +1178,14 @@ function WorkspaceWelcome({
 const MessageRow = memo(function MessageRow({
   message,
   workspaceId,
+  threadId,
   onIntent,
   intentDisabled,
   pending,
 }: {
   message: Message;
   workspaceId: string;
+  threadId: string | null;
   onIntent?: (
     intent: string,
     options?: SendMessageOptions,
@@ -1184,6 +1194,10 @@ const MessageRow = memo(function MessageRow({
   pending?: boolean;
 }) {
   const isUser = message.role === "user";
+  const messageAttachments =
+    isUser && Array.isArray(message.metadata?.attachments)
+      ? (message.metadata.attachments as ThreadAttachment[])
+      : [];
   return (
     <div
       style={{
@@ -1229,6 +1243,58 @@ const MessageRow = memo(function MessageRow({
             />
           ))
         )}
+        {messageAttachments.length > 0 ? (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+              gap: 6,
+              marginTop: 8,
+            }}
+          >
+            {messageAttachments.map((attachment, index) => (
+              <button
+                key={`${attachment.path}-${index}`}
+                type="button"
+                title={`预览 ${attachment.name}`}
+                disabled={!threadId}
+                onClick={() => {
+                  if (!threadId) return;
+                  void openAuthorizedAsset(
+                    `/api/threads/${threadId}/artifacts/${attachment.path.replace(/^\//, "")}`,
+                  );
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  maxWidth: 240,
+                  padding: "4px 10px",
+                  borderRadius: "var(--wjn-radius-pill)",
+                  border: "1px solid var(--wjn-accent-line)",
+                  background: "var(--wjn-surface)",
+                  color: "var(--wjn-accent-strong)",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: threadId ? "pointer" : "default",
+                  fontFamily: "var(--wjn-font-sans)",
+                }}
+              >
+                <Paperclip size={11} aria-hidden="true" />
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {attachment.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

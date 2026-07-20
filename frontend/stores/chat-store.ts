@@ -491,7 +491,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     options: SendMessageOptions = {},
   ) {
     const { isSending } = get();
-    if (isSending || !content.trim()) return { status: "cancelled" };
+    if (isSending || (!content.trim() && attachments.length === 0)) return { status: "cancelled" };
     get().setActiveWorkspace(workspaceId);
     const requestId = crypto.randomUUID();
     const abortController = new AbortController();
