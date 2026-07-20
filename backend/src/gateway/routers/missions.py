@@ -90,7 +90,7 @@ def _public_trace_summary(*, item_type: str, summary: str | None) -> str:
     normalized = (summary or "").strip()
     if not normalized:
         return {
-            "evidence": "发现可核验材料",
+            "evidence": "发现新材料",
             "artifact": "生成候选成果",
             "quality_check": "完成阶段质量检查",
             "review_candidate": "内容已进入确认",

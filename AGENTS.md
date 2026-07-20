@@ -89,6 +89,8 @@ docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --b
 - Backend: Python 3.13, FastAPI, SQLAlchemy async, Pydantic v2, Celery.
 - Frontend: Next.js 16, React 19, TypeScript, Tailwind, Zustand.
 - New UI uses `--wjn-*` tokens and Mission terminology.
+- Frontend is Chinese-only (no i18n layer) and single-theme (warm paper); colors, radius, and shadows must come from the `--wjn-*` tokens in `app/globals.css`, never hardcoded hex or stock Tailwind palettes.
+- Copy follows the two-level naming spec: panel-level 「来源与结果」; material type chips 文献源/数据/代码/结果/图表/材料 via `components/ui/type-chip.tsx`; status pills 已查证/待你确认/待你补充 via `components/ui/status-pill.tsx`. Avoid 证据/已核验 wording in user-visible copy.
 - No compatibility aliases, dual reads/writes, fallback routers, or stale serializer fields.
 - Long research work always flows through WorkspaceAgent to MissionRuntime.
 - Tools must be registered in the canonical catalog and narrowed by pinned Mission policy.

@@ -1087,7 +1087,7 @@ def _attention_default_summary(reason: str) -> str:
 
 def _attention_impact(reason: str) -> str:
     return {
-        "external_data": "收到材料前，相关证据核验与后续写作会暂停。",
+        "external_data": "收到材料前，相关查证与后续写作会暂停。",
         "budget": "补足额度前，研究团队不会继续产生调用费用。",
         "review": "确认前，受保护的结果不会保存到工作区。",
         "permission": "确认前，本次受控操作不会执行。",
@@ -1294,7 +1294,7 @@ def _public_subagent_role(value: object) -> str:
     if re.fullmatch(r"[A-Za-z0-9_.:-]+", label):
         normalized = label.lower()
         if "audit" in normalized or "critic" in normalized:
-            return "专项核验"
+            return "专项查证"
         return "专项研究"
     return label
 
@@ -1305,7 +1305,7 @@ def _project_evidence(record: MissionItemRecord) -> MissionEvidenceSummaryPayloa
     return MissionEvidenceSummaryPayload(
         item_id=record.id,
         seq=record.seq,
-        title=_text(payload.get("title")) or record.summary or "研究证据",
+        title=_text(payload.get("title")) or record.summary or "研究来源",
         source_type=_text(payload.get("source_type")),
         source_label=(_text(payload.get("source_label")) or _text(payload.get("source")) or _text(metadata.get("publisher"))),
         summary=_text(payload.get("summary")) or record.summary,

@@ -408,7 +408,7 @@ class MissionRuntimeService:
             mission_id,
             request_key,
         )
-        title_prefix = "补充证据" if reason == "needs_more_evidence" else "重新生成"
+        title_prefix = "补充材料" if reason == "needs_more_evidence" else "重新生成"
         try:
             receipt = await self.runtime.start(
                 MissionStartRequest(

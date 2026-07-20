@@ -38,7 +38,7 @@ execution_budget:
 minimum_context:
   software_materials:
     requirement: required
-    ask: 请先提供软件名称、版本和可核验的代码、截图或说明材料。
+    ask: 请先提供软件名称、版本和可查证的代码、截图或说明材料。
   ownership_information:
     requirement: optional
   target_template:

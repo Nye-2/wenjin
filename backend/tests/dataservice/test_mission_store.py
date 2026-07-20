@@ -2243,7 +2243,7 @@ async def test_mission_view_projects_model_outage_as_preserved_work(
     assert view.activity.state == "unavailable"
     assert view.activity.title == "模型服务暂时不可用"
     assert view.activity.summary == "已保留完成阶段和待确认内容，稍后可在对话中继续。"
-    assert view.subagents[0].role_label == "专项核验"
+    assert view.subagents[0].role_label == "专项查证"
 
 
 @pytest.mark.asyncio
