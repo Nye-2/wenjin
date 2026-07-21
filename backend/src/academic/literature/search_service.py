@@ -39,7 +39,6 @@ class LiteratureSearchService:
         self,
         *,
         query: str,
-        discipline: str | None = None,
         limit: int = DEFAULT_LITERATURE_SEARCH_LIMIT,
     ) -> dict[str, Any]:
         normalized_query = _normalize_query(query) or "research topic"
@@ -51,7 +50,6 @@ class LiteratureSearchService:
         ):
             return _unavailable_result(
                 query=normalized_query,
-                discipline=discipline,
                 limit=normalized_limit,
                 reason="mission_tool_context_required",
             )
@@ -64,7 +62,6 @@ class LiteratureSearchService:
         )
         return _result_from_outcome(
             query=normalized_query,
-            discipline=discipline,
             limit=normalized_limit,
             outcome=outcome,
         )
@@ -73,7 +70,6 @@ class LiteratureSearchService:
 def _result_from_outcome(
     *,
     query: str,
-    discipline: str | None,
     limit: int,
     outcome: ResearchToolOutcome,
 ) -> dict[str, Any]:
@@ -111,7 +107,6 @@ def _result_from_outcome(
         status = "failed"
     return {
         "query": query,
-        "discipline": discipline,
         "source": "literature_search",
         "verified_papers": papers,
         "retrieval": {
@@ -137,13 +132,11 @@ def _result_from_outcome(
 def _unavailable_result(
     *,
     query: str,
-    discipline: str | None,
     limit: int,
     reason: str,
 ) -> dict[str, Any]:
     return {
         "query": query,
-        "discipline": discipline,
         "source": "literature_search",
         "verified_papers": [],
         "retrieval": {

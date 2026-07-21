@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CircleDot,
   Clock3,
+  Download,
   FileText,
   History,
   LoaderCircle,
@@ -16,6 +17,7 @@ import {
   Minimize2,
   Paperclip,
   RefreshCw,
+  RotateCcw,
   Search,
   Users,
   X,
@@ -29,6 +31,7 @@ import { TypeChip, resolveMaterialType } from "@/components/ui/type-chip";
 import {
   commitMissionReviews,
   decideMissionReviews,
+  downloadMissionArtifact,
   listMissionArtifacts,
   listMissionEvidence,
   listMissionItems,
@@ -61,7 +64,7 @@ interface MissionConsoleProps {
   onChatAction(action: MissionChatAction): void;
 }
 
-export type MissionChatAction = "focus" | "attach";
+export type MissionChatAction = "focus" | "attach" | "continue";
 
 const SURFACES = [
   { id: "progress", label: "进展", icon: CircleDot },
@@ -236,6 +239,7 @@ function MissionStaleNotice({
 }
 
 function MissionActivity({ view }: { view: MissionView }) {
+  const operationElapsed = useElapsedTime(view.currentOperation?.startedAt ?? null);
   return (
     <section className="border-l-2 border-[var(--wjn-accent-line)] pl-3" data-testid="mission-activity">
       <div className="flex flex-wrap items-center gap-2">
@@ -250,8 +254,46 @@ function MissionActivity({ view }: { view: MissionView }) {
       {view.activity.attempt || view.activity.retryAt ? (
         <p className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">{activityMeta(view)}</p>
       ) : null}
+      {view.currentOperation ? (
+        <div className="mt-3 border-t border-[var(--wjn-line)] pt-3" data-testid="mission-current-operation">
+          <div className="flex items-center gap-2 text-xs font-medium text-[var(--wjn-text)]">
+            <LoaderCircle size={13} className="animate-spin text-[var(--wjn-accent-strong)]" />
+            <span>{view.currentOperation.label}</span>
+          </div>
+          <p className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
+            {view.currentOperation.actor} · 已运行 {operationElapsed}
+            {view.currentOperation.attempt > 1 ? ` · 第 ${view.currentOperation.attempt} 次尝试` : ""}
+          </p>
+        </div>
+      ) : view.activity.lastProgressAt ? (
+        <p className="mt-2 text-[11px] text-[var(--wjn-text-muted)]">
+          最近进展 {formatRelativeTime(view.activity.lastProgressAt)}
+        </p>
+      ) : null}
     </section>
   );
+}
+
+function useElapsedTime(startedAt: string | null): string {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  if (!startedAt) return "0 秒";
+  const seconds = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1_000));
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes} 分 ${seconds % 60} 秒`;
+}
+
+function formatRelativeTime(value: string): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1_000));
+  if (!Number.isFinite(seconds) || seconds < 10) return "刚刚";
+  if (seconds < 60) return `${seconds} 秒前`;
+  return `${Math.floor(seconds / 60)} 分钟前`;
 }
 
 function activityStateLabel(state: MissionView["activity"]["state"]): string {
@@ -339,11 +381,32 @@ function ProgressSurface({
         />
       ) : null}
       {!view.attentionRequest ? <MissionActivity view={view} /> : null}
+      {view.failure ? (
+        <section className="border border-[var(--wjn-line-strong)] bg-[var(--wjn-review-soft)] p-4" data-testid="mission-failure-card">
+          <h3 className="text-sm font-semibold text-[var(--wjn-text)]">任务停在了一个安全边界</h3>
+          <p className="mt-2 text-xs leading-5 text-[var(--wjn-text-secondary)]">{view.failure.userSummary}</p>
+          <p className="mt-2 text-xs leading-5 text-[var(--wjn-text-secondary)]">{view.failure.preservedProgress}</p>
+          <p className="mt-2 text-[11px] leading-5 text-[var(--wjn-text-muted)]">{view.failure.recommendedAction}</p>
+          <button type="button" className="wjn-button-primary mt-3 flex h-8 items-center gap-2 px-3 text-xs" onClick={() => onChatAction("continue")}>
+            <RotateCcw size={13} /> 从已保存进度继续
+          </button>
+        </section>
+      ) : null}
+      <section className="grid grid-cols-3 gap-2" aria-label="任务实时概览">
+        <MissionMetric label="材料就绪" value={`${view.inputSummary.ready}/${view.inputSummary.total}`} />
+        <MissionMetric label="来源与结果" value={String(view.evidenceCount)} />
+        <MissionMetric label="成果" value={String(view.artifactCount)} />
+      </section>
+      {view.inputSummary.names.length ? (
+        <p className="-mt-5 line-clamp-2 text-[11px] leading-5 text-[var(--wjn-text-muted)]" data-testid="mission-input-inventory">
+          已读取材料：{view.inputSummary.names.join("、")}
+        </p>
+      ) : null}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-[var(--wjn-text)]">当前推进</h3>
+          <h3 className="text-xs font-semibold text-[var(--wjn-text)]">阶段进度</h3>
           <span className="text-[11px] text-[var(--wjn-text-muted)]">
-            {view.stages.filter((stage) => stage.status === "passed").length}/{view.stages.length}
+            已通过 {view.stages.filter((stage) => stage.status === "passed").length}/{view.stages.length}
           </span>
         </div>
         <div className="space-y-0">
@@ -407,6 +470,15 @@ function ProgressSurface({
           </div>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+function MissionMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-[var(--wjn-surface-subtle)] px-3 py-2.5">
+      <div className="text-base font-semibold text-[var(--wjn-text)]">{value}</div>
+      <div className="mt-0.5 text-[10px] text-[var(--wjn-text-muted)]">{label}</div>
     </div>
   );
 }
@@ -1073,6 +1145,16 @@ function ArtifactSurface({ view }: { view: MissionView }) {
                   <span className="text-[10px] text-[var(--wjn-text-muted)]">{item.committed ? "已保存" : "待确认"}</span>
                 </div>
                 {item.summary ? <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-secondary)]">{item.summary}</p> : null}
+                {item.downloadUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => void downloadMissionArtifact(item.downloadUrl!, item.title)}
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--wjn-accent-strong)] hover:underline"
+                  >
+                    <Download size={13} aria-hidden="true" />
+                    下载文件
+                  </button>
+                ) : null}
               </div>
             </div>
           ))}
@@ -1124,9 +1206,9 @@ function TraceSurface({ view }: { view: MissionView }) {
     setLoading(true);
     setError(null);
     try {
-      const page = await listMissionItems({ missionId, cursor: nextCursor, limit: 30 });
+      const page = await listMissionItems({ missionId, beforeSeq: nextCursor, limit: 30 });
       if (requestEpoch !== requestEpochRef.current) return;
-      setItems((current) => (nextCursor ? [...current, ...page.items] : page.items));
+      setItems((current) => (nextCursor ? [...page.items, ...current] : page.items));
       setCursor(page.nextCursor);
       setStarted(true);
     } catch {

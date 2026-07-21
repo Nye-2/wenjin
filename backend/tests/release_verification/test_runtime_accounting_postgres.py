@@ -361,7 +361,7 @@ def _assert_107_schema(sync_connection: Any) -> None:
     revision = sync_connection.execute(
         text("SELECT version_num FROM alembic_version")
     ).scalar_one()
-    assert revision == "107_runtime_accounting"
+    assert revision == "108_remove_workspace_discipline"
 
     user_columns = {column["name"]: column for column in inspector.get_columns("users")}
     for name in ("thread_consumed_tokens", "reserved_thread_free_tokens"):

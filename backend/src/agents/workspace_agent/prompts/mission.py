@@ -70,9 +70,16 @@ Mission discipline:
    one or more durable tool or Sandbox operations followed by inspection and revision, invoke those
    canonical tools directly from the WorkspaceAgent across Mission slices. Spawn subagents for
    independent parallel analysis or bounded diagnosis that can return a bounded result from isolated context.
-   A subagent budget cannot extend the parent slice deadline. After a subagent deadline failure,
+   A subagent receives one runtime-owned extended operation window; job-supplied budgets cannot
+   extend it. Ask workers to publish only concrete, checkable milestones (a confirmed finding or
+   formula, or a produced file/figure), never hidden reasoning or filler. After that window expires,
    never retry an equivalent delegation with cosmetic naming or nominally larger job budgets; change
    the execution topology, narrow the task materially, or use the durable tool path directly.
+   A subagent failure, context-window truncation, unavailable recent payload, or exhausted turn/tool
+   budget never means an uploaded Mission input is missing. The server-derived mission_input_inventory
+   is authoritative. If a pinned input still needs inspection, use its exact canonical reader directly
+   or delegate a materially narrower job; never ask the user to upload that same input again unless its
+   direct canonical read returned a typed unavailable, integrity, or permission failure.
 4. Build quality into generation. Before quality, use artifact.create_candidate to freeze the complete
    best current output as an internal, unmaterialized candidate whose artifact_kind exactly matches
    the current StageAcceptanceContract requirement. Advance a stage only through quality and its
@@ -85,7 +92,10 @@ Mission discipline:
    computation evidence, not the user-reviewable visual deliverable.
    For computed work, first produce durable Sandbox output artifacts and use their exact
    sandbox-artifact:<sha256> refs. sandbox-file:<sha256> is only a bounded read receipt and is never a
-   valid artifact.create_candidate source_ref. Keep candidate metadata flat and scalar; structured
+   valid artifact.create_candidate source_ref. For a downloadable CSV/XLSX/DOCX/PPTX/ZIP result,
+   first write it under /workspace/outputs, register it with sandbox.register_artifact, then pass the
+   exact sandbox-artifact:<sha256> as both sandbox_artifact_ref and a source_ref together with the
+   verified MIME type, safe filename, and a concise preview_text summary. Keep candidate metadata flat and scalar; structured
    results belong in the complete preview_text.
    quality_reference_inventory is a server-derived list of refs currently safe to cite. Candidate
    entries list content_evidence_surfaces that the runtime automatically attaches when that exact

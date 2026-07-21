@@ -7,9 +7,10 @@ import type { MissionView } from "@/lib/api/mission-types";
 import type { MissionMutationResult } from "@/lib/api/missions";
 import { useMissionUiStore } from "@/stores/mission-ui-store";
 
-const { commitMissionReviewsMock, decideMissionReviewsMock, getMissionReviewPreviewMock, getMissionViewMock, listMissionEvidenceMock, listMissionArtifactsMock, listMissionItemsMock, resolveMissionPermissionMock } = vi.hoisted(() => ({
+const { commitMissionReviewsMock, decideMissionReviewsMock, downloadMissionArtifactMock, getMissionReviewPreviewMock, getMissionViewMock, listMissionEvidenceMock, listMissionArtifactsMock, listMissionItemsMock, resolveMissionPermissionMock } = vi.hoisted(() => ({
   commitMissionReviewsMock: vi.fn(),
   decideMissionReviewsMock: vi.fn(),
+  downloadMissionArtifactMock: vi.fn(),
   getMissionReviewPreviewMock: vi.fn(),
   getMissionViewMock: vi.fn(),
   listMissionEvidenceMock: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("@/lib/api/missions", async () => {
     ...actual,
     commitMissionReviews: commitMissionReviewsMock,
     decideMissionReviews: decideMissionReviewsMock,
+    downloadMissionArtifact: downloadMissionArtifactMock,
     getMissionReviewPreview: getMissionReviewPreviewMock,
     getMissionView: getMissionViewMock,
     listMissionEvidence: listMissionEvidenceMock,
@@ -50,7 +52,7 @@ function MissionConsole(
 
 function makeView(missionId = "mission-1"): MissionView {
   return {
-    missionId, workspaceId: "ws-1", title: missionId === "mission-1" ? "联邦微调研究空白" : missionId, executionStatus: "running", statusLabel: "正在研究", activity: { state: "working", title: "问津正在推进当前研究" }, attentionRequest: null, createdAt: "2026-07-11T00:00:00Z", updatedAt: "2026-07-11T00:01:00Z",
+    missionId, workspaceId: "ws-1", title: missionId === "mission-1" ? "联邦微调研究空白" : missionId, executionStatus: "running", statusLabel: "正在研究", activity: { state: "working", title: "问津正在推进当前研究" }, currentOperation: null, inputSummary: { total: 0, ready: 0, failed: 0, names: [] }, failure: null, attentionRequest: null, createdAt: "2026-07-11T00:00:00Z", updatedAt: "2026-07-11T00:01:00Z",
     activeStage: { id: "literature", title: "查找与核验证据", status: "active", summary: "正在交叉核验关键文献" },
     stages: [{ id: "scope", title: "收敛问题", status: "passed" }, { id: "literature", title: "查找与核验证据", status: "active" }],
     requiredStageIds: ["scope", "literature"],
@@ -102,6 +104,49 @@ describe("MissionConsole", () => {
     expect(screen.getByText("严谨派阿澈")).toBeInTheDocument();
     expect(screen.getByText("查找与核验证据")).toBeInTheDocument();
     expect(screen.queryByText(/provider|schema|high risk|blocked/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the live operation, authoritative input count, and passed-stage semantics", () => {
+    const view = makeView();
+    view.currentOperation = {
+      kind: "subagent",
+      label: "正在核对 8 份附件数据",
+      actor: "研究成员",
+      startedAt: new Date(Date.now() - 8_000).toISOString(),
+      attempt: 1,
+    };
+    view.inputSummary = {
+      total: 9,
+      ready: 9,
+      failed: 0,
+      names: ["A题.pdf", "附件1.xlsx"],
+    };
+
+    render(<MissionConsole view={view} onClose={() => undefined} />);
+
+    expect(screen.getByTestId("mission-current-operation")).toHaveTextContent("正在核对 8 份附件数据");
+    expect(screen.getByLabelText("任务实时概览")).toHaveTextContent("9/9");
+    expect(screen.getByText("已通过 1/2")).toBeInTheDocument();
+  });
+
+  it("explains a preserved failure and routes continuation through chat", () => {
+    const view = makeView();
+    view.executionStatus = "failed";
+    view.failure = {
+      category: "usage_reconciliation",
+      userSummary: "一次模型调用的用量状态无法确认，系统为避免重复计费已安全停止。",
+      recoverability: "continue_in_chat",
+      preservedProgress: "已保留 1 个已通过阶段、4 条来源与结果、0 个成果。",
+      recommendedAction: "从已保存进度继续。",
+      failedAt: "2026-07-11T00:02:00Z",
+    };
+    const onChatAction = vi.fn();
+
+    render(<MissionConsole view={view} onClose={() => undefined} onChatAction={onChatAction} />);
+    fireEvent.click(screen.getByRole("button", { name: "从已保存进度继续" }));
+
+    expect(screen.getByTestId("mission-failure-card")).toHaveTextContent("避免重复计费");
+    expect(onChatAction).toHaveBeenCalledWith("continue");
   });
 
   it.each([
@@ -474,6 +519,28 @@ describe("MissionConsole", () => {
     expect(listMissionArtifactsMock).toHaveBeenCalledWith({ missionId: "mission-1", cursor: 14 });
   });
 
+  it("downloads a committed generated file from the Mission artifact surface", async () => {
+    const view = makeView();
+    view.artifactItems = [{
+      id: "artifact-xlsx",
+      title: "模型结果.xlsx",
+      kind: "spreadsheet_result",
+      previewAvailable: true,
+      committed: true,
+      downloadUrl: "/api/missions/mission-1/artifacts/review-xlsx/download",
+    }];
+    view.artifactCount = 1;
+    render(<MissionConsole view={view} onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    fireEvent.click(screen.getByRole("button", { name: "下载文件" }));
+
+    expect(downloadMissionArtifactMock).toHaveBeenCalledWith(
+      "/api/missions/mission-1/artifacts/review-xlsx/download",
+      "模型结果.xlsx",
+    );
+  });
+
   it("drops a late evidence page after Mission identity changes", async () => {
     const latePage = deferred<{
       items: Array<{ id: string; title: string; sourceType: "paper"; verified: boolean }>;
@@ -579,7 +646,7 @@ describe("MissionConsole", () => {
     expect(await screen.findByText("任务 B 轨迹")).toBeInTheDocument();
     expect(listMissionItemsMock).toHaveBeenLastCalledWith({
       missionId: "mission-2",
-      cursor: null,
+      beforeSeq: null,
       limit: 30,
     });
   });

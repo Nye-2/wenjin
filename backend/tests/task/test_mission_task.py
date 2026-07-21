@@ -10,6 +10,7 @@ from src.mission_runtime.contracts import (
     MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS,
     MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS,
     MISSION_SLICE_WALL_TIME_SECONDS,
+    MISSION_SUBAGENT_OPERATION_TIME_SECONDS,
     MISSION_TASK_HARD_TIME_LIMIT_SECONDS,
     MISSION_TASK_SOFT_TIME_LIMIT_SECONDS,
     MISSION_WORKER_PREFETCH_MULTIPLIER,
@@ -34,7 +35,14 @@ def test_mission_task_has_bounded_long_running_delivery_profile() -> None:
     assert celery_app.conf.task_routes[reconcile_missions.name]["queue"] == "default"
     assert celery_app.conf.beat_schedule["reconcile-runnable-missions"]["task"] == reconcile_missions.name
     assert MISSION_WORKER_PREFETCH_MULTIPLIER == 1
-    assert MISSION_SLICE_WALL_TIME_SECONDS + MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS < MISSION_TASK_SOFT_TIME_LIMIT_SECONDS < MISSION_TASK_HARD_TIME_LIMIT_SECONDS < MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS
+    assert (
+        MISSION_SLICE_WALL_TIME_SECONDS
+        + MISSION_SUBAGENT_OPERATION_TIME_SECONDS
+        + MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS
+        < MISSION_TASK_SOFT_TIME_LIMIT_SECONDS
+        < MISSION_TASK_HARD_TIME_LIMIT_SECONDS
+        < MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS
+    )
     assert celery_app.conf.broker_transport_options["visibility_timeout"] == MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS
 
 

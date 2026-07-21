@@ -103,6 +103,12 @@ class MissionStartContextPort(Protocol):
 
 
 class ToolOrchestratorPort(Protocol):
+    async def required_budget_seconds(
+        self,
+        mission: MissionRunPayload,
+        tool_name: str,
+    ) -> float: ...
+
     async def execute(self, request: ToolExecutionRequest) -> MissionPortOutcome: ...
 
 

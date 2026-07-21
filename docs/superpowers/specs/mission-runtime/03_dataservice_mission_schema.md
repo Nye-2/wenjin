@@ -3,7 +3,7 @@
 Status: Implemented
 Updated: 2026-07-17
 
-Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, aggregate references by 096, final workspace/runtime cutovers by 097-101, review policy projection by 102, DataService concurrency fencing by 103, and required Mission budgets plus atomic chat billing by 107. Development history is drop/reseed. A clean empty-database migration through 107 is the release baseline.
+Implementation outcome: the four-table aggregate and typed DataService client/store are live; linked domains were migrated by 088, auxiliary tasks by 090, review/commit consistency by 091, physical index integrity by 095, aggregate references by 096, final workspace/runtime cutovers by 097-101, review policy projection by 102, DataService concurrency fencing by 103, required Mission budgets plus atomic chat billing by 107, and the unused workspace discipline field removed by 108. Development history is drop/reseed. A clean empty-database migration through 108 is the release baseline.
 Depends on: `02_mission_runtime.md`, `07_review_commit_runtime.md`, `13_migration_release_gate.md`
 
 ## Goal

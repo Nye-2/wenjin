@@ -56,7 +56,6 @@ class WorkspaceService:
         user_id: str,
         name: str,
         type: str,
-        discipline: str | None = None,
         description: str | None = None,
         config: dict[str, Any] | None = None,
     ) -> Workspace:
@@ -66,7 +65,6 @@ class WorkspaceService:
             user_id: User ID who owns the workspace
             name: Workspace name
             type: Workspace type (sci, thesis, proposal, software_copyright, patent)
-            discipline: Academic discipline (e.g., computer_science)
             description: Workspace description
             config: Workspace configuration as JSON
 
@@ -80,7 +78,6 @@ class WorkspaceService:
             created_by_user_id=user_id,
             name=name,
             workspace_type=normalize_workspace_type(type),
-            discipline=discipline,
             description=description,
             settings_json=config or {},
         )
@@ -139,7 +136,7 @@ class WorkspaceService:
 
         Args:
             workspace_id: Workspace UUID string
-            **kwargs: Fields to update (name, discipline, description, config)
+            **kwargs: Fields to update (name, description, config)
 
         Returns:
             Updated workspace if found, None otherwise
@@ -154,8 +151,6 @@ class WorkspaceService:
             command_values["workspace_type"] = normalize_workspace_type(
                 kwargs.get("type") or kwargs.get("workspace_type")
             )
-        if "discipline" in kwargs:
-            command_values["discipline"] = kwargs["discipline"]
         if "description" in kwargs:
             command_values["description"] = kwargs["description"]
         if "config" in kwargs or "settings_json" in kwargs:

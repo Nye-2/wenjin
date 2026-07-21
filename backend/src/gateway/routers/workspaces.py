@@ -77,7 +77,6 @@ async def create_workspace(
             user_id=str(current_user.id),
             name=request.name,
             type=request.type,
-            discipline=request.discipline,
             description=request.description,
             config=request.config,
         )

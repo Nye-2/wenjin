@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from time import monotonic
 from typing import Protocol
@@ -25,6 +26,17 @@ from src.subagent_runtime.contracts import (
     SubagentToolRequest,
     SubagentToolResult,
 )
+
+logger = logging.getLogger(__name__)
+
+_FINAL_SYNTHESIS_INSTRUCTION = (
+    "Final synthesis turn: do not request another tool. Complete from the loaded "
+    "context and tool results, or stop honestly with the best valid partial result."
+)
+
+
+class SubagentModelAdmissionDeferred(TimeoutError):
+    """The slice cannot safely contain a new receipt-bearing model call."""
 
 
 class SubagentModelPort(Protocol):
@@ -110,7 +122,7 @@ def _nonreceipt_model_call_outcome(
 
 
 class SubagentRuntime:
-    """Runs child model loops inside one parent slice; no detached ownership."""
+    """Runs child model loops inside one bounded parent operation; no detached ownership."""
 
     def __init__(
         self,
@@ -123,8 +135,16 @@ class SubagentRuntime:
         monotonic_clock: Callable[[], float] = monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         max_transient_model_retries: int = 2,
+        model_call_timeout_seconds: float = 0.0,
+        model_call_completion_margin_seconds: float = 0.0,
     ) -> None:
-        if max_concurrency < 1 or max_jobs_per_batch < 1 or max_transient_model_retries < 0:
+        if (
+            max_concurrency < 1
+            or max_jobs_per_batch < 1
+            or max_transient_model_retries < 0
+            or model_call_timeout_seconds < 0
+            or model_call_completion_margin_seconds < 0
+        ):
             raise ValueError("subagent concurrency and batch limits must be positive")
         self.model = model
         self.tools = tools
@@ -134,6 +154,8 @@ class SubagentRuntime:
         self.monotonic_clock = monotonic_clock
         self.sleep = sleep
         self.max_transient_model_retries = max_transient_model_retries
+        self.model_call_timeout_seconds = model_call_timeout_seconds
+        self.model_call_completion_margin_seconds = model_call_completion_margin_seconds
         self._active: dict[str, asyncio.Task[SubagentJobResult]] = {}
         self._terminal: dict[str, SubagentJobResult] = {}
         self._job_fingerprints: dict[str, str] = {}
@@ -216,7 +238,9 @@ class SubagentRuntime:
         )
         steps: list[SubagentStep] = []
         tool_results: list[SubagentToolResult] = []
+        tool_steps_used = 0
         successful_tool_requests: set[str] = set()
+        published_milestones: set[tuple[str, str]] = set()
         partial: dict[str, object] = {}
         for context_read in job.context_reads:
             if self.monotonic_clock() >= deadline_monotonic:
@@ -224,10 +248,10 @@ class SubagentRuntime:
                     job,
                     status=SubagentStatus.TIMED_OUT,
                     stop_reason=SubagentStopReason.DEADLINE_REACHED,
-                    summary="Subagent reached the parent slice deadline while loading selected context",
+                    summary="研究成员在读取所选材料时到达本次协作时限",
                     result_json={},
                     turns=0,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
                     tool_results=tuple(tool_results),
                 )
             request_fingerprint = _tool_request_fingerprint(
@@ -257,6 +281,13 @@ class SubagentRuntime:
                     )
                 )
             except Exception as exc:
+                logger.warning(
+                    "Subagent selected-context read failed job=%s tool=%s error=%s",
+                    job.job_id,
+                    context_read.tool_name,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
                 tool_result = SubagentToolResult(
                     status="failed",
                     summary="Selected context could not be loaded",
@@ -283,6 +314,8 @@ class SubagentRuntime:
                     "selected_ref": context_read.ref,
                     "status": tool_result.status,
                     "context_hydration": True,
+                    "error_type": tool_result.error_type,
+                    "recoverable": tool_result.recoverable,
                     "evidence_refs": list(tool_result.evidence_refs),
                     "artifact_refs": list(tool_result.artifact_refs),
                 },
@@ -293,21 +326,50 @@ class SubagentRuntime:
                     job,
                     status=SubagentStatus.TIMED_OUT,
                     stop_reason=(SubagentStopReason.PARTIAL_RESULT_AVAILABLE if partial else SubagentStopReason.DEADLINE_REACHED),
-                    summary="Subagent reached the parent slice deadline",
+                    summary="研究成员到达本次协作时限",
                     result_json=partial,
                     turns=turn - 1,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
                     tool_results=tuple(tool_results),
+                )
+            finalization_only = (
+                turn == job.budget.max_turns
+                or tool_steps_used >= job.budget.max_tool_steps
+            )
+            model_steps = tuple(steps)
+            if finalization_only:
+                model_steps = (
+                    *model_steps,
+                    SubagentStep(
+                        turn=turn,
+                        kind="progress",
+                        summary=_FINAL_SYNTHESIS_INSTRUCTION,
+                    ),
                 )
             try:
                 model_turn = await self._next_model_action_with_retry(
                     job,
                     turn=turn,
-                    steps=tuple(steps),
+                    steps=model_steps,
                     tool_results=tuple(tool_results),
                     deadline_monotonic=deadline_monotonic,
                 )
                 action = model_turn.action
+            except SubagentModelAdmissionDeferred:
+                return await self._terminal_result(
+                    job,
+                    status=(SubagentStatus.COMPLETED if partial else SubagentStatus.TIMED_OUT),
+                    stop_reason=(
+                        SubagentStopReason.PARTIAL_RESULT_AVAILABLE
+                        if partial
+                        else SubagentStopReason.DEADLINE_REACHED
+                    ),
+                    summary="剩余协作时间不足以安全完成下一次模型分析，已保留当前进度",
+                    result_json=partial,
+                    turns=turn - 1,
+                    tools=tool_steps_used,
+                    tool_results=tuple(tool_results),
+                )
             except SubagentModelOutputError as exc:
                 retry_summary = f"Structured worker response was invalid; retrying within the bounded turn budget. Repair requirement: {exc}"
                 steps.append(
@@ -332,10 +394,10 @@ class SubagentRuntime:
                     job,
                     status=SubagentStatus.FAILED,
                     stop_reason=SubagentStopReason.MALFORMED_MODEL_OUTPUT,
-                    summary="Subagent exhausted its retries for structured model output",
+                    summary="结构化结果多次未通过校验，已保留可用进度",
                     result_json=partial,
                     turns=turn,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
                     warnings=(type(exc).__name__,),
                     tool_results=tuple(tool_results),
                 )
@@ -347,13 +409,60 @@ class SubagentRuntime:
                     summary="Subagent model step failed",
                     result_json=partial,
                     turns=turn - 1,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
                     warnings=(type(exc).__name__,),
                     tool_results=tuple(tool_results),
                 )
 
             if action.partial_result_json:
                 partial = dict(action.partial_result_json)
+            if action.kind == "progress":
+                if finalization_only:
+                    return await self._terminal_result(
+                        job,
+                        status=(
+                            SubagentStatus.COMPLETED
+                            if partial
+                            else SubagentStatus.FAILED
+                        ),
+                        stop_reason=SubagentStopReason.LOOP_CAPPED,
+                        summary="阶段进展已保存，但本轮已没有足够步骤完成最终汇总",
+                        result_json=partial,
+                        turns=turn,
+                        tools=tool_steps_used,
+                        tool_results=tuple(tool_results),
+                    )
+                progress_kind = action.progress_kind or "checkpoint"
+                milestone_key = (progress_kind, action.summary.strip())
+                if milestone_key not in published_milestones:
+                    published_milestones.add(milestone_key)
+                    steps.append(
+                        SubagentStep(
+                            turn=turn,
+                            kind="progress",
+                            summary=action.summary,
+                        )
+                    )
+                    await self.ledger.record_progress(
+                        job,
+                        phase="progress",
+                        summary=action.summary,
+                        payload_json={
+                            "status": "milestone",
+                            "progress_kind": progress_kind,
+                        },
+                    )
+                else:
+                    steps.append(
+                        SubagentStep(
+                            turn=turn,
+                            kind="progress",
+                            summary=(
+                                "重复阶段进展未再次发布；请继续实质工作或完成任务"
+                            ),
+                        )
+                    )
+                continue
             if action.kind == "complete":
                 schema_errors = _validate_output_contract(action.result_json, job.output_schema)
                 if schema_errors:
@@ -364,7 +473,7 @@ class SubagentRuntime:
                         summary="Subagent result did not satisfy its pinned output contract",
                         result_json={"validation_errors": schema_errors[:20]},
                         turns=turn,
-                        tools=len(tool_results),
+                        tools=tool_steps_used,
                         tool_results=tuple(tool_results),
                     )
                 reference_errors = _validate_receipt_backed_result_refs(
@@ -401,7 +510,7 @@ class SubagentRuntime:
                         summary="Subagent result cited references that were not returned by its tools",
                         result_json={"validation_errors": reference_errors[:20]},
                         turns=turn,
-                        tools=len(tool_results),
+                        tools=tool_steps_used,
                         tool_results=tuple(tool_results),
                     )
                 return await self._terminal_result(
@@ -411,7 +520,7 @@ class SubagentRuntime:
                     summary=_completed_result_summary(action),
                     result_json=action.result_json,
                     turns=turn,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
                     tool_results=tuple(tool_results),
                 )
             if action.kind == "stop":
@@ -424,7 +533,27 @@ class SubagentRuntime:
                     summary=action.summary,
                     result_json=partial,
                     turns=turn,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
+                    tool_results=tuple(tool_results),
+                )
+
+            if self.monotonic_clock() >= deadline_monotonic:
+                return await self._terminal_result(
+                    job,
+                    status=(
+                        SubagentStatus.COMPLETED
+                        if partial
+                        else SubagentStatus.TIMED_OUT
+                    ),
+                    stop_reason=(
+                        SubagentStopReason.PARTIAL_RESULT_AVAILABLE
+                        if partial
+                        else SubagentStopReason.DEADLINE_REACHED
+                    ),
+                    summary="模型分析已完成，但本轮剩余时间不足以安全启动工具",
+                    result_json=partial,
+                    turns=turn,
+                    tools=tool_steps_used,
                     tool_results=tuple(tool_results),
                 )
 
@@ -437,7 +566,7 @@ class SubagentRuntime:
                     summary=f"Subagent requested a tool outside its allowlist: {tool_name}",
                     result_json=partial,
                     turns=turn,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
                     tool_results=tuple(tool_results),
                 )
             request_fingerprint = _tool_request_fingerprint(tool_name, action.arguments)
@@ -458,15 +587,15 @@ class SubagentRuntime:
                     payload_json={"tool_name": tool_name, "status": "duplicate_skipped"},
                 )
                 continue
-            if len(tool_results) >= job.budget.max_tool_steps:
+            if finalization_only:
                 return await self._terminal_result(
                     job,
                     status=SubagentStatus.COMPLETED if partial else SubagentStatus.FAILED,
                     stop_reason=SubagentStopReason.LOOP_CAPPED,
-                    summary="Subagent exhausted its tool-step budget",
+                    summary="Worker used its final synthesis turn without producing a complete result",
                     result_json=partial,
                     turns=turn,
-                    tools=len(tool_results),
+                    tools=tool_steps_used,
                     tool_results=tuple(tool_results),
                 )
             steps.append(SubagentStep(turn=turn, kind="tool", summary=action.summary, tool_name=tool_name))
@@ -485,12 +614,20 @@ class SubagentRuntime:
                     )
                 )
             except Exception as exc:
+                logger.warning(
+                    "Subagent tool failed before a typed result job=%s tool=%s error=%s",
+                    job.job_id,
+                    tool_name,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
                 tool_result = SubagentToolResult(
                     status="failed",
                     summary="Tool invocation failed before producing a typed result",
                     error_type=type(exc).__name__,
                 )
             tool_results.append(tool_result)
+            tool_steps_used += 1
             if tool_result.status == "completed":
                 successful_tool_requests.add(request_fingerprint)
             steps.append(
@@ -509,6 +646,8 @@ class SubagentRuntime:
                 payload_json={
                     "tool_name": tool_name,
                     "status": tool_result.status,
+                    "error_type": tool_result.error_type,
+                    "recoverable": tool_result.recoverable,
                     "evidence_refs": list(tool_result.evidence_refs),
                     "artifact_refs": list(tool_result.artifact_refs),
                 },
@@ -518,10 +657,10 @@ class SubagentRuntime:
             job,
             status=SubagentStatus.COMPLETED if partial else SubagentStatus.FAILED,
             stop_reason=SubagentStopReason.TURN_CAPPED,
-            summary="Subagent exhausted its model-turn budget",
+            summary="达到本轮分析步数上限，已保留可用进度",
             result_json=partial,
             turns=job.budget.max_turns,
-            tools=len(tool_results),
+            tools=tool_steps_used,
             tool_results=tuple(tool_results),
         )
 
@@ -536,6 +675,15 @@ class SubagentRuntime:
     ) -> SubagentModelTurn:
         transient_attempt = 0
         while True:
+            remaining = deadline_monotonic - self.monotonic_clock()
+            required = (
+                self.model_call_timeout_seconds
+                + self.model_call_completion_margin_seconds
+            )
+            if required > 0 and remaining < required:
+                raise SubagentModelAdmissionDeferred(
+                    "insufficient slice time for a receipt-bearing subagent model call"
+                )
             attempt = transient_attempt + 1
             model_call_id = subagent_model_call_id(
                 job,
@@ -669,6 +817,14 @@ class SubagentRuntime:
         warnings: tuple[str, ...] = (),
         tool_results: tuple[SubagentToolResult, ...] = (),
     ) -> SubagentJobResult:
+        tool_failure_warnings = tuple(
+            dict.fromkeys(
+                f"tool_failure:{item.error_type or 'typed_failure'}"
+                for item in tool_results
+                if item.status == "failed"
+            )
+        )
+        warnings = (*warnings, *tool_failure_warnings)
         encoded = json.dumps(result_json, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         if len(encoded) > min(job.budget.max_result_bytes, 48 * 1024):
             result_json = {"externalization_required": True}

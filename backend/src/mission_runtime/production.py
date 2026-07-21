@@ -6,6 +6,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid5
@@ -730,6 +731,66 @@ def _review_projection(
                 metadata=metadata,
                 draft=draft,
             )
+        sandbox_artifact_ref = str(metadata.get("sandbox_artifact_ref") or "")
+        if sandbox_artifact_ref:
+            if target_kind != "workspace_asset":
+                raise MissionProductionConfigurationError(
+                    "Downloadable file candidates can only materialize as workspace assets"
+                )
+            preview_ref = str(metadata.get("preview_ref") or "")
+            preview_expires_at = metadata.get("preview_expires_at")
+            content_hash = str(metadata.get("content_hash") or "")
+            mime_type = str(metadata.get("mime_type") or "")
+            filename = Path(str(metadata.get("filename") or "")).name
+            size_bytes = metadata.get("size_bytes")
+            if (
+                not preview_ref
+                or preview_expires_at is None
+                or not re.fullmatch(r"[0-9a-f]{64}", content_hash)
+                or not filename
+                or not isinstance(size_bytes, int)
+                or size_bytes <= 0
+            ):
+                raise MissionProductionConfigurationError(
+                    "Downloadable file candidate receipt is incomplete"
+                )
+            title = str(draft.get("title") or metadata.get("title") or filename).strip()
+            source_refs = [str(ref) for ref in metadata.get("source_refs") or ()]
+            return {
+                "source_item_seq": item.seq,
+                "preview_ref": preview_ref,
+                "preview_expires_at": preview_expires_at,
+                "preview_json": {
+                    "artifact_kind": str(metadata.get("artifact_kind") or "generated_file"),
+                    "candidate_ref": candidate_ref,
+                    "content_hash": content_hash,
+                    "mime_type": mime_type,
+                    "filename": filename,
+                    "size_bytes": size_bytes,
+                    "summary": str(metadata.get("preview_text") or "").strip(),
+                    "source_refs": source_refs,
+                    "sandbox_artifact_ref": sandbox_artifact_ref,
+                    "sandbox_content_hash": str(metadata.get("sandbox_content_hash") or ""),
+                    "downloadable": True,
+                    "materialization": {
+                        "operation": "assets.create_from_preview",
+                        "payload": {
+                            "content_hash": content_hash,
+                            "mime_type": mime_type,
+                            "manifest_ref": sandbox_artifact_ref,
+                            "name": filename,
+                            "title": title,
+                            "asset_kind": "generated_file",
+                            "metadata_json": {
+                                "source_refs": source_refs,
+                                "sandbox_artifact_ref": sandbox_artifact_ref,
+                                "sandbox_content_hash": str(metadata.get("sandbox_content_hash") or ""),
+                                "artifact_kind": str(metadata.get("artifact_kind") or "generated_file"),
+                            },
+                        },
+                    },
+                },
+            }
         if target_kind != "document":
             raise MissionProductionConfigurationError(
                 "Text artifact candidates can only materialize as documents"

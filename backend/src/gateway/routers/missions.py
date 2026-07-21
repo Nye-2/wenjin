@@ -10,14 +10,17 @@ import json
 import re
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.config import get_settings
+from src.contracts.archive_filename import recover_legacy_zip_filename
 from src.contracts.prism_context import PrismContextRef
 from src.contracts.review_policy import ReviewMode
 from src.dataservice_client import AsyncDataServiceClient
@@ -38,8 +41,37 @@ from src.review_commit_runtime.membership import (
 from src.review_commit_runtime.preview_store import MissionPreviewStore
 from src.review_commit_runtime.visual_insertion import PrismVisualInsertionService
 from src.services.mission_runtime_service import MissionRuntimeService, build_mission_runtime
+from src.services.workspace_uploads import resolve_workspace_upload_relative_path
 
 router = APIRouter(tags=["missions"])
+
+
+def _add_artifact_download_urls(payload: dict[str, Any], mission_id: str) -> None:
+    raw_items = payload.get("artifact_items")
+    if not isinstance(raw_items, list):
+        raw_items = payload.get("items")
+    for item in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        item["download_url"] = (
+            f"/api/missions/{quote(mission_id, safe='')}/artifacts/"
+            f"{quote(str(item.get('item_id') or ''), safe='')}/download"
+            if item.get("download_available") is True
+            else None
+        )
+
+
+def _repair_legacy_evidence_names(payload: dict[str, Any]) -> None:
+    raw_items = payload.get("evidence_items")
+    if not isinstance(raw_items, list):
+        raw_items = payload.get("items")
+    for item in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        for field in ("title", "summary"):
+            value = item.get(field)
+            if isinstance(value, str):
+                item[field] = recover_legacy_zip_filename(value)
 
 _TRACE_SUMMARY_LABELS = {
     "Mission budget reserved": "已准备任务资源",
@@ -56,6 +88,8 @@ _TRACE_SUMMARY_LABELS = {
     "The Sandbox file is unavailable or exceeds the read boundary.": "未读取到目标文件，正在检查材料路径",
     "Stage acceptance contract passed": "当前阶段已通过质量验收",
     "Previously completed operation reused": "已复用此前完成的研究步骤",
+    "Subagent model call started": "研究成员开始分析材料",
+    "Workspace Agent model call started": "问津开始分析并规划下一步",
     "Subagent model step failed": "研究成员本轮未完成，正在重试",
     "Model service was temporarily unavailable; Mission will retry": "连接暂时波动，问津正在重试",
     "Model service remained unavailable; Mission stopped with its partial work preserved": "连接多次未恢复，已保留当前成果",
@@ -311,6 +345,8 @@ async def get_mission_view(
     for item in payload.get("review_items", []):
         has_binary_preview = bool(item.pop("preview_ref", None))
         item["preview_url"] = f"/api/missions/{mission_id}/review-items/{item['review_item_id']}/preview" if has_binary_preview else None
+    _add_artifact_download_urls(payload, mission_id)
+    _repair_legacy_evidence_names(payload)
     return payload
 
 
@@ -334,7 +370,55 @@ async def list_mission_evidence(
     )
     if page is None:
         raise HTTPException(status_code=404, detail="Mission not found")
-    return page.model_dump(mode="json")
+    payload = page.model_dump(mode="json")
+    _repair_legacy_evidence_names(payload)
+    return payload
+
+
+@router.get("/missions/{mission_id}/artifacts/{review_item_id}/download")
+async def download_mission_artifact(
+    mission_id: str,
+    review_item_id: str,
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> FileResponse:
+    run = await _owned_run(
+        mission_id,
+        user_id=str(current_user.id),
+        dataservice=dataservice,
+    )
+    result = await dataservice.missions.get_commit_for_review_item(
+        mission_id,
+        review_item_id,
+    )
+    if result is None or result.commit.status.value != "committed":
+        raise HTTPException(status_code=404, detail="Committed Mission artifact not found")
+    target_ref = str(result.commit.targets_json.get("target_ref") or "")
+    if not target_ref:
+        raise HTTPException(status_code=404, detail="Committed Mission artifact not found")
+    download = await dataservice.resolve_asset_download(target_ref)
+    if (
+        download is None
+        or download.asset.workspace_id != run.workspace_id
+        or download.storage_backend != "local"
+    ):
+        raise HTTPException(status_code=404, detail="Committed Mission artifact not found")
+    try:
+        actual_path = resolve_workspace_upload_relative_path(
+            run.workspace_id,
+            download.storage_path,
+            root=get_settings().workspace_asset_root,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Artifact path is outside the workspace") from exc
+    if actual_path.is_symlink() or not actual_path.is_file():
+        raise HTTPException(status_code=404, detail="Committed Mission artifact not found")
+    return FileResponse(
+        path=actual_path,
+        filename=Path(download.filename).name,
+        media_type=download.mime_type or "application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/missions/{mission_id}/artifacts")
@@ -357,7 +441,9 @@ async def list_mission_artifacts(
     )
     if page is None:
         raise HTTPException(status_code=404, detail="Mission not found")
-    return page.model_dump(mode="json")
+    payload = page.model_dump(mode="json")
+    _add_artifact_download_urls(payload, mission_id)
+    return payload
 
 
 @router.get("/workspaces/{workspace_id}/missions")
@@ -448,20 +534,26 @@ async def stream_mission_events(
 @router.get("/missions/{mission_id}/items")
 async def list_mission_trace_items(
     mission_id: str,
-    cursor: int = Query(default=0, ge=0),
+    before_seq: int | None = Query(default=None, ge=1),
     limit: int = Query(default=100, ge=1, le=500),
     current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
-    await _owned_run(
+    run = await _owned_run(
         mission_id,
         user_id=str(current_user.id),
         dataservice=dataservice,
     )
-    items = await dataservice.missions.list_items(
-        mission_id,
-        after_seq=cursor,
-        limit=limit,
+    upper_bound = min(before_seq or (run.last_item_seq + 1), run.last_item_seq + 1)
+    requested_limit = min(limit, max(upper_bound - 1, 0))
+    items = (
+        await dataservice.missions.list_items(
+            mission_id,
+            after_seq=max(0, upper_bound - requested_limit - 1),
+            limit=requested_limit,
+        )
+        if requested_limit
+        else []
     )
     return {
         "items": [
@@ -482,7 +574,7 @@ async def list_mission_trace_items(
             }
             for item in items
         ],
-        "next_cursor": items[-1].seq if items else None,
+        "next_cursor": items[0].seq if items and items[0].seq > 1 else None,
     }
 
 
@@ -535,6 +627,8 @@ async def get_mission_review_preview(
     if expected_mime and expected_mime != descriptor.mime_type:
         raise HTTPException(status_code=409, detail="Mission preview integrity check failed")
     encoded_filename = quote(descriptor.filename)
+    inline_mimes = {"application/pdf", "image/png", "image/svg+xml", "image/webp"}
+    disposition = "inline" if descriptor.mime_type in inline_mimes else "attachment"
     return Response(
         content=preview.content,
         media_type=descriptor.mime_type,
@@ -543,7 +637,7 @@ async def get_mission_review_preview(
             "Pragma": "no-cache",
             "Expires": "0",
             "ETag": f'"{descriptor.content_hash}"',
-            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}",
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{encoded_filename}",
             "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
             "X-Content-Type-Options": "nosniff",
         },

@@ -21,15 +21,20 @@ class _ProbeTransport:
         arguments: str = '{"nonce":"WENJIN-PROBE","count":11}',
         clean_done: bool = True,
         search_error: ValueError | None = None,
+        vision_error: ValueError | None = None,
     ) -> None:
         self.arguments = arguments
         self.clean_done = clean_done
         self.search_error = search_error
+        self.vision_error = vision_error
         self.payloads: list[dict[str, Any]] = []
         self.urls: list[str] = []
 
     async def post_json(self, **kwargs: Any) -> dict[str, Any]:
         self.payloads.append(kwargs["payload"])
+        content = kwargs["payload"].get("messages", [{}])[0].get("content")
+        if isinstance(content, list) and self.vision_error is not None:
+            raise self.vision_error
         return {
             "choices": [
                 {
@@ -134,6 +139,7 @@ async def test_probe_requires_strict_frame_and_sends_store_false() -> None:
 
     assert assessment.profile.has_strict_tools() is True
     assert assessment.profile.streaming is True
+    assert assessment.profile.vision is True
     assert assessment.profile.native_web_search is True
     assert [effort.value for effort in assessment.profile.reasoning_efforts] == [
         "low",
@@ -239,3 +245,15 @@ async def test_search_probe_failure_does_not_elevate_native_search() -> None:
     assert assessment.profile.native_web_search is False
     assert assessment.evidence.check_passed("native_web_search_call") is False
     assert assessment.evidence.transport_conforms(ModelTransportAPI.RESPONSES) is False
+
+
+@pytest.mark.asyncio
+async def test_vision_probe_failure_does_not_elevate_vision() -> None:
+    assessment = await probe_model_capabilities(
+        _target(),
+        transport=_ProbeTransport(vision_error=ValueError("unsupported")),
+    )
+
+    assert assessment.profile.protocol_conformance is True
+    assert assessment.profile.vision is False
+    assert assessment.evidence.check_passed("vision") is False

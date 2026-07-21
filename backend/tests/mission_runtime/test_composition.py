@@ -157,7 +157,7 @@ def test_composition_builds_every_runtime_port_from_one_store_bound_graph() -> N
     assert isinstance(runtime.quality, StageAcceptanceAdapter)
 
 
-def test_composition_rejects_catalog_budget_larger_than_mission_slice() -> None:
+def test_composition_rejects_catalog_budget_larger_than_safe_slice_window() -> None:
     def oversized_catalog(_effect_context) -> ToolCatalog:
         async def handler(_operation, _arguments):
             return ToolHandlerResult(
@@ -175,7 +175,7 @@ def test_composition_rejects_catalog_budget_larger_than_mission_slice() -> None:
                     handler=handler,
                     side_effect_class=SideEffectClass.NONE,
                     allowed_callers=(ToolCallerKind.WORKSPACE_AGENT,),
-                    timeout_seconds=171,
+                    timeout_seconds=155,
                     max_attempts=1,
                 )
             ]
@@ -184,7 +184,7 @@ def test_composition_rejects_catalog_budget_larger_than_mission_slice() -> None:
     store = FakeMissionStore(MutableClock())
     with pytest.raises(
         MissionCompositionConfigurationError,
-        match="exceeds the durable Mission slice",
+        match="exceeds the safe durable Mission window",
     ):
         compose_mission_runtime(
             SimpleNamespace(missions=store),  # type: ignore[arg-type]

@@ -28,6 +28,7 @@ from src.permission_runtime.authority import (
     resolve_permission_authorization,
 )
 from src.permission_runtime.contracts import PermissionContext, PermissionDecision
+from src.review_commit_runtime.preview_store import MissionPreviewStore
 from src.sandbox import (
     SandboxMissionProvenance,
     SandboxNetworkGrant,
@@ -133,12 +134,14 @@ class MissionToolHandlers:
         dataservice: AsyncDataServiceClient,
         sandbox: SandboxRuntime,
         academic_visual: AcademicVisualRuntime | None = None,
+        preview_store: MissionPreviewStore | None = None,
         asset_root: Path | None = None,
         mission_input_store: MissionInputStore | None = None,
     ) -> None:
         self.dataservice = dataservice
         self.sandbox = sandbox
         self.academic_visual = academic_visual
+        self.preview_store = preview_store
         self.asset_root = Path(asset_root or get_settings().workspace_asset_root)
         self.mission_input_store = mission_input_store or MissionInputStore(get_settings().thread_data_root)
 
@@ -163,7 +166,10 @@ class MissionToolHandlers:
             )
             for item in assets
         )
-        return _success(f"Found {len(refs)} workspace asset(s).", refs=refs)
+        return _success(
+            f"Found {len(refs)} persistent workspace asset(s); current Mission uploads are listed separately in mission_input_inventory.",
+            refs=refs,
+        )
 
     async def _sandbox_artifact_manifest(
         self,
@@ -340,7 +346,10 @@ class MissionToolHandlers:
             for item in files
             if item.deleted_at is None
         )
-        return _success(f"Found {len(refs)} current document file(s).", refs=refs)
+        return _success(
+            f"Found {len(refs)} current writing-surface document file(s); current Mission uploads are listed separately in mission_input_inventory.",
+            refs=refs,
+        )
 
     async def read_workspace_document(self, operation: ToolOperation, args: ReadWorkspaceDocumentInput) -> ToolHandlerResult:
         workspace_id = await self._workspace_id(operation)
@@ -673,10 +682,70 @@ class MissionToolHandlers:
                     "Artifact candidate source refs must come from verified Mission tool receipts: " + ", ".join(missing_refs[:5]),
                     recoverable_by_model=True,
                 )
-        content_hash = artifact_candidate_content_hash(args.preview_text)
+        binary_metadata: dict[str, Any] = {}
+        if args.sandbox_artifact_ref is not None:
+            if self.preview_store is None:
+                raise ToolDispatchError(
+                    ToolErrorType.TOOL_UNAVAILABLE,
+                    "Downloadable file preview storage is unavailable.",
+                )
+            manifest = await self._sandbox_artifact_manifest(
+                operation.mission_id,
+                args.sandbox_artifact_ref,
+            )
+            if manifest is None:
+                raise ToolDispatchError(
+                    ToolErrorType.PROVENANCE_MISSING,
+                    "Downloadable file candidate requires a verified Sandbox artifact.",
+                    recoverable_by_model=True,
+                )
+            manifest_mime = str(manifest.metadata.get("kind") or "")
+            if manifest_mime != args.mime_type:
+                raise ToolDispatchError(
+                    ToolErrorType.INVALID_INPUT,
+                    "Downloadable file MIME type does not match its Sandbox receipt.",
+                    recoverable_by_model=True,
+                )
+            object_ref = str(manifest.metadata.get("object_ref") or "")
+            sandbox_hash = str(manifest.metadata.get("content_hash") or "")
+            size_bytes = int(manifest.metadata.get("size_bytes") or 0)
+            try:
+                content = await self.sandbox.read_artifact_bytes(
+                    workspace_id=await self._workspace_id(operation),
+                    object_ref=object_ref,
+                    expected_content_hash=sandbox_hash,
+                    max_bytes=get_settings().mission_preview_max_bytes,
+                )
+                preview = await self.preview_store.put(
+                    workspace_id=await self._workspace_id(operation),
+                    content=content,
+                    mime_type=args.mime_type,
+                    filename=str(args.filename),
+                    metadata={
+                        "mission_id": operation.mission_id,
+                        "sandbox_artifact_ref": args.sandbox_artifact_ref,
+                        "sandbox_content_hash": sandbox_hash,
+                    },
+                )
+            except (LookupError, OSError, ValueError, SandboxPathError) as exc:
+                raise ToolDispatchError(
+                    ToolErrorType.INVALID_INPUT,
+                    "Downloadable Sandbox artifact is unsafe, unavailable, or exceeds the preview boundary.",
+                    recoverable_by_model=True,
+                ) from exc
+            content_hash = preview.content_hash
+            binary_metadata = {
+                "preview_ref": preview.ref,
+                "preview_expires_at": preview.expires_at.isoformat(),
+                "size_bytes": size_bytes,
+                "sandbox_content_hash": sandbox_hash,
+            }
+        else:
+            content_hash = artifact_candidate_content_hash(args.preview_text)
         metadata = {
             **args.model_dump(mode="json"),
             "content_hash": content_hash,
+            **binary_metadata,
             "mission_id": operation.mission_id,
             "operation_key": operation.operation_key,
             "materialized": False,
@@ -690,7 +759,11 @@ class MissionToolHandlers:
         )
         return ToolHandlerResult(
             status=ToolOutcomeStatus.SUCCESS,
-            summary="Prepared a previewable artifact candidate; it has not been written to the workspace.",
+            summary=(
+                "Prepared a downloadable file candidate; it has not been written to the workspace."
+                if args.sandbox_artifact_ref is not None
+                else "Prepared a previewable artifact candidate; it has not been written to the workspace."
+            ),
             artifact_refs=(ref,),
             verification_status=VerificationStatus.VERIFIED,
             risk_level="medium",

@@ -38,7 +38,6 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         user_id: Owner's user ID
         name: Workspace name
         type: Workspace type (sci, thesis, proposal, software_copyright, math_modeling, patent)
-        discipline: Academic discipline (e.g., computer_science)
         description: Optional description
         config: JSON configuration for workspace-specific settings
     """
@@ -60,7 +59,6 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         ),
         nullable=False,
     )
-    discipline: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[dict[str, Any]] = mapped_column(
         JSONB,

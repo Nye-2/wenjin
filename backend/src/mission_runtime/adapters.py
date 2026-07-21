@@ -56,7 +56,7 @@ from src.dataservice_client.contracts.mission import (
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
     MISSION_MODEL_MAX_OUTPUT_TOKENS,
-    MISSION_MODEL_REQUEST_TIMEOUT_SECONDS,
+    SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS,
     MissionPauseRequest,
     MissionPortOutcome,
     MissionPortOutcomeStatus,
@@ -707,6 +707,17 @@ class MissionToolOrchestratorAdapter:
         self.orchestrator = orchestrator
         self.policy_resolver = policy_resolver
 
+    async def required_budget_seconds(
+        self,
+        mission: MissionRunPayload,
+        tool_name: str,
+    ) -> float:
+        policy = await self.policy_resolver.resolve(
+            mission,
+            caller_kind=ToolCallerKind.WORKSPACE_AGENT,
+        )
+        return self.orchestrator.required_budget_seconds(tool_name, policy)
+
     async def execute(self, request: ToolExecutionRequest) -> MissionPortOutcome:
         try:
             policy = await self.policy_resolver.resolve(request.mission, caller_kind=ToolCallerKind.WORKSPACE_AGENT)
@@ -1086,10 +1097,11 @@ class LangChainSubagentModel(SubagentModelPort):
         steps: tuple[SubagentStep, ...],
         tool_results: tuple[SubagentToolResult, ...],
     ) -> SubagentModelTurn:
+        visible_tool_results = _subagent_model_tool_results(job, tool_results)
         model = create_chat_model(
             job.model_id,
             reasoning_effort=job.reasoning_effort,
-            request_timeout=MISSION_MODEL_REQUEST_TIMEOUT_SECONDS,
+            request_timeout=SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS,
             max_retries=0,
             max_output_tokens=MISSION_MODEL_MAX_OUTPUT_TOKENS,
         )
@@ -1103,6 +1115,9 @@ class LangChainSubagentModel(SubagentModelPort):
             "Use only allowed tools. Never request room, memory, review, or mission writes. "
             "Construct tool arguments from tool_input_schemas exactly. selected_refs in context_reads are loaded "
             "by the runtime before your first turn; use their authoritative tool_results and do not read them again. "
+            "Those selected Mission inputs are the authoritative attachment inventory. workspace.list_assets and "
+            "workspace.list_documents describe persistent workspace material only and must never be used to infer "
+            "that a selected Mission upload is missing. "
             "If a selected sandbox artifact page reports truncated=true, continue with sandbox.read_artifact at "
             "the exact next_offset until the final page before completing an audit. "
             "When asked for an optional audit, inspect every selected artifact candidate through the hydrated "
@@ -1111,7 +1126,13 @@ class LangChainSubagentModel(SubagentModelPort):
             "A completed tool result's payload_json is the authoritative returned content. Never repeat the same "
             "tool with the same arguments after it completed; reuse that result and complete on the next turn once "
             "the exit criteria are met. "
-            "Choose exactly one action frame: subagent_use_tool, subagent_complete, or subagent_stop. "
+            "Choose exactly one action frame: subagent_use_tool, subagent_report_progress, "
+            "subagent_complete, or subagent_stop. Work from a short private plan, prefer the minimum "
+            "number of non-duplicate tool calls, and complete as soon as the exit criteria are met. "
+            "Use subagent_report_progress only after a concrete, checkable milestone such as a derived "
+            "formula, confirmed finding, or newly produced file/figure. Its summary is user-visible: state "
+            "the result itself in concise Chinese, never hidden reasoning, speculation, plans, or filler. "
+            "Do not repeat a milestone or restate a tool result that is already equally clear. "
             "Use subagent_complete only when the exit criteria are met and populate its native result_json object "
             "to the pinned output schema exactly. Reference fields are enum-bound to exact receipts from this "
             "worker loop; select those values without copying or modifying them. Otherwise use a tool or stop "
@@ -1134,8 +1155,16 @@ class LangChainSubagentModel(SubagentModelPort):
             "worker_skill": job.worker_skill,
             "output_schema": job.output_schema,
             "exit_criteria": job.exit_criteria,
+            "remaining_budget": {
+                "model_turns": max(job.budget.max_turns - len({item.turn for item in steps}), 0),
+                "tool_steps": max(
+                    job.budget.max_tool_steps
+                    - sum(1 for item in steps if item.kind == "tool" and not item.summary.startswith("Load selected context:")),
+                    0,
+                ),
+            },
             "steps": [item.model_dump(mode="json") for item in steps[-12:]],
-            "tool_results": [item.model_dump(mode="json") for item in tool_results[-8:]],
+            "tool_results": [item.model_dump(mode="json") for item in visible_tool_results],
             "allowed_result_refs": {
                 "evidence_refs": list(
                     dict.fromkeys(
@@ -1188,6 +1217,18 @@ class LangChainSubagentModel(SubagentModelPort):
             action=action,
             usage_receipt=usage_receipt,
         )
+
+
+def _subagent_model_tool_results(
+    job: SubagentJobSpec,
+    tool_results: tuple[SubagentToolResult, ...],
+) -> tuple[SubagentToolResult, ...]:
+    """Keep every initial selected-input read visible on the first worker turn."""
+
+    context_count = len(job.context_reads)
+    context_results = tool_results[:context_count]
+    recent_results = tool_results[context_count:][-8:]
+    return (*context_results, *recent_results)
 
 
 def _selected_ref_context_reads(
@@ -1255,6 +1296,22 @@ class _ProviderSubagentCompleteAction(BaseModel):
         )
 
 
+class _ProviderSubagentProgressAction(BaseModel):
+    """Provider wire shape for a bounded, user-visible milestone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=2000)
+    progress_kind: Literal["finding", "formula", "file", "figure", "checkpoint"]
+
+    def to_domain(self) -> SubagentAction:
+        return SubagentAction(
+            kind="progress",
+            summary=self.summary,
+            progress_kind=self.progress_kind,
+        )
+
+
 class _ProviderSubagentStopAction(BaseModel):
     """Strict provider wire shape for an honest bounded stop."""
 
@@ -1313,6 +1370,11 @@ def _subagent_action_tools(
             "subagent_complete",
             "Complete the assigned worker task with a result matching the pinned WorkerSkill output contract.",
             complete_schema,
+        ),
+        (
+            "subagent_report_progress",
+            "Publish one concise, user-visible, checkable milestone without exposing hidden reasoning.",
+            _ProviderSubagentProgressAction.model_json_schema(),
         ),
         (
             "subagent_stop",
@@ -1380,6 +1442,8 @@ def _parse_subagent_action(message: AIMessage) -> SubagentAction:
         raise ValueError("action_arguments_must_be_an_object")
     if name == "subagent_use_tool":
         return _ProviderSubagentToolAction.model_validate(arguments).to_domain()
+    if name == "subagent_report_progress":
+        return _ProviderSubagentProgressAction.model_validate(arguments).to_domain()
     if name == "subagent_complete":
         return _ProviderSubagentCompleteAction.model_validate(arguments).to_domain()
     if name == "subagent_stop":
@@ -1414,6 +1478,8 @@ class MissionSubagentRuntimeAdapter:
         max_concurrency: int = 4,
         max_jobs_per_batch: int = 8,
         monotonic_clock: Callable[[], float] = monotonic,
+        model_call_timeout_seconds: float = 0.0,
+        model_call_completion_margin_seconds: float = 0.0,
     ) -> None:
         self.store = store
         self.tools = tools
@@ -1424,6 +1490,8 @@ class MissionSubagentRuntimeAdapter:
             max_concurrency=max_concurrency,
             max_jobs_per_batch=max_jobs_per_batch,
             monotonic_clock=monotonic_clock,
+            model_call_timeout_seconds=model_call_timeout_seconds,
+            model_call_completion_margin_seconds=model_call_completion_margin_seconds,
         )
 
     async def run(self, request: SubagentExecutionRequest) -> MissionPortOutcome:
@@ -1880,7 +1948,6 @@ def _subagent_jobs(
             budget_raw["max_tool_steps"] = max(
                 SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
                 int(budget_raw.get("max_tool_steps") or 0),
-                len(job_values["context_reads"]),
             )
             budget_raw["max_context_bytes"] = max(
                 SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,

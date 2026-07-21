@@ -23,18 +23,39 @@ class MissionInputManifest(_FrozenContract):
     thread_id: str = Field(min_length=1, max_length=160)
     filename: str = Field(min_length=1, max_length=500)
     mime_type: str | None = Field(default=None, max_length=200)
-    extractor: Literal["preprocessed_markdown", "pdf_text", "plain_text"]
+    extractor: Literal[
+        "preprocessed_markdown",
+        "pdf_text",
+        "plain_text",
+        "xlsx_text",
+        "xls_text",
+        "docx_text",
+        "pptx_text",
+    ]
     content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     source_content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     source_size_bytes: int = Field(ge=1, le=100 * 1024 * 1024)
     text_size_bytes: int = Field(ge=1, le=8 * 1024 * 1024)
     text_chars: int = Field(ge=1, le=8 * 1024 * 1024)
+    container_filename: str | None = Field(default=None, min_length=1, max_length=500)
+    container_content_hash: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    member_path: str | None = Field(default=None, min_length=1, max_length=1000)
 
     @model_validator(mode="after")
     def bind_reference_to_content_hash(self) -> MissionInputManifest:
         digest = self.input_ref.removeprefix("mission-input:")
         if self.content_hash != f"sha256:{digest}":
             raise ValueError("mission input ref must equal the extracted content hash")
+        archive_fields = (
+            self.container_filename,
+            self.container_content_hash,
+            self.member_path,
+        )
+        if any(archive_fields) and not all(archive_fields):
+            raise ValueError("archive member provenance must be complete")
         return self
 
 

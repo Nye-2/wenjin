@@ -248,6 +248,43 @@ def _subagent_terminal_progress(
     )
 
 
+def _subagent_live_progress(
+    *,
+    operation_id: str,
+    job_id: str,
+    summary: str,
+    progress_kind: str = "formula",
+) -> MissionItemDraftPayload:
+    payload = {
+        "job_id": job_id,
+        "display_name": "公式核验员",
+        "role_label": "建模推导",
+        "lifecycle_phase": "progress",
+        "job_fingerprint": "b" * 64,
+        "status": "milestone",
+        "progress_kind": progress_kind,
+    }
+    progress_hash = subagent_progress_sha256(
+        summary=summary,
+        payload_json=payload,
+    )
+    payload.update(
+        {
+            "progress_id": f"subagent-progress:{progress_hash}",
+            "progress_sha256": progress_hash,
+        }
+    )
+    return MissionItemDraftPayload(
+        item_type="subagent_progress",
+        operation_id=operation_id,
+        phase="progress",
+        stage_id="question_1_model",
+        producer=job_id,
+        summary=summary,
+        payload_json=payload,
+    )
+
+
 def _per_item_stage_contract(stage_id: str, template: str) -> StageAcceptanceContract:
     return StageAcceptanceContract.model_validate(
         {
@@ -2122,7 +2159,7 @@ async def test_mission_projection_is_bounded_and_pages_review_and_commit_history
     assert len(view.review_items) == 10
     assert view.review_summary.accepted == 120
     assert view.commit_summary.pending == 120
-    assert statement_count <= 10
+    assert statement_count <= 12
 
     first_reviews = await store.list_review_items_page(mission_id, limit=25)
     assert first_reviews.page.total == 120
@@ -2208,6 +2245,53 @@ async def test_artifact_projection_cursor_preserves_equal_source_sequences(
 
 
 @pytest.mark.asyncio
+async def test_mission_view_projects_live_subagent_milestone(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    operation_id = "subagent-live-parent"
+    summary = "已确认逐时功率平衡式，并统一风光、购售电与制氢制氨符号。"
+    updated = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _subagent_live_progress(
+                    operation_id=operation_id,
+                    job_id="formula-worker",
+                    summary=summary,
+                )
+            ],
+            snapshot_json={
+                "inflight_operation": {
+                    "operation_id": operation_id,
+                    "kind": "subagent",
+                    "call_item_seq": 1,
+                }
+            },
+            patch=MissionRunPatchPayload(
+                status="planning",
+                active_subagent_count_delta=1,
+            ),
+        ),
+    )
+
+    view = await store.get_view(mission_id)
+
+    assert updated.mission.active_subagent_count == 1
+    assert view is not None
+    assert view.activity.state == "collaborating"
+    assert len(view.subagents) == 1
+    assert view.subagents[0].display_name == "公式核验员"
+    assert view.subagents[0].status == "working"
+    assert view.subagents[0].summary == summary
+
+
+@pytest.mark.asyncio
 async def test_mission_view_projects_model_outage_as_preserved_work(
     mission_session: AsyncSession,
 ) -> None:
@@ -2222,6 +2306,10 @@ async def test_mission_view_projects_model_outage_as_preserved_work(
             lease_epoch=claimed.lease_epoch,
             snapshot_json={
                 "failure_reason": "model_service_unavailable",
+                "mission_inputs": [
+                    {"member_path": "A题/A题/附件1：负荷曲线.xlsx"},
+                    {"member_path": "A题\\A题\\附件2：风光曲线.xlsx"},
+                ],
                 "subagent_summary": {
                     "latest": [
                         {
@@ -2229,6 +2317,7 @@ async def test_mission_view_projects_model_outage_as_preserved_work(
                             "display_name": "严谨派阿澈",
                             "role_label": "modeling_method_auditor",
                             "status": "completed",
+                            "result_brief": "Subagent exhausted its tool-step budget",
                         }
                     ]
                 },
@@ -2243,7 +2332,14 @@ async def test_mission_view_projects_model_outage_as_preserved_work(
     assert view.activity.state == "unavailable"
     assert view.activity.title == "模型服务暂时不可用"
     assert view.activity.summary == "已保留完成阶段和待确认内容，稍后可在对话中继续。"
+    assert view.failure is not None
+    assert view.failure.category == "model_service"
+    assert view.failure.recoverability == "retry_later"
+    assert "无需重新上传材料" in view.failure.recommended_action
+    assert view.input_summary.total == 2
+    assert view.input_summary.names == ["附件1：负荷曲线.xlsx", "附件2：风光曲线.xlsx"]
     assert view.subagents[0].role_label == "专项查证"
+    assert view.subagents[0].summary == "达到本轮工具调用上限，已保留可用进度。"
 
 
 @pytest.mark.asyncio

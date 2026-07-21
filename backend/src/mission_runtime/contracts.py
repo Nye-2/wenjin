@@ -19,11 +19,15 @@ from src.dataservice_client.contracts.mission import (
 
 MISSION_SLICE_WALL_TIME_SECONDS = 180.0
 MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS = 20.0
-MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS = 90.0
-MISSION_MODEL_REQUEST_TIMEOUT_SECONDS = 165.0
+MISSION_SUBAGENT_OPERATION_TIME_SECONDS = 900.0
+MISSION_MODEL_REQUEST_TIMEOUT_SECONDS = 145.0
+MISSION_MODEL_COMPLETION_MARGIN_SECONDS = 15.0
+MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS = 165.0
+MISSION_TOOL_START_RESERVE_SECONDS = 45.0
+SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS = 145.0
 MISSION_MODEL_MAX_OUTPUT_TOKENS = 8_192
-MISSION_TASK_SOFT_TIME_LIMIT_SECONDS = 240
-MISSION_TASK_HARD_TIME_LIMIT_SECONDS = 270
+MISSION_TASK_SOFT_TIME_LIMIT_SECONDS = 1140
+MISSION_TASK_HARD_TIME_LIMIT_SECONDS = 1170
 MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS = 3600
 MISSION_WORKER_PREFETCH_MULTIPLIER = 1
 
@@ -85,6 +89,10 @@ class MissionSliceLimits(_StrictModel):
         default=MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS,
         gt=0,
     )
+    subagent_operation_time_seconds: float = Field(
+        default=MISSION_SUBAGENT_OPERATION_TIME_SECONDS,
+        gt=0,
+    )
     max_model_turns: int = Field(default=4, ge=1, le=100)
     max_tool_steps: int = Field(default=8, ge=1, le=200)
     lease_ttl_seconds: int = Field(default=240, ge=5, le=3600)
@@ -97,9 +105,19 @@ class MissionSliceLimits(_StrictModel):
         default=MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS,
         gt=0,
     )
+    tool_start_reserve_seconds: float = Field(
+        default=MISSION_TOOL_START_RESERVE_SECONDS,
+        gt=0,
+    )
 
     @model_validator(mode="after")
     def validate_lease_margin(self) -> MissionSliceLimits:
+        if self.shutdown_margin_seconds >= self.wall_time_seconds:
+            raise ValueError("shutdown_margin_seconds must be smaller than wall_time_seconds")
+        if self.tool_start_reserve_seconds < self.shutdown_margin_seconds:
+            raise ValueError(
+                "tool_start_reserve_seconds must cover shutdown_margin_seconds"
+            )
         if self.wall_time_seconds + self.shutdown_margin_seconds >= self.lease_ttl_seconds:
             raise ValueError("lease_ttl_seconds must outlive the slice and shutdown margin")
         return self

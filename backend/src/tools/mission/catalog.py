@@ -174,6 +174,7 @@ def build_mission_tool_registrations(
         dataservice=dataservice,
         sandbox=sandbox,  # type: ignore[arg-type]
         academic_visual=academic_visual,
+        preview_store=get_mission_preview_store(),
     )
 
     async def build_academic_visual_identity(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import Any
 
@@ -1243,11 +1244,127 @@ async def test_slice_yields_before_starting_an_expensive_step_without_time_reser
 
 
 @pytest.mark.asyncio
+async def test_tool_can_run_with_operation_window_even_when_another_model_call_cannot(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    tools = FakeTools()
+
+    async def slow_tool_plan(_context: Any) -> MissionAgentDecision:
+        clock.advance(6)
+        return tool_decision("tool-after-planning")
+
+    runtime, _deps = runtime_factory(
+        agent=ScriptedAgent([slow_tool_plan]),
+        tools=tools,
+        clock=clock,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            next_step_reserve_seconds=5,
+            tool_start_reserve_seconds=2,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    assert result.outcome is MissionSliceOutcome.YIELDED
+    assert tools.calls == ["tool-after-planning"]
+
+
+@pytest.mark.asyncio
+async def test_subagent_receives_a_dedicated_extended_operation_window(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    limits = MissionSliceLimits(
+        wall_time_seconds=10,
+        shutdown_margin_seconds=1,
+        subagent_operation_time_seconds=60,
+        lease_ttl_seconds=20,
+        max_model_turns=1,
+        next_step_reserve_seconds=5,
+    )
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([subagent_decision("long-worker")]),
+        clock=clock,
+        limits=limits,
+    )
+    receipt = await runtime.start(start_request())
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    assert result.outcome is MissionSliceOutcome.YIELDED
+    assert deps["subagents"].calls == ["long-worker"]
+    assert deps["subagents"].deadlines == [160.0]
+
+
+@pytest.mark.asyncio
+async def test_tool_with_a_long_pinned_budget_is_deferred_to_a_fresh_slice(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    tools = FakeTools()
+    tools.required_budgets["native_web_search"] = 7
+
+    async def slow_tool_plan(_context: Any) -> MissionAgentDecision:
+        clock.advance(4)
+        return tool_decision("long-tool")
+
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([slow_tool_plan, complete_decision()]),
+        tools=tools,
+        clock=clock,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            next_step_reserve_seconds=5,
+            tool_start_reserve_seconds=2,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    assert first.outcome is MissionSliceOutcome.YIELDED
+    assert tools.calls == []
+    run = await deps["store"].get(receipt.mission_id)
+    assert run is not None
+    assert run.snapshot_json["inflight_operation"]["operation_id"] == "long-tool"
+    started = next(
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.operation_id == "long-tool" and item.phase.value == "started"
+    )
+    assert started.payload_json["required_budget_seconds"] == 7
+
+    second = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
+
+    assert second.outcome is MissionSliceOutcome.COMPLETED
+    assert tools.calls == ["long-tool"]
+
+
+def test_slice_limits_reject_an_unusable_shutdown_window() -> None:
+    with pytest.raises(
+        ValueError,
+        match="shutdown_margin_seconds must be smaller than wall_time_seconds",
+    ):
+        MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=10,
+            lease_ttl_seconds=30,
+        )
+
+
+@pytest.mark.asyncio
 async def test_stale_worker_cannot_write_after_lease_takeover(runtime_factory) -> None:
     clock = MutableClock()
     store = FakeMissionStore(clock)
     limits = MissionSliceLimits(
-        wall_time_seconds=1,
+        wall_time_seconds=2,
         shutdown_margin_seconds=1,
         lease_ttl_seconds=6,
         max_model_turns=2,
@@ -1284,6 +1401,70 @@ async def test_stale_worker_cannot_write_after_lease_takeover(runtime_factory) -
     assert run is not None and run.lease_owner == "worker-new"
     assert run.status.value == "running"
     assert deps["agent"].contexts
+
+
+@pytest.mark.asyncio
+async def test_long_model_call_is_cancelled_when_heartbeat_observes_lease_takeover(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    heartbeat_attempted = asyncio.Event()
+
+    async def takeover_during_heartbeat(mission_id: str, command: Any):
+        del command
+        current = store.runs[mission_id]
+        current.lease_owner = "worker-new"
+        current.lease_epoch += 1
+        current.lease_expires_at = clock.now() + timedelta(seconds=20)
+        heartbeat_attempted.set()
+        raise DataServiceClientError("lease changed", status_code=409)
+
+    store.heartbeat_lease = takeover_during_heartbeat  # type: ignore[method-assign]
+
+    async def wait_for_takeover(_context: Any) -> MissionAgentDecision:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([wait_for_takeover]),
+        clock=clock,
+        store=store,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            heartbeat_interval_seconds=0.01,
+            lease_ttl_seconds=20,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+    slice_task = asyncio.create_task(
+        runtime.run_slice(receipt.mission_id, worker_id="worker-old")
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    telemetry = await asyncio.wait_for(slice_task, timeout=1)
+    await asyncio.wait_for(heartbeat_attempted.wait(), timeout=1)
+    await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+    assert telemetry.outcome is MissionSliceOutcome.YIELDED
+    assert telemetry.reason == "lease_fence_lost"
+    assert deps["agent"].provider_calls == 1
+    starts = [
+        item
+        for item in store.items[receipt.mission_id]
+        if item.item_type == "model_call_started"
+    ]
+    assert len(starts) == 1
+    assert not any(
+        item.item_type in {"usage_receipt", "model_call_terminal"}
+        for item in store.items[receipt.mission_id]
+    )
 
 
 @pytest.mark.asyncio
@@ -1327,6 +1508,47 @@ async def test_expired_same_owner_lease_conflict_yields_without_retry_loop(
     assert telemetry.outcome == MissionSliceOutcome.YIELDED
     assert telemetry.reason == "lease_fence_lost"
     assert heartbeat_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_long_operation_emits_durable_heartbeats_while_waiting(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    heartbeat_calls = 0
+    original_heartbeat = store.heartbeat_lease
+
+    async def counting_heartbeat(mission_id: str, command: Any):
+        nonlocal heartbeat_calls
+        heartbeat_calls += 1
+        return await original_heartbeat(mission_id, command)
+
+    store.heartbeat_lease = counting_heartbeat  # type: ignore[method-assign]
+
+    async def slow_completion(_context: Any) -> MissionAgentDecision:
+        await asyncio.sleep(0.035)
+        return complete_decision()
+
+    runtime, _deps = runtime_factory(
+        agent=ScriptedAgent([slow_completion]),
+        clock=clock,
+        store=store,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            heartbeat_interval_seconds=0.01,
+            lease_ttl_seconds=20,
+            max_model_turns=1,
+            max_tool_steps=2,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    telemetry = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+
+    assert telemetry.outcome == MissionSliceOutcome.COMPLETED
+    assert heartbeat_calls >= 2
 
 
 @pytest.mark.asyncio

@@ -26,7 +26,6 @@ def workspace_to_response(workspace: Any) -> WorkspaceResponse:
         user_id=str(user_id),
         name=workspace.name,
         type=workspace_type_value,
-        discipline=workspace.discipline,
         description=workspace.description,
         config=config or {},
         created_at=workspace.created_at.isoformat() if workspace.created_at else "",

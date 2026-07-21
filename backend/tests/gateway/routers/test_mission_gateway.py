@@ -13,6 +13,7 @@ from src.contracts.reasoning import ReasoningEffort
 from src.contracts.review_policy import ReviewMode
 from src.dataservice_client.contracts.mission import (
     MissionHistoryPagePayload,
+    MissionItemPhase,
     MissionRunPayload,
     MissionStatus,
     MissionViewRunPayload,
@@ -43,6 +44,8 @@ from src.gateway.routers import missions
         ("tool_result", "Read 6832 byte(s) from Sandbox file.", "已读取计算文件"),
         ("quality_check", "Stage acceptance contract passed", "当前阶段已通过质量验收"),
         ("tool_result", "Loaded review candidate: 第一问模型", "已读取待确认成果：第一问模型"),
+        ("model_call_started", "Subagent model call started", "研究成员开始分析材料"),
+        ("model_call_started", "Workspace Agent model call started", "问津开始分析并规划下一步"),
         ("subagent_progress", "建模审查员 started", "建模审查员开始工作"),
         (
             "subagent_result",
@@ -69,6 +72,17 @@ def test_public_trace_summary_hides_runtime_terminology(
     expected: str,
 ) -> None:
     assert missions._public_trace_summary(item_type=item_type, summary=summary) == expected
+
+
+def test_legacy_zip_evidence_names_are_repaired_for_existing_missions() -> None:
+    mojibake = "ΘÖäΣ╗╢1∩╝ÜΦ┤ƒΦì╖µ¢▓τ║┐.xlsx"
+    payload = {"items": [{"title": mojibake, "summary": mojibake}]}
+
+    missions._repair_legacy_evidence_names(payload)
+
+    assert payload["items"] == [
+        {"title": "附件1：负荷曲线.xlsx", "summary": "附件1：负荷曲线.xlsx"}
+    ]
 
 
 def _user(user_id: str = "user-1") -> AccountAuthSubject:
@@ -129,6 +143,7 @@ def _dataservice(run: MissionRunPayload) -> SimpleNamespace:
                 )
             ),
             list_workspace_changes=AsyncMock(return_value=[run]),
+            list_items=AsyncMock(return_value=[]),
         ),
         workspace_has_active_membership=AsyncMock(return_value=True),
     )
@@ -168,6 +183,86 @@ def test_mission_history_gateway_passes_opaque_cursor_and_returns_page() -> None
         limit=25,
         cursor="opaque-history-cursor",
     )
+
+
+def test_trace_defaults_to_latest_page_and_pages_backwards() -> None:
+    run = _run(last_item_seq=380)
+    dataservice = _dataservice(run)
+
+    def trace_page(_mission_id: str, *, after_seq: int, limit: int):
+        return [
+            SimpleNamespace(
+                id=f"item-{seq}",
+                mission_id=run.mission_id,
+                seq=seq,
+                item_type="status_update",
+                phase=MissionItemPhase.PROGRESS,
+                stage_id=None,
+                producer="mission_runtime",
+                summary="Mission drive loop started",
+                payload_json={},
+                payload_ref=None,
+                created_at=datetime(2026, 7, 11, tzinfo=UTC),
+            )
+            for seq in range(after_seq + 1, after_seq + limit + 1)
+        ]
+
+    dataservice.missions.list_items = AsyncMock(side_effect=trace_page)
+    client = _client(run=run, runtime=SimpleNamespace(), dataservice=dataservice)
+
+    latest = client.get("/missions/mission-1/items", params={"limit": 30})
+    older = client.get(
+        "/missions/mission-1/items",
+        params={"limit": 30, "before_seq": 351},
+    )
+
+    assert latest.status_code == 200
+    assert latest.json()["items"][0]["seq"] == 351
+    assert latest.json()["items"][-1]["seq"] == 380
+    assert latest.json()["next_cursor"] == 351
+    assert older.json()["items"][0]["seq"] == 321
+    assert older.json()["items"][-1]["seq"] == 350
+    assert older.json()["items"][0]["detail_available"] is False
+
+
+def test_committed_mission_file_download_is_owned_and_attachment_scoped(tmp_path, monkeypatch) -> None:
+    run = _run()
+    root = tmp_path / "workspace-assets"
+    relative_path = "generated_files/ab/abcdef.xlsx"
+    target = root / run.workspace_id / relative_path
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"xlsx-result")
+    dataservice = _dataservice(run)
+    dataservice.missions.get_commit_for_review_item = AsyncMock(
+        return_value=SimpleNamespace(
+            commit=SimpleNamespace(
+                status=SimpleNamespace(value="committed"),
+                targets_json={"target_ref": "asset-1"},
+            )
+        )
+    )
+    dataservice.resolve_asset_download = AsyncMock(
+        return_value=SimpleNamespace(
+            asset=SimpleNamespace(workspace_id=run.workspace_id),
+            storage_backend="local",
+            storage_path=relative_path,
+            filename="模型结果.xlsx",
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    )
+    monkeypatch.setattr(
+        missions,
+        "get_settings",
+        lambda: SimpleNamespace(workspace_asset_root=root),
+    )
+    client = _client(run=run, runtime=SimpleNamespace(), dataservice=dataservice)
+
+    response = client.get("/missions/mission-1/artifacts/review-1/download")
+
+    assert response.status_code == 200
+    assert response.content == b"xlsx-result"
+    assert response.headers["content-disposition"].startswith("attachment;")
+    assert response.headers["x-content-type-options"] == "nosniff"
 
 
 @pytest.mark.asyncio

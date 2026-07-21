@@ -68,33 +68,6 @@ const workspaceTypes = WORKSPACE_TYPES.map((value) => ({
   label: workspaceTypeLabels[value],
 }));
 
-const disciplineLabels = new Map<string, string>([
-  ["computer_science", "计算机科学"],
-  ["physics", "物理学"],
-  ["biology", "生物学"],
-  ["chemistry", "化学"],
-  ["medicine", "医学"],
-  ["engineering", "工程学"],
-  ["social_science", "社会科学"],
-  ["humanities", "人文学科"],
-]);
-
-function formatDiscipline(value: string | null | undefined): string | null {
-  if (!value) return null;
-  return disciplineLabels.get(value) ?? value.replace(/_/g, " ");
-}
-
-const disciplines = [
-  { value: "computer_science", label: "计算机科学" },
-  { value: "physics", label: "物理学" },
-  { value: "biology", label: "生物学" },
-  { value: "chemistry", label: "化学" },
-  { value: "medicine", label: "医学" },
-  { value: "engineering", label: "工程学" },
-  { value: "social_science", label: "社会科学" },
-  { value: "humanities", label: "人文学科" },
-];
-
 function formatWorkspaceDate(dateString: string) {
   const date = new Date(dateString);
   return date.toLocaleDateString("zh-CN", {
@@ -155,7 +128,7 @@ function WorkspaceRouteCard({
               {workspace.name}
             </h3>
             <p className="mt-2 line-clamp-2 max-w-[560px] text-[13px] leading-[1.8] text-[var(--wjn-text-secondary)]">
-              {workspace.description?.trim() || formatDiscipline(workspace.discipline) || targetOutput}
+              {workspace.description?.trim() || targetOutput}
             </p>
           </div>
           <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--wjn-line)] text-[var(--wjn-text-secondary)] transition-all group-hover:border-transparent group-hover:bg-[var(--wjn-blue)] group-hover:text-[#f5f1e8]">
@@ -195,7 +168,6 @@ export default function WorkspacesPage() {
   const [newWorkspace, setNewWorkspace] = useState({
     name: "",
     type: "sci" as WorkspaceType,
-    discipline: "",
     description: "",
   });
 
@@ -240,7 +212,7 @@ export default function WorkspacesPage() {
     () =>
       sortedWorkspaces.filter((workspace) => {
         if (!normalizedQuery) return true;
-        return [workspace.name, workspace.description, workspace.discipline]
+        return [workspace.name, workspace.description]
           .filter(Boolean)
           .some((value) =>
             String(value).toLowerCase().includes(normalizedQuery)
@@ -267,14 +239,12 @@ export default function WorkspacesPage() {
       const created = await createWorkspace({
         name: newWorkspace.name,
         type: newWorkspace.type,
-        discipline: newWorkspace.discipline || undefined,
         description: newWorkspace.description || undefined,
       });
       setShowCreateModal(false);
       setNewWorkspace({
         name: "",
         type: "sci",
-        discipline: "",
         description: "",
       });
       router.push(`/workspaces/${created.id}?onboarding=true`);
@@ -498,31 +468,6 @@ export default function WorkspacesPage() {
                         {workspaceTypes.map((type) => (
                           <option key={type.value} value={type.value}>
                             {type.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-[var(--wjn-text)]">
-                        学科领域
-                      </label>
-                      <select
-                        value={newWorkspace.discipline}
-                        onChange={(event) =>
-                          setNewWorkspace((current) => ({
-                            ...current,
-                            discipline: event.target.value,
-                          }))
-                        }
-                        className="w-full rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-4 py-3.5 text-[var(--wjn-text)] focus:border-[var(--wjn-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--wjn-accent-soft)]"
-                      >
-                        <option value="">
-                          选择学科...
-                        </option>
-                        {disciplines.map((discipline) => (
-                          <option key={discipline.value} value={discipline.value}>
-                            {discipline.label}
                           </option>
                         ))}
                       </select>

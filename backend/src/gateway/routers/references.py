@@ -58,7 +58,6 @@ class ManualReferenceRequest(ReferenceUpdateRequest):
 
 class LiteratureSearchImportRequest(BaseModel):
     query: str = Field(min_length=1)
-    discipline: str | None = None
     limit: int = Field(default=10, ge=1, le=20)
 
 
@@ -267,7 +266,6 @@ async def import_literature_search(
     result = await SourceLibraryImportService(dataservice).import_literature_search_query(
         workspace_id=workspace_id,
         query=request.query,
-        discipline=request.discipline,
         limit=request.limit,
     )
     await _publish_references_refresh(workspace_id)

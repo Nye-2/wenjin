@@ -80,6 +80,7 @@ def _job(job_id: str = "sj_one", **overrides: Any) -> SubagentJobSpec:
 class _Ledger:
     def __init__(self) -> None:
         self.events: list[tuple[str, str]] = []
+        self.progress_events: list[tuple[str, str, str, dict[str, object]]] = []
         self.usage_events: list[
             tuple[str, int, int, str, ModelUsageReceipt]
         ] = []
@@ -90,6 +91,9 @@ class _Ledger:
 
     async def record_progress(self, job, *, phase, summary, payload_json=None) -> None:
         self.events.append((job.job_id, phase))
+        self.progress_events.append(
+            (job.job_id, phase, summary, dict(payload_json or {}))
+        )
 
     async def record_model_usage(
         self,
@@ -138,11 +142,181 @@ class _NoTools:
         raise AssertionError(f"unexpected tool call: {request.tool_name}")
 
 
+@pytest.mark.asyncio
+async def test_worker_can_publish_a_bounded_milestone_before_completion() -> None:
+    class Model:
+        calls = 0
+
+        async def next_action(self, job, steps, tool_results):
+            del job, steps, tool_results
+            self.calls += 1
+            if self.calls == 1:
+                return _model_turn(
+                    kind="progress",
+                    progress_kind="formula",
+                    summary="已确认功率平衡式：P_风+P_光+P_购=P_负荷+P_制氢+P_制氨+P_售",
+                )
+            return _model_turn(
+                kind="complete",
+                summary="公式核验完成",
+                result_json={"summary": "公式核验完成"},
+            )
+
+    ledger = _Ledger()
+    runtime = SubagentRuntime(model=Model(), tools=_NoTools(), ledger=ledger)
+
+    result = await runtime.run_batch(
+        (_job(budget=SubagentBudget(max_turns=3, max_tool_steps=1)),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    assert result.results[0].status.value == "completed"
+    assert any(
+        phase == "progress"
+        and summary.startswith("已确认功率平衡式")
+        and payload == {"status": "milestone", "progress_kind": "formula"}
+        for _job_id, phase, summary, payload in ledger.progress_events
+    )
+
+
 def test_subagent_job_rejects_duplicate_selected_refs() -> None:
     ref = "artifact-candidate:" + "a" * 64
 
     with pytest.raises(ValueError, match="selected_refs must be unique"):
         _job(selected_refs=(ref, ref))
+
+
+def test_selected_context_reads_do_not_consume_exploration_tool_budget() -> None:
+    refs = ("source:1", "source:2")
+
+    job = _job(
+        selected_refs=refs,
+        context_reads=tuple(
+            SubagentContextRead(
+                ref=ref,
+                tool_name="research.search",
+                arguments={"query": ref},
+            )
+            for ref in refs
+        ),
+        budget=SubagentBudget(max_turns=2, max_tool_steps=0),
+    )
+
+    assert len(job.context_reads) == 2
+    assert job.budget.max_tool_steps == 0
+
+
+@pytest.mark.asyncio
+async def test_model_call_is_not_started_without_a_safe_completion_window() -> None:
+    class Model:
+        async def next_action(self, job, steps, tool_results):
+            raise AssertionError("unsafe model call should not start")
+
+    ledger = _Ledger()
+    runtime = SubagentRuntime(
+        model=Model(),
+        tools=_NoTools(),
+        ledger=ledger,
+        model_call_timeout_seconds=10,
+        model_call_completion_margin_seconds=15,
+    )
+
+    result = await runtime.run_batch(
+        (_job(),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 20,
+    )
+
+    assert result.results[0].status.value == "timed_out"
+    assert result.results[0].stop_reason.value == "deadline_reached"
+    assert ledger.model_call_events == []
+
+
+@pytest.mark.asyncio
+async def test_tool_budget_reserves_a_final_synthesis_turn() -> None:
+    class Model:
+        calls = 0
+
+        async def next_action(self, job, steps, tool_results):
+            self.calls += 1
+            if self.calls == 1:
+                return _model_turn(
+                    kind="tool",
+                    summary="load one result",
+                    tool_name="research.search",
+                    arguments={"query": "bounded"},
+                )
+            assert any("Final synthesis turn" in step.summary for step in steps)
+            return _model_turn(
+                kind="complete",
+                summary="synthesized",
+                result_json={"summary": "synthesized"},
+            )
+
+    class Tools:
+        calls = 0
+
+        async def execute(self, request):
+            self.calls += 1
+            return SubagentToolResult(status="completed", summary="loaded")
+
+    model = Model()
+    tools = Tools()
+    runtime = SubagentRuntime(model=model, tools=tools, ledger=_Ledger())
+
+    result = await runtime.run_batch(
+        (_job(budget=SubagentBudget(max_turns=3, max_tool_steps=1)),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    assert result.results[0].status.value == "completed"
+    assert result.results[0].tool_steps_used == 1
+    assert model.calls == 2
+    assert tools.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_start_a_tool_after_the_parent_deadline() -> None:
+    class Clock:
+        value = 100.0
+
+        def __call__(self) -> float:
+            return self.value
+
+    clock = Clock()
+
+    class Model:
+        async def next_action(self, job, steps, tool_results):
+            del job, steps, tool_results
+            clock.value = 111.0
+            return _model_turn(
+                kind="tool",
+                summary="too late",
+                tool_name="research.search",
+                arguments={"query": "late"},
+            )
+
+    class Tools:
+        calls = 0
+
+        async def execute(self, request):
+            del request
+            self.calls += 1
+            return SubagentToolResult(status="completed", summary="unexpected")
+
+    tools = Tools()
+    runtime = SubagentRuntime(
+        model=Model(),
+        tools=tools,
+        ledger=_Ledger(),
+        monotonic_clock=clock,
+    )
+
+    result = await runtime.run_batch((_job(),), deadline_monotonic=110.0)
+
+    assert result.results[0].status.value == "timed_out"
+    assert result.results[0].stop_reason is SubagentStopReason.DEADLINE_REACHED
+    assert result.results[0].tool_steps_used == 0
+    assert tools.calls == 0
 
 
 @pytest.mark.asyncio
@@ -481,7 +655,7 @@ async def test_selected_context_is_hydrated_before_the_first_model_turn() -> Non
     assert model.calls == 1
     assert tools.calls == 1
     assert result.results[0].status.value == "completed"
-    assert result.results[0].tool_steps_used == 1
+    assert result.results[0].tool_steps_used == 0
     assert result.results[0].evidence_refs == ("source:1",)
 
 

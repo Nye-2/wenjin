@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime
+from io import BytesIO
 from time import monotonic
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from openpyxl import Workbook
 
 from src.academic_visual_runtime import AcademicVisualRuntimeError
 from src.mission_runtime.production import StrictToolExecutionGuard
+from src.review_commit_runtime.preview_store import MissionPreviewStore
 from src.sandbox.contracts import (
     SandboxOperationRequest,
     SandboxOperationResult,
@@ -1142,6 +1145,66 @@ async def test_artifact_render_emits_service_hashed_text_candidate() -> None:
     assert candidate.metadata["content_hash"] == "sha256:" + hashlib.sha256(b"# Result\n\nVerified objective: 4.").hexdigest()
     assert candidate.metadata["materialized"] is False
     assert candidate.metadata["mission_id"] == "mission-1"
+
+
+@pytest.mark.asyncio
+async def test_artifact_candidate_seals_verified_xlsx_for_review(tmp_path) -> None:
+    workbook = Workbook()
+    workbook.active.append(["hour", "cost"])
+    workbook.active.append([1, 12.5])
+    output = BytesIO()
+    workbook.save(output)
+    source = output.getvalue()
+    digest = hashlib.sha256(source).hexdigest()
+    artifact_ref = f"sandbox-artifact:{digest}"
+    object_ref = f"sbxobj_{digest}"
+    mission_item = SimpleNamespace(
+        seq=1,
+        item_type="artifact",
+        payload_json={
+            "reference_id": artifact_ref,
+            "kind": "sandbox_artifact_manifest",
+            "title": "result.xlsx",
+            "metadata": {
+                "path": "/workspace/outputs/result.xlsx",
+                "object_ref": object_ref,
+                "kind": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "content_hash": f"sha256:{digest}",
+                "size_bytes": len(source),
+            },
+            "verified": True,
+        },
+    )
+    sandbox = _Sandbox()
+    sandbox.artifact_contents[object_ref] = source
+    handlers = MissionToolHandlers(
+        dataservice=_DataService(mission_items=[mission_item]),  # type: ignore[arg-type]
+        sandbox=sandbox,  # type: ignore[arg-type]
+        preview_store=MissionPreviewStore(
+            tmp_path / "previews",
+            default_ttl_seconds=3600,
+            max_bytes=4 * 1024 * 1024,
+        ),
+    )
+
+    result = await handlers.create_artifact_candidate(
+        _operation(),
+        CreateArtifactCandidateInput(
+            title="模型结果表",
+            artifact_kind="spreadsheet_result",
+            source_refs=(artifact_ref,),
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            preview_text="包含逐小时功率平衡和成本结果。",
+            sandbox_artifact_ref=artifact_ref,
+            filename="result.xlsx",
+        ),
+    )
+
+    [candidate] = result.artifact_refs
+    assert candidate.metadata["content_hash"] == digest
+    assert candidate.metadata["preview_ref"].startswith("mpv1_")
+    assert candidate.metadata["size_bytes"] == len(source)
+    assert valid_artifact_candidate_receipt(candidate.ref_id, candidate.metadata)
 
 
 @pytest.mark.asyncio

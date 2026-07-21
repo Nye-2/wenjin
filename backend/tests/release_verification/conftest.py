@@ -101,7 +101,7 @@ def _upgrade_empty_database(async_url: str) -> None:
                 "-m",
                 "alembic",
                 "upgrade",
-                "107_runtime_accounting",
+                "108_remove_workspace_discipline",
             ],
             cwd=BACKEND_ROOT,
             env=env,
@@ -118,7 +118,7 @@ def _upgrade_empty_database(async_url: str) -> None:
     if result.returncode != 0:
         pytest.fail(
             "Alembic failed to upgrade the empty PostgreSQL database to "
-            "107_runtime_accounting.\n"
+            "108_remove_workspace_discipline.\n"
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}",
             pytrace=False,

@@ -51,7 +51,12 @@ function missionViewWire() {
       summary: "任务进度已经保留，无需重新开始。",
       attempt: 2,
       retry_at: "2026-07-14T00:02:00Z",
+      last_progress_at: "2026-07-14T00:01:00Z",
+      heartbeat_at: "2026-07-14T00:01:00Z",
     },
+    current_operation: null,
+    input_summary: { total: 2, ready: 2, failed: 0, names: ["题目.pdf", "附件.xlsx"] },
+    failure: null,
     attention_request: null,
     review_summary: { pending: 0, accepted: 0, needs_more_evidence: 0, committed: 0 },
     commit_summary: { pending: 0, applying: 0, committed: 0, failed: 0 },
@@ -124,10 +129,13 @@ describe("Mission projection API", () => {
       summary: "任务进度已经保留，无需重新开始。",
       attempt: 2,
       retryAt: "2026-07-14T00:02:00Z",
+      lastProgressAt: "2026-07-14T00:01:00Z",
+      heartbeatAt: "2026-07-14T00:01:00Z",
     });
+    expect(view.inputSummary.ready).toBe(2);
     expect(view.reviewSelectionRevision).toBe("4e623f1e58e841dd80c8f16a39497f95");
     expect(view.reviewSelectionRevision).not.toBe(String(view.stateVersion));
-    expect(view.artifactCount).toBe(1);
+    expect(view.artifactCount).toBe(6);
     expect(view.reviewItems[0]).toMatchObject({
       requiresExplicitReview: true,
       batchAcceptable: true,

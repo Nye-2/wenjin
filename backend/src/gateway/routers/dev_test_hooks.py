@@ -40,7 +40,6 @@ class QueueIn(BaseModel):
 class WorkspaceIn(BaseModel):
     type: str = "sci"
     name: str = "E2E Workspace"
-    discipline: str | None = None
 
 
 class WorkspaceOut(BaseModel):
@@ -90,7 +89,6 @@ async def mint_workspace(
             user_id=str(user.id),
             name=payload.name,
             type=payload.type,
-            discipline=payload.discipline,
         )
     except ValueError as exc:
         raise HTTPException(

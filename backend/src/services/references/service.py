@@ -221,12 +221,10 @@ class SourceLibraryImportService:
         *,
         workspace_id: str,
         query: str,
-        discipline: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
         search_result = await LiteratureSearchService().search(
             query=query,
-            discipline=discipline,
             limit=limit,
         )
         import_result = await self.import_literature_search_papers(

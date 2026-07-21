@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
+from math import isfinite
 from typing import Any, TypeVar
 
 from src.agents.harness.stage_acceptance import resolve_stage_instance
@@ -127,6 +128,10 @@ class MissionStartRejectedError(RuntimeError):
 
 class MissionResumeRequestMismatchError(RuntimeError):
     """Raised when input answers a different durable pause request."""
+
+
+class MissionLeaseLostError(RuntimeError):
+    """Raised when a running slice observes that its durable lease is no longer current."""
 
 
 @dataclass(slots=True)
@@ -654,6 +659,16 @@ class MissionRuntime:
             try:
                 return await self._drive_claimed(state, command_hint=command_hint)
             except Exception as exc:
+                if isinstance(exc, MissionLeaseLostError):
+                    latest = await self.store.get(mission_id) or state.run
+                    state.run = latest
+                    return self._telemetry(
+                        latest,
+                        MissionSliceOutcome.YIELDED,
+                        "lease_fence_lost",
+                        state=state,
+                        command_hint=command_hint,
+                    )
                 if not _is_conflict(exc):
                     raise
                 latest = await self.store.get(mission_id) or state.run
@@ -773,6 +788,13 @@ class MissionRuntime:
 
             await self._heartbeat_if_due(state)
 
+            if self._inflight_operation_lacks_time(state):
+                return await self._checkpoint_and_yield(
+                    state,
+                    reason="inflight_operation_deferred",
+                    command_hint=command_hint,
+                )
+
             if self._slice_budget_exhausted(state):
                 return await self._checkpoint_and_yield(
                     state,
@@ -809,6 +831,8 @@ class MissionRuntime:
                     state=state,
                     command_hint=command_hint,
                 )
+            if self._slice_budget_exhausted(state):
+                continue
 
             model_turn = state.model_turns + 1
             model_attempt = protocol_retry_count + 1
@@ -847,6 +871,10 @@ class MissionRuntime:
                     )
                 finally:
                     raise
+            except MissionLeaseLostError:
+                # The new lease owner will reconcile the open model-call record.
+                # This worker must not attempt any further fenced ledger write.
+                raise
             except Exception as exc:
                 error_receipt = (
                     exc.usage_receipt
@@ -1290,13 +1318,44 @@ class MissionRuntime:
         if not tool_name or not isinstance(arguments, dict):
             await self._record_invalid_decision(state, decision, "tool_name and arguments are required")
             return None
+        try:
+            required_budget_seconds = await self._invoke_with_deadline(
+                self.tools.required_budget_seconds(
+                    state.run,
+                    tool_name,
+                ),
+                state,
+            )
+            required_budget_seconds = float(required_budget_seconds)
+            if (
+                not isfinite(required_budget_seconds)
+                or required_budget_seconds < 0
+            ):
+                raise ValueError("tool required budget must be finite and non-negative")
+        except MissionLeaseLostError:
+            raise
+        except Exception:
+            # Unknown/malformed tools still flow through the typed orchestrator
+            # failure path. A policy lookup outage uses the conservative full
+            # slice budget and is retried from the durable in-flight receipt.
+            required_budget_seconds = self.limits.wall_time_seconds
         await self._begin_operation(
             state,
             decision,
             kind="tool",
             item_type="tool_call",
-            payload_json={"tool_name": tool_name, "arguments": arguments},
+            payload_json={
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "required_budget_seconds": required_budget_seconds,
+            },
         )
+        if self._slice_time_below_operation_reserve(
+            state,
+            kind="tool",
+            required_budget_seconds=required_budget_seconds,
+        ):
+            return None
         return await self._execute_tool_operation(
             state,
             operation_id=decision.operation_id or "",
@@ -1332,6 +1391,9 @@ class MissionRuntime:
                 "frozen_context": frozen_context.model_dump(mode="json"),
             },
         )
+        self._open_subagent_operation_window(state)
+        if self._slice_time_below_operation_reserve(state, kind="subagent"):
+            return None
         return await self._execute_subagent_operation(
             state,
             operation_id=decision.operation_id or "",
@@ -1383,6 +1445,8 @@ class MissionRuntime:
                 ),
                 state,
             )
+        except MissionLeaseLostError:
+            raise
         except Exception as exc:
             await self._record_operation_failure(
                 state,
@@ -1532,6 +1596,8 @@ class MissionRuntime:
                 ),
                 state,
             )
+        except MissionLeaseLostError:
+            raise
         except Exception as exc:
             await self._record_operation_failure(
                 state,
@@ -1629,6 +1695,15 @@ class MissionRuntime:
                     "operation_id": operation_id,
                     "kind": kind,
                     "call_item_seq": call_item_seq,
+                    **(
+                        {
+                            "required_budget_seconds": payload_json.get(
+                                "required_budget_seconds"
+                            )
+                        }
+                        if payload_json.get("required_budget_seconds") is not None
+                        else {}
+                    ),
                 }
             },
         )
@@ -1733,6 +1808,8 @@ class MissionRuntime:
                 ),
                 state,
             )
+        except MissionLeaseLostError:
+            raise
         except Exception as exc:
             outcome = self._failed_port_outcome("Tool operation did not complete", exc)
         return await self._finish_port_operation(
@@ -1755,6 +1832,7 @@ class MissionRuntime:
         stage_id: str | None,
         frozen_context: SubagentFrozenContext,
     ) -> MissionSliceOutcome | None:
+        self._open_subagent_operation_window(state)
         request = SubagentExecutionRequest(
             mission=state.run,
             operation_id=operation_id,
@@ -1769,6 +1847,8 @@ class MissionRuntime:
                 self.subagents.run(request),
                 state,
             )
+        except MissionLeaseLostError:
+            raise
         except Exception as exc:
             adopted = await self.subagents.adopt_terminal(request)
             if adopted is not None:
@@ -2645,16 +2725,66 @@ class MissionRuntime:
         now = self.clock.monotonic()
         if now - state.last_heartbeat_monotonic < self.limits.heartbeat_interval_seconds:
             return
-        state.run = await self.store.heartbeat_lease(
-            state.run.mission_id,
-            MissionLeaseHeartbeatPayload(
-                worker_id=state.worker_id,
-                lease_epoch=state.run.lease_epoch,
-                expected_state_version=state.run.state_version,
-                ttl_seconds=self.limits.lease_ttl_seconds,
-            ),
+        await self._heartbeat_current_lease(state, now_monotonic=now)
+
+    async def _heartbeat_current_lease(
+        self,
+        state: _SliceState,
+        *,
+        now_monotonic: float | None = None,
+    ) -> None:
+        latest = await self.store.get(state.run.mission_id)
+        if (
+            latest is None
+            or latest.lease_owner != state.worker_id
+            or latest.lease_epoch != state.run.lease_epoch
+            or latest.lease_expires_at is None
+            or latest.lease_expires_at <= self.clock.now()
+        ):
+            raise MissionLeaseLostError(
+                "Mission lease changed while an operation was running"
+            )
+        try:
+            heartbeat = await self.store.heartbeat_lease(
+                latest.mission_id,
+                MissionLeaseHeartbeatPayload(
+                    worker_id=state.worker_id,
+                    lease_epoch=latest.lease_epoch,
+                    expected_state_version=latest.state_version,
+                    ttl_seconds=self.limits.lease_ttl_seconds,
+                ),
+            )
+        except Exception as exc:
+            if _is_conflict(exc):
+                current = await self.store.get(state.run.mission_id)
+                if (
+                    current is None
+                    or current.lease_owner != state.worker_id
+                    or current.lease_epoch != state.run.lease_epoch
+                    or current.lease_expires_at is None
+                    or current.lease_expires_at <= self.clock.now()
+                ):
+                    raise MissionLeaseLostError(
+                        "Mission lease changed while its heartbeat was being committed"
+                    ) from exc
+            raise
+        if (
+            heartbeat.lease_owner != state.worker_id
+            or heartbeat.lease_epoch != latest.lease_epoch
+        ):
+            raise MissionLeaseLostError(
+                "Mission heartbeat returned a different lease fence"
+            )
+        state.run = heartbeat
+        state.last_heartbeat_monotonic = (
+            now_monotonic
+            if now_monotonic is not None
+            else self.clock.monotonic()
         )
-        state.last_heartbeat_monotonic = now
+        # Long operations persist semantic progress outside this driver. A
+        # heartbeat is the bounded invalidation cadence that makes those facts
+        # visible without coupling their transaction to transient SSE delivery.
+        await publish_after_commit(self.events, self.clock, state.run)
 
     async def _build_loop_context(
         self,
@@ -2782,8 +2912,52 @@ class MissionRuntime:
             if asyncio.iscoroutine(awaitable):
                 awaitable.close()
             raise TimeoutError("MissionDriveSlice deadline reached")
-        async with asyncio.timeout(remaining):
-            return await awaitable
+        task = asyncio.ensure_future(awaitable)
+        try:
+            while True:
+                remaining = state.deadline_monotonic - self.clock.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("MissionDriveSlice deadline reached")
+                wait_seconds = min(
+                    remaining,
+                    self.limits.heartbeat_interval_seconds,
+                )
+                done, _pending = await asyncio.wait(
+                    {task},
+                    timeout=wait_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if task in done:
+                    return task.result()
+                try:
+                    await self._heartbeat_current_lease(state)
+                except MissionLeaseLostError:
+                    raise
+                except Exception:
+                    logger.warning(
+                        "Mission heartbeat failed during operation mission=%s",
+                        state.run.mission_id,
+                        exc_info=True,
+                    )
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            else:
+                try:
+                    latest = await self.store.get(state.run.mission_id)
+                    if (
+                        latest is not None
+                        and latest.lease_owner == state.worker_id
+                        and latest.lease_epoch == state.run.lease_epoch
+                    ):
+                        state.run = latest
+                except Exception:
+                    logger.warning(
+                        "Mission state refresh failed after operation mission=%s",
+                        state.run.mission_id,
+                        exc_info=True,
+                    )
 
     async def _publish_wakeup(
         self,
@@ -2820,9 +2994,78 @@ class MissionRuntime:
         remaining = state.deadline_monotonic - self.clock.monotonic()
         next_step_reserve = min(
             self.limits.next_step_reserve_seconds,
-            self.limits.wall_time_seconds / 2,
+            self.limits.wall_time_seconds - self.limits.shutdown_margin_seconds,
         )
         return remaining <= next_step_reserve or state.model_turns >= self.limits.max_model_turns or state.tool_steps >= self.limits.max_tool_steps
+
+    def _open_subagent_operation_window(self, state: _SliceState) -> None:
+        """Give one in-process worker batch a longer, still bounded deadline.
+
+        Ordinary planning/tool slices retain the short wall clock. The extension
+        is capped relative to the original slice start so repeated decisions
+        cannot grow one Celery delivery without bound.
+        """
+
+        now = self.clock.monotonic()
+        delivery_cap = (
+            state.started_monotonic
+            + self.limits.wall_time_seconds
+            + self.limits.subagent_operation_time_seconds
+        )
+        operation_deadline = min(
+            now + self.limits.subagent_operation_time_seconds,
+            delivery_cap,
+        )
+        state.deadline_monotonic = max(
+            state.deadline_monotonic,
+            operation_deadline,
+        )
+
+    def _slice_time_below_operation_reserve(
+        self,
+        state: _SliceState,
+        *,
+        kind: str,
+        required_budget_seconds: float = 0.0,
+    ) -> bool:
+        remaining = state.deadline_monotonic - self.clock.monotonic()
+        if kind == "subagent":
+            reserve = min(
+                self.limits.next_step_reserve_seconds,
+                self.limits.wall_time_seconds - self.limits.shutdown_margin_seconds,
+            )
+        else:
+            reserve = min(
+                max(
+                    self.limits.tool_start_reserve_seconds,
+                    required_budget_seconds,
+                ),
+                self.limits.wall_time_seconds
+                - self.limits.shutdown_margin_seconds,
+            )
+        return remaining <= reserve
+
+    def _inflight_operation_lacks_time(self, state: _SliceState) -> bool:
+        inflight = state.run.snapshot_json.get("inflight_operation")
+        if not isinstance(inflight, dict) or inflight.get("kind") != "tool":
+            return False
+        raw_required = inflight.get("required_budget_seconds")
+        try:
+            required = (
+                float(raw_required)
+                if isinstance(raw_required, (int, float))
+                and not isinstance(raw_required, bool)
+                else self.limits.wall_time_seconds
+            )
+        except (OverflowError, TypeError, ValueError):
+            required = self.limits.wall_time_seconds
+        if not isfinite(required) or required < 0:
+            required = self.limits.wall_time_seconds
+        return self._slice_time_below_operation_reserve(
+            state,
+            kind="tool",
+            required_budget_seconds=required,
+        )
 
     @staticmethod
     def _unavailable_resource_dimensions(

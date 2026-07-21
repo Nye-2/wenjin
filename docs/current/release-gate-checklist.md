@@ -42,7 +42,7 @@ WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1 \
   tests/release_verification/test_runtime_accounting_postgres.py -q -rs
 ```
 
-This command starts a uniquely named `pgvector/pgvector:pg16` container, binds it to a random loopback port, upgrades a randomly named empty database through `107_runtime_accounting`, and removes the container plus its anonymous data volume after the run. The fixture constructs its own database URL and never migrates the configured Wenjin database. Override the image only when required with `WENJIN_POSTGRES_VERIFICATION_IMAGE`.
+This command starts a uniquely named `pgvector/pgvector:pg16` container, binds it to a random loopback port, upgrades a randomly named empty database through `108_remove_workspace_discipline`, and removes the container plus its anonymous data volume after the run. The fixture constructs its own database URL and never migrates the configured Wenjin database. Override the image only when required with `WENJIN_POSTGRES_VERIFICATION_IMAGE`.
 
 The release result must contain five passed tests and zero skipped tests. Without Docker, the default test suite reports these tests as explicitly skipped; `WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1` converts missing Docker or image infrastructure into a release-blocking failure. The gate covers reflected columns, unique and partial indexes, checks, foreign keys and `ON DELETE` actions, plus observed PostgreSQL row-lock waits for concurrent authorize, idempotent replay, settle/delete, and delete/release accounting transitions.
 

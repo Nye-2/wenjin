@@ -82,7 +82,6 @@ class FixtureWorkspace(TestBase, TimestampMixin):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
-    discipline: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
@@ -180,13 +179,11 @@ async def test_app(test_engine, test_session):
     class CreateWorkspaceRequest(BaseModel):
         name: str = Field(..., min_length=1, max_length=255)
         type: str
-        discipline: str | None = Field(None, max_length=100)
         description: str | None = None
         config: dict | None = None
 
     class UpdateWorkspaceRequest(BaseModel):
         name: str | None = Field(None, min_length=1, max_length=255)
-        discipline: str | None = Field(None, max_length=100)
         description: str | None = None
         config: dict | None = None
 
@@ -195,7 +192,6 @@ async def test_app(test_engine, test_session):
         user_id: str
         name: str
         type: str
-        discipline: str | None
         description: str | None
         config: dict
 
@@ -351,7 +347,6 @@ async def test_app(test_engine, test_session):
             user_id=user_id,
             name=request.name,
             type=request.type,
-            discipline=request.discipline,
             description=request.description,
             config=request.config or {},
         )
@@ -363,7 +358,6 @@ async def test_app(test_engine, test_session):
             user_id=str(workspace.user_id),
             name=workspace.name,
             type=workspace.type,
-            discipline=workspace.discipline,
             description=workspace.description,
             config=workspace.config or {},
         )
@@ -380,7 +374,6 @@ async def test_app(test_engine, test_session):
                 user_id=str(w.user_id),
                 name=w.name,
                 type=w.type,
-                discipline=w.discipline,
                 description=w.description,
                 config=w.config or {},
             )
@@ -398,7 +391,6 @@ async def test_app(test_engine, test_session):
             user_id=str(workspace.user_id),
             name=workspace.name,
             type=workspace.type,
-            discipline=workspace.discipline,
             description=workspace.description,
             config=workspace.config or {},
         )
@@ -422,7 +414,6 @@ async def test_app(test_engine, test_session):
             user_id=str(workspace.user_id),
             name=workspace.name,
             type=workspace.type,
-            discipline=workspace.discipline,
             description=workspace.description,
             config=workspace.config or {},
         )
@@ -515,7 +506,6 @@ async def test_workspace(test_session: AsyncSession, test_user: FixtureUser) -> 
         user_id=str(test_user.id),
         name="Test Workspace",
         type="sci",
-        discipline="computer_science",
         description="A test workspace for integration tests",
         config={},
     )

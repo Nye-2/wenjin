@@ -188,6 +188,42 @@ describe("ChatPanel composer", () => {
     });
   });
 
+  it("uses a problem-solving prompt when sending attachments without typed text", async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ status: "completed" });
+    useChatStoreV2.setState({ sendMessage });
+    uploadThreadFilesMock.mockResolvedValue({
+      files: [
+        {
+          name: "A题.zip",
+          path: "uploads/A题.zip",
+          kind: "transient",
+          url: "/api/threads/thread-1/artifacts/uploads/A题.zip",
+          content_type: "application/zip",
+          size_bytes: 1024,
+          reference_id: null,
+          artifact_id: null,
+          metadata: {},
+        },
+      ],
+    });
+    const { container } = render(<ChatPanel workspaceId="workspace-1" />);
+    await screen.findByTestId("chat-composer-input");
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, {
+      target: {
+        files: [new File(["archive"], "A题.zip", { type: "application/zip" })],
+      },
+    });
+    await waitFor(() => expect(screen.getByText("A题.zip")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("chat-send"));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(sendMessage.mock.calls[0][1]).toBe(
+      "请先判断这些材料要解决什么问题，说明推荐的方法和下一步，并问我是否开始。",
+    );
+  });
+
   it("does not hard-route chat when the user only browses a historical Mission", async () => {
     const sendMessage = vi.fn().mockResolvedValue({ status: "completed" });
     useChatStoreV2.setState({ sendMessage });

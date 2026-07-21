@@ -38,7 +38,6 @@ class CreateWorkspaceValidator(BaseModel):
 
     name: Annotated[str, Field(min_length=1, max_length=255)]
     type: WorkspaceType
-    discipline: Annotated[str, Field(max_length=100)] | None = None
     description: Annotated[str, Field(max_length=2000)] | None = None
     config: dict[str, Any] | None = None
 
@@ -50,14 +49,6 @@ class CreateWorkspaceValidator(BaseModel):
         if not sanitized:
             raise ValueError("Workspace name cannot be empty or whitespace only")
         return sanitize_html(sanitized)
-
-    @field_validator("discipline")
-    @classmethod
-    def sanitize_discipline(cls, v: str | None) -> str | None:
-        """Sanitize discipline field."""
-        if v is None:
-            return None
-        return sanitize_html(sanitize_string(v, max_length=100))
 
     @field_validator("description")
     @classmethod
@@ -85,7 +76,6 @@ class UpdateWorkspaceValidator(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
-    discipline: Annotated[str, Field(max_length=100)] | None = None
     description: Annotated[str, Field(max_length=2000)] | None = None
     status: WorkspaceStatus | None = None
     config: dict[str, Any] | None = None
@@ -100,14 +90,6 @@ class UpdateWorkspaceValidator(BaseModel):
         if not sanitized:
             raise ValueError("Workspace name cannot be empty or whitespace only")
         return sanitize_html(sanitized)
-
-    @field_validator("discipline")
-    @classmethod
-    def sanitize_discipline(cls, v: str | None) -> str | None:
-        """Sanitize discipline field."""
-        if v is None:
-            return None
-        return sanitize_html(sanitize_string(v, max_length=100))
 
     @field_validator("description")
     @classmethod

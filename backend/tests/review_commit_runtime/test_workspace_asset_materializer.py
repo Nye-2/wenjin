@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from openpyxl import Workbook
 
 from src.dataservice_client.contracts.mission import MissionReviewItemPayload
 from src.review_commit_runtime.materializer import MissionDomainWriter
@@ -184,3 +186,78 @@ async def test_workspace_asset_materialization_rejects_descriptor_mismatch(tmp_p
             actor_user_id="user-1",
         )
     dataservice.register_asset.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generated_xlsx_materializes_as_downloadable_workspace_asset(tmp_path) -> None:
+    workbook = Workbook()
+    workbook.active.append(["scenario", "cost"])
+    workbook.active.append(["baseline", 123.4])
+    output = BytesIO()
+    workbook.save(output)
+    content = output.getvalue()
+    store = MissionPreviewStore(tmp_path / "previews", default_ttl_seconds=3600, max_bytes=4 * 1024 * 1024)
+    descriptor = await store.put(
+        workspace_id="workspace-1",
+        content=content,
+        mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="model-result.xlsx",
+    )
+    asset = SimpleNamespace(id="asset-xlsx", content_hash=descriptor.content_hash)
+    dataservice = SimpleNamespace(
+        list_assets=AsyncMock(return_value=[]),
+        register_asset=AsyncMock(return_value=asset),
+    )
+    writer = MissionDomainWriter(
+        dataservice,
+        preview_store=store,
+        workspace_asset_root=tmp_path / "assets",
+    )
+    now = datetime.now(UTC)
+    item = MissionReviewItemPayload(
+        review_item_id="review-xlsx",
+        mission_id="mission-1",
+        source_item_seq=3,
+        output_key="model_result_xlsx",
+        target_kind="workspace_asset",
+        target_room="assets",
+        title="模型结果表",
+        risk_level="medium",
+        status="accepted",
+        preview_json={
+            "artifact_kind": "spreadsheet_result",
+            "materialization": {
+                "operation": "assets.create_from_preview",
+                "payload": {
+                    "asset_kind": "generated_file",
+                    "name": "model-result.xlsx",
+                    "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "content_hash": descriptor.content_hash,
+                    "metadata_json": {"sandbox_artifact_ref": f"sandbox-artifact:{'a' * 64}"},
+                },
+            },
+        },
+        preview_ref=descriptor.ref,
+        preview_hash="metadata-hash",
+        preview_expires_at=now + timedelta(hours=1),
+        requires_explicit_review=True,
+        batch_acceptable=False,
+        suggested_selected=False,
+        created_at=now,
+        updated_at=now,
+    )
+
+    receipt = await writer.apply(
+        item,
+        workspace_id="workspace-1",
+        mission_commit_id="commit-xlsx",
+        mission_commit_attempt_token="attempt-token-xlsx",
+        actor_user_id="user-1",
+    )
+
+    command = dataservice.register_asset.await_args.args[0]
+    assert receipt.target_ref == "asset-xlsx"
+    assert command.asset_kind == "generated_file"
+    assert command.storage_path.startswith("generated_files/")
+    assert command.storage_path.endswith(".xlsx")
+    assert (tmp_path / "assets" / "workspace-1" / command.storage_path).read_bytes() == content

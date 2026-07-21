@@ -47,7 +47,6 @@ class WorkspaceDataService:
         created_by_user_id: str,
         name: str,
         workspace_type: WorkspaceType | str,
-        discipline: str | None = None,
         description: str | None = None,
         settings_json: dict[str, Any] | None = None,
     ) -> Workspace:
@@ -56,7 +55,6 @@ class WorkspaceDataService:
                 created_by_user_id=created_by_user_id,
                 name=name,
                 workspace_type=normalize_workspace_type(workspace_type),
-                discipline=discipline,
                 description=description,
                 settings_json=settings_json or {},
             )

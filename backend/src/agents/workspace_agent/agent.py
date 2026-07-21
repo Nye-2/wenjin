@@ -380,7 +380,10 @@ class WorkspaceAgent:
             self._validate_start_policy(action, context)
             self._validate_start_parent(action, context)
             try:
-                context.select_mission_inputs(action.mission.input_refs)
+                context.select_mission_inputs(
+                    action.mission.input_refs,
+                    include_current=True,
+                )
             except ValueError as exc:
                 raise WorkspaceAgentProtocolError(str(exc)) from exc
             return
@@ -389,7 +392,10 @@ class WorkspaceAgent:
             if action.input_kind.value == "advisory":
                 raise WorkspaceAgentProtocolError("Advisory input cannot mutate a mission")
             try:
-                context.select_mission_inputs(action.input_refs)
+                context.select_mission_inputs(
+                    action.input_refs,
+                    include_current=True,
+                )
             except ValueError as exc:
                 raise WorkspaceAgentProtocolError(str(exc)) from exc
             return
@@ -425,7 +431,10 @@ class WorkspaceAgent:
                 return WorkspaceAgentReply(text=question.question, action=question, metadata={"usage": usage})
             spec = action.mission
             try:
-                selected_inputs = context.select_mission_inputs(spec.input_refs)
+                selected_inputs = context.select_mission_inputs(
+                    spec.input_refs,
+                    include_current=True,
+                )
             except ValueError as exc:
                 raise WorkspaceAgentProtocolError(str(exc)) from exc
             prism_context = context.prism_context_ref.model_dump(mode="json") if context.prism_context_ref else None
@@ -512,7 +521,10 @@ class WorkspaceAgent:
             if action.input_kind.value == "advisory":
                 raise WorkspaceAgentProtocolError("Advisory input cannot mutate a mission")
             try:
-                selected_inputs = context.select_mission_inputs(action.input_refs)
+                selected_inputs = context.select_mission_inputs(
+                    action.input_refs,
+                    include_current=True,
+                )
             except ValueError as exc:
                 raise WorkspaceAgentProtocolError(str(exc)) from exc
             mission = await self._missions.steer(

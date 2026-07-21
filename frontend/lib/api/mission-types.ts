@@ -65,6 +65,7 @@ export interface MissionArtifactView {
   summary?: string | null;
   previewAvailable: boolean;
   committed: boolean;
+  downloadUrl?: string | null;
 }
 
 export type MissionVisualArtifactKind = "figure" | "chart" | "table";
@@ -181,6 +182,32 @@ export interface MissionActivityView {
   summary?: string | null;
   attempt?: number | null;
   retryAt?: string | null;
+  lastProgressAt?: string | null;
+  heartbeatAt?: string | null;
+}
+
+export interface MissionCurrentOperationView {
+  kind: "planning" | "model" | "tool" | "subagent" | "quality" | "review";
+  label: string;
+  actor: string;
+  startedAt: string;
+  attempt: number;
+}
+
+export interface MissionInputSummaryView {
+  total: number;
+  ready: number;
+  failed: number;
+  names: string[];
+}
+
+export interface MissionFailureView {
+  category: "model_service" | "usage_reconciliation" | "resource_budget" | "stage_execution" | "runtime";
+  userSummary: string;
+  recoverability: "continue_in_chat" | "retry_later" | "adjust_scope";
+  preservedProgress: string;
+  recommendedAction: string;
+  failedAt: string;
 }
 
 export interface MissionView {
@@ -192,6 +219,9 @@ export interface MissionView {
   executionStatus: MissionExecutionStatus;
   statusLabel: string;
   activity: MissionActivityView;
+  currentOperation: MissionCurrentOperationView | null;
+  inputSummary: MissionInputSummaryView;
+  failure: MissionFailureView | null;
   attentionRequest: MissionAttentionRequest | null;
   createdAt: string;
   updatedAt: string;

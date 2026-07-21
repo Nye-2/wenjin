@@ -68,13 +68,11 @@ class TestCreateWorkspace:
             user_id=sample_user_id,
             name="Full Workspace",
             type="thesis",
-            discipline="computer_science",
             description="A test workspace",
             config={"setting1": "value1"},
         )
 
         command = dataservice.create_workspace.await_args.args[0]
-        assert command.discipline == "computer_science"
         assert command.description == "A test workspace"
         assert command.settings_json == {"setting1": "value1"}
 
@@ -167,13 +165,11 @@ class TestUpdateWorkspace:
         await service.update(
             "workspace-1",
             name="New Name",
-            discipline="new_discipline",
             description="New description",
         )
 
         command = dataservice.update_workspace.await_args.args[1]
         assert command.name == "New Name"
-        assert command.discipline == "new_discipline"
         assert command.description == "New description"
 
     @pytest.mark.asyncio

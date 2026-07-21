@@ -842,6 +842,11 @@ class FakeTools:
         self.crash_once: set[str] = set()
         self._crashed: set[str] = set()
         self.outcomes: dict[str, MissionPortOutcome] = {}
+        self.required_budgets: dict[str, float] = {}
+
+    async def required_budget_seconds(self, mission: Any, tool_name: str) -> float:
+        del mission
+        return self.required_budgets.get(tool_name, 0.0)
 
     async def execute(self, request: Any) -> MissionPortOutcome:
         self.calls.append(request.operation_id)
@@ -866,9 +871,11 @@ class SimulatedWorkerCrash(BaseException):
 class FakeSubagents:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.deadlines: list[float] = []
 
     async def run(self, request: Any) -> MissionPortOutcome:
         self.calls.append(request.operation_id)
+        self.deadlines.append(request.deadline_monotonic)
         return MissionPortOutcome(
             status=MissionPortOutcomeStatus.COMPLETED,
             summary="subagent completed",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -1112,6 +1113,40 @@ def _source_review_candidate_reference():
     )
 
 
+def _file_review_candidate_reference():
+    sandbox_ref = f"sandbox-artifact:{'c' * 64}"
+    metadata = {
+        "title": "模型结果表",
+        "artifact_kind": "spreadsheet_result",
+        "source_refs": [sandbox_ref],
+        "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "preview_text": "包含逐小时功率平衡和成本结果。",
+        "sandbox_artifact_ref": sandbox_ref,
+        "filename": "result.xlsx",
+        "metadata": {},
+        "content_hash": "d" * 64,
+        "preview_ref": "mpv1_" + "e" * 32,
+        "preview_expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        "size_bytes": 4096,
+        "sandbox_content_hash": f"sha256:{'c' * 64}",
+        "mission_id": "mission-file",
+        "operation_key": "file-candidate-op",
+        "materialized": False,
+    }
+    ref = artifact_candidate_ref(metadata)
+    return ref, SimpleNamespace(
+        mission_id="mission-file",
+        item_type="artifact",
+        seq=9,
+        payload_json={
+            "reference_id": ref,
+            "kind": "artifact_candidate",
+            "verified": True,
+            "metadata": metadata,
+        },
+    )
+
+
 @pytest.mark.asyncio
 async def test_review_builder_compiles_document_from_accepted_candidate() -> None:
     candidate_ref, candidate_item = _review_candidate_reference()
@@ -1147,6 +1182,40 @@ async def test_review_builder_compiles_document_from_accepted_candidate() -> Non
     assert item.source_item_seq == 7
     assert item.preview_json["candidate_ref"] == candidate_ref
     assert item.preview_json["source_refs"] == ["prism-file:problem-1"]
+
+
+@pytest.mark.asyncio
+async def test_review_builder_projects_downloadable_file_to_workspace_asset() -> None:
+    candidate_ref, candidate_item = _file_review_candidate_reference()
+    request = SimpleNamespace(
+        mission=SimpleNamespace(mission_id="mission-file"),
+        stage_id="question_1_solution",
+        candidate_json={
+            "items": [
+                {
+                    "candidate_ref": candidate_ref,
+                    "output_key": "question_1_result_xlsx",
+                    "target_kind": "workspace_asset",
+                    "target_room": "assets",
+                    "title": "模型结果表",
+                    "summary": "可下载的逐小时计算结果",
+                    "risk_level": "medium",
+                }
+            ]
+        },
+        accepted_candidate_refs=[candidate_ref],
+        reference_items=[candidate_item],
+    )
+
+    batch = await StrictReviewCandidateBuilder().build_candidates(request)
+    item = batch.items[0]
+
+    assert item.target_kind == "workspace_asset"
+    assert item.preview_ref == "mpv1_" + "e" * 32
+    assert item.preview_json["downloadable"] is True
+    assert item.preview_json["filename"] == "result.xlsx"
+    assert item.preview_json["materialization"]["operation"] == "assets.create_from_preview"
+    assert item.preview_json["materialization"]["payload"]["asset_kind"] == "generated_file"
 
 
 @pytest.mark.asyncio

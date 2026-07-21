@@ -18,7 +18,7 @@ from src.agents.workspace_agent.contracts import (
     MissionPolicyHint,
     WorkspaceAgentContext,
 )
-from src.contracts.mission_input import MissionInputManifest
+from src.contracts.mission_input import MissionInputContext, MissionInputManifest
 from src.mission_runtime.contracts import MissionStartReceipt
 
 
@@ -125,6 +125,7 @@ def context(
     active: ActiveMissionContext | None = None,
     continuation: ContinuationMissionContext | None = None,
     mission_inputs: tuple[MissionInputManifest, ...] = (),
+    attachment_contexts: tuple[MissionInputContext, ...] = (),
 ) -> WorkspaceAgentContext:
     return WorkspaceAgentContext(
         workspace_id="workspace-1",
@@ -139,6 +140,7 @@ def context(
         review_mode="auto_draft",
         conversation=({"role": "user", "content": "梳理联邦学习研究空白"},),
         mission_inputs=mission_inputs,
+        attachment_contexts=attachment_contexts,
         policy_hints=(
             MissionPolicyHint(
                 policy_id="sci.research",
@@ -620,6 +622,65 @@ async def test_active_mission_steer_appends_typed_command() -> None:
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_active_mission_steer_always_pins_ready_current_message_inputs() -> None:
+    manifest = MissionInputManifest(
+        input_ref=f"mission-input:{'c' * 64}",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        filename="supplement.xlsx",
+        mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        extractor="plain_text",
+        content_hash=f"sha256:{'c' * 64}",
+        source_content_hash=f"sha256:{'d' * 64}",
+        source_size_bytes=100,
+        text_size_bytes=50,
+        text_chars=50,
+    )
+    attachment = MissionInputContext(
+        name=manifest.filename,
+        content_type=manifest.mime_type,
+        size_bytes=manifest.source_size_bytes,
+        status="ready",
+        input_ref=manifest.input_ref,
+        current_message=True,
+    )
+    missions = FakeMissions()
+    active = ActiveMissionContext(
+        mission_id="mission-1",
+        title="研究定位",
+        objective="梳理空白",
+        status="waiting",
+        pending_request_id="request-1",
+    )
+
+    await WorkspaceAgent(
+        model=FakeModel(
+            tool_message(
+                "steer_mission",
+                {
+                    "mission_id": "mission-1",
+                    "command_id": "command-1",
+                    "request_id": "request-1",
+                    "input_kind": "context",
+                    "instruction": "读取补充表格",
+                },
+            )
+        ),
+        missions=missions,
+    ).run(
+        context(
+            active=active,
+            mission_inputs=(manifest,),
+            attachment_contexts=(attachment,),
+        )
+    )
+
+    assert missions.steers[0][1]["mission_inputs"] == (
+        manifest.model_dump(mode="json"),
+    )
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,6 @@ interface WorkspaceCardProps {
   id: string;
   name: string;
   type: WorkspaceType;
-  discipline?: string;
   referenceCount: number;
   artifactCount: number;
   createdAt: string;
@@ -54,7 +53,6 @@ export function WorkspaceCard({
   id,
   name,
   type,
-  discipline,
   referenceCount,
   artifactCount,
   createdAt,
@@ -76,12 +74,6 @@ export function WorkspaceCard({
         <h3 className="mb-2 line-clamp-2 text-lg font-semibold leading-tight text-[var(--wjn-text)]">
           {name}
         </h3>
-
-        {discipline && (
-          <p className="mb-4 text-sm text-[var(--wjn-text-secondary)]">
-            {discipline.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-          </p>
-        )}
 
         <div className="flex items-center gap-4 text-sm text-[var(--wjn-text-muted)]">
           <span className="flex items-center gap-1.5">

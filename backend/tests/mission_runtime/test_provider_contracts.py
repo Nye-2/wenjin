@@ -15,6 +15,7 @@ from src.mission_runtime.adapters import (
     _parse_subagent_action,
     _selected_ref_context_reads,
     _subagent_action_tools,
+    _subagent_model_tool_results,
     _tool_semantic_references,
 )
 from src.mission_runtime.reference_authority import (
@@ -56,6 +57,28 @@ def test_subagent_provider_action_decodes_open_objects() -> None:
 
     assert action.arguments == {"query": "federated LoRA"}
     assert action.result_json == {}
+
+
+def test_subagent_provider_action_decodes_user_visible_progress() -> None:
+    action = _parse_subagent_action(
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "subagent_report_progress",
+                    "args": {
+                        "summary": "已生成逐时功率平衡公式",
+                        "progress_kind": "formula",
+                    },
+                    "id": "worker-frame-progress",
+                }
+            ],
+        )
+    )
+
+    assert action.kind == "progress"
+    assert action.progress_kind == "formula"
+    assert action.summary == "已生成逐时功率平衡公式"
 
 
 def _provider_worker_job() -> SubagentJobSpec:
@@ -201,6 +224,16 @@ def test_subagent_complete_schema_binds_exact_typed_receipt_refs() -> None:
         "artifact-candidate:" + "a" * 64
     ]
     assert result_schema["properties"]["artifact_refs"]["maxItems"] == 0
+
+
+def test_subagent_model_keeps_all_selected_input_reads_visible() -> None:
+    results = tuple(
+        SubagentToolResult(status="completed", summary=f"input {index}")
+        for index in range(9)
+    )
+    job = SimpleNamespace(context_reads=tuple(object() for _ in range(9)))
+
+    assert _subagent_model_tool_results(job, results) == results  # type: ignore[arg-type]
 
 
 def test_subagent_complete_decodes_native_structured_result() -> None:

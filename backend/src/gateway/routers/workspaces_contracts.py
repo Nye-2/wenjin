@@ -21,7 +21,6 @@ class WorkspaceResponse(BaseModel):
     user_id: str
     name: str
     type: str
-    discipline: str | None
     description: str | None
     config: dict[str, Any]
     created_at: str

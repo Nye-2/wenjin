@@ -4,8 +4,10 @@ import os
 import struct
 import zlib
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 
 import pytest
+from openpyxl import Workbook
 
 from src.review_commit_runtime.preview_store import MissionPreviewStore
 
@@ -101,6 +103,36 @@ async def test_store_rejects_svg_doctype_before_xml_parsing(tmp_path) -> None:
             ),
             mime_type="image/svg+xml",
             filename="unsafe.svg",
+        )
+
+
+@pytest.mark.asyncio
+async def test_store_accepts_macro_free_xlsx_and_rejects_mime_mismatch(tmp_path) -> None:
+    workbook = Workbook()
+    workbook.active.append(["hour", "cost"])
+    workbook.active.append([1, 42.5])
+    output = BytesIO()
+    workbook.save(output)
+    content = output.getvalue()
+    store = MissionPreviewStore(tmp_path, default_ttl_seconds=3600, max_bytes=4 * 1024 * 1024)
+
+    descriptor = await store.put(
+        workspace_id="workspace-1",
+        content=content,
+        mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="result.xlsx",
+    )
+
+    preview = await store.read(descriptor.ref, workspace_id="workspace-1")
+    assert preview.content == content
+    assert preview.descriptor.filename == "result.xlsx"
+
+    with pytest.raises(ValueError, match="preview_content_type_mismatch"):
+        await store.put(
+            workspace_id="workspace-1",
+            content=content,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename="wrong.docx",
         )
 
 

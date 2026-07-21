@@ -223,6 +223,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     const frame = window.requestAnimationFrame(() => {
       if (pendingChatAction === "attach") {
         chatPanelRef.current?.openAttachment();
+      } else if (pendingChatAction === "continue") {
+        chatPanelRef.current?.prefillComposer("请从已保存进度继续完成这个任务，并先说明将从哪里接着推进。");
       } else {
         chatPanelRef.current?.focusComposer();
       }

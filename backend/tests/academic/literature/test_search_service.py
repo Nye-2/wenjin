@@ -113,7 +113,6 @@ async def test_literature_search_projects_only_receipted_sources() -> None:
 
     result = await service.search(
         query="  federated LoRA  ",
-        discipline="Computer Science",
         limit=30,
     )
 

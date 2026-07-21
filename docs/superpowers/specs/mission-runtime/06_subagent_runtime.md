@@ -1,7 +1,7 @@
 # 06 SubagentRuntime Spec
 
 Status: Implemented
-Updated: 2026-07-15
+Updated: 2026-07-21
 
 Implementation outcome: isolated bounded jobs, concurrency limits, pinned WorkerSkill contracts, canonical tool narrowing, strict structured reports, exact receipt references, terminal recovery, and MissionItem lifecycle projection are implemented. Subagents have no separate persistence table, recursive spawn authority, or room-write authority.
 Depends on: `02_mission_runtime.md`, `04_stage_acceptance_contract.md`, `10_sandbox_vnext.md`, `12_tool_orchestrator.md`
@@ -87,13 +87,13 @@ Storage rule:
 - Do not create `subagent_jobs` or keep `subagent_task_records` as runtime SSOT.
 - Active worker-local bookkeeping lives in the composed SubagentRuntime registry and is bounded by the current MissionDriveSlice; it is not queue or database truth.
 - Durable lifecycle is represented by immutable `subagent_spawned`, bounded `subagent_progress`, and terminal `subagent_completed` MissionItems sharing a stable operation id.
-- Fast UI summary is stored in `MissionRun.snapshot_json.subagent_summary` and sanitized into `MissionView.subagents` by DataService.
+- Terminal UI summary is stored in `MissionRun.snapshot_json.subagent_summary`. While a batch is active, DataService projects each worker from its newest durable `subagent_progress` item so Mission Console does not wait for terminal aggregation.
 - Semantic lifecycle is paginated from MissionItems. Raw wire logs, token deltas, and verbose tool traces are external payload refs with redaction and TTL; they are not copied into the durable ledger.
 - Mission queue delivery is at-least-once. Spawn uses a stable operation key, and terminal results are accepted only by the current parent mission lease holder.
 
 Execution topology:
 
-- Production runs subagent model loops as bounded async child tasks inside the active MissionDriveSlice. There is no independent Celery subagent queue, callback writer, or `subagent_jobs` table.
+- Production runs subagent model loops as bounded async child tasks inside the active MissionDriveSlice. Ordinary planning/tool work retains the 180-second slice window; a subagent batch receives one runtime-owned 900-second operation window capped from the original delivery start. There is no independent Celery subagent queue, callback writer, or `subagent_jobs` table.
 - A root-scoped registry enforces mission-level max concurrency, total spawn budget, per-child wall time, and cancellation. Horizontal scale comes from multiple missions/workers, not distributed ownership of one small research team.
 - Default max spawn depth is `1`: WorkspaceAgent/MissionRuntime may spawn children; children cannot recursively create more subagents. A later depth change is a policy/version change, not prompt freedom.
 - Child context is fresh and bounded by default. Full parent-history fork is forbidden; only the explicit mission checkpoint, stage contract, selected refs, task, tools, and exit criteria are provided.
@@ -134,7 +134,11 @@ subagent_completed
 
 These are semantic milestones, not every model/tool delta. Each item carries `operation_id` and an immutable lifecycle phase. Detailed trace uses bounded external refs and can expire without losing mission recovery state.
 
+A worker may explicitly report one `finding`, `formula`, `file`, `figure`, or `checkpoint` milestone after it has a concrete, checkable result. The summary is user-visible and must state the result itself; private reasoning, tentative plans, and filler are forbidden. Duplicate milestone summaries are not persisted twice. Canonical tool results continue to publish their own semantic progress automatically, so workers should not restate them.
+
 `MissionRuntime` owns `subagent_spawned` and `subagent_completed`. The child ledger appends bounded `subagent_progress` items with `lifecycle_phase`; a terminal progress item contains the result hash, job fingerprint, and structured result so an interrupted parent slice can recover it without rerunning the worker.
+
+The parent driver renews the Mission lease throughout the extended operation and publishes an invalidation hint on the 30-second heartbeat cadence. The hint carries no progress body; clients refetch `MissionView`, whose facts remain DataService-owned.
 
 Every progress item carries a deterministic `progress_id` and SHA-256 over its canonical summary and payload. A job terminal uses the fixed identity `subagent-terminal:{job_id}`. Before writing and after every append exception, the adapter queries durable progress by parent operation and identity, recomputes the hash, and adopts only one exact match; duplicate or divergent content is a hard error. This makes a committed terminal authoritative even when its response ACK is lost.
 

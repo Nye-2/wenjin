@@ -11,6 +11,7 @@ from src.agents.workspace_agent.mission_loop import (
     _agent_item_projection,
     _agent_mission_projection,
     _hydrated_reference_reads,
+    _mission_input_inventory,
     _quality_reference_inventory,
     _render_mission_state,
     _subagent_selectable_refs,
@@ -797,6 +798,33 @@ def test_agent_mission_projection_excludes_runtime_and_worker_coordination_state
     assert "next_wakeup_at" not in projection
 
 
+def test_mission_state_projects_pinned_inputs_as_authoritative_ready_inventory() -> None:
+    mission = _mission_payload().model_copy(
+        update={
+            "snapshot_json": {
+                "mission_inputs": [
+                    {
+                        "input_ref": "mission-input:" + "a" * 64,
+                        "filename": "附件1.xlsx",
+                        "member_path": "赛题/附件1.xlsx",
+                        "extractor": "xlsx_text",
+                        "text_chars": 571,
+                    }
+                ]
+            }
+        }
+    )
+
+    assert _mission_input_inventory(mission) == [
+        {
+            "input_ref": "mission-input:" + "a" * 64,
+            "filename": "附件1.xlsx",
+            "member_path": "赛题/附件1.xlsx",
+            "extractor": "xlsx_text",
+            "text_chars": 571,
+            "status": "ready",
+        }
+    ]
 def test_agent_item_projection_keeps_semantics_once_and_compacts_receipts() -> None:
     body = "SENTINEL_DOCUMENT_BODY"
     terminal = _mission_item(seq=1, item_type="operation_terminal", payload={"content": body})

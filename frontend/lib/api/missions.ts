@@ -63,7 +63,7 @@ interface MissionItemWire {
   stage_id?: string | null;
   producer?: string | null;
   summary?: string | null;
-  payload_ref?: string | null;
+  detail_available: boolean;
   created_at: string;
 }
 
@@ -97,7 +97,25 @@ interface MissionViewWire {
     summary?: string | null;
     attempt?: number | null;
     retry_at?: string | null;
+    last_progress_at?: string | null;
+    heartbeat_at?: string | null;
   };
+  current_operation: {
+    kind: NonNullable<MissionView["currentOperation"]>["kind"];
+    label: string;
+    actor: string;
+    started_at: string;
+    attempt: number;
+  } | null;
+  input_summary: { total: number; ready: number; failed: number; names: string[] };
+  failure: {
+    category: NonNullable<MissionView["failure"]>["category"];
+    user_summary: string;
+    recoverability: NonNullable<MissionView["failure"]>["recoverability"];
+    preserved_progress: string;
+    recommended_action: string;
+    failed_at: string;
+  } | null;
   attention_request: {
     request_id: string;
     reason: string;
@@ -137,7 +155,7 @@ interface MissionViewWire {
   subagents: Array<{ subagent_id: string; display_name: string; role_label: string; status: MissionSubagentView["status"]; summary?: string | null }>;
   evidence_items: Array<{ item_id: string; seq: number; title: string; source_type: MissionEvidenceView["sourceType"]; source_label?: string | null; summary?: string | null; citation?: string | null; verified: boolean }>;
   evidence_page: { total: number; returned: number; next_cursor?: number | null };
-  artifact_items: Array<{ item_id: string; seq: number; title: string; kind: string; summary?: string | null; preview_available: boolean; committed: boolean }>;
+  artifact_items: Array<{ item_id: string; seq: number; title: string; kind: string; summary?: string | null; preview_available: boolean; committed: boolean; download_url?: string | null }>;
   artifact_page: { total: number; returned: number; next_cursor?: number | null };
   review_policy: { mode: MissionReviewMode; protected_outputs_require_confirmation: boolean; draft_outputs_may_be_automatic: boolean };
   review_selection_revision: string;
@@ -172,7 +190,7 @@ function durationSeconds(run: MissionRunWire): number | null {
 }
 
 function missionItem(wire: MissionItemWire): MissionItem {
-  return { id: wire.id, missionId: wire.mission_id, seq: wire.seq, itemType: wire.item_type, phase: wire.phase, stageId: wire.stage_id, producer: wire.producer, summary: wire.summary, createdAt: wire.created_at, detailAvailable: Boolean(wire.payload_ref) };
+  return { id: wire.id, missionId: wire.mission_id, seq: wire.seq, itemType: wire.item_type, phase: wire.phase, stageId: wire.stage_id, producer: wire.producer, summary: wire.summary, createdAt: wire.created_at, detailAvailable: wire.detail_available };
 }
 
 function nonemptyString(value: unknown): string | null {
@@ -259,7 +277,7 @@ function projectView(wire: MissionViewWire): MissionView {
     committedTargetRef: nonemptyString(item.committed_target_ref),
   }));
   const evidenceItems = wire.evidence_items.map((item) => ({ id: item.item_id, title: item.title, sourceType: item.source_type, sourceLabel: item.source_label, summary: item.summary, citation: item.citation, verified: item.verified }));
-  const artifactItems = wire.artifact_items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed }));
+  const artifactItems = wire.artifact_items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed, downloadUrl: item.download_url }));
   return {
     missionId: run.mission_id,
     workspaceId: run.workspace_id,
@@ -274,7 +292,34 @@ function projectView(wire: MissionViewWire): MissionView {
       summary: wire.activity.summary,
       attempt: wire.activity.attempt,
       retryAt: wire.activity.retry_at,
+      lastProgressAt: wire.activity.last_progress_at,
+      heartbeatAt: wire.activity.heartbeat_at,
     },
+    currentOperation: wire.current_operation
+      ? {
+          kind: wire.current_operation.kind,
+          label: wire.current_operation.label,
+          actor: wire.current_operation.actor,
+          startedAt: wire.current_operation.started_at,
+          attempt: wire.current_operation.attempt,
+        }
+      : null,
+    inputSummary: {
+      total: wire.input_summary.total,
+      ready: wire.input_summary.ready,
+      failed: wire.input_summary.failed,
+      names: wire.input_summary.names,
+    },
+    failure: wire.failure
+      ? {
+          category: wire.failure.category,
+          userSummary: wire.failure.user_summary,
+          recoverability: wire.failure.recoverability,
+          preservedProgress: wire.failure.preserved_progress,
+          recommendedAction: wire.failure.recommended_action,
+          failedAt: wire.failure.failed_at,
+        }
+      : null,
     attentionRequest: wire.attention_request
       ? {
           requestId: wire.attention_request.request_id,
@@ -312,7 +357,10 @@ function projectView(wire: MissionViewWire): MissionView {
     evidenceNextCursor: wire.evidence_page.next_cursor,
     artifactNextCursor: wire.artifact_page.next_cursor,
     evidenceCount: run.evidence_count,
-    artifactCount: wire.artifact_page.total,
+    // The aggregate count is the canonical Mission progress metric. The
+    // artifact page contains only currently projectable review artifacts and
+    // can legitimately be smaller while a failed Mission preserves outputs.
+    artifactCount: run.artifact_count,
     reviewItems,
     reviewSummary: { pending: wire.review_summary.pending, needsMoreEvidence: wire.review_summary.needs_more_evidence, accepted: wire.review_summary.accepted, committed: wire.review_summary.committed },
     reviewMode: run.review_mode,
@@ -404,9 +452,9 @@ export async function getMissionReviewPreview(options: {
   return { blob, mimeType };
 }
 
-export async function listMissionItems(options: { missionId: string; cursor?: string | null; limit?: number }): Promise<MissionPage<MissionItem>> {
+export async function listMissionItems(options: { missionId: string; beforeSeq?: string | null; limit?: number }): Promise<MissionPage<MissionItem>> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 40) });
-  if (options.cursor) params.set("cursor", options.cursor);
+  if (options.beforeSeq) params.set("before_seq", options.beforeSeq);
   const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(options.missionId)}/items?${params}`);
   const payload = await readJson<{ items: MissionItemWire[]; next_cursor: number | null }>(response, "任务轨迹加载失败");
   return { items: payload.items.map(missionItem), nextCursor: payload.next_cursor == null ? null : String(payload.next_cursor) };
@@ -442,10 +490,26 @@ export async function listMissionArtifacts(options: {
     page: MissionViewWire["artifact_page"];
   }>(response, "成果加载失败");
   return {
-    items: payload.items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed })),
+    items: payload.items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed, downloadUrl: item.download_url })),
     nextCursor: payload.page.next_cursor ?? null,
     total: payload.page.total,
   };
+}
+
+export async function downloadMissionArtifact(url: string, filename: string): Promise<void> {
+  const response = await authorizedFetch(url, { headers: { Accept: "application/octet-stream" } });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "成果下载失败"));
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
 export async function decideMissionReviews(options: { missionId: string; decisions: MissionReviewDecision[] }): Promise<MissionMutationResult> {

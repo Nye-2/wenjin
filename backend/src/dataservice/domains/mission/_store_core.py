@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.billing.policies import calculate_model_usage_credits
+from src.contracts.archive_filename import recover_legacy_zip_filename
 from src.contracts.mission_budget import (
     execution_budget_from_runtime_context,
     resource_delta_for_item,
@@ -56,7 +57,10 @@ from src.dataservice_client.contracts.mission import (
     MissionAttentionInputPayload,
     MissionAttentionRequestPayload,
     MissionCreatePayload,
+    MissionCurrentOperationPayload,
     MissionEvidenceSummaryPayload,
+    MissionFailurePayload,
+    MissionInputSummaryPayload,
     MissionItemDraftPayload,
     MissionOperationReceiptPayload,
     MissionReviewViewItemPayload,
@@ -779,7 +783,11 @@ class _MissionStoreCore:
 def _text(value) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
-def _project_activity(run: MissionRunRecord) -> MissionActivityPayload:
+def _project_activity(
+    run: MissionRunRecord,
+    *,
+    last_progress_at: datetime | None = None,
+) -> MissionActivityPayload:
     snapshot = run.snapshot_json or {}
     if run.status == MissionStatus.WAITING.value:
         reason = _text(snapshot.get("waiting_reason"))
@@ -787,23 +795,39 @@ def _project_activity(run: MissionRunRecord) -> MissionActivityPayload:
             state="reviewing" if reason == "review" else "waiting",
             title=("等待你确认结果" if reason == "review" else "等待你的回应"),
             summary=_attention_default_summary(reason or "user_input"),
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
         )
     if run.status == MissionStatus.COMPLETED.value:
-        return MissionActivityPayload(state="completed", title="研究任务已完成")
+        return MissionActivityPayload(
+            state="completed",
+            title="研究任务已完成",
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
+        )
     if run.status == MissionStatus.FAILED.value:
         if snapshot.get("failure_reason") == "model_service_unavailable":
             return MissionActivityPayload(
                 state="unavailable",
                 title="模型服务暂时不可用",
                 summary="已保留完成阶段和待确认内容，稍后可在对话中继续。",
+                last_progress_at=last_progress_at,
+                heartbeat_at=run.updated_at,
             )
         return MissionActivityPayload(
             state="stopped",
             title="研究任务未完整完成",
             summary="已保留当前进度和可用结果。",
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
         )
     if run.status == MissionStatus.CANCELLED.value:
-        return MissionActivityPayload(state="stopped", title="研究任务已取消")
+        return MissionActivityPayload(
+            state="stopped",
+            title="研究任务已取消",
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
+        )
 
     guard = snapshot.get("loop_guard")
     loop_guard = guard if isinstance(guard, dict) else {}
@@ -817,30 +841,155 @@ def _project_activity(run: MissionRunRecord) -> MissionActivityPayload:
             summary="任务进度已经保留，无需重新开始。",
             attempt=transient_attempt,
             retry_at=run.next_wakeup_at,
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
         )
     if "replan_after_operation_failure" in actions:
         return MissionActivityPayload(
             state="recovering",
             title="当前步骤未完成，问津正在调整方案",
             summary="已保留可用结果，并会从当前阶段继续。",
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
         )
     if "repair_structured_decision" in actions or "retry_agent_step" in actions:
         return MissionActivityPayload(
             state="recovering",
             title="问津正在校正下一步",
             summary="任务进度已经保留，校正后会从当前阶段继续。",
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
         )
     if run.active_subagent_count > 0:
         return MissionActivityPayload(
             state="collaborating",
             title="研究成员正在协作",
             summary="已分派并行研究工作，结果会汇总回当前阶段。",
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
         )
     if run.status == MissionStatus.CREATED.value:
-        return MissionActivityPayload(state="starting", title="正在准备研究任务")
+        return MissionActivityPayload(
+            state="starting",
+            title="正在准备研究任务",
+            last_progress_at=last_progress_at,
+            heartbeat_at=run.updated_at,
+        )
     return MissionActivityPayload(
         state="working",
         title="问津正在推进当前研究",
+        last_progress_at=last_progress_at,
+        heartbeat_at=run.updated_at,
+    )
+
+
+def _project_input_summary(run: MissionRunRecord) -> MissionInputSummaryPayload:
+    raw_inputs = (run.snapshot_json or {}).get("mission_inputs")
+    manifests = [item for item in raw_inputs if isinstance(item, dict)] if isinstance(raw_inputs, list) else []
+    names = []
+    for item in manifests:
+        recovered = recover_legacy_zip_filename(
+            str(item.get("member_path") or item.get("filename") or "未命名材料")
+        )
+        # Archive member paths are useful to the extractor, but the compact
+        # Mission inventory should show the material's own name rather than
+        # repeated archive/folder prefixes such as ``A题/A题/附件1.xlsx``.
+        names.append(recovered.replace("\\", "/").rsplit("/", maxsplit=1)[-1])
+    return MissionInputSummaryPayload(
+        total=len(manifests),
+        ready=len(manifests),
+        failed=0,
+        names=names,
+    )
+
+
+def _project_current_operation(
+    run: MissionRunRecord,
+    records: list[MissionItemRecord],
+) -> MissionCurrentOperationPayload | None:
+    snapshot = run.snapshot_json or {}
+    inflight = snapshot.get("inflight_operation")
+    by_seq = {record.seq: record for record in records}
+    if isinstance(inflight, dict):
+        kind = str(inflight.get("kind") or "")
+        public_kind = kind if kind in {"tool", "subagent", "quality", "review"} else "planning"
+        started = by_seq.get(int(inflight.get("call_item_seq") or 0))
+        labels = {
+            "tool": "正在运行研究工具",
+            "subagent": "研究成员正在处理分派任务",
+            "quality": "正在检查当前阶段质量",
+            "review": "正在整理待确认成果",
+            "planning": "正在规划下一步",
+        }
+        return MissionCurrentOperationPayload(
+            kind=public_kind,
+            label=(started.summary if started is not None and started.summary else labels[public_kind]),
+            actor="研究成员" if public_kind == "subagent" else "问津",
+            started_at=(started.created_at if started is not None else run.updated_at),
+            attempt=max(int((snapshot.get("loop_guard") or {}).get("transient_failures") or 0), 1),
+        )
+    terminal_call_ids = {
+        record.operation_id
+        for record in records
+        if record.item_type in {"usage_receipt", "model_call_terminal"}
+        and record.operation_id
+    }
+    open_calls = [
+        record
+        for record in records
+        if record.item_type == "model_call_started"
+        and record.operation_id
+        and record.operation_id not in terminal_call_ids
+    ]
+    if open_calls:
+        started = open_calls[-1]
+        is_subagent = bool((started.payload_json or {}).get("job_id"))
+        return MissionCurrentOperationPayload(
+            kind="model",
+            label=("研究成员正在分析材料" if is_subagent else "问津正在分析并规划下一步"),
+            actor=("研究成员" if is_subagent else "问津"),
+            started_at=started.created_at,
+        )
+    return None
+
+
+def _project_failure(run: MissionRunRecord, *, passed_stages: int) -> MissionFailurePayload | None:
+    if run.status != MissionStatus.FAILED.value:
+        return None
+    reason = str((run.snapshot_json or {}).get("failure_reason") or "repeated_failure")
+    category = "runtime"
+    recoverability = "continue_in_chat"
+    summary = "任务在当前步骤未能继续，但此前已完成的内容仍然保留。"
+    action = "可从已保存进度继续，让问津调整方案后完成剩余部分。"
+    if reason == "model_service_unavailable":
+        category = "model_service"
+        recoverability = "retry_later"
+        summary = "模型服务连续未响应，任务已在安全边界停止。"
+        action = "稍后从已保存进度继续，无需重新上传材料。"
+    elif reason == "model_usage_reconciliation_required":
+        category = "usage_reconciliation"
+        summary = "一次模型调用的用量状态无法确认，系统为避免重复计费已安全停止。"
+        action = "从已保存进度继续；若再次出现，请检查模型服务和账务日志。"
+    elif reason == "resource_budget_exhausted":
+        category = "resource_budget"
+        recoverability = "adjust_scope"
+        summary = "本次任务已达到预设的运行资源上限。"
+        action = "缩小目标或提高任务预算后，从已保存进度继续。"
+    elif reason == "stage_execution_failure_budget_exhausted":
+        category = "stage_execution"
+        summary = "当前阶段多次尝试仍未满足完成条件，系统已停止重复执行。"
+        action = "补充约束或调整任务要求后，从已保存进度继续。"
+    preserved = (
+        f"已保留 {passed_stages} 个已通过阶段、{run.evidence_count} 条来源与结果、"
+        f"{run.artifact_count} 个成果。"
+    )
+    return MissionFailurePayload(
+        category=category,
+        user_summary=summary,
+        recoverability=recoverability,
+        preserved_progress=preserved,
+        recommended_action=action,
+        failed_at=run.completed_at or run.updated_at,
     )
 
 def _review_selection_revision(
@@ -1254,16 +1403,52 @@ def _stage_projection_title(
 
 def _project_subagents(
     run: MissionRunRecord,
+    records: list[MissionItemRecord],
 ) -> tuple[str | None, list[MissionSubagentSummaryPayload]]:
     team_summary = _text(run.snapshot_json.get("team_summary"))
     raw = run.snapshot_json.get("subagent_summary")
     summary = raw if isinstance(raw, dict) else {}
     latest = summary.get("latest")
-    rows = latest if isinstance(latest, list) else []
+    snapshot_rows = latest if isinstance(latest, list) else []
+    inflight = run.snapshot_json.get("inflight_operation")
+    active_operation_id = (
+        str(inflight.get("operation_id") or "")
+        if isinstance(inflight, dict) and inflight.get("kind") == "subagent"
+        else ""
+    )
+    progress_by_job: dict[str, MissionItemRecord] = {}
+    if active_operation_id:
+        for record in records:
+            if (
+                record.item_type != "subagent_progress"
+                or record.operation_id != active_operation_id
+            ):
+                continue
+            job_id = _text((record.payload_json or {}).get("job_id"))
+            if job_id:
+                progress_by_job[job_id] = record
+    rows: list[dict[str, Any]] = []
+    if progress_by_job:
+        for record in progress_by_job.values():
+            payload = dict(record.payload_json or {})
+            lifecycle_phase = _text(payload.get("lifecycle_phase")) or "progress"
+            rows.append(
+                {
+                    "job_id": payload.get("job_id"),
+                    "display_name": payload.get("display_name"),
+                    "role_label": payload.get("role_label"),
+                    "status": (
+                        payload.get("status")
+                        if lifecycle_phase == "terminal"
+                        else "working"
+                    ),
+                    "result_brief": record.summary,
+                }
+            )
+    else:
+        rows = [row for row in snapshot_rows if isinstance(row, dict)]
     projected: list[MissionSubagentSummaryPayload] = []
     for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            continue
         raw_status = _text(row.get("status")) or "working"
         status = {
             "pending": "queued",
@@ -1282,10 +1467,24 @@ def _project_subagents(
                 display_name=_text(row.get("display_name")) or f"研究成员 {index + 1}",
                 role_label=_public_subagent_role(row.get("role_label")),
                 status=status,
-                summary=_text(row.get("result_brief")),
+                summary=_public_subagent_summary(row.get("result_brief")),
             )
         )
     return team_summary, projected
+
+
+def _public_subagent_summary(value: object) -> str | None:
+    summary = _text(value)
+    if not summary:
+        return None
+    known_runtime_messages = {
+        "Subagent exhausted its model-turn budget": "达到本轮分析步数上限，已保留可用进度。",
+        "Subagent exhausted its tool-step budget": "达到本轮工具调用上限，已保留可用进度。",
+        "Subagent exhausted its retries for structured model output": "结构化结果多次未通过校验，已保留可用进度。",
+        "Subagent model step failed": "模型分析步骤未完成，已保留此前进度。",
+    }
+    return known_runtime_messages.get(summary, summary)
+
 
 def _public_subagent_role(value: object) -> str:
     label = _text(value)
@@ -1318,6 +1517,13 @@ def _project_artifact(
     committed_review_ids: set[str],
 ) -> MissionArtifactSummaryPayload:
     preview = record.preview_json or {}
+    materialization = preview.get("materialization")
+    operation = (
+        str(materialization.get("operation") or "")
+        if isinstance(materialization, dict)
+        else ""
+    )
+    committed = record.status == "committed" or record.review_item_id in committed_review_ids
     return MissionArtifactSummaryPayload(
         item_id=record.review_item_id,
         seq=record.source_item_seq or 0,
@@ -1325,7 +1531,8 @@ def _project_artifact(
         kind=_text(preview.get("artifact_kind")) or record.target_kind,
         summary=record.summary,
         preview_available=bool(record.preview_ref or preview),
-        committed=record.status == "committed" or record.review_item_id in committed_review_ids,
+        committed=committed,
+        download_available=committed and operation == "assets.create_from_preview",
     )
 
 def _project_quality_highlights(run: MissionRunRecord) -> list[str]:

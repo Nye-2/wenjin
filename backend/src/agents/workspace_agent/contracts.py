@@ -176,12 +176,27 @@ class WorkspaceAgentContext(StrictContract):
     def policy_hint(self, policy_id: str) -> MissionPolicyHint | None:
         return next((hint for hint in self.policy_hints if hint.policy_id == policy_id), None)
 
-    def select_mission_inputs(self, input_refs: tuple[str, ...]) -> tuple[MissionInputManifest, ...]:
+    def select_mission_inputs(
+        self,
+        input_refs: tuple[str, ...],
+        *,
+        include_current: bool = False,
+    ) -> tuple[MissionInputManifest, ...]:
         available = {item.input_ref: item for item in self.mission_inputs}
         missing = [ref for ref in input_refs if ref not in available]
         if missing:
             raise ValueError("selected Mission input is unavailable in this conversation")
-        return tuple(available[ref] for ref in input_refs)
+        selected_refs = list(dict.fromkeys(input_refs))
+        if include_current:
+            selected_refs.extend(
+                context.input_ref
+                for context in self.attachment_contexts
+                if context.current_message
+                and context.status == "ready"
+                and context.input_ref in available
+                and context.input_ref not in selected_refs
+            )
+        return tuple(available[ref] for ref in selected_refs)
 
 
 AgentAction = Annotated[

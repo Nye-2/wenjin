@@ -17,7 +17,10 @@ from src.dataservice.domains.mission._store_core import (
     _project_activity,
     _project_artifact,
     _project_attention_request,
+    _project_current_operation,
     _project_evidence,
+    _project_failure,
+    _project_input_summary,
     _project_quality_highlights,
     _project_review_view_item,
     _project_stages,
@@ -388,6 +391,23 @@ class MissionQueryOperations:
             mission_id=mission_id,
             seqs=tuple(record.source_item_seq for record in visible_review_records if record.status == "pending" and record.source_item_seq is not None),
         )
+        activity_records = await self.repository.list_items(
+            mission_id=mission_id,
+            after_seq=max(0, run.last_item_seq - 100),
+            limit=100,
+        )
+        inflight = (run.snapshot_json or {}).get("inflight_operation")
+        inflight_seq = int(inflight.get("call_item_seq") or 0) if isinstance(inflight, dict) else 0
+        if inflight_seq and all(record.seq != inflight_seq for record in activity_records):
+            activity_records = [
+                *(
+                    await self.repository.list_items_by_seqs(
+                        mission_id=mission_id,
+                        seqs=(inflight_seq,),
+                    )
+                ),
+                *activity_records,
+            ]
         review_counts = {status: 0 for status in _REVIEW_TRANSITIONS}
         review_counts.update(dict(review_status_counts))
         commit_counts = {status: 0 for status in ("pending", "applying", "committed", "failed", "cancelled")}
@@ -397,7 +417,8 @@ class MissionQueryOperations:
             run,
             observed_stage_ids=[record.stage_id for record in pending_review_sources if record.stage_id is not None],
         )
-        team_summary, subagents = _project_subagents(run)
+        passed_stage_count = sum(1 for stage in stage_summaries if stage.status == "passed")
+        team_summary, subagents = _project_subagents(run, activity_records)
         committed_review_ids = {record.review_item_id for record in commit_records if record.status == "committed"}
         commits_by_review_item = {
             str(record.review_item_id): record for record in commit_records
@@ -405,7 +426,13 @@ class MissionQueryOperations:
         projection_now = datetime.now(UTC)
         return MissionViewPayload(
             mission=mission_run_to_view_payload(run),
-            activity=_project_activity(run),
+            activity=_project_activity(
+                run,
+                last_progress_at=(activity_records[-1].created_at if activity_records else run.started_at),
+            ),
+            current_operation=_project_current_operation(run, activity_records),
+            input_summary=_project_input_summary(run),
+            failure=_project_failure(run, passed_stages=passed_stage_count),
             attention_request=_project_attention_request(run),
             review_summary=MissionReviewSummaryPayload(**review_counts),
             commit_summary=MissionCommitSummaryPayload(**commit_counts),

@@ -141,8 +141,6 @@ class SubagentJobSpec(_FrozenModel):
             raise ValueError("context_reads must resolve selected_refs")
         if not {item.tool_name for item in self.context_reads}.issubset(self.allowed_tools):
             raise ValueError("context_reads must use allowed_tools")
-        if len(self.context_reads) > self.budget.max_tool_steps:
-            raise ValueError("context_reads exceed max_tool_steps")
         return self
 
 
@@ -170,18 +168,29 @@ class SubagentToolResult(_FrozenModel):
 
 
 class SubagentAction(_FrozenModel):
-    kind: Literal["tool", "complete", "stop"]
+    kind: Literal["tool", "progress", "complete", "stop"]
     summary: str = Field(min_length=1, max_length=4_000)
     tool_name: str | None = Field(default=None, max_length=160)
     arguments: dict[str, Any] = Field(default_factory=dict)
     result_json: dict[str, Any] = Field(default_factory=dict)
     partial_result_json: dict[str, Any] = Field(default_factory=dict)
+    progress_kind: Literal["finding", "formula", "file", "figure", "checkpoint"] | None = None
     stop_reason: SubagentStopReason | None = None
 
     @model_validator(mode="after")
     def validate_action(self) -> SubagentAction:
         if self.kind == "tool" and not self.tool_name:
             raise ValueError("tool action requires tool_name")
+        if self.kind != "tool" and self.tool_name is not None:
+            raise ValueError("only tool actions may select tool_name")
+        if self.kind == "progress" and self.progress_kind is None:
+            raise ValueError("progress action requires progress_kind")
+        if self.kind != "progress" and self.progress_kind is not None:
+            raise ValueError("progress_kind is only valid for progress actions")
+        if self.kind == "progress" and (
+            self.arguments or self.result_json or self.partial_result_json
+        ):
+            raise ValueError("progress actions may contain only a bounded milestone")
         if self.kind == "complete" and self.stop_reason not in {None, SubagentStopReason.NORMAL}:
             raise ValueError("complete action can only use normal stop_reason")
         if self.kind == "stop" and self.stop_reason is None:

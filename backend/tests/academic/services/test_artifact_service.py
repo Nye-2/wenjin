@@ -48,7 +48,6 @@ class FixtureWorkspace(Base):
     user_id = Column(String(36), nullable=False)
     name = Column(String(255), nullable=False)
     type = Column(String(20), nullable=False)
-    discipline = Column(String(100), nullable=True)
 
 
 # Use in-memory SQLite for testing
@@ -92,7 +91,6 @@ async def test_workspace(db_session):
         user_id="test-user-1",
         name="Test Workspace",
         type="sci",
-        discipline="computer_science",
     )
     db_session.add(workspace)
     await db_session.commit()

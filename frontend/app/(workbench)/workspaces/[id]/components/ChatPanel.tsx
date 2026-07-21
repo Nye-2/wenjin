@@ -69,6 +69,7 @@ interface ChatPanelProps {
 export interface ChatPanelHandle {
   focusComposer(): void;
   openAttachment(): void;
+  prefillComposer(value: string): void;
 }
 
 function cleanModelLabel(label: string): string {
@@ -344,6 +345,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
           pendingAttachmentOpenRef.current = true;
         }
       },
+      prefillComposer: (value: string) => {
+        setInputValue((current) => (current.trim() ? current : value));
+        textareaRef.current?.focus();
+      },
     }),
     [threadId],
   );
@@ -463,7 +468,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
   function handleSubmit() {
     const trimmed = inputValue.trim();
     if ((!trimmed && attachments.length === 0) || isSending || attachmentUploading) return;
-    const content = trimmed || "请查看我上传的材料。";
+    const content = trimmed || "请先判断这些材料要解决什么问题，说明推荐的方法和下一步，并问我是否开始。";
     setInputValue("");
     const currentAttachments = [...attachments];
     const currentPrismContext = prismContextRef;

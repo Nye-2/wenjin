@@ -169,8 +169,21 @@ class CreateArtifactCandidateInput(MissionToolInput):
             "read receipt is not a durable artifact ref."
         ),
     )
-    mime_type: Literal["text/markdown"] = "text/markdown"
+    mime_type: Literal[
+        "text/markdown",
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/zip",
+    ] = "text/markdown"
     preview_text: str = Field(min_length=1, max_length=160_000)
+    sandbox_artifact_ref: str | None = Field(
+        default=None,
+        pattern=r"^sandbox-artifact:[0-9a-f]{64}$",
+        description="Verified Sandbox artifact backing a downloadable non-Markdown candidate.",
+    )
+    filename: str | None = Field(default=None, min_length=1, max_length=255)
     metadata: dict[str, str | int | float | bool | None] = Field(
         default_factory=dict,
         description=(
@@ -198,6 +211,20 @@ class CreateArtifactCandidateInput(MissionToolInput):
                 "source refs must use canonical reference syntax",
             )
         return value
+
+    @model_validator(mode="after")
+    def validate_candidate_payload(self) -> CreateArtifactCandidateInput:
+        if self.mime_type == "text/markdown":
+            if self.sandbox_artifact_ref is not None or self.filename is not None:
+                raise ValueError("Markdown candidates cannot declare a Sandbox file")
+            return self
+        if self.sandbox_artifact_ref is None or self.filename is None:
+            raise ValueError("downloadable file candidates require sandbox_artifact_ref and filename")
+        if self.sandbox_artifact_ref not in self.source_refs:
+            raise ValueError("downloadable file candidate must retain its Sandbox artifact provenance")
+        if self.filename != self.filename.strip() or self.filename in {".", ".."} or "/" in self.filename or "\\" in self.filename:
+            raise ValueError("downloadable file candidate filename must be a safe basename")
+        return self
 
 
 class ReadArtifactCandidateInput(MissionToolInput):

@@ -17,7 +17,6 @@ def test_workspace_to_response_accepts_dataservice_workspace_record() -> None:
         created_by_user_id="user-1",
         name="Research Workspace",
         workspace_type=WorkspaceType.SCI,
-        discipline="computer_science",
         description="Paper workbench",
         settings_json={"language": "zh"},
         created_at=created_at,

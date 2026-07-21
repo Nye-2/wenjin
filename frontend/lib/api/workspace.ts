@@ -168,7 +168,7 @@ export async function uploadReferenceFile(
 
 export async function importLiteratureSearchReferences(
   workspaceId: string,
-  data: { query: string; discipline?: string | null; limit?: number }
+  data: { query: string; limit?: number }
 ): Promise<ReferenceImportResponse> {
   const response = await apiClient.post(
     `/workspaces/${workspaceId}/references/import/literature-search`,

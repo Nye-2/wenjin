@@ -19,7 +19,11 @@ from src.mission_runtime.adapters import (
     StageContractResolver,
     ToolPolicyResolver,
 )
-from src.mission_runtime.contracts import MissionSliceLimits
+from src.mission_runtime.contracts import (
+    MISSION_MODEL_COMPLETION_MARGIN_SECONDS,
+    SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS,
+    MissionSliceLimits,
+)
 from src.mission_runtime.ports import (
     MissionAgentPort,
     MissionEventPublisherPort,
@@ -159,9 +163,12 @@ def compose_mission_runtime(
                 ),
             ),
         )
-        if required_budget > limits.wall_time_seconds:
+        if required_budget > (
+            limits.wall_time_seconds - limits.shutdown_margin_seconds
+        ):
             raise MissionCompositionConfigurationError(
-                f"Tool execution budget exceeds the durable Mission slice: {descriptor.tool_id}"
+                "Tool execution budget exceeds the safe durable Mission window: "
+                f"{descriptor.tool_id}"
             )
         if required_budget > operation_ttl_seconds:
             raise MissionCompositionConfigurationError(
@@ -183,6 +190,16 @@ def compose_mission_runtime(
         tools=subagent_tools,
         max_concurrency=dependencies.subagent_max_concurrency,
         max_jobs_per_batch=dependencies.subagent_max_jobs_per_batch,
+        model_call_timeout_seconds=(
+            SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS
+            if dependencies.subagent_model is None
+            else 0.0
+        ),
+        model_call_completion_margin_seconds=(
+            MISSION_MODEL_COMPLETION_MARGIN_SECONDS
+            if dependencies.subagent_model is None
+            else 0.0
+        ),
     )
     quality = StageAcceptanceAdapter(
         contracts=dependencies.stage_contract_resolver,

@@ -7,7 +7,6 @@ export interface Workspace {
   user_id: string;
   name: string;
   type: WorkspaceType;
-  discipline?: string;
   description?: string;
   config: Record<string, unknown>;
   created_at: string;
@@ -156,7 +155,6 @@ export interface WorkspacePrismContextSummary {
 export interface WorkspaceCreate {
   name: string;
   type: string;
-  discipline?: string;
   description?: string;
   config?: Record<string, unknown>;
 }

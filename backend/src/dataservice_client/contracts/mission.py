@@ -894,6 +894,38 @@ class MissionActivityPayload(_StrictModel):
     summary: str | None = Field(default=None, max_length=1000)
     attempt: int | None = Field(default=None, ge=1)
     retry_at: datetime | None = None
+    last_progress_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+
+
+class MissionCurrentOperationPayload(_StrictModel):
+    kind: Literal["planning", "model", "tool", "subagent", "quality", "review"]
+    label: str = Field(min_length=1, max_length=300)
+    actor: str = Field(min_length=1, max_length=160)
+    started_at: datetime
+    attempt: int = Field(default=1, ge=1)
+
+
+class MissionInputSummaryPayload(_StrictModel):
+    total: int = Field(ge=0)
+    ready: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    names: list[str] = Field(default_factory=list, max_length=32)
+
+
+class MissionFailurePayload(_StrictModel):
+    category: Literal[
+        "model_service",
+        "usage_reconciliation",
+        "resource_budget",
+        "stage_execution",
+        "runtime",
+    ]
+    user_summary: str = Field(min_length=1, max_length=1000)
+    recoverability: Literal["continue_in_chat", "retry_later", "adjust_scope"]
+    preserved_progress: str = Field(min_length=1, max_length=1000)
+    recommended_action: str = Field(min_length=1, max_length=1000)
+    failed_at: datetime
 
 
 class MissionSubagentSummaryPayload(_StrictModel):
@@ -930,6 +962,7 @@ class MissionArtifactSummaryPayload(_StrictModel):
     summary: str | None = None
     preview_available: bool = False
     committed: bool = False
+    download_available: bool = False
 
 
 class MissionReviewPolicyPayload(_StrictModel):
@@ -1009,6 +1042,9 @@ class MissionArtifactPagePayload(_StrictModel):
 class MissionViewPayload(_StrictModel):
     mission: MissionViewRunPayload
     activity: MissionActivityPayload
+    current_operation: MissionCurrentOperationPayload | None
+    input_summary: MissionInputSummaryPayload
+    failure: MissionFailurePayload | None
     attention_request: MissionAttentionRequestPayload | None
     review_summary: MissionReviewSummaryPayload
     commit_summary: MissionCommitSummaryPayload

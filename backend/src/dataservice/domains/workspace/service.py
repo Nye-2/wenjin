@@ -51,7 +51,6 @@ class DataServiceWorkspaceService:
             created_by_user_id=command.created_by_user_id,
             name=command.name,
             workspace_type=command.workspace_type,
-            discipline=command.discipline,
             description=command.description,
             settings_json=settings_json,
         )
@@ -136,8 +135,6 @@ class DataServiceWorkspaceService:
             workspace.name = command.name
         if command.workspace_type is not None:
             workspace.type = normalize_workspace_type(command.workspace_type)
-        if "discipline" in command.model_fields_set:
-            workspace.discipline = command.discipline
         if "description" in command.model_fields_set:
             workspace.description = command.description
 
@@ -253,7 +250,6 @@ class DataServiceWorkspaceService:
             created_by_user_id=str(workspace.user_id),
             name=workspace.name,
             workspace_type=workspace.type,
-            discipline=workspace.discipline,
             description=workspace.description,
             settings_json=settings_json,
             active_thread_id=workspace.thread_id,

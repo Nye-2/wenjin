@@ -41,6 +41,9 @@ function missionView(overrides: Partial<MissionView> = {}): MissionView {
     lastItemSeq: 1,
     stateVersion: 1,
     ...overrides,
+    currentOperation: overrides.currentOperation ?? null,
+    inputSummary: overrides.inputSummary ?? { total: 0, ready: 0, failed: 0, names: [] },
+    failure: overrides.failure ?? null,
   };
 }
 

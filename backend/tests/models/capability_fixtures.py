@@ -30,7 +30,7 @@ def verified_capability_assessment(
     """Build deterministic test evidence; production can only use the live probe."""
 
     resolved_model_name = model_name or model_id
-    observed = (observed_at or datetime(2026, 7, 14, tzinfo=UTC)).astimezone(UTC)
+    observed = (observed_at or datetime.now(UTC)).astimezone(UTC)
     search_fingerprint = native_search_endpoint_fingerprint(base_url)
     passed_checks = (
         "structured_tool_calls",

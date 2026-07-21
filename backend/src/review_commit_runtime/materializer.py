@@ -25,9 +25,14 @@ from .preview_store import copy_preview_to_asset
 
 _ASSET_SUFFIX_BY_MIME = {
     "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/zip": ".zip",
     "image/png": ".png",
     "image/svg+xml": ".svg",
     "image/webp": ".webp",
+    "text/csv": ".csv",
 }
 _PRISM_FILE_REF_PATTERN = re.compile(r"^prism-file:([A-Za-z0-9-]+)$")
 
@@ -185,7 +190,9 @@ class MissionDomainWriter:
             raise ValueError("workspace_asset_mime_type_mismatch")
 
         suffix = _ASSET_SUFFIX_BY_MIME[requested_mime]
-        relative_path = Path("generated_visuals") / expected_hash[:2] / f"{expected_hash}{suffix}"
+        asset_kind = str(payload.get("asset_kind") or "academic_visual")
+        bucket = "generated_visuals" if asset_kind == "academic_visual" else "generated_files"
+        relative_path = Path(bucket) / expected_hash[:2] / f"{expected_hash}{suffix}"
         destination = self._workspace_asset_root / normalize_path_component(workspace_id) / relative_path
         copy_preview_to_asset(preview.content, destination, expected_hash=expected_hash)
         name = Path(str(payload.get("name") or descriptor.filename)).name
@@ -194,13 +201,17 @@ class MissionDomainWriter:
         metadata = {
             **dict(payload.get("metadata_json") or {}),
             **provenance,
-            "generated_by": "wenjin_academic_visual",
+            "generated_by": (
+                "wenjin_academic_visual"
+                if asset_kind == "academic_visual"
+                else "wenjin_mission_file"
+            ),
             "preview_content_hash": descriptor.content_hash,
         }
         asset = await self._dataservice.register_asset(
             WorkspaceAssetCreatePayload(
                 workspace_id=workspace_id,
-                asset_kind=str(payload.get("asset_kind") or "academic_visual"),
+                asset_kind=asset_kind,
                 name=name,
                 title=str(payload.get("title") or "") or None,
                 mime_type=requested_mime,

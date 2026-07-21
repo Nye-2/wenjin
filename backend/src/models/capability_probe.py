@@ -41,6 +41,10 @@ from src.tools.orchestrator.frames import parse_chat_completions_tool_calls
 
 _PROBE_TOOL_NAME = "wenjin_capability_nonce"
 _PROBE_NONCE = "WENJIN-PROBE"
+_PROBE_IMAGE_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 @dataclass(frozen=True)
@@ -244,6 +248,23 @@ async def probe_model_capabilities(
 
     protocol_conformance = strict_ok and stream_ok
     checks.append(_check("response_storage_disabled", protocol_conformance))
+    try:
+        await selected_transport.post_json(
+            url=url,
+            headers=headers,
+            payload=_vision_payload(target.model_name),
+            timeout_seconds=target.timeout_seconds,
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        checks.append(
+            _check(
+                "vision",
+                False,
+                detail_code=f"{exc.__class__.__name__}:vision_probe_failed",
+            )
+        )
+    else:
+        checks.append(_check("vision", protocol_conformance))
     for effort in ReasoningEffort:
         try:
             await selected_transport.post_json(
@@ -410,6 +431,27 @@ def _reasoning_payload(model_name: str, effort: ReasoningEffort) -> dict[str, An
         "model": model_name,
         "messages": [{"role": "user", "content": "Reply with OK."}],
         "reasoning_effort": effort.value,
+        "store": False,
+        "max_tokens": 32,
+    }
+
+
+def _vision_payload(model_name: str) -> dict[str, Any]:
+    return {
+        "model": model_name,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Reply with OK."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": _PROBE_IMAGE_DATA_URL, "detail": "low"},
+                    },
+                ],
+            }
+        ],
+        "reasoning_effort": "low",
         "store": False,
         "max_tokens": 32,
     }

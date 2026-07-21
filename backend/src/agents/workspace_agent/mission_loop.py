@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agents.workspace_agent.prompts import render_workspace_mission_prompt
+from src.contracts.archive_filename import recover_legacy_zip_filename
 from src.contracts.model_usage import ModelUsage, ModelUsageReceipt
 from src.contracts.stage_acceptance import (
     StageAcceptanceContract,
@@ -497,6 +498,7 @@ def _render_mission_state(context: MissionLoopContext) -> str:
     )
     payload = {
         "mission": _agent_mission_projection(context.mission),
+        "mission_input_inventory": _mission_input_inventory(context.mission),
         "pending_commands": [_agent_item_projection(item) for item in context.pending_commands],
         "recent_items": [_agent_item_projection(item) for item in context.recent_items[-24:]],
         "quality_reference_inventory": _quality_reference_inventory(
@@ -509,6 +511,31 @@ def _render_mission_state(context: MissionLoopContext) -> str:
         },
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _mission_input_inventory(mission: MissionRunPayload) -> list[dict[str, object]]:
+    raw_inputs = mission.snapshot_json.get("mission_inputs")
+    inventory: list[dict[str, object]] = []
+    for raw in raw_inputs if isinstance(raw_inputs, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        input_ref = str(raw.get("input_ref") or "")
+        if not input_ref.startswith("mission-input:"):
+            continue
+        inventory.append(
+            {
+                "input_ref": input_ref,
+                "filename": recover_legacy_zip_filename(str(raw.get("filename") or "")),
+                "member_path": (
+                    recover_legacy_zip_filename(str(raw.get("member_path") or ""))
+                    or None
+                ),
+                "extractor": str(raw.get("extractor") or ""),
+                "text_chars": int(raw.get("text_chars") or 0),
+                "status": "ready",
+            }
+        )
+    return inventory
 
 
 def _agent_mission_projection(mission: MissionRunPayload) -> dict[str, Any]:

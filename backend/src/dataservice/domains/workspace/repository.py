@@ -30,7 +30,6 @@ class WorkspaceRepository:
         created_by_user_id: str,
         name: str,
         workspace_type: WorkspaceType,
-        discipline: str | None,
         description: str | None,
         settings_json: dict[str, Any],
     ) -> Workspace:
@@ -38,7 +37,6 @@ class WorkspaceRepository:
             user_id=created_by_user_id,
             name=name,
             type=workspace_type,
-            discipline=discipline,
             description=description,
             config=settings_json,
         )

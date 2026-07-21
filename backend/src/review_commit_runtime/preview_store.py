@@ -10,10 +10,13 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import struct
+import zipfile
 import zlib
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from io import BytesIO
+from pathlib import Path, PurePosixPath
 from typing import Any
 from xml.etree import ElementTree
 
@@ -23,9 +26,19 @@ from .contracts import PreviewObject, PreviewObjectDescriptor
 
 _ALLOWED_MIME_TYPES = {
     "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/zip": ".zip",
     "image/png": ".png",
     "image/svg+xml": ".svg",
     "image/webp": ".webp",
+    "text/csv": ".csv",
+}
+_OOXML_REQUIRED_PART = {
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "ppt/presentation.xml",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xl/workbook.xml",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "word/document.xml",
 }
 _REF_RE = re.compile(r"^mpv1_[A-Za-z0-9_-]{32}$")
 _SVG_BLOCKED_TAGS = {"script", "style", "foreignObject", "iframe", "object", "embed"}
@@ -259,6 +272,16 @@ def _sanitize_content(content: bytes, mime_type: str, *, maximum: int) -> bytes:
         raise ValueError("preview_object_size_invalid")
     if mime_type == "image/svg+xml":
         return _sanitize_svg(content)
+    if mime_type in {*_OOXML_REQUIRED_PART, "application/zip"}:
+        return _sanitize_zip_package(content, mime_type)
+    if mime_type == "text/csv":
+        if b"\x00" in content:
+            raise ValueError("preview_csv_invalid")
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("preview_csv_invalid") from exc
+        return bytes(content)
     _validate_content_signature(content, mime_type)
     if mime_type == "image/png":
         return _sanitize_png(content)
@@ -266,6 +289,54 @@ def _sanitize_content(content: bytes, mime_type: str, *, maximum: int) -> bytes:
         return _sanitize_webp(content)
     if mime_type == "application/pdf" and any(marker in content for marker in _PDF_ACTIVE_MARKERS):
         raise ValueError("preview_pdf_active_content_denied")
+    return bytes(content)
+
+
+def _sanitize_zip_package(content: bytes, mime_type: str) -> bytes:
+    try:
+        archive = zipfile.ZipFile(BytesIO(content))
+    except zipfile.BadZipFile:
+        raise ValueError("preview_zip_invalid") from None
+    total_size = 0
+    names: set[str] = set()
+    try:
+        entries = archive.infolist()
+        if not entries or len(entries) > 4096:
+            raise ValueError("preview_zip_invalid")
+        for entry in entries:
+            raw_name = str(entry.filename or "")
+            path = PurePosixPath(raw_name)
+            if (
+                not raw_name
+                or "\x00" in raw_name
+                or "\\" in raw_name
+                or path.is_absolute()
+                or any(part in {"", ".", ".."} for part in path.parts)
+            ):
+                raise ValueError("preview_zip_unsafe_path")
+            normalized = path.as_posix()
+            if normalized in names:
+                raise ValueError("preview_zip_duplicate_path")
+            names.add(normalized)
+            if entry.flag_bits & 0x1:
+                raise ValueError("preview_zip_encrypted")
+            if stat.S_IFMT(entry.external_attr >> 16) == stat.S_IFLNK:
+                raise ValueError("preview_zip_symlink_denied")
+            if entry.file_size > 32 * 1024 * 1024:
+                raise ValueError("preview_zip_expansion_invalid")
+            total_size += entry.file_size
+            if total_size > 128 * 1024 * 1024:
+                raise ValueError("preview_zip_expansion_invalid")
+            lowered = normalized.lower()
+            if "vbaproject.bin" in lowered or "/activex/" in f"/{lowered}/":
+                raise ValueError("preview_office_active_content_denied")
+        required = _OOXML_REQUIRED_PART.get(mime_type)
+        if required is not None and ({"[Content_Types].xml", required} - names):
+            raise ValueError("preview_content_type_mismatch")
+        if archive.testzip() is not None:
+            raise ValueError("preview_zip_invalid")
+    finally:
+        archive.close()
     return bytes(content)
 
 
@@ -351,6 +422,8 @@ def _validate_content_signature(content: bytes, mime_type: str) -> None:
     if mime_type == "image/webp" and not (content.startswith(b"RIFF") and content[8:12] == b"WEBP"):
         raise ValueError("preview_content_type_mismatch")
     if mime_type == "application/pdf" and not content.startswith(b"%PDF-"):
+        raise ValueError("preview_content_type_mismatch")
+    if mime_type in {*_OOXML_REQUIRED_PART, "application/zip"} and not content.startswith(b"PK"):
         raise ValueError("preview_content_type_mismatch")
     if mime_type == "image/svg+xml":
         try:
