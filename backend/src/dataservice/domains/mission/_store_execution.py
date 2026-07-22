@@ -682,9 +682,18 @@ class MissionExecutionOperations:
         command: MissionOperationClaimPayload,
     ) -> MissionOperationClaimResultPayload:
         run = await self._locked_run(mission_id)
-        model_call_issues = self._model_call_issue_ids(
-            await self._model_call_states(run)
-        )
+        model_call_states = await self._model_call_states(run)
+        if command.model_call_job_id is None:
+            model_call_issues = self._model_call_issue_ids(model_call_states)
+        else:
+            scoped_states = []
+            for state in model_call_states:
+                started = ModelCallStartedPayload.model_validate(
+                    state.started.payload_json
+                )
+                if started.job_id in {None, command.model_call_job_id}:
+                    scoped_states.append(state)
+            model_call_issues = self._model_call_issue_ids(scoped_states)
         if model_call_issues:
             raise DataServiceConflictError(
                 "Mission model calls must be closed before operation dispatch",

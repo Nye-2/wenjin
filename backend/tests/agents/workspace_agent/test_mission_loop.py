@@ -443,7 +443,7 @@ def test_mission_loop_maps_typed_subagent_jobs_to_runtime_scope() -> None:
                                     "max_turns": 4,
                                     "max_tool_steps": 0,
                                     "max_context_bytes": 96000,
-                                    "max_result_bytes": 64000,
+                                    "max_result_bytes": 48000,
                                 },
                             }
                         ],

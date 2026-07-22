@@ -375,6 +375,38 @@ async def list_mission_evidence(
     return payload
 
 
+@router.get("/missions/{mission_id}/review-items")
+async def list_mission_review_projection(
+    mission_id: str,
+    cursor: str | None = Query(default=None, min_length=1, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> dict[str, Any]:
+    await _owned_run(
+        mission_id,
+        user_id=str(current_user.id),
+        dataservice=dataservice,
+    )
+    page = await dataservice.missions.list_review_projection(
+        mission_id,
+        cursor=cursor,
+        limit=limit,
+    )
+    if page is None:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    payload = page.model_dump(mode="json")
+    for item in payload.get("items", []):
+        has_binary_preview = bool(item.pop("preview_ref", None))
+        item["preview_url"] = (
+            f"/api/missions/{mission_id}/review-items/"
+            f"{item['review_item_id']}/preview"
+            if has_binary_preview
+            else None
+        )
+    return payload
+
+
 @router.get("/missions/{mission_id}/artifacts/{review_item_id}/download")
 async def download_mission_artifact(
     mission_id: str,
@@ -425,6 +457,7 @@ async def download_mission_artifact(
 async def list_mission_artifacts(
     mission_id: str,
     cursor: int = Query(default=0, ge=0),
+    tiebreaker: str = Query(default="", max_length=36),
     limit: int = Query(default=50, ge=1, le=200),
     current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
@@ -437,6 +470,7 @@ async def list_mission_artifacts(
     page = await dataservice.missions.list_artifact_projection(
         mission_id,
         after_seq=cursor,
+        after_review_item_id=tiebreaker,
         limit=limit,
     )
     if page is None:
@@ -567,12 +601,17 @@ async def list_mission_trace_items(
                 "producer": item.producer,
                 "summary": _public_trace_summary(
                     item_type=item.item_type,
-                    summary=item.summary,
+                    summary=(
+                        str(item.payload_json.get("public_summary") or "") or None
+                        if item.item_type == "subagent_progress"
+                        else item.summary
+                    ),
                 ),
                 "created_at": item.created_at.isoformat(),
                 "detail_available": bool(item.payload_json or item.payload_ref),
             }
             for item in items
+            if item.item_type != "subagent_action_checkpoint"
         ],
         "next_cursor": items[0].seq if items and items[0].seq > 1 else None,
     }
@@ -591,9 +630,13 @@ async def get_mission_review_preview(
         user_id=str(current_user.id),
         dataservice=dataservice,
     )
-    review_items = await dataservice.missions.list_review_items(mission_id)
-    item = next((candidate for candidate in review_items if candidate.review_item_id == review_item_id), None)
-    if item is None or item.preview_ref is None:
+    item = await dataservice.missions.get_review_item(mission_id, review_item_id)
+    if (
+        item is None
+        or item.review_item_id != review_item_id
+        or item.mission_id != mission_id
+        or item.preview_ref is None
+    ):
         raise HTTPException(status_code=404, detail="Mission preview not found")
     if item.preview_expires_at is not None and item.preview_expires_at <= datetime.now(UTC):
         raise HTTPException(status_code=410, detail="Mission preview expired")
@@ -712,12 +755,21 @@ async def decide_mission_review_items(
     current_user: AccountAuthSubject = Depends(get_current_user),
     runtime: MissionRuntimeService = Depends(_mission_runtime_service),
 ) -> dict[str, Any]:
-    result = await runtime.decide_reviews(
-        mission_id,
-        actor_user_id=str(current_user.id),
-        decision_id=command.decision_id,
-        decisions=command.decisions,
-    )
+    try:
+        result = await runtime.decide_reviews(
+            mission_id,
+            actor_user_id=str(current_user.id),
+            decision_id=command.decision_id,
+            decisions=command.decisions,
+        )
+    except (LookupError, PermissionError) as exc:
+        raise HTTPException(status_code=404, detail="Mission not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DataServiceClientError as exc:
+        from src.gateway.error_mapping import dataservice_client_to_http_exception
+
+        raise dataservice_client_to_http_exception(exc) from exc
     return result.model_dump(mode="json")
 
 
@@ -728,12 +780,21 @@ async def commit_mission_review_items(
     current_user: AccountAuthSubject = Depends(get_current_user),
     runtime: MissionRuntimeService = Depends(_mission_runtime_service),
 ) -> dict[str, Any]:
-    result = await runtime.commit_reviews(
-        mission_id,
-        actor_user_id=str(current_user.id),
-        review_item_ids=tuple(command.review_item_ids),
-        request_id=command.request_id,
-    )
+    try:
+        result = await runtime.commit_reviews(
+            mission_id,
+            actor_user_id=str(current_user.id),
+            review_item_ids=tuple(command.review_item_ids),
+            request_id=command.request_id,
+        )
+    except (LookupError, PermissionError) as exc:
+        raise HTTPException(status_code=404, detail="Mission not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DataServiceClientError as exc:
+        from src.gateway.error_mapping import dataservice_client_to_http_exception
+
+        raise dataservice_client_to_http_exception(exc) from exc
     return result.model_dump(mode="json")
 
 

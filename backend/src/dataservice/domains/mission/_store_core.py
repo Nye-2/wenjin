@@ -1059,9 +1059,15 @@ def _project_review_view_item(
         block_reason = "review_preview_expired"
     error_json = dict(commit.error_json or {}) if commit is not None else {}
     targets_json = dict(commit.targets_json or {}) if commit is not None else {}
+    projected_item = item.model_dump(mode="python")
+    if (
+        record.preview_expires_at is not None
+        and _aware(record.preview_expires_at) <= _aware(now)
+    ):
+        projected_item["preview_ref"] = None
     return MissionReviewViewItemPayload.model_validate(
         {
-            **item.model_dump(mode="python"),
+            **projected_item,
             "commit_status": commit_status,
             "commit_eligible": block_reason is None,
             "commit_block_reason": block_reason,
@@ -1417,6 +1423,7 @@ def _project_subagents(
         else ""
     )
     progress_by_job: dict[str, MissionItemRecord] = {}
+    public_summary_by_job: dict[str, str] = {}
     if active_operation_id:
         for record in records:
             if (
@@ -1427,6 +1434,11 @@ def _project_subagents(
             job_id = _text((record.payload_json or {}).get("job_id"))
             if job_id:
                 progress_by_job[job_id] = record
+                public_summary = _text(
+                    (record.payload_json or {}).get("public_summary")
+                )
+                if public_summary:
+                    public_summary_by_job[job_id] = public_summary
     rows: list[dict[str, Any]] = []
     if progress_by_job:
         for record in progress_by_job.values():
@@ -1442,7 +1454,9 @@ def _project_subagents(
                         if lifecycle_phase == "terminal"
                         else "working"
                     ),
-                    "result_brief": record.summary,
+                    "result_brief": public_summary_by_job.get(
+                        str(payload.get("job_id") or "")
+                    ),
                 }
             )
     else:
@@ -1459,6 +1473,7 @@ def _project_subagents(
             "done": "done",
             "needs_input": "needs_input",
             "failed": "failed",
+            "timed_out": "failed",
             "cancelled": "cancelled",
         }.get(raw_status, "working")
         projected.append(
@@ -1483,7 +1498,12 @@ def _public_subagent_summary(value: object) -> str | None:
         "Subagent exhausted its retries for structured model output": "结构化结果多次未通过校验，已保留可用进度。",
         "Subagent model step failed": "模型分析步骤未完成，已保留此前进度。",
     }
-    return known_runtime_messages.get(summary, summary)
+    known = known_runtime_messages.get(summary)
+    if known is not None:
+        return known
+    if not re.search(r"[\u3400-\u9fff]", summary):
+        return "研究成员已更新本轮进度。"
+    return summary[:500]
 
 
 def _public_subagent_role(value: object) -> str:
@@ -1515,6 +1535,8 @@ def _project_evidence(record: MissionItemRecord) -> MissionEvidenceSummaryPayloa
 def _project_artifact(
     record: MissionReviewItemRecord,
     committed_review_ids: set[str],
+    *,
+    now: datetime,
 ) -> MissionArtifactSummaryPayload:
     preview = record.preview_json or {}
     materialization = preview.get("materialization")
@@ -1530,7 +1552,11 @@ def _project_artifact(
         title=record.title,
         kind=_text(preview.get("artifact_kind")) or record.target_kind,
         summary=record.summary,
-        preview_available=bool(record.preview_ref or preview),
+        preview_available=bool(
+            record.preview_ref
+            and record.preview_expires_at is not None
+            and _aware(record.preview_expires_at) > _aware(now)
+        ),
         committed=committed,
         download_available=committed and operation == "assets.create_from_preview",
     )

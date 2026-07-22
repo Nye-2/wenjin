@@ -93,8 +93,8 @@ Storage rule:
 
 Execution topology:
 
-- Production runs subagent model loops as bounded async child tasks inside the active MissionDriveSlice. Ordinary planning/tool work retains the 180-second slice window; a subagent batch receives one runtime-owned 900-second operation window capped from the original delivery start. There is no independent Celery subagent queue, callback writer, or `subagent_jobs` table.
-- A root-scoped registry enforces mission-level max concurrency, total spawn budget, per-child wall time, and cancellation. Horizontal scale comes from multiple missions/workers, not distributed ownership of one small research team.
+- Production runs subagent model loops as bounded async child tasks inside the active MissionDriveSlice. Ordinary planning/tool work retains the 180-second slice window; a subagent batch receives one runtime-owned 900-second operation window capped from the original delivery start. The Mission Celery worker uses a killable prefork child-process boundary around that combined window. There is no independent Celery subagent queue, callback writer, or `subagent_jobs` table.
+- A root-scoped registry enforces mission-level max concurrency, total spawn budget, per-child wall time, and cancellation. One batch admits at most four jobs, equal to the default concurrency, so a second wave cannot inherit an almost-expired shared deadline. Horizontal scale comes from multiple missions/workers, not distributed ownership of one small research team.
 - Default max spawn depth is `1`: WorkspaceAgent/MissionRuntime may spawn children; children cannot recursively create more subagents. A later depth change is a policy/version change, not prompt freedom.
 - Child context is fresh and bounded by default. Full parent-history fork is forbidden; only the explicit mission checkpoint, stage contract, selected refs, task, tools, and exit criteria are provided.
 - Parent-mediated coordination is the default. Children return structured results to MissionRuntime and do not message siblings or share an unowned mutable scratch bus.
@@ -112,6 +112,8 @@ Subagent context includes:
 - output schema
 - explicit exit criteria
 
+At most 32 selected refs/context reads are admitted. Every hydration read consumes one real tool step and its serialized result bytes consume the worker context budget. Budget allocation reserves the declared hydration reads plus an exploration/synthesis margin; hydration is not a free side channel.
+
 Subagent context must not include:
 
 - full chat transcript
@@ -127,14 +129,15 @@ Subagent steps are MissionItems:
 ```text
 subagent_spawned
 subagent_progress
+subagent_action_checkpoint
 tool_call
 tool_result
 subagent_completed
 ```
 
-These are semantic milestones, not every model/tool delta. Each item carries `operation_id` and an immutable lifecycle phase. Detailed trace uses bounded external refs and can expire without losing mission recovery state.
+These are semantic milestones, not every model/tool delta. Each item carries `operation_id` and an immutable lifecycle phase. `subagent_action_checkpoint` is an internal recovery fact excluded from the public trace: it is appended atomically with the model usage receipt and lets a recovered worker replay the already-paid semantic action without repeating the provider call. Detailed trace uses bounded external refs and can expire without losing mission recovery state.
 
-A worker may explicitly report one `finding`, `formula`, `file`, `figure`, or `checkpoint` milestone after it has a concrete, checkable result. The summary is user-visible and must state the result itself; private reasoning, tentative plans, and filler are forbidden. Duplicate milestone summaries are not persisted twice. Canonical tool results continue to publish their own semantic progress automatically, so workers should not restate them.
+A worker may explicitly report one `finding`, `formula`, `file`, `figure`, or `checkpoint` milestone after it has a concrete, checkable result. The summary is user-visible and must state the result itself; private reasoning, tentative plans, diagnostics, and filler are forbidden. Duplicate milestone summaries are not persisted twice. A completed tool result with durable artifact refs is also public semantic progress. Each public milestone/produced artifact publishes an invalidation only after its MissionItem commit, so Mission Console can refetch immediately without exposing chain-of-thought.
 
 `MissionRuntime` owns `subagent_spawned` and `subagent_completed`. The child ledger appends bounded `subagent_progress` items with `lifecycle_phase`; a terminal progress item contains the result hash, job fingerprint, and structured result so an interrupted parent slice can recover it without rerunning the worker.
 

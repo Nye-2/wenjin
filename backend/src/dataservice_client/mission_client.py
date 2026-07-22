@@ -49,6 +49,7 @@ from src.dataservice_client.contracts.mission import (
     MissionReviewItemsCreatePayload,
     MissionReviewItemsResultPayload,
     MissionReviewPagePayload,
+    MissionReviewViewPagePayload,
     MissionRunnableBatchClaimPayload,
     MissionRunPayload,
     MissionStatsPayload,
@@ -119,6 +120,20 @@ class MissionDataServiceClient:
             else None
         )
 
+    async def get_review_item(
+        self,
+        mission_id: str,
+        review_item_id: str,
+    ) -> MissionReviewItemPayload | None:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/missions/{mission_id}/review-items/{review_item_id}",
+        )
+        return (
+            MissionReviewItemPayload.model_validate(response["data"])
+            if response.get("data")
+            else None
+        )
     async def list_evidence_projection(
         self,
         mission_id: str,
@@ -137,6 +152,23 @@ class MissionDataServiceClient:
             else None
         )
 
+    async def list_review_projection(
+        self,
+        mission_id: str,
+        *,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> MissionReviewViewPagePayload | None:
+        response = await self._request(
+            "GET",
+            f"/internal/v1/missions/{mission_id}/review-projection",
+            params={"cursor": cursor, "limit": limit},
+        )
+        return (
+            MissionReviewViewPagePayload.model_validate(response["data"])
+            if response.get("data")
+            else None
+        )
     async def list_artifact_projection(
         self,
         mission_id: str,

@@ -707,10 +707,12 @@ class MissionRepository:
         self,
         *,
         mission_id: str,
+        after_created_at: datetime | None = None,
+        after_review_item_id: str | None = None,
         limit: int,
     ) -> list[MissionReviewItemRecord]:
         current = _current_review_rows(mission_id)
-        result = await self.session.execute(
+        statement = (
             select(MissionReviewItemRecord)
             .join(
                 current,
@@ -723,7 +725,28 @@ class MissionRepository:
             )
             .limit(limit)
         )
+        if after_created_at is not None and after_review_item_id is not None:
+            statement = statement.where(
+                or_(
+                    MissionReviewItemRecord.created_at > after_created_at,
+                    and_(
+                        MissionReviewItemRecord.created_at == after_created_at,
+                        MissionReviewItemRecord.review_item_id
+                        > after_review_item_id,
+                    ),
+                )
+            )
+        result = await self.session.execute(statement)
         return list(result.scalars())
+
+    async def count_current_review_items(self, *, mission_id: str) -> int:
+        current = _current_review_rows(mission_id)
+        result = await self.session.execute(
+            select(func.count(current.c.review_item_id)).where(
+                current.c.review_rank == 1
+            )
+        )
+        return int(result.scalar_one())
 
     async def aggregate_current_review_statuses(
         self,

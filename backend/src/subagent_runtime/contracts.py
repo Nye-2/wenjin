@@ -76,7 +76,10 @@ class SubagentBudget(_FrozenModel):
     max_turns: int = Field(default=6, ge=1, le=24)
     max_tool_steps: int = Field(default=SUBAGENT_MIN_RUNTIME_TOOL_STEPS, ge=0, le=32)
     max_context_bytes: int = Field(default=96_000, ge=4_096, le=512_000)
-    max_result_bytes: int = Field(default=64_000, ge=1_024, le=512_000)
+    # Results are persisted inline in a bounded MissionItem. Keep the public
+    # contract aligned with the actual durable representation until a real
+    # content-addressed result object is introduced.
+    max_result_bytes: int = Field(default=48 * 1024, ge=1_024, le=48 * 1024)
 
 
 class SubagentContextRead(_FrozenModel):
@@ -102,8 +105,8 @@ class SubagentJobSpec(_FrozenModel):
     input_scope: dict[str, Any] = Field(default_factory=dict)
     context_checkpoint_ref: str | None = Field(default=None, max_length=2_048)
     context_checkpoint: dict[str, Any] = Field(default_factory=dict)
-    selected_refs: tuple[str, ...] = Field(default=(), max_length=100)
-    context_reads: tuple[SubagentContextRead, ...] = Field(default=(), max_length=100)
+    selected_refs: tuple[str, ...] = Field(default=(), max_length=32)
+    context_reads: tuple[SubagentContextRead, ...] = Field(default=(), max_length=32)
     prior_output_briefs: tuple[str, ...] = Field(default=(), max_length=12)
     allowed_tools: tuple[str, ...] = Field(default=(), max_length=64)
     tool_input_schemas: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -217,6 +220,16 @@ class SubagentStep(_FrozenModel):
     summary: str = Field(min_length=1, max_length=2_000)
     tool_name: str | None = None
     payload_ref: str | None = None
+
+
+class SubagentActionCheckpoint(_FrozenModel):
+    """Receipt-adjacent durable semantic result of one worker model turn."""
+
+    job_id: str = Field(min_length=1, max_length=160)
+    operation_id: str = Field(min_length=1, max_length=160)
+    turn: int = Field(ge=1, le=24)
+    job_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: SubagentAction
 
 
 class SubagentJobResult(_FrozenModel):

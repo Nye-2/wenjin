@@ -391,7 +391,16 @@ class MissionLifecycleOperations:
             if command.snapshot_json is not None
             else None
         )
-        records = self._append_drafts(run, command.items, now=now)
+        operation_cancellations: list[MissionItemDraftPayload] = []
+        if command.patch.status is MissionStatus.CANCELLED:
+            operation_cancellations = await self._cancel_open_operation_drafts(
+                mission_id,
+            )
+        records = self._append_drafts(
+            run,
+            [*operation_cancellations, *command.items],
+            now=now,
+        )
         run.last_applied_command_seq = command.through_command_seq
         if prepared_snapshot is not None:
             self._install_prepared_snapshot(run, prepared_snapshot)
@@ -402,6 +411,69 @@ class MissionLifecycleOperations:
             mission=mission_run_to_payload(run),
             items=[mission_item_to_payload(record) for record in records],
         )
+
+    async def _cancel_open_operation_drafts(
+        self,
+        mission_id: str,
+    ) -> list[MissionItemDraftPayload]:
+        """Close every claimed effect before the Mission becomes terminal."""
+
+        async def load(item_type: str) -> list[Any]:
+            records: list[Any] = []
+            after_seq = 0
+            while True:
+                page = await self.repository.list_items(
+                    mission_id=mission_id,
+                    after_seq=after_seq,
+                    item_type=item_type,
+                    limit=100,
+                )
+                records.extend(page)
+                if len(page) < 100:
+                    return records
+                after_seq = page[-1].seq
+
+        claims = await load("operation_claim")
+        terminals = await load("operation_terminal")
+        latest_terminal_seq: dict[str, int] = {}
+        for terminal in terminals:
+            if terminal.operation_id:
+                latest_terminal_seq[terminal.operation_id] = max(
+                    latest_terminal_seq.get(terminal.operation_id, 0),
+                    terminal.seq,
+                )
+        latest_claims: dict[str, Any] = {}
+        for claim in claims:
+            if claim.operation_id:
+                latest_claims[claim.operation_id] = claim
+        drafts: list[MissionItemDraftPayload] = []
+        for operation_key, claim in latest_claims.items():
+            if latest_terminal_seq.get(operation_key, 0) > claim.seq:
+                continue
+            payload = dict(claim.payload_json or {})
+            drafts.append(
+                MissionItemDraftPayload(
+                    item_type="operation_terminal",
+                    operation_id=operation_key,
+                    phase="cancelled",
+                    producer=str(payload.get("claimant") or "mission_runtime"),
+                    summary=f"{payload.get('kind') or 'effect'} operation cancelled",
+                    payload_json={
+                        "kind": payload.get("kind"),
+                        "request_hash": payload.get("request_hash"),
+                        "status": "unknown",
+                        "claimant": payload.get("claimant"),
+                        "lease_epoch": payload.get("lease_epoch"),
+                        "claim_token": payload.get("claim_token"),
+                        "attempt": payload.get("attempt"),
+                        "receipt": {
+                            "reason": "mission_cancelled_before_effect_confirmation"
+                        },
+                        "reference_projection_hash": "",
+                    },
+                )
+            )
+        return drafts
 
     async def pause_run(
         self,

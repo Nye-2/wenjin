@@ -134,7 +134,7 @@ class _ProviderSubagentBudget(BaseModel):
     max_turns: int = Field(ge=1, le=24)
     max_tool_steps: int = Field(ge=0, le=32)
     max_context_bytes: int = Field(ge=4096, le=512_000)
-    max_result_bytes: int = Field(ge=1024, le=512_000)
+    max_result_bytes: int = Field(ge=1024, le=48 * 1024)
 
 
 class _ProviderSubagentJob(BaseModel):
@@ -145,7 +145,7 @@ class _ProviderSubagentJob(BaseModel):
     worker_skill_id: str = Field(min_length=1, max_length=160)
     task_summary: str = Field(min_length=1, max_length=4000)
     task_input_json: str
-    selected_refs: list[str] = Field(max_length=100)
+    selected_refs: list[str] = Field(max_length=32)
     budget: _ProviderSubagentBudget
 
 

@@ -99,7 +99,9 @@ def test_preview_route_is_owned_private_and_never_accepts_raw_ref(tmp_path) -> N
     dataservice = SimpleNamespace(
         missions=SimpleNamespace(
             get=AsyncMock(return_value=run),
-            list_review_items=AsyncMock(return_value=[_item(descriptor.ref, descriptor.content_hash)]),
+            get_review_item=AsyncMock(
+                return_value=_item(descriptor.ref, descriptor.content_hash)
+            ),
         ),
         workspace_has_active_membership=AsyncMock(return_value=True),
     )

@@ -120,6 +120,10 @@ class MissionSliceLimits(_StrictModel):
             )
         if self.wall_time_seconds + self.shutdown_margin_seconds >= self.lease_ttl_seconds:
             raise ValueError("lease_ttl_seconds must outlive the slice and shutdown margin")
+        if self.heartbeat_interval_seconds * 2 >= self.lease_ttl_seconds:
+            raise ValueError(
+                "lease_ttl_seconds must cover at least two heartbeat intervals"
+            )
         return self
 
 

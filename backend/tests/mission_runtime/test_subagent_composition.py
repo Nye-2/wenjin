@@ -107,6 +107,79 @@ async def test_subagent_model_ledger_replay_is_idempotent(runtime_factory) -> No
 
 
 @pytest.mark.asyncio
+async def test_subagent_action_checkpoint_is_atomic_with_usage_and_replayable(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request())
+    initial = await deps["store"].get(receipt.mission_id)
+    assert initial is not None
+    claimed = await deps["store"].claim_lease(
+        receipt.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            expected_state_version=initial.state_version,
+            ttl_seconds=240,
+        ),
+    )
+    job = SubagentJobSpec(
+        job_id="sj-action-checkpoint",
+        operation_id="op-action-checkpoint",
+        mission_id=receipt.mission_id,
+        workspace_id=claimed.workspace_id,
+        model_id=claimed.model_id,
+        reasoning_effort=claimed.reasoning_effort,
+        lease_owner="worker-1",
+        lease_epoch=claimed.lease_epoch,
+        display_name="断点核验员",
+        role_label="运行时核验",
+        task_summary="Persist one action checkpoint",
+        objective=claimed.objective,
+    )
+    action = SubagentAction(
+        kind="complete",
+        summary="checkpointed result",
+        result_json={"summary": "checkpointed result"},
+    )
+    usage = ModelUsageReceipt(
+        model_id=job.model_id,
+        provider_response_id="checkpoint-response",
+        usage=ModelUsage(input_tokens=20, output_tokens=5, total_tokens=25),
+    )
+    ledger = MissionSubagentLedger(deps["store"])
+    model_call_id = "model-call:subagent:" + "d" * 64
+    await ledger.record_model_call_started(
+        job,
+        turn=1,
+        attempt=1,
+        model_call_id=model_call_id,
+    )
+    for _ in range(2):
+        await ledger.record_model_usage_with_action(
+            job,
+            turn=1,
+            attempt=1,
+            model_call_id=model_call_id,
+            usage_receipt=usage,
+            action=action,
+        )
+
+    recovered = await MissionSubagentLedger(
+        deps["store"]
+    ).load_action_checkpoints(job)
+    checkpoint_items = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.item_type == "subagent_action_checkpoint"
+    ]
+
+    assert len(checkpoint_items) == 1
+    assert len(recovered) == 1
+    assert recovered[0].turn == 1
+    assert recovered[0].action == action
+
+
+@pytest.mark.asyncio
 async def test_subagent_terminal_identity_rejects_divergent_replay(
     runtime_factory,
 ) -> None:
@@ -1030,6 +1103,7 @@ async def test_quality_revise_keeps_stage_running_and_records_repair_direction(
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             max_model_turns=1,
             max_tool_steps=4,
         ),

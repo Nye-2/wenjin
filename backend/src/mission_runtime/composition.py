@@ -31,6 +31,7 @@ from src.mission_runtime.ports import (
     MissionStorePort,
     MissionWakeupPublisherPort,
     ReviewCandidatePort,
+    SystemMissionClock,
 )
 from src.mission_runtime.production import (
     CeleryMissionWakeupPublisher,
@@ -89,7 +90,7 @@ class MissionCompositionDependencies:
     subagent_model: SubagentModelPort | None = None
     limits: MissionSliceLimits | None = None
     subagent_max_concurrency: int = 4
-    subagent_max_jobs_per_batch: int = 8
+    subagent_max_jobs_per_batch: int = 4
 
 
 async def build_production_mission_runtime(
@@ -127,7 +128,11 @@ def compose_mission_runtime(
     dependencies: MissionCompositionDependencies,
 ) -> MissionRuntime:
     store = dataservice.missions
-    fence = MissionLeaseFenceAdapter(store)
+    limits = dependencies.limits or MissionSliceLimits()
+    fence = MissionLeaseFenceAdapter(
+        store,
+        lease_ttl_seconds=limits.lease_ttl_seconds,
+    )
     effect_context = MissionEffectContext(
         store=store,
         lease_guard=fence,
@@ -137,7 +142,6 @@ def compose_mission_runtime(
     tool_catalog = dependencies.tool_catalog_factory(effect_context)
     if not tool_catalog.frozen:
         raise MissionCompositionConfigurationError("Mission tool catalog must be assembled and frozen before worker startup")
-    limits = dependencies.limits or MissionSliceLimits()
     operation_ttl_seconds = max(
         5,
         limits.lease_ttl_seconds - int(limits.heartbeat_interval_seconds),
@@ -200,6 +204,8 @@ def compose_mission_runtime(
             if dependencies.subagent_model is None
             else 0.0
         ),
+        events=dependencies.events,
+        clock=SystemMissionClock(),
     )
     quality = StageAcceptanceAdapter(
         contracts=dependencies.stage_contract_resolver,

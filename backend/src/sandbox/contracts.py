@@ -83,7 +83,10 @@ class SandboxResourceLimits(FrozenContract):
     memory_bytes: int = Field(default=1_073_741_824, ge=134_217_728, le=17_179_869_184)
     memory_swap_bytes: int = Field(default=1_073_741_824, ge=134_217_728, le=17_179_869_184)
     pids: int = Field(default=128, ge=16, le=1024)
-    wall_time_seconds: int = Field(default=300, ge=1, le=3600)
+    # Mission sandbox tools have a 150 second orchestrator boundary.  Keep the
+    # process deadline below it so Docker shutdown and durable receipt closure
+    # always have a bounded margin.
+    wall_time_seconds: int = Field(default=120, ge=1, le=3600)
     tmpfs_bytes: int = Field(default=268_435_456, ge=16_777_216, le=2_147_483_648)
     workspace_bytes: int = Field(default=2_147_483_648, ge=67_108_864, le=53_687_091_200)
     stream_capture_bytes: int = Field(default=4_194_304, ge=65_536, le=33_554_432)

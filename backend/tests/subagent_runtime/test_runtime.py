@@ -548,6 +548,43 @@ async def test_cancelling_parent_batch_reaps_inflight_subagent_task() -> None:
 
 
 @pytest.mark.asyncio
+async def test_one_fatal_job_reaps_all_batch_siblings() -> None:
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    class FatalWorker(BaseException):
+        pass
+
+    class Model:
+        async def next_action(self, job, steps, tool_results):
+            del steps, tool_results
+            if job.job_id == "sj_fatal":
+                await sibling_started.wait()
+                raise FatalWorker("simulated worker process loss")
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                sibling_cancelled.set()
+
+    runtime = SubagentRuntime(
+        model=Model(),
+        tools=_NoTools(),
+        ledger=_Ledger(),
+        max_concurrency=2,
+    )
+
+    with pytest.raises(FatalWorker):
+        await runtime.run_batch(
+            (_job("sj_fatal"), _job("sj_sibling")),
+            deadline_monotonic=asyncio.get_running_loop().time() + 30,
+        )
+
+    await asyncio.wait_for(sibling_cancelled.wait(), timeout=1)
+    assert runtime._active == {}
+
+
+@pytest.mark.asyncio
 async def test_completed_result_uses_structured_summary_as_user_facing_brief() -> None:
     class Model:
         async def next_action(self, job, steps, tool_results):
@@ -655,7 +692,7 @@ async def test_selected_context_is_hydrated_before_the_first_model_turn() -> Non
     assert model.calls == 1
     assert tools.calls == 1
     assert result.results[0].status.value == "completed"
-    assert result.results[0].tool_steps_used == 0
+    assert result.results[0].tool_steps_used == 1
     assert result.results[0].evidence_refs == ("source:1",)
 
 
@@ -905,3 +942,81 @@ def test_context_contract_rejects_parent_transcript_and_recursive_depth() -> Non
         _job(input_scope={"full_transcript": ["secret parent context"]})
     with pytest.raises(ValueError):
         _job(depth=2)
+
+
+@pytest.mark.asyncio
+async def test_nested_output_contract_is_validated_and_repaired() -> None:
+    class Model:
+        calls = 0
+
+        async def next_action(self, job, steps, tool_results):
+            del job, tool_results
+            self.calls += 1
+            if self.calls == 1:
+                return _model_turn(
+                    kind="complete",
+                    summary="incomplete table",
+                    result_json={"rows": [{"value": 1}]},
+                )
+            assert any("Pinned output contract validation failed" in step.summary for step in steps)
+            return _model_turn(
+                kind="complete",
+                summary="complete table",
+                result_json={"rows": [{"value": 1}, {"value": 2}]},
+            )
+
+    model = Model()
+    runtime = SubagentRuntime(model=model, tools=_NoTools(), ledger=_Ledger())
+    result = await runtime.run_batch(
+        (
+            _job(
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "rows": {
+                            "type": "array",
+                            "minItems": 2,
+                            "items": {
+                                "type": "object",
+                                "properties": {"value": {"type": "number"}},
+                                "required": ["value"],
+                                "additionalProperties": False,
+                            },
+                        }
+                    },
+                    "required": ["rows"],
+                    "additionalProperties": False,
+                },
+                budget=SubagentBudget(max_turns=2),
+            ),
+        ),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    assert model.calls == 2
+    assert result.results[0].status.value == "completed"
+    assert len(result.results[0].result_json["rows"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_oversized_inline_result_fails_without_fake_externalization() -> None:
+    class Model:
+        async def next_action(self, job, steps, tool_results):
+            del job, steps, tool_results
+            return _model_turn(
+                kind="complete",
+                summary="oversized",
+                result_json={"summary": "x" * 2_000},
+            )
+
+    runtime = SubagentRuntime(model=Model(), tools=_NoTools(), ledger=_Ledger())
+    result = await runtime.run_batch(
+        (_job(budget=SubagentBudget(max_result_bytes=1_024)),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    job_result = result.results[0]
+    assert job_result.status.value == "failed"
+    assert job_result.stop_reason is SubagentStopReason.TOKEN_CAPPED
+    assert job_result.partial_result_available is False
+    assert "externalization_required" not in job_result.result_json

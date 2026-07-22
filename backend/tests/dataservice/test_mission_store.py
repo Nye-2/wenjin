@@ -57,6 +57,7 @@ from src.dataservice_client.contracts.mission import (
     MissionRunnableBatchClaimPayload,
     MissionRunPatchPayload,
     MissionSemanticReferencePayload,
+    MissionStatus,
     MissionUserCommandPayload,
 )
 
@@ -263,6 +264,42 @@ def _subagent_live_progress(
         "job_fingerprint": "b" * 64,
         "status": "milestone",
         "progress_kind": progress_kind,
+        "public_summary": summary,
+    }
+    progress_hash = subagent_progress_sha256(
+        summary=summary,
+        payload_json=payload,
+    )
+    payload.update(
+        {
+            "progress_id": f"subagent-progress:{progress_hash}",
+            "progress_sha256": progress_hash,
+        }
+    )
+    return MissionItemDraftPayload(
+        item_type="subagent_progress",
+        operation_id=operation_id,
+        phase="progress",
+        stage_id="question_1_model",
+        producer=job_id,
+        summary=summary,
+        payload_json=payload,
+    )
+
+
+def _subagent_internal_progress(
+    *,
+    operation_id: str,
+    job_id: str,
+    summary: str,
+) -> MissionItemDraftPayload:
+    payload = {
+        "job_id": job_id,
+        "display_name": "公式核验员",
+        "role_label": "建模推导",
+        "lifecycle_phase": "progress",
+        "job_fingerprint": "b" * 64,
+        "status": "output_contract_retry",
     }
     progress_hash = subagent_progress_sha256(
         summary=summary,
@@ -832,6 +869,8 @@ async def test_mission_view_keeps_execution_and_review_axes_separate_and_cleans_
     assert view is not None
     assert view.review_summary.pending == 1
     assert view.mission.pending_review_count == 1
+    assert view.review_items[0].preview_ref is None
+    assert view.review_items[0].commit_block_reason == "review_item_not_accepted"
 
     cleaned = await store.cleanup_expired_previews(MissionPreviewCleanupPayload(now=datetime.now(UTC)))
     assert cleaned.preview_refs == ["mpv1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
@@ -1659,6 +1698,49 @@ async def test_open_or_unresolved_model_call_blocks_progression_and_dispatch(
 
 
 @pytest.mark.asyncio
+async def test_one_subagent_model_call_does_not_block_another_jobs_tool(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-concurrent-subagent-ledgers",
+        idempotency_key="concurrent-subagent-ledgers",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _model_call_started(
+                    "model-call:subagent:job-b",
+                    producer="job-b",
+                    parent_operation_id="subagent-parent",
+                    job_id="job-b",
+                )
+            ],
+        ),
+    )
+
+    operation = await store.claim_operation(
+        mission_id,
+        MissionOperationClaimPayload(
+            operation_key="job-a-tool",
+            kind="tool",
+            request_hash="a" * 64,
+            claimant="job-a",
+            model_call_job_id="job-a",
+            lease_epoch=claimed.lease_epoch,
+        ),
+    )
+
+    assert operation.acquired is True
+
+
+@pytest.mark.asyncio
 async def test_terminal_transition_rejects_new_open_call_in_same_append(
     mission_session: AsyncSession,
 ) -> None:
@@ -1776,6 +1858,57 @@ async def test_operation_claim_is_atomic_reusable_and_terminal_epoch_fenced(
     assert terminal.finalized is True
     assert replay.acquired is False
     assert replay.receipt.receipt_json == {"outcome": {"ok": True}}
+
+
+@pytest.mark.asyncio
+async def test_cancelling_mission_closes_open_operation_receipts(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-cancel-open-operation",
+        idempotency_key="cancel-open-operation",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    operation = await store.claim_operation(
+        mission_id,
+        MissionOperationClaimPayload(
+            operation_key="operation-cancelled",
+            kind="tool",
+            request_hash="c" * 64,
+            claimant="tool-call-cancelled",
+            lease_epoch=claimed.lease_epoch,
+        ),
+    )
+    queued = await store.append_command_once(
+        mission_id,
+        MissionUserCommandPayload(
+            command_id="cancel-with-open-operation",
+            command_type="cancel",
+            summary="Stop now",
+        ),
+    )
+
+    applied = await store.apply_commands_and_advance_cursor(
+        mission_id,
+        MissionApplyCommandsPayload(
+            expected_state_version=queued.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            through_command_seq=queued.mission.last_command_seq,
+            patch=MissionRunPatchPayload(status="cancelled"),
+        ),
+    )
+    terminal = await store.get_operation(mission_id, "operation-cancelled")
+
+    assert operation.acquired is True
+    assert applied.mission.status is MissionStatus.CANCELLED
+    assert terminal is not None
+    assert terminal.status.value == "unknown"
+    assert terminal.receipt_json["reason"] == (
+        "mission_cancelled_before_effect_confirmation"
+    )
 
 
 @pytest.mark.asyncio
@@ -2220,7 +2353,15 @@ async def test_artifact_projection_cursor_preserves_equal_source_sequences(
                 risk_level="low",
                 status="pending",
                 preview_json={"artifact_kind": "document"},
+                preview_ref=(
+                    "mpv1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    if suffix == "b"
+                    else None
+                ),
                 preview_hash=("a" if suffix == "a" else "b") * 64,
+                preview_expires_at=(
+                    now + timedelta(hours=1) if suffix == "b" else None
+                ),
                 created_at=now,
                 updated_at=now,
             )
@@ -2233,6 +2374,7 @@ async def test_artifact_projection_cursor_preserves_equal_source_sequences(
     assert first.page.total == 2
     assert first.page.next_cursor == 1
     assert first.page.next_tiebreaker == "artifact-review-a"
+    assert first.items[0].preview_available is False
 
     second = await store.list_artifact_projection_page(
         mission_id,
@@ -2241,6 +2383,7 @@ async def test_artifact_projection_cursor_preserves_equal_source_sequences(
         limit=1,
     )
     assert [item.item_id for item in second.items] == ["artifact-review-b"]
+    assert second.items[0].preview_available is True
     assert second.page.next_cursor is None
 
 
@@ -2264,7 +2407,12 @@ async def test_mission_view_projects_live_subagent_milestone(
                     operation_id=operation_id,
                     job_id="formula-worker",
                     summary=summary,
-                )
+                ),
+                _subagent_internal_progress(
+                    operation_id=operation_id,
+                    job_id="formula-worker",
+                    summary="internal output contract retry",
+                ),
             ],
             snapshot_json={
                 "inflight_operation": {
@@ -2366,6 +2514,65 @@ async def test_mission_view_projects_agent_protocol_repair_as_recovering(
     assert view.activity.state == "recovering"
     assert view.activity.title == "问津正在校正下一步"
     assert view.activity.summary == "任务进度已经保留，校正后会从当前阶段继续。"
+
+
+@pytest.mark.asyncio
+async def test_current_review_projection_pages_without_truncation_or_duplicates(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-review-projection-page",
+        idempotency_key="review-projection-page",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    await store.create_review_items(
+        mission_id,
+        MissionReviewItemsCreatePayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            review_items=[
+                MissionReviewItemDraftPayload(
+                    review_item_id=f"review-page-{index}",
+                    output_key=f"output-{index}",
+                    target_kind="claim",
+                    title=f"待确认内容 {index}",
+                    risk_level="medium",
+                    preview_json={"body": f"content {index}"},
+                )
+                for index in range(5)
+            ],
+        ),
+    )
+
+    view = await store.get_view(mission_id, projection_item_limit=2)
+    first = await store.list_review_projection_page(mission_id, limit=2)
+    assert view is not None and first is not None
+    second = await store.list_review_projection_page(
+        mission_id,
+        cursor=first.page.next_cursor,
+        limit=2,
+    )
+    assert second is not None
+    third = await store.list_review_projection_page(
+        mission_id,
+        cursor=second.page.next_cursor,
+        limit=2,
+    )
+    assert third is not None
+
+    ids = [
+        item.review_item_id
+        for page in (first, second, third)
+        for item in page.items
+    ]
+    assert view.review_page.total == 5
+    assert view.review_page.next_cursor is not None
+    assert first.page.total == second.page.total == third.page.total == 5
+    assert len(ids) == len(set(ids)) == 5
+    assert third.page.next_cursor is None
 
 
 @pytest.mark.asyncio

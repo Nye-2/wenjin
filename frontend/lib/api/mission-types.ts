@@ -106,6 +106,7 @@ export interface MissionReviewItemView {
   preview?: Record<string, unknown> | null;
   previewAvailable: boolean;
   previewUrl?: string | null;
+  previewExpiresAt?: string | null;
   visual?: MissionVisualReviewMetadata | null;
   commitStatus?: MissionCommitStatus | null;
   commitEligible: boolean;
@@ -232,13 +233,17 @@ export interface MissionView {
   stages: MissionStageView[];
   requiredStageIds: string[];
   teamSummary?: string | null;
+  activeSubagentCount?: number;
   subagents: MissionSubagentView[];
   evidenceItems: MissionEvidenceView[];
   artifactItems: MissionArtifactView[];
   evidenceNextCursor?: number | null;
   artifactNextCursor?: number | null;
+  artifactNextTiebreaker?: string | null;
+  reviewNextCursor?: string | null;
   evidenceCount: number;
   artifactCount: number;
+  visibleArtifactCount?: number;
   reviewItems: MissionReviewItemView[];
   reviewSummary: MissionReviewSummary;
   reviewMode: MissionReviewMode;
@@ -296,9 +301,9 @@ export interface MissionPage<T> {
   nextCursor: string | null;
 }
 
-export interface MissionProjectionPage<T> {
+export interface MissionProjectionPage<T, TCursor = number> {
   items: T[];
-  nextCursor: number | null;
+  nextCursor: TCursor | null;
   total: number;
 }
 

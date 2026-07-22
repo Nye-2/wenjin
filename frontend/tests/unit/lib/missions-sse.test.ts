@@ -50,4 +50,32 @@ describe("Mission SSE recovery", () => {
     expect(authorizedFetchMock).toHaveBeenCalledTimes(2);
     unsubscribe();
   });
+
+  it("clears a rejected resume cursor before reconnecting", async () => {
+    vi.useFakeTimers();
+    const stream = new ReadableStream<Uint8Array>({
+      start() {
+        // Keep the successful replacement stream open until the test aborts it.
+      },
+    });
+    authorizedFetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 400 }))
+      .mockResolvedValueOnce(new Response(stream, { status: 200 }));
+    const onReconnect = vi.fn();
+    const unsubscribe = subscribeMissionEvents({
+      workspaceId: "workspace-1",
+      cursor: "stale-cursor",
+      onEvent: vi.fn(),
+      onReconnect,
+    });
+
+    await vi.waitFor(() => expect(onReconnect).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(50);
+    await vi.waitFor(() => expect(authorizedFetchMock).toHaveBeenCalledTimes(2));
+    expect(authorizedFetchMock.mock.calls[0]?.[0]).toContain("cursor=stale-cursor");
+    expect(authorizedFetchMock.mock.calls[1]?.[0]).toBe(
+      "/api/workspaces/workspace-1/missions/events",
+    );
+    unsubscribe();
+  });
 });

@@ -62,6 +62,16 @@ def continue_decision(identifier: str) -> MissionAgentDecision:
     )
 
 
+def test_slice_limits_reject_a_heartbeat_that_cannot_refresh_before_expiry() -> None:
+    with pytest.raises(ValueError, match="two heartbeat intervals"):
+        MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            heartbeat_interval_seconds=10,
+        )
+
+
 def complete_decision(identifier: str = "complete-1") -> MissionAgentDecision:
     return MissionAgentDecision(
         decision_id=identifier,
@@ -1183,6 +1193,7 @@ async def test_long_mission_advances_through_multiple_bounded_slices(runtime_fac
         wall_time_seconds=10,
         shutdown_margin_seconds=1,
         lease_ttl_seconds=20,
+        heartbeat_interval_seconds=2,
         max_model_turns=1,
         max_tool_steps=4,
     )
@@ -1229,6 +1240,7 @@ async def test_slice_yields_before_starting_an_expensive_step_without_time_reser
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             next_step_reserve_seconds=5,
         ),
     )
@@ -1262,6 +1274,7 @@ async def test_tool_can_run_with_operation_window_even_when_another_model_call_c
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             next_step_reserve_seconds=5,
             tool_start_reserve_seconds=2,
         ),
@@ -1284,6 +1297,7 @@ async def test_subagent_receives_a_dedicated_extended_operation_window(
         shutdown_margin_seconds=1,
         subagent_operation_time_seconds=60,
         lease_ttl_seconds=20,
+        heartbeat_interval_seconds=2,
         max_model_turns=1,
         next_step_reserve_seconds=5,
     )
@@ -1321,6 +1335,7 @@ async def test_tool_with_a_long_pinned_budget_is_deferred_to_a_fresh_slice(
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             next_step_reserve_seconds=5,
             tool_start_reserve_seconds=2,
         ),
@@ -1367,6 +1382,7 @@ async def test_stale_worker_cannot_write_after_lease_takeover(runtime_factory) -
         wall_time_seconds=2,
         shutdown_margin_seconds=1,
         lease_ttl_seconds=6,
+        heartbeat_interval_seconds=1,
         max_model_turns=2,
         max_tool_steps=2,
     )
@@ -1575,6 +1591,7 @@ async def test_dropped_continuation_is_recovered_by_reconciler(runtime_factory) 
         wall_time_seconds=10,
         shutdown_margin_seconds=1,
         lease_ttl_seconds=20,
+        heartbeat_interval_seconds=2,
         max_model_turns=1,
         max_tool_steps=2,
     )
@@ -1761,6 +1778,37 @@ async def test_cancel_is_terminal_and_future_delivery_is_noop(runtime_factory) -
 
 
 @pytest.mark.asyncio
+async def test_cancel_after_more_than_one_command_page_is_not_stranded(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
+    receipt = await runtime.start(start_request())
+    for index in range(120):
+        await deps["store"].append_command(
+            receipt.mission_id,
+            MissionUserCommandPayload(
+                command_id=f"steer-{index}",
+                command_type="correction",
+                summary=f"correction {index}",
+                payload_json={"index": index},
+            ),
+        )
+    await runtime.cancel(
+        receipt.mission_id,
+        request_id="cancel-after-many-commands",
+        reason="Stop after queued corrections",
+    )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert run is not None and run.status is MissionStatus.CANCELLED
+    assert run.last_applied_command_seq == run.last_command_seq
+    assert deps["agent"].contexts == []
+
+
+@pytest.mark.asyncio
 async def test_cancel_during_model_turn_stops_stale_driver_before_dispatch(
     runtime_factory,
 ) -> None:
@@ -1810,6 +1858,7 @@ async def test_budget_limit_yields_only_after_checkpoint_and_lease_release(
         wall_time_seconds=10,
         shutdown_margin_seconds=1,
         lease_ttl_seconds=20,
+        heartbeat_interval_seconds=2,
         max_model_turns=1,
         max_tool_steps=2,
     )
@@ -1864,6 +1913,7 @@ async def test_checkpoint_keeps_only_stable_reference_ids(runtime_factory) -> No
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             max_model_turns=1,
             max_tool_steps=4,
         ),
@@ -1965,6 +2015,7 @@ async def test_crash_recovery_reuses_inflight_operation_id_after_higher_epoch(
         wall_time_seconds=10,
         shutdown_margin_seconds=1,
         lease_ttl_seconds=20,
+        heartbeat_interval_seconds=2,
         max_model_turns=4,
         max_tool_steps=4,
     )
@@ -2061,6 +2112,7 @@ async def test_inflight_tool_recovers_before_next_model_call_budget_check(
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             max_model_turns=4,
             max_tool_steps=4,
         ),
@@ -2453,6 +2505,7 @@ async def test_stage_scoped_operation_updates_active_stage_without_continue(runt
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             max_model_turns=1,
             max_tool_steps=4,
         ),
@@ -2532,6 +2585,88 @@ async def test_repeated_stage_operation_failures_stop_without_unbounded_replanni
 
 
 @pytest.mark.asyncio
+async def test_repeated_quality_exceptions_share_the_stage_failure_guard(
+    runtime_factory,
+) -> None:
+    class BrokenQuality(FakeQuality):
+        async def evaluate(self, request):
+            self.calls.append(request.operation_id)
+            raise RuntimeError("quality provider unavailable")
+
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent(
+            [quality_decision("broken-quality-1"), quality_decision("broken-quality-2")]
+        ),
+        quality=BrokenQuality(),
+        limits=MissionSliceLimits(
+            max_model_turns=1,
+            max_operation_failures_per_stage=2,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    second = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
+    run = await deps["store"].get(receipt.mission_id)
+
+    assert first.outcome is MissionSliceOutcome.YIELDED
+    assert second.outcome is MissionSliceOutcome.TERMINAL
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert run.snapshot_json["operation_failure_guard"][
+        "question_1_solution_validation"
+    ]["failure_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_repeated_review_exceptions_share_the_stage_failure_guard(
+    runtime_factory,
+) -> None:
+    class BrokenReview:
+        async def build_candidates(self, request):
+            del request
+            raise RuntimeError("review renderer unavailable")
+
+    decisions = [
+        MissionAgentDecision(
+            decision_id=f"decision-review-failure-{index}",
+            kind="review",
+            operation_id=f"review-failure-{index}",
+            stage_id="stage-1",
+            summary="Build review candidates",
+        )
+        for index in range(2)
+    ]
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent(decisions),
+        review=BrokenReview(),
+        limits=MissionSliceLimits(
+            max_model_turns=1,
+            max_operation_failures_per_stage=2,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+    persisted = deps["store"].runs[receipt.mission_id]
+    persisted.active_stage_id = "stage-1"
+    persisted.snapshot_json["stage_acceptance"] = {
+        "stage-1": {
+            "result": "pass",
+            "artifact_refs": ["artifact-candidate:" + "a" * 64],
+        }
+    }
+
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    second = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
+    run = await deps["store"].get(receipt.mission_id)
+
+    assert first.outcome is MissionSliceOutcome.YIELDED
+    assert second.outcome is MissionSliceOutcome.TERMINAL
+    assert run is not None and run.status is MissionStatus.FAILED
+    assert run.snapshot_json["operation_failure_guard"]["stage-1"][
+        "failure_count"
+    ] == 2
+
+
+@pytest.mark.asyncio
 async def test_repeated_transient_model_timeouts_stop_instead_of_retrying_forever(
     runtime_factory,
 ) -> None:
@@ -2600,6 +2735,7 @@ async def test_agent_protocol_error_is_repaired_inside_slice_without_error_item(
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             max_model_turns=2,
         ),
     )
@@ -2617,6 +2753,39 @@ async def test_agent_protocol_error_is_repaired_inside_slice_without_error_item(
     assert [item.operation_id for item in usage] == [
         item.operation_id for item in starts
     ]
+
+
+@pytest.mark.asyncio
+async def test_agent_protocol_feedback_survives_a_bounded_slice(
+    runtime_factory,
+) -> None:
+    def malformed(_context):
+        raise MissionAgentProtocolError("mission_step fields were invalid")
+
+    def repaired(context):
+        assert context.protocol_feedback == "mission_step fields were invalid"
+        return complete_decision()
+
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([malformed, repaired]),
+        limits=MissionSliceLimits(max_model_turns=1),
+    )
+    receipt = await runtime.start(start_request())
+
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    after_first = await deps["store"].get(receipt.mission_id)
+    second = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    completed = await deps["store"].get(receipt.mission_id)
+
+    assert first.outcome is MissionSliceOutcome.YIELDED
+    assert after_first is not None
+    assert after_first.snapshot_json["protocol_repair"] == {
+        "attempt": 1,
+        "feedback": "mission_step fields were invalid",
+    }
+    assert second.outcome is MissionSliceOutcome.COMPLETED
+    assert completed is not None
+    assert "protocol_repair" not in completed.snapshot_json
 
 
 @pytest.mark.asyncio
@@ -2678,6 +2847,7 @@ async def test_repeated_agent_protocol_error_yields_as_recoverable_schema_repair
             wall_time_seconds=10,
             shutdown_margin_seconds=1,
             lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
             max_model_turns=2,
         ),
     )

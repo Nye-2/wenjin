@@ -35,6 +35,15 @@ def test_mission_worker_health_requires_validated_gpt56_default_profile() -> Non
     assert "/metrics" in health_command
 
 
+def test_mission_worker_uses_a_killable_prefork_boundary() -> None:
+    mission_worker = _compose("docker-compose.yml")["services"]["mission-worker"]
+
+    assert "CELERY_WORKER_POOL=prefork" in mission_worker["environment"]
+    assert mission_worker["command"][
+        mission_worker["command"].index("--prefetch-multiplier") + 1
+    ] == "1"
+
+
 def test_local_build_override_builds_scheduler_and_keeps_strict_mission_bootstrap() -> None:
     services = _compose("docker-compose.local-build.yml")["services"]
 

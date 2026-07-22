@@ -7,7 +7,7 @@ import type { MissionView } from "@/lib/api/mission-types";
 import type { MissionMutationResult } from "@/lib/api/missions";
 import { useMissionUiStore } from "@/stores/mission-ui-store";
 
-const { commitMissionReviewsMock, decideMissionReviewsMock, downloadMissionArtifactMock, getMissionReviewPreviewMock, getMissionViewMock, listMissionEvidenceMock, listMissionArtifactsMock, listMissionItemsMock, resolveMissionPermissionMock } = vi.hoisted(() => ({
+const { commitMissionReviewsMock, decideMissionReviewsMock, downloadMissionArtifactMock, getMissionReviewPreviewMock, getMissionViewMock, listMissionEvidenceMock, listMissionArtifactsMock, listMissionItemsMock, listMissionReviewsMock, resolveMissionPermissionMock } = vi.hoisted(() => ({
   commitMissionReviewsMock: vi.fn(),
   decideMissionReviewsMock: vi.fn(),
   downloadMissionArtifactMock: vi.fn(),
@@ -16,6 +16,7 @@ const { commitMissionReviewsMock, decideMissionReviewsMock, downloadMissionArtif
   listMissionEvidenceMock: vi.fn(),
   listMissionArtifactsMock: vi.fn(),
   listMissionItemsMock: vi.fn(),
+  listMissionReviewsMock: vi.fn(),
   resolveMissionPermissionMock: vi.fn(),
 }));
 
@@ -31,6 +32,7 @@ vi.mock("@/lib/api/missions", async () => {
     listMissionEvidence: listMissionEvidenceMock,
     listMissionArtifacts: listMissionArtifactsMock,
     listMissionItems: listMissionItemsMock,
+    listMissionReviews: listMissionReviewsMock,
     resolveMissionPermission: resolveMissionPermissionMock,
   };
 });
@@ -97,6 +99,11 @@ describe("MissionConsole", () => {
       total: 2,
     });
     listMissionItemsMock.mockResolvedValue({ items: [{ id: "i-1", missionId: "mission-1", seq: 1, itemType: "evidence", phase: "completed", summary: "找到一篇可核验论文", createdAt: "2026-07-11T00:00:00Z" }], nextCursor: null });
+    listMissionReviewsMock.mockResolvedValue({
+      items: [{ id: "r-2", title: "完整研究稿", targetKind: "document", riskLevel: "medium", status: "accepted", suggestedSelected: false, batchAcceptable: true, requiresExplicitReview: false, previewAvailable: false, commitEligible: true }],
+      nextCursor: null,
+      total: 2,
+    });
   });
 
   it("shows dynamic members and server-projected progress", () => {
@@ -104,6 +111,21 @@ describe("MissionConsole", () => {
     expect(screen.getByText("严谨派阿澈")).toBeInTheDocument();
     expect(screen.getByText("查找与核验证据")).toBeInTheDocument();
     expect(screen.queryByText(/provider|schema|high risk|blocked/i)).not.toBeInTheDocument();
+  });
+
+  it("loads review items beyond the initial Mission projection", async () => {
+    const view = makeView();
+    view.reviewNextCursor = "review-page-2";
+    render(<MissionConsole view={view} onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多待确认内容/ }));
+
+    expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
+    expect(listMissionReviewsMock).toHaveBeenCalledWith({
+      missionId: "mission-1",
+      cursor: "review-page-2",
+    });
   });
 
   it("shows the live operation, authoritative input count, and passed-stage semantics", () => {
@@ -572,6 +594,27 @@ describe("MissionConsole", () => {
     });
     expect(screen.getByText("任务 B 证据")).toBeInTheDocument();
     expect(screen.queryByText("任务 A 晚到证据")).not.toBeInTheDocument();
+  });
+
+  it("keeps loaded evidence pages when the same Mission receives an SSE refresh", async () => {
+    const first = makeView();
+    first.evidenceItems = [{ id: "ev-1", title: "首批证据", sourceType: "paper", verified: true }];
+    first.evidenceCount = 3;
+    first.evidenceNextCursor = 12;
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+    expect(await screen.findByText("后续核验证据")).toBeInTheDocument();
+
+    const refreshed = makeView();
+    refreshed.evidenceItems = [{ id: "ev-1", title: "首批证据（已更新）", sourceType: "paper", verified: true }];
+    refreshed.evidenceCount = 3;
+    refreshed.evidenceNextCursor = 12;
+    refreshed.stateVersion = 3;
+    rerender(<MissionConsole view={refreshed} onClose={() => undefined} />);
+
+    expect(screen.getByText("首批证据（已更新）")).toBeInTheDocument();
+    expect(screen.getByText("后续核验证据")).toBeInTheDocument();
   });
 
   it("drops a late artifact page after Mission identity changes", async () => {

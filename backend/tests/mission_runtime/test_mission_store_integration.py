@@ -137,6 +137,7 @@ async def test_runtime_drives_real_mission_store_across_two_slices(
         wall_time_seconds=10,
         shutdown_margin_seconds=1,
         lease_ttl_seconds=20,
+        heartbeat_interval_seconds=2,
         max_model_turns=1,
         max_tool_steps=4,
     )

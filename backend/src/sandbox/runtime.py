@@ -240,6 +240,20 @@ class SandboxRuntime:
                     network=network,
                     now=now,
                 )
+        except asyncio.CancelledError:
+            result = self._terminal_failure(
+                request,
+                job_id=job_id,
+                status=SandboxOperationStatus.RECONCILIATION_REQUIRED,
+                retry=SandboxRetryDisposition.REQUIRES_RECONCILIATION,
+                stderr="Sandbox execution was cancelled before a confirmed provider receipt.",
+                guidance=(
+                    "Reconcile the cancelled sandbox job before issuing another effect.",
+                ),
+                started_at=now,
+            )
+            await asyncio.shield(receipt_store.finalize(result))
+            raise
         except (SandboxPathError, SandboxEnvironmentError, SandboxOutputRefError) as exc:
             result = self._terminal_failure(
                 request,

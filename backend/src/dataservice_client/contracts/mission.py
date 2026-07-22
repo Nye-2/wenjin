@@ -677,6 +677,11 @@ class MissionOperationClaimPayload(_StrictModel):
     kind: MissionOperationKind
     request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     claimant: str = Field(min_length=1, max_length=200)
+    # A subagent may dispatch a tool after its own model call is receipt-closed
+    # while sibling jobs in the same batch are still generating.  The
+    # DataService uses this identity to keep the financial fence job-local;
+    # workspace-agent and unscoped OPEN calls remain global blockers.
+    model_call_job_id: str | None = Field(default=None, min_length=1, max_length=160)
     lease_epoch: int = Field(ge=1)
     ttl_seconds: int = Field(default=180, ge=5, le=3600)
 
@@ -1024,6 +1029,11 @@ class MissionReviewPagePayload(_StrictModel):
     page: MissionCursorPagePayload
 
 
+class MissionReviewViewPagePayload(_StrictModel):
+    items: list[MissionReviewViewItemPayload] = Field(default_factory=list)
+    page: MissionCursorPagePayload
+
+
 class MissionCommitPagePayload(_StrictModel):
     items: list[MissionCommitPayload] = Field(default_factory=list)
     page: MissionCursorPagePayload
@@ -1049,6 +1059,7 @@ class MissionViewPayload(_StrictModel):
     review_summary: MissionReviewSummaryPayload
     commit_summary: MissionCommitSummaryPayload
     review_items: list[MissionReviewViewItemPayload] = Field(default_factory=list)
+    review_page: MissionCursorPagePayload
     required_stage_ids: list[str] = Field(default_factory=list)
     stage_summaries: list[MissionStageSummaryPayload] = Field(default_factory=list)
     team_summary: str | None = None

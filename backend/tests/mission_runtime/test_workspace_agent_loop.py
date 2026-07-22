@@ -130,7 +130,7 @@ def decision_message(arguments: dict) -> AIMessage:
                             "max_turns": 4,
                             "max_tool_steps": 4,
                             "max_context_bytes": 96000,
-                            "max_result_bytes": 64000,
+                            "max_result_bytes": 48000,
                         },
                     ),
                 }

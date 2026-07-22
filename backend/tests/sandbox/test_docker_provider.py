@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -239,6 +241,56 @@ async def test_confirmed_never_started_container_is_cleaned_without_reconciliati
 
     assert not captured.value.effect_uncertain
     assert client.container.removed
+
+
+@pytest.mark.asyncio
+async def test_cancelling_docker_dispatch_stops_the_operation_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway = DockerSdkGateway(client=object())
+    started = threading.Event()
+    stopped = threading.Event()
+
+    def blocking_run(*args):
+        cancellation_event = args[-1]
+        started.set()
+        cancellation_event.wait(timeout=2)
+        return DockerRawExecution(
+            exit_code=137,
+            stdout=b"",
+            stderr=b"cancelled",
+            timed_out=False,
+            stdout_truncated=False,
+            stderr_truncated=False,
+            effect_state=ProviderEffectState.CONFIRMED,
+        )
+
+    def stop_operation(operation_key: str) -> None:
+        assert operation_key == "operation-cancel-test"
+        stopped.set()
+
+    monkeypatch.setattr(gateway, "_run_container_sync", blocking_run)
+    monkeypatch.setattr(gateway, "_stop_operation_containers_sync", stop_operation)
+    task = asyncio.create_task(
+        gateway.run_container(
+            image_reference=f"{IMAGE}@{IMAGE_DIGEST}",
+            command=("python3", "-c", "print('ok')"),
+            create_options={
+                "labels": {
+                    "wenjin.sandbox.operation_key": "operation-cancel-test"
+                }
+            },
+            timeout_seconds=10,
+            capture_bytes=1024,
+        )
+    )
+    assert await asyncio.to_thread(started.wait, 1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert stopped.is_set()
 
 
 @pytest.mark.asyncio

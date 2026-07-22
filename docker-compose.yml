@@ -261,6 +261,9 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      # Mission deliveries need a killable child-process boundary. Celery's
+      # solo pool cannot enforce the configured soft/hard limits.
+      - CELERY_WORKER_POOL=prefork
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}

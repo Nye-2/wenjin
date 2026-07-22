@@ -108,6 +108,16 @@ async def get_mission_commit_for_review_item(
     return envelope_ok(result.model_dump(mode="json") if result else None)
 
 
+@router.get("/missions/{mission_id}/review-items/{review_item_id}")
+async def get_mission_review_item(
+    mission_id: str,
+    review_item_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).load_review_item(mission_id, review_item_id)
+    return envelope_ok(result.model_dump(mode="json") if result else None)
+
+
 @router.get("/missions/{mission_id}/evidence")
 async def list_mission_evidence_projection(
     mission_id: str,
@@ -118,6 +128,21 @@ async def list_mission_evidence_projection(
     result = await _store(uow).list_evidence_projection_page(
         mission_id,
         after_seq=after_seq,
+        limit=limit,
+    )
+    return envelope_ok(result.model_dump(mode="json") if result else None)
+
+
+@router.get("/missions/{mission_id}/review-projection")
+async def list_mission_review_projection(
+    mission_id: str,
+    cursor: str | None = Query(default=None, min_length=1, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=200),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).list_review_projection_page(
+        mission_id,
+        cursor=cursor,
         limit=limit,
     )
     return envelope_ok(result.model_dump(mode="json") if result else None)

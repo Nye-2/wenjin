@@ -470,6 +470,7 @@ async def test_lease_fence_retries_same_lease_state_version_conflict() -> None:
         def __init__(self) -> None:
             self.version = 7
             self.heartbeats = 0
+            self.ttls: list[int] = []
 
         async def get(self, _mission_id: str):
             return SimpleNamespace(
@@ -481,6 +482,7 @@ async def test_lease_fence_retries_same_lease_state_version_conflict() -> None:
 
         async def heartbeat_lease(self, _mission_id: str, command):
             self.heartbeats += 1
+            self.ttls.append(command.ttl_seconds)
             if self.heartbeats == 1:
                 self.version += 1
                 raise DataServiceClientError("concurrent same-lease update", status_code=409)
@@ -489,11 +491,15 @@ async def test_lease_fence_retries_same_lease_state_version_conflict() -> None:
             return SimpleNamespace(state_version=self.version)
 
     store = RacingStore()
-    fence = MissionLeaseFenceAdapter(store)  # type: ignore[arg-type]
+    fence = MissionLeaseFenceAdapter(  # type: ignore[arg-type]
+        store,
+        lease_ttl_seconds=77,
+    )
 
     await fence.assert_current(SimpleNamespace(mission_id="mission-1", lease_epoch=3))
 
     assert store.heartbeats == 2
+    assert store.ttls == [77, 77]
 
 
 @pytest.mark.asyncio

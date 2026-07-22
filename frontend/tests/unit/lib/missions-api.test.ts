@@ -16,6 +16,7 @@ import {
   getMissionView,
   listMissionArtifacts,
   listMissionEvidence,
+  listMissionReviews,
   resolveMissionPermission,
   subscribeMissionEvents,
 } from "@/lib/api/missions";
@@ -239,7 +240,7 @@ describe("Mission projection API", () => {
       }))
       .mockResolvedValueOnce(jsonResponse({
         items: [{ item_id: "artifact-15", seq: 15, title: "研究稿", kind: "document", summary: "完整稿", preview_available: true, committed: true }],
-        page: { total: 2, returned: 1, next_cursor: null },
+        page: { total: 2, returned: 1, next_cursor: 15, next_tiebreaker: "review-15" },
       }));
 
     await expect(listMissionEvidence({ missionId: "mission-1", cursor: 12 })).resolves.toMatchObject({
@@ -247,14 +248,46 @@ describe("Mission projection API", () => {
       nextCursor: null,
       total: 2,
     });
-    await expect(listMissionArtifacts({ missionId: "mission-1", cursor: 14 })).resolves.toMatchObject({
+    await expect(listMissionArtifacts({ missionId: "mission-1", cursor: 14, tiebreaker: "review-14" })).resolves.toMatchObject({
       items: [{ id: "artifact-15", title: "研究稿", committed: true }],
-      nextCursor: null,
+      nextCursor: 15,
+      nextTiebreaker: "review-15",
       total: 2,
     });
     expect(authorizedFetchMock).toHaveBeenNthCalledWith(1, "/api/missions/mission-1/evidence?cursor=12&limit=50");
-    expect(authorizedFetchMock).toHaveBeenNthCalledWith(2, "/api/missions/mission-1/artifacts?cursor=14&limit=50");
+    expect(authorizedFetchMock).toHaveBeenNthCalledWith(2, "/api/missions/mission-1/artifacts?cursor=14&limit=50&tiebreaker=review-14");
     expect(authorizedFetchMock.mock.calls.flat().join(" ")).not.toContain("/items");
+  });
+
+  it("loads paged review projections with commit eligibility", async () => {
+    authorizedFetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [{
+        review_item_id: "review-51",
+        mission_id: "mission-1",
+        target_kind: "document",
+        title: "第 51 项成果",
+        risk_level: "medium",
+        status: "accepted",
+        preview_json: { body: "draft" },
+        preview_url: null,
+        preview_expires_at: "2026-07-14T01:00:00Z",
+        requires_explicit_review: false,
+        batch_acceptable: true,
+        suggested_selected: false,
+        commit_status: null,
+        commit_eligible: true,
+      }],
+      page: { total: 51, returned: 1, next_cursor: null },
+    }));
+
+    await expect(listMissionReviews({ missionId: "mission-1", cursor: "page-2" })).resolves.toMatchObject({
+      items: [{ id: "review-51", commitEligible: true, previewExpiresAt: "2026-07-14T01:00:00Z" }],
+      nextCursor: null,
+      total: 51,
+    });
+    expect(authorizedFetchMock).toHaveBeenCalledWith(
+      "/api/missions/mission-1/review-items?cursor=page-2&limit=50",
+    );
   });
 
   it("loads workspace-wide counts from the aggregate projection", async () => {

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -156,14 +157,45 @@ class DockerSdkGateway:
         timeout_seconds: int,
         capture_bytes: int,
     ) -> DockerRawExecution:
-        return await asyncio.to_thread(
-            self._run_container_sync,
-            image_reference,
-            command,
-            create_options,
-            timeout_seconds,
-            capture_bytes,
+        cancellation = threading.Event()
+        operation_key = str(
+            (create_options.get("labels") or {}).get(
+                "wenjin.sandbox.operation_key", ""
+            )
         )
+        worker = asyncio.create_task(
+            asyncio.to_thread(
+                self._run_container_sync,
+                image_reference,
+                command,
+                create_options,
+                timeout_seconds,
+                capture_bytes,
+                cancellation,
+            )
+        )
+        try:
+            return await worker
+        except asyncio.CancelledError:
+            cancellation.set()
+            if operation_key:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(
+                            asyncio.to_thread(
+                                self._stop_operation_containers_sync,
+                                operation_key,
+                            )
+                        ),
+                        timeout=10,
+                    )
+                except Exception:  # noqa: BLE001 - cancellation remains authoritative.
+                    logger.warning(
+                        "Failed to stop cancelled sandbox operation %s",
+                        operation_key,
+                        exc_info=True,
+                    )
+            raise
 
     def _run_container_sync(
         self,
@@ -172,6 +204,7 @@ class DockerSdkGateway:
         create_options: dict[str, Any],
         timeout_seconds: int,
         capture_bytes: int,
+        cancellation: threading.Event,
     ) -> DockerRawExecution:
         container = None
         dispatch_attempted = False
@@ -181,6 +214,11 @@ class DockerSdkGateway:
                 command=list(command),
                 **create_options,
             )
+            if cancellation.is_set():
+                raise SandboxProviderError(
+                    "Docker operation was cancelled before start",
+                    effect_uncertain=False,
+                )
             dispatch_attempted = True
             try:
                 container.start()
@@ -189,6 +227,15 @@ class DockerSdkGateway:
                     "Docker operation failed",
                     effect_uncertain=_container_start_effect_uncertain(container),
                 ) from exc
+            if cancellation.is_set():
+                try:
+                    container.kill()
+                except Exception:  # noqa: BLE001
+                    logger.warning("Failed to stop sandbox container after cancellation")
+                raise SandboxProviderError(
+                    "Docker operation was cancelled",
+                    effect_uncertain=True,
+                )
             exit_code: int | None
             try:
                 wait_result = container.wait(timeout=timeout_seconds)
@@ -244,6 +291,24 @@ class DockerSdkGateway:
                     container.remove(force=True)
                 except Exception:  # noqa: BLE001
                     logger.warning("Failed to remove sandbox operation container")
+
+    def _stop_operation_containers_sync(self, operation_key: str) -> None:
+        """Best-effort interruption for a cancelled ``to_thread`` dispatch."""
+
+        filters = {
+            "label": [
+                f"{_MANAGED_LABEL}=true",
+                f"wenjin.sandbox.operation_key={operation_key}",
+            ]
+        }
+        for container in self.client.containers.list(all=True, filters=filters):
+            try:
+                container.kill()
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to kill cancelled sandbox container %s",
+                    getattr(container, "id", "unknown"),
+                )
 
 
 def _container_start_effect_uncertain(container: Any) -> bool:

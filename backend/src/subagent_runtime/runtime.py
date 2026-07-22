@@ -10,10 +10,14 @@ from collections.abc import Awaitable, Callable
 from time import monotonic
 from typing import Protocol
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+
 from src.contracts.model_usage import ModelCallTerminalOutcome, ModelUsageReceipt
 from src.models.provider_errors import is_rate_limit_error, is_transient_model_error
 from src.subagent_runtime.contracts import (
     SubagentAction,
+    SubagentActionCheckpoint,
     SubagentBatchResult,
     SubagentJobResult,
     SubagentJobSpec,
@@ -53,6 +57,8 @@ class SubagentToolPort(Protocol):
 
 
 class SubagentLedgerPort(Protocol):
+    async def command_pending(self, job: SubagentJobSpec) -> bool: ...
+
     async def record_progress(
         self,
         job: SubagentJobSpec,
@@ -92,6 +98,22 @@ class SubagentLedgerPort(Protocol):
         error_type: str | None,
         detail: str,
     ) -> None: ...
+
+    async def record_model_usage_with_action(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        attempt: int,
+        model_call_id: str,
+        usage_receipt: ModelUsageReceipt,
+        action: SubagentAction,
+    ) -> None: ...
+
+    async def load_action_checkpoints(
+        self,
+        job: SubagentJobSpec,
+    ) -> tuple[SubagentActionCheckpoint, ...]: ...
 
 
 def _require_subagent_model_usage(
@@ -182,7 +204,18 @@ class SubagentRuntime:
             async with semaphore:
                 return await self._run_stable(job, deadline_monotonic=deadline_monotonic)
 
-        results = await asyncio.gather(*(bounded(job) for job in jobs))
+        tasks = [
+            asyncio.create_task(bounded(job), name=f"subagent-batch:{job.job_id}")
+            for job in jobs
+        ]
+        try:
+            results = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         return SubagentBatchResult(operation_id=jobs[0].operation_id, results=tuple(results))
 
     async def _run_stable(
@@ -242,7 +275,42 @@ class SubagentRuntime:
         successful_tool_requests: set[str] = set()
         published_milestones: set[tuple[str, str]] = set()
         partial: dict[str, object] = {}
+        checkpoint_loader = getattr(self.ledger, "load_action_checkpoints", None)
+        checkpoints = (
+            await checkpoint_loader(job)
+            if checkpoint_loader is not None
+            else ()
+        )
+        checkpoints_by_turn = {item.turn: item for item in checkpoints}
+        base_context_bytes = len(
+            json.dumps(
+                job.model_dump(mode="json", exclude={"budget"}),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        hydrated_context_bytes = 0
         for context_read in job.context_reads:
+            if await self._command_pending(job):
+                return await self._command_interrupted_result(
+                    job,
+                    partial=partial,
+                    turns=0,
+                    tools=tool_steps_used,
+                    tool_results=tuple(tool_results),
+                )
+            if tool_steps_used >= job.budget.max_tool_steps:
+                return await self._terminal_result(
+                    job,
+                    status=SubagentStatus.FAILED,
+                    stop_reason=SubagentStopReason.TOOL_UNAVAILABLE,
+                    summary="所选材料超过本次成员可读取的工具预算",
+                    result_json={},
+                    turns=0,
+                    tools=tool_steps_used,
+                    tool_results=tuple(tool_results),
+                )
             if self.monotonic_clock() >= deadline_monotonic:
                 return await self._terminal_result(
                     job,
@@ -294,6 +362,29 @@ class SubagentRuntime:
                     error_type=type(exc).__name__,
                 )
             tool_results.append(tool_result)
+            tool_steps_used += 1
+            hydrated_context_bytes += len(
+                json.dumps(
+                    tool_result.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            if (
+                base_context_bytes + hydrated_context_bytes
+                > job.budget.max_context_bytes
+            ):
+                return await self._terminal_result(
+                    job,
+                    status=SubagentStatus.FAILED,
+                    stop_reason=SubagentStopReason.TOKEN_CAPPED,
+                    summary="所选材料内容超过本次成员的上下文预算",
+                    result_json={},
+                    turns=0,
+                    tools=tool_steps_used,
+                    tool_results=tuple(tool_results),
+                )
             if tool_result.status == "completed":
                 successful_tool_requests.add(request_fingerprint)
             steps.append(
@@ -321,6 +412,14 @@ class SubagentRuntime:
                 },
             )
         for turn in range(1, job.budget.max_turns + 1):
+            if await self._command_pending(job):
+                return await self._command_interrupted_result(
+                    job,
+                    partial=partial,
+                    turns=turn - 1,
+                    tools=tool_steps_used,
+                    tool_results=tuple(tool_results),
+                )
             if self.monotonic_clock() >= deadline_monotonic:
                 return await self._terminal_result(
                     job,
@@ -347,14 +446,28 @@ class SubagentRuntime:
                     ),
                 )
             try:
-                model_turn = await self._next_model_action_with_retry(
-                    job,
-                    turn=turn,
-                    steps=model_steps,
-                    tool_results=tuple(tool_results),
-                    deadline_monotonic=deadline_monotonic,
-                )
-                action = model_turn.action
+                checkpoint = checkpoints_by_turn.get(turn)
+                if checkpoint is not None:
+                    action = checkpoint.action
+                else:
+                    model_turn = await self._next_model_action_with_retry(
+                        job,
+                        turn=turn,
+                        steps=model_steps,
+                        tool_results=tuple(tool_results),
+                        deadline_monotonic=deadline_monotonic,
+                    )
+                    action = model_turn.action
+                if await self._command_pending(job):
+                    if action.partial_result_json:
+                        partial = dict(action.partial_result_json)
+                    return await self._command_interrupted_result(
+                        job,
+                        partial=partial,
+                        turns=turn,
+                        tools=tool_steps_used,
+                        tool_results=tuple(tool_results),
+                    )
             except SubagentModelAdmissionDeferred:
                 return await self._terminal_result(
                     job,
@@ -466,6 +579,27 @@ class SubagentRuntime:
             if action.kind == "complete":
                 schema_errors = _validate_output_contract(action.result_json, job.output_schema)
                 if schema_errors:
+                    await self.ledger.record_progress(
+                        job,
+                        phase="progress",
+                        summary="Worker result did not satisfy its output contract; retrying within the bounded turn budget",
+                        payload_json={
+                            "status": "output_contract_retry",
+                            "diagnostic": schema_errors[:10],
+                        },
+                    )
+                    if turn < job.budget.max_turns:
+                        steps.append(
+                            SubagentStep(
+                                turn=turn,
+                                kind="progress",
+                                summary=(
+                                    "Pinned output contract validation failed; repair the result: "
+                                    + "; ".join(schema_errors[:5])
+                                ),
+                            )
+                        )
+                        continue
                     return await self._terminal_result(
                         job,
                         status=SubagentStatus.FAILED,
@@ -599,6 +733,14 @@ class SubagentRuntime:
                     tool_results=tuple(tool_results),
                 )
             steps.append(SubagentStep(turn=turn, kind="tool", summary=action.summary, tool_name=tool_name))
+            if await self._command_pending(job):
+                return await self._command_interrupted_result(
+                    job,
+                    partial=partial,
+                    turns=turn,
+                    tools=tool_steps_used,
+                    tool_results=tuple(tool_results),
+                )
             try:
                 tool_result = await self.tools.execute(
                     SubagentToolRequest(
@@ -795,13 +937,28 @@ class SubagentRuntime:
                     detail=str(exc),
                 )
                 raise
-            await self.ledger.record_model_usage(
-                job,
-                turn=turn,
-                attempt=attempt,
-                model_call_id=model_call_id,
-                usage_receipt=usage_receipt,
+            atomic_recorder = getattr(
+                self.ledger,
+                "record_model_usage_with_action",
+                None,
             )
+            if atomic_recorder is not None:
+                await atomic_recorder(
+                    job,
+                    turn=turn,
+                    attempt=attempt,
+                    model_call_id=model_call_id,
+                    usage_receipt=usage_receipt,
+                    action=model_turn.action,
+                )
+            else:
+                await self.ledger.record_model_usage(
+                    job,
+                    turn=turn,
+                    attempt=attempt,
+                    model_call_id=model_call_id,
+                    usage_receipt=usage_receipt,
+                )
             return model_turn
 
     async def _terminal_result(
@@ -826,18 +983,35 @@ class SubagentRuntime:
         )
         warnings = (*warnings, *tool_failure_warnings)
         encoded = json.dumps(result_json, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        if len(encoded) > min(job.budget.max_result_bytes, 48 * 1024):
-            result_json = {"externalization_required": True}
+        result_oversized = len(encoded) > job.budget.max_result_bytes
+        if result_oversized:
+            result_json = {
+                "validation_errors": [
+                    "result exceeded the pinned durable inline byte budget"
+                ]
+            }
             encoded = json.dumps(result_json, sort_keys=True).encode()
             warnings = (*warnings, "result_exceeded_inline_budget")
-            if stop_reason is SubagentStopReason.NORMAL:
-                stop_reason = SubagentStopReason.TOKEN_CAPPED
+            stop_reason = SubagentStopReason.TOKEN_CAPPED
+            status = SubagentStatus.FAILED
         partial_result_available = False
-        if result_json and stop_reason is not SubagentStopReason.NORMAL:
+        if (
+            result_json
+            and stop_reason is not SubagentStopReason.NORMAL
+            and not result_oversized
+        ):
             partial_schema_errors = _validate_output_contract(result_json, job.output_schema)
-            partial_result_available = not partial_schema_errors
+            partial_reference_errors = _validate_receipt_backed_result_refs(
+                result_json,
+                list(tool_results),
+            )
+            partial_result_available = not (
+                partial_schema_errors or partial_reference_errors
+            )
             if partial_schema_errors:
                 warnings = (*warnings, "partial_result_contract_invalid")
+            if partial_reference_errors:
+                warnings = (*warnings, "partial_result_refs_unverified")
         if status is SubagentStatus.COMPLETED and stop_reason is not SubagentStopReason.NORMAL:
             if not partial_result_available:
                 status = SubagentStatus.FAILED
@@ -872,6 +1046,32 @@ class SubagentRuntime:
             },
         )
         return result
+
+    async def _command_pending(self, job: SubagentJobSpec) -> bool:
+        checker = getattr(self.ledger, "command_pending", None)
+        if checker is None:
+            return False
+        return bool(await checker(job))
+
+    async def _command_interrupted_result(
+        self,
+        job: SubagentJobSpec,
+        *,
+        partial: dict[str, object],
+        turns: int,
+        tools: int,
+        tool_results: tuple[SubagentToolResult, ...],
+    ) -> SubagentJobResult:
+        return await self._terminal_result(
+            job,
+            status=SubagentStatus.CANCELLED,
+            stop_reason=SubagentStopReason.CANCELLED,
+            summary="收到新的研究要求，成员已在安全边界停止当前工作",
+            result_json=partial,
+            turns=turns,
+            tools=tools,
+            tool_results=tool_results,
+        )
 
     async def cancel_all(self) -> None:
         async with self._registry_lock:
@@ -937,8 +1137,21 @@ def _completed_result_summary(action: SubagentAction) -> str:
 def _validate_output_contract(value: object, schema: dict[str, object]) -> list[str]:
     if not schema:
         return []
+    try:
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+    except SchemaError as exc:
+        return [f"pinned output contract is invalid: {exc.message}"]
     errors: list[str] = []
-    _validate_schema_node(value, schema, path="$", errors=errors)
+    for error in sorted(
+        validator.iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    ):
+        path = "$" + "".join(
+            f"[{part}]" if isinstance(part, int) else f".{part}"
+            for part in error.absolute_path
+        )
+        errors.append(f"{path}: {error.message}")
     return errors
 
 
@@ -975,47 +1188,6 @@ def _validate_receipt_backed_result_refs(
 
     visit(value, path="$")
     return errors
-
-
-def _validate_schema_node(
-    value: object,
-    schema: dict[str, object],
-    *,
-    path: str,
-    errors: list[str],
-) -> None:
-    expected = schema.get("type")
-    type_matches = {
-        "object": isinstance(value, dict),
-        "array": isinstance(value, list),
-        "string": isinstance(value, str),
-        "integer": isinstance(value, int) and not isinstance(value, bool),
-        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
-        "boolean": isinstance(value, bool),
-        "null": value is None,
-    }
-    if isinstance(expected, str) and expected in type_matches and not type_matches[expected]:
-        errors.append(f"{path} must be {expected}")
-        return
-    enum = schema.get("enum")
-    if isinstance(enum, list) and value not in enum:
-        errors.append(f"{path} is not an allowed value")
-    if isinstance(value, dict):
-        required = schema.get("required")
-        if isinstance(required, list):
-            for key in required:
-                if isinstance(key, str) and key not in value:
-                    errors.append(f"{path}.{key} is required")
-        properties = schema.get("properties")
-        if isinstance(properties, dict):
-            for key, child_schema in properties.items():
-                if key in value and isinstance(child_schema, dict):
-                    _validate_schema_node(value[key], child_schema, path=f"{path}.{key}", errors=errors)
-    if isinstance(value, list):
-        item_schema = schema.get("items")
-        if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                _validate_schema_node(item, item_schema, path=f"{path}[{index}]", errors=errors)
 
 
 def subagent_job_fingerprint(job: SubagentJobSpec) -> str:

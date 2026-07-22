@@ -750,8 +750,17 @@ class MissionRuntime:
                 patch=MissionRunPatchPayload(status=MissionStatus.RUNNING),
             )
 
-        protocol_retry_count = 0
-        protocol_feedback: str | None = None
+        raw_protocol_repair = state.run.snapshot_json.get("protocol_repair")
+        protocol_retry_count = (
+            int(raw_protocol_repair.get("attempt") or 0)
+            if isinstance(raw_protocol_repair, dict)
+            else 0
+        )
+        protocol_feedback = (
+            str(raw_protocol_repair.get("feedback") or "")[:1000] or None
+            if isinstance(raw_protocol_repair, dict)
+            else None
+        )
         while True:
             if await self._reconcile_model_call_ledger(state):
                 return self._telemetry(
@@ -770,6 +779,8 @@ class MissionRuntime:
                     state=state,
                     command_hint=command_hint,
                 )
+            if state.run.last_applied_command_seq < state.run.last_command_seq:
+                continue
 
             if _status_value(state.run) == "planning":
                 await self._append(
@@ -921,10 +932,46 @@ class MissionRuntime:
                             state=state,
                             command_hint=command_hint,
                         )
-                if isinstance(exc, MissionAgentProtocolError) and protocol_retry_count < self.limits.max_protocol_retries_per_step and not self._slice_budget_exhausted(state):
+                if (
+                    isinstance(exc, MissionAgentProtocolError)
+                    and protocol_retry_count
+                    < self.limits.max_protocol_retries_per_step
+                ):
                     protocol_retry_count += 1
                     protocol_feedback = str(exc)[:1000]
+                    await self._append(
+                        state,
+                        items=[],
+                        snapshot=self._merge_snapshot(
+                            state.run.snapshot_json,
+                            {
+                                "protocol_repair": {
+                                    "attempt": protocol_retry_count,
+                                    "feedback": protocol_feedback,
+                                },
+                                "next_actions": ["repair_structured_decision"],
+                            },
+                        ),
+                    )
+                    if self._slice_budget_exhausted(state):
+                        return await self._checkpoint_and_yield(
+                            state,
+                            reason="agent_protocol_repair_deferred",
+                            command_hint=command_hint,
+                        )
                     continue
+                if (
+                    isinstance(exc, MissionAgentProtocolError)
+                    and "protocol_repair" in state.run.snapshot_json
+                ):
+                    await self._append(
+                        state,
+                        items=[],
+                        snapshot=self._merge_snapshot(
+                            state.run.snapshot_json,
+                            {"protocol_repair": None},
+                        ),
+                    )
                 transient_failure = is_transient_model_error(exc)
                 terminal = await self._record_loop_failure(state, exc)
                 if terminal:
@@ -951,6 +998,15 @@ class MissionRuntime:
             )
             protocol_retry_count = 0
             protocol_feedback = None
+            if "protocol_repair" in state.run.snapshot_json:
+                await self._append(
+                    state,
+                    items=[],
+                    snapshot=self._merge_snapshot(
+                        state.run.snapshot_json,
+                        {"protocol_repair": None},
+                    ),
+                )
             last_applied_command_seq = state.run.last_applied_command_seq
             command_result = await self._apply_commands_at_boundary(state)
             if command_result is not None:
@@ -977,10 +1033,7 @@ class MissionRuntime:
         self,
         state: _SliceState,
     ) -> MissionSliceOutcome | None:
-        commands = await self.store.list_unapplied_commands(
-            state.run.mission_id,
-            limit=100,
-        )
+        commands = await self._load_unapplied_commands(state.run)
         if not commands:
             return None
 
@@ -1079,6 +1132,11 @@ class MissionRuntime:
             target_status = MissionStatus.CANCELLED
             result = MissionSliceOutcome.TERMINAL
             snapshot_patch["failure_reason"] = "cancelled_by_user"
+            snapshot_patch["inflight_operation"] = None
+            snapshot_patch["subagent_summary"] = {
+                "active": 0,
+                "latest": [],
+            }
             items.append(
                 MissionItemDraftPayload(
                     item_type="status_update",
@@ -1127,6 +1185,10 @@ class MissionRuntime:
             "status": target_status,
             **({"review_mode": review_modes[-1]} if review_modes else {}),
         }
+        if target_status is MissionStatus.CANCELLED:
+            scalar_patch["active_subagent_count_delta"] = (
+                -state.run.active_subagent_count
+            )
         if target_status is MissionStatus.PLANNING and reset_stage_ids:
             scalar_patch["active_stage_id"] = reset_stage_ids[0]
 
@@ -1148,6 +1210,27 @@ class MissionRuntime:
         state.run = result_payload.mission
         await publish_after_commit(self.events, self.clock, state.run)
         return result
+
+    async def _load_unapplied_commands(
+        self,
+        run: MissionRunPayload,
+    ) -> list[MissionItemPayload]:
+        """Load one bounded command page; the driver drains later pages first."""
+
+        through_seq = run.last_command_seq
+        after_seq = run.last_applied_command_seq
+        page = await self.store.list_items(
+            run.mission_id,
+            after_seq=after_seq,
+            limit=90,
+            item_type="command_received",
+        )
+        commands = [item for item in page if item.seq <= through_seq]
+        if through_seq > run.last_applied_command_seq and not commands:
+            raise RuntimeError(
+                "durable Mission command cursor could not load its next page"
+            )
+        return commands
 
     @staticmethod
     def _review_feedback_reset_stage_ids(
@@ -1448,7 +1531,7 @@ class MissionRuntime:
         except MissionLeaseLostError:
             raise
         except Exception as exc:
-            await self._record_operation_failure(
+            terminal = await self._record_operation_failure(
                 state,
                 decision=decision,
                 kind="quality",
@@ -1457,7 +1540,7 @@ class MissionRuntime:
                 summary="Stage quality evaluation did not complete",
                 exc=exc,
             )
-            return None
+            return MissionSliceOutcome.TERMINAL if terminal else None
         snapshot = self._decision_snapshot(state.run.snapshot_json, decision)
         stage_acceptance = dict(snapshot.get("stage_acceptance") or {})
         stage_acceptance[stage_id] = dict(outcome.payload_json)
@@ -1599,7 +1682,7 @@ class MissionRuntime:
         except MissionLeaseLostError:
             raise
         except Exception as exc:
-            await self._record_operation_failure(
+            terminal = await self._record_operation_failure(
                 state,
                 decision=decision,
                 kind="review",
@@ -1608,7 +1691,7 @@ class MissionRuntime:
                 summary="Review candidate generation did not complete",
                 exc=exc,
             )
-            return None
+            return MissionSliceOutcome.TERMINAL if terminal else None
         snapshot = self._decision_snapshot(state.run.snapshot_json, decision)
         result = await self.store.create_review_items(
             state.run.mission_id,
@@ -1974,7 +2057,7 @@ class MissionRuntime:
                     phase=MissionItemPhase.FAILED,
                     stage_id=stage_id,
                     producer="mission_runtime",
-                    summary="当前阶段连续执行失败，任务已停止并保留已有成果。",
+                    summary="当前阶段多次执行失败，任务已停止并保留已有成果。",
                     payload_json={
                         "failure_count": failure_count,
                         "failure_limit": self.limits.max_operation_failures_per_stage,
@@ -2016,40 +2099,90 @@ class MissionRuntime:
         producer: str,
         summary: str,
         exc: BaseException,
-    ) -> None:
+    ) -> bool:
         operation_id = decision.operation_id or decision.decision_id
         snapshot = self._decision_snapshot(state.run.snapshot_json, decision)
+        stage_key = decision.stage_id or state.run.active_stage_id or "__mission__"
+        raw_guard = snapshot.get("operation_failure_guard")
+        guard = dict(raw_guard) if isinstance(raw_guard, dict) else {}
+        raw_stage_guard = guard.get(stage_key)
+        stage_guard = (
+            dict(raw_stage_guard) if isinstance(raw_stage_guard, dict) else {}
+        )
+        failure_count = int(stage_guard.get("failure_count") or 0) + 1
+        guard[stage_key] = {
+            "failure_count": failure_count,
+            "last_operation_id": operation_id,
+            "last_operation_kind": kind,
+            "last_summary": summary[:500],
+        }
+        failure_budget_exhausted = (
+            failure_count >= self.limits.max_operation_failures_per_stage
+        )
         snapshot = self._merge_snapshot(
             snapshot,
             {
                 "degraded_reason": "tool_partial",
+                "operation_failure_guard": guard,
                 "last_error": {
                     "operation_id": operation_id,
                     "error_type": type(exc).__name__,
                     "detail": str(exc)[:500],
                 },
-                "next_actions": ["replan_after_operation_failure"],
+                "next_actions": (
+                    None
+                    if failure_budget_exhausted
+                    else ["replan_after_operation_failure"]
+                ),
+                "failure_reason": (
+                    "stage_execution_failure_budget_exhausted"
+                    if failure_budget_exhausted
+                    else None
+                ),
             },
         )
-        await self._append(
-            state,
-            items=[
+        items = [
+            MissionItemDraftPayload(
+                item_type=item_type,
+                operation_id=operation_id,
+                phase=MissionItemPhase.FAILED,
+                stage_id=decision.stage_id,
+                producer=producer,
+                summary=summary,
+                payload_json={
+                    "error_type": type(exc).__name__,
+                    "detail": str(exc)[:500],
+                },
+            )
+        ]
+        if failure_budget_exhausted:
+            items.append(
                 MissionItemDraftPayload(
-                    item_type=item_type,
+                    item_type="error",
                     operation_id=operation_id,
                     phase=MissionItemPhase.FAILED,
                     stage_id=decision.stage_id,
-                    producer=producer,
-                    summary=summary,
+                    producer="mission_runtime",
+                    summary="当前阶段多次执行失败，任务已停止并保留已有成果。",
                     payload_json={
-                        "error_type": type(exc).__name__,
-                        "detail": str(exc)[:500],
+                        "failure_count": failure_count,
+                        "failure_limit": self.limits.max_operation_failures_per_stage,
+                        "recoverable": False,
                     },
                 )
-            ],
+            )
+        await self._append(
+            state,
+            items=items,
             snapshot=snapshot,
-            patch=self._stage_patch(decision.stage_id),
+            patch=self._stage_patch(
+                decision.stage_id,
+                status=(
+                    MissionStatus.FAILED if failure_budget_exhausted else None
+                ),
+            ),
         )
+        return failure_budget_exhausted
 
     async def _record_invalid_decision(
         self,

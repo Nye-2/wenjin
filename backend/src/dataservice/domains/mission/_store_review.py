@@ -55,6 +55,19 @@ from src.dataservice_client.contracts.mission import (
 class MissionReviewOperations:
     """Mission review decisions and commit saga persistence."""
 
+    async def load_review_item(
+        self,
+        mission_id: str,
+        review_item_id: str,
+    ) -> MissionReviewItemPayload | None:
+        run = await self.repository.get_run(mission_id)
+        if run is None:
+            return None
+        record = await self.repository.get_review_item(review_item_id)
+        if record is None or record.mission_id != mission_id:
+            return None
+        return mission_review_item_to_payload(record, review_mode=run.review_mode)
+
     async def load_commit_for_review_item(
         self,
         mission_id: str,

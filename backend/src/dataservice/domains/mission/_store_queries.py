@@ -13,7 +13,9 @@ from src.dataservice.domains.mission._store_core import (
     NONTERMINAL_MISSION_STATUSES,
     MissionProjectionStaleError,
     _decode_history_cursor,
+    _decode_record_cursor,
     _encode_history_cursor,
+    _encode_record_cursor,
     _project_activity,
     _project_artifact,
     _project_attention_request,
@@ -35,6 +37,7 @@ from src.dataservice.domains.mission.projection import (
 from src.dataservice_client.contracts.mission import (
     MissionArtifactPagePayload,
     MissionCommitSummaryPayload,
+    MissionCursorPagePayload,
     MissionEvidencePagePayload,
     MissionHistoryPagePayload,
     MissionItemPagePayload,
@@ -42,6 +45,7 @@ from src.dataservice_client.contracts.mission import (
     MissionProjectionPagePayload,
     MissionReviewPolicyPayload,
     MissionReviewSummaryPayload,
+    MissionReviewViewPagePayload,
     MissionRunPayload,
     MissionStatus,
     MissionUserSummaryPayload,
@@ -359,10 +363,11 @@ class MissionQueryOperations:
         run = await self.repository.get_run(mission_id)
         if run is None:
             return None
-        visible_review_records = await self.repository.list_current_review_items(
+        visible_review_page_records = await self.repository.list_current_review_items(
             mission_id=mission_id,
-            limit=projection_item_limit,
+            limit=projection_item_limit + 1,
         )
+        visible_review_records = visible_review_page_records[:projection_item_limit]
         artifact_records = await self.repository.list_current_artifact_review_items(
             mission_id=mission_id,
             limit=projection_item_limit + 1,
@@ -445,6 +450,22 @@ class MissionQueryOperations:
                 )
                 for record in visible_review_records
             ],
+            review_page=MissionCursorPagePayload(
+                total=await self.repository.count_current_review_items(
+                    mission_id=mission_id
+                ),
+                returned=len(visible_review_records),
+                next_cursor=(
+                    _encode_record_cursor(
+                        kind="review-view",
+                        created_at=visible_review_records[-1].created_at,
+                        record_id=str(visible_review_records[-1].review_item_id),
+                    )
+                    if len(visible_review_page_records) > projection_item_limit
+                    and visible_review_records
+                    else None
+                ),
+            ),
             required_stage_ids=required_stage_ids,
             stage_summaries=stage_summaries,
             team_summary=team_summary,
@@ -456,7 +477,11 @@ class MissionQueryOperations:
                 next_cursor=(evidence_page_records[-1].seq if len(evidence_records) > projection_item_limit else None),
             ),
             artifact_items=[
-                _project_artifact(record, committed_review_ids)
+                _project_artifact(
+                    record,
+                    committed_review_ids,
+                    now=projection_now,
+                )
                 for record in artifact_review_records
             ],
             artifact_page=MissionProjectionPagePayload(
@@ -543,9 +568,14 @@ class MissionQueryOperations:
             for record in commit_records
             if record.status == "committed"
         }
+        projection_now = datetime.now(UTC)
         return MissionArtifactPagePayload(
             items=[
-                _project_artifact(record, committed_review_ids)
+                _project_artifact(
+                    record,
+                    committed_review_ids,
+                    now=projection_now,
+                )
                 for record in page_records
             ],
             page=MissionProjectionPagePayload(
@@ -561,6 +591,65 @@ class MissionQueryOperations:
                 next_tiebreaker=(
                     str(page_records[-1].review_item_id)
                     if len(artifact_records) > limit and page_records
+                    else None
+                ),
+            ),
+        )
+
+    async def list_review_projection_page(
+        self,
+        mission_id: str,
+        *,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> MissionReviewViewPagePayload | None:
+        run = await self.repository.get_run(mission_id)
+        if run is None:
+            return None
+        after_created_at: datetime | None = None
+        after_review_item_id: str | None = None
+        if cursor is not None:
+            after_created_at, after_review_item_id = _decode_record_cursor(
+                cursor,
+                kind="review-view",
+            )
+        records = await self.repository.list_current_review_items(
+            mission_id=mission_id,
+            after_created_at=after_created_at,
+            after_review_item_id=after_review_item_id,
+            limit=limit + 1,
+        )
+        page_records = records[:limit]
+        commits = await self.repository.list_commits_by_review_item_ids(
+            mission_id=mission_id,
+            review_item_ids=[str(record.review_item_id) for record in page_records],
+        )
+        commits_by_review_item = {
+            str(record.review_item_id): record for record in commits
+        }
+        now = datetime.now(UTC)
+        return MissionReviewViewPagePayload(
+            items=[
+                _project_review_view_item(
+                    record,
+                    review_mode=run.review_mode,
+                    commit=commits_by_review_item.get(str(record.review_item_id)),
+                    now=now,
+                )
+                for record in page_records
+            ],
+            page=MissionCursorPagePayload(
+                total=await self.repository.count_current_review_items(
+                    mission_id=mission_id
+                ),
+                returned=len(page_records),
+                next_cursor=(
+                    _encode_record_cursor(
+                        kind="review-view",
+                        created_at=page_records[-1].created_at,
+                        record_id=str(page_records[-1].review_item_id),
+                    )
+                    if len(records) > limit and page_records
                     else None
                 ),
             ),

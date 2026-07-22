@@ -32,9 +32,11 @@ import {
   commitMissionReviews,
   decideMissionReviews,
   downloadMissionArtifact,
+  getMissionReviewPreview,
   listMissionArtifacts,
   listMissionEvidence,
   listMissionItems,
+  listMissionReviews,
   resolveMissionPermission,
   updateMissionReviewMode,
   type MissionMutationResult,
@@ -320,7 +322,7 @@ function activityMeta(view: MissionView): string {
     }
   }
   if (activity.attempt) return `正在进行第 ${activity.attempt} 次尝试`;
-  if (activity.state === "collaborating") return `${view.subagents.length} 位成员参与`;
+  if (activity.state === "collaborating") return `${Math.max(view.activeSubagentCount ?? 0, view.subagents.length)} 位成员参与`;
   return activityStateLabel(activity.state);
 }
 
@@ -438,12 +440,18 @@ function ProgressSurface({
           ))}
         </div>
       </section>
-      {view.subagents.length ? (
+      {view.subagents.length || (view.activeSubagentCount ?? 0) > 0 ? (
         <section className="border-t border-[var(--wjn-line)] pt-5">
           <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold text-[var(--wjn-text)]">
             <Users size={14} /> 研究成员
           </h3>
           <div className="space-y-3">
+            {!view.subagents.length && (view.activeSubagentCount ?? 0) > 0 ? (
+              <div className="flex items-center gap-2 text-xs text-[var(--wjn-text-muted)]" role="status">
+                <LoaderCircle size={14} className="animate-spin" />
+                {view.activeSubagentCount ?? 0} 位研究成员正在启动…
+              </div>
+            ) : null}
             {view.subagents.map((member) => (
               <div key={member.id} className="flex items-start gap-3" data-testid="mission-member">
                 <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--wjn-surface-subtle)] text-xs font-semibold text-[var(--wjn-accent-strong)]">
@@ -613,8 +621,16 @@ function ReviewSurface({
   const endReviewSubmission = useMissionUiStore((state) => state.endReviewSubmission);
   const [error, setError] = useState<string | null>(null);
   const [projectionPending, setProjectionPending] = useState(false);
-  const pending = view.reviewItems.filter((item) => item.status === "pending");
-  const suggestedSelection = useMemo(() => suggestedReviewSelection(view), [view]);
+  const [reviewItems, setReviewItems] = useState(view.reviewItems);
+  const [nextReviewCursor, setNextReviewCursor] = useState(view.reviewNextCursor ?? null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const reviewMissionRef = useRef(view.missionId);
+  const reviewPagesLoadedRef = useRef(false);
+  const pending = reviewItems.filter((item) => item.status === "pending");
+  const suggestedSelection = useMemo(
+    () => suggestedReviewSelection({ ...view, reviewItems }),
+    [reviewItems, view],
+  );
   const selected =
     selectionMissionId === view.missionId &&
     selectionRevision === view.reviewSelectionRevision
@@ -637,6 +653,53 @@ function ReviewSurface({
   useEffect(() => {
     setProjectionPending(false);
   }, [view.missionId, view.stateVersion]);
+
+  useEffect(() => {
+    reviewMissionRef.current = view.missionId;
+    reviewPagesLoadedRef.current = false;
+    setReviewItems(view.reviewItems);
+    setNextReviewCursor(view.reviewNextCursor ?? null);
+  }, [view.missionId]);
+
+  useEffect(() => {
+    if (reviewMissionRef.current !== view.missionId) return;
+    setReviewItems((current) => reconcileProjectedPage(view.reviewItems, current));
+    if (!reviewPagesLoadedRef.current) {
+      setNextReviewCursor(view.reviewNextCursor ?? null);
+    }
+  }, [view.missionId, view.reviewItems, view.reviewNextCursor]);
+
+  useEffect(() => {
+    const expirations = reviewItems
+      .flatMap((item) => item.previewExpiresAt ? [Date.parse(item.previewExpiresAt)] : [])
+      .filter((value) => Number.isFinite(value) && value > Date.now());
+    if (!expirations.length) return;
+    const delay = Math.min(Math.max(Math.min(...expirations) - Date.now() + 100, 100), 2_147_000_000);
+    const timer = window.setTimeout(() => {
+      void onMissionTarget(view.missionId);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [onMissionTarget, reviewItems, view.missionId]);
+
+  const loadMoreReviews = async () => {
+    if (!nextReviewCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await listMissionReviews({
+        missionId: view.missionId,
+        cursor: nextReviewCursor,
+      });
+      if (reviewMissionRef.current !== view.missionId) return;
+      reviewPagesLoadedRef.current = true;
+      setReviewItems((current) => reconcileProjectedPage(current, page.items));
+      setNextReviewCursor(page.nextCursor);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "更多待确认内容加载失败");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const synchronizeReceipt = async (result: MissionMutationResult) => {
     if (result.issueCodes.length) {
@@ -663,6 +726,10 @@ function ReviewSurface({
         missionId: view.missionId,
         decisions: selectedPending.map((item) => ({ reviewItemId: item.id, decision })),
       });
+      const decidedIds = new Set(result.appliedReviewItemIds ?? []);
+      setReviewItems((current) => current.map((item) => (
+        decidedIds.has(item.id) ? { ...item, status: decision } : item
+      )));
       await synchronizeReceipt(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认失败");
@@ -682,6 +749,11 @@ function ReviewSurface({
         missionId: view.missionId,
         decisions: [{ reviewItemId, decision }],
       });
+      if (result.appliedReviewItemIds?.includes(reviewItemId)) {
+        setReviewItems((current) => current.map((item) => (
+          item.id === reviewItemId ? { ...item, status: decision } : item
+        )));
+      }
       await synchronizeReceipt(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认失败");
@@ -691,7 +763,7 @@ function ReviewSurface({
   };
 
   const saveAccepted = async () => {
-    const accepted = view.reviewItems.filter(
+    const accepted = reviewItems.filter(
       (item) => item.status === "accepted" && item.commitEligible,
     );
     if (!accepted.length) return;
@@ -702,6 +774,17 @@ function ReviewSurface({
         missionId: view.missionId,
         reviewItemIds: accepted.map((item) => item.id),
       });
+      const committedIds = new Set(result.committedReviewItemIds ?? []);
+      setReviewItems((current) => current.map((item) => (
+        committedIds.has(item.id)
+          ? {
+              ...item,
+              status: "committed",
+              commitStatus: "committed",
+              commitEligible: false,
+            }
+          : item
+      )));
       await synchronizeReceipt(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
@@ -810,11 +893,11 @@ function ReviewSurface({
           {view.reviewSummary.needsMoreEvidence} 项内容还需要补充材料，暂不会写入工作区。
         </div>
       ) : null}
-      {view.reviewItems.some((item) => item.status !== "pending" && item.status !== "superseded") ? (
+      {reviewItems.some((item) => item.status !== "pending" && item.status !== "superseded") ? (
         <div className="mt-4 border-t border-[var(--wjn-line)] pt-3">
           <h4 className="mb-2 text-xs font-semibold text-[var(--wjn-text)]">已处理内容</h4>
           <div className="divide-y divide-[var(--wjn-line)]">
-            {view.reviewItems.filter((item) => item.status !== "pending" && item.status !== "superseded").map((item) => (
+            {reviewItems.filter((item) => item.status !== "pending" && item.status !== "superseded").map((item) => (
               <div key={item.id} className="flex items-center gap-3 py-2.5 text-xs">
                 <span className="min-w-0 flex-1 truncate text-[var(--wjn-text-secondary)]">{item.title}</span>
                 {item.status === "committed" && item.targetKind === "workspace_asset" && item.visual && item.committedTargetRef ? (
@@ -835,6 +918,11 @@ function ReviewSurface({
             ))}
           </div>
         </div>
+      ) : null}
+      {nextReviewCursor ? (
+        <button type="button" disabled={loadingMore || busy} onClick={() => void loadMoreReviews()} className="wjn-button-secondary mt-3 h-8 w-full text-xs disabled:opacity-45">
+          {loadingMore ? "正在加载…" : `加载更多待确认内容（已显示 ${reviewItems.length} 项）`}
+        </button>
       ) : null}
       {error ? <p className="mt-3 text-xs text-[var(--wjn-error)]">{error}</p> : null}
       {projectionPending ? (
@@ -869,7 +957,7 @@ function ReviewSurface({
         </button>
         <button
           type="button"
-          disabled={busy || !view.reviewItems.some((item) => item.status === "accepted" && item.commitEligible)}
+          disabled={busy || !reviewItems.some((item) => item.status === "accepted" && item.commitEligible)}
           onClick={() => void saveAccepted()}
           className="wjn-button-secondary ml-auto h-8 px-3 text-xs disabled:opacity-45"
         >
@@ -1003,10 +1091,14 @@ function EvidenceSurface({ view }: { view: MissionView }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestEpochRef = useRef(0);
   const requestInFlightRef = useRef(false);
+  const evidenceMissionRef = useRef(view.missionId);
+  const evidencePagesLoadedRef = useRef(false);
 
   useEffect(() => {
     ++requestEpochRef.current;
     requestInFlightRef.current = false;
+    evidenceMissionRef.current = view.missionId;
+    evidencePagesLoadedRef.current = false;
     setEvidenceItems(view.evidenceItems);
     setNextCursor(view.evidenceNextCursor ?? null);
     setLoadingMore(false);
@@ -1015,6 +1107,14 @@ function EvidenceSurface({ view }: { view: MissionView }) {
       ++requestEpochRef.current;
       requestInFlightRef.current = false;
     };
+  }, [view.missionId]);
+
+  useEffect(() => {
+    if (evidenceMissionRef.current !== view.missionId) return;
+    setEvidenceItems((current) => reconcileProjectedPage(view.evidenceItems, current));
+    if (!evidencePagesLoadedRef.current) {
+      setNextCursor(view.evidenceNextCursor ?? null);
+    }
   }, [view.evidenceItems, view.evidenceNextCursor, view.missionId]);
 
   const items = useMemo(() => {
@@ -1036,6 +1136,7 @@ function EvidenceSurface({ view }: { view: MissionView }) {
     try {
       const page = await listMissionEvidence({ missionId, cursor });
       if (requestEpoch !== requestEpochRef.current) return;
+      evidencePagesLoadedRef.current = true;
       setEvidenceItems((current) => appendUnique(current, page.items));
       setNextCursor(page.nextCursor);
     } catch (reason) {
@@ -1068,6 +1169,13 @@ function EvidenceSurface({ view }: { view: MissionView }) {
                   </div>
                   <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">{item.sourceLabel ?? resolveMaterialType(item.sourceType)}</div>
                   {item.summary ? <p className="mt-2 text-xs leading-5 text-[var(--wjn-text-secondary)]">{item.summary}</p> : null}
+                  {safeExternalUrl(item.citation) ? (
+                    <a href={safeExternalUrl(item.citation)!} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-medium text-[var(--wjn-accent-strong)] hover:underline">
+                      查看来源
+                    </a>
+                  ) : item.citation ? (
+                    <p className="mt-2 break-words text-[11px] text-[var(--wjn-text-muted)]">{item.citation}</p>
+                  ) : null}
                 </div>
               </div>
             </article>
@@ -1087,23 +1195,38 @@ function EvidenceSurface({ view }: { view: MissionView }) {
 function ArtifactSurface({ view }: { view: MissionView }) {
   const [artifactItems, setArtifactItems] = useState<MissionArtifactView[]>(view.artifactItems);
   const [nextCursor, setNextCursor] = useState<number | null>(view.artifactNextCursor ?? null);
+  const [nextTiebreaker, setNextTiebreaker] = useState<string | null>(view.artifactNextTiebreaker ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestEpochRef = useRef(0);
   const requestInFlightRef = useRef(false);
+  const artifactMissionRef = useRef(view.missionId);
+  const artifactPagesLoadedRef = useRef(false);
 
   useEffect(() => {
     ++requestEpochRef.current;
     requestInFlightRef.current = false;
+    artifactMissionRef.current = view.missionId;
+    artifactPagesLoadedRef.current = false;
     setArtifactItems(view.artifactItems);
     setNextCursor(view.artifactNextCursor ?? null);
+    setNextTiebreaker(view.artifactNextTiebreaker ?? null);
     setLoadingMore(false);
     setLoadError(null);
     return () => {
       ++requestEpochRef.current;
       requestInFlightRef.current = false;
     };
-  }, [view.artifactItems, view.artifactNextCursor, view.missionId]);
+  }, [view.missionId]);
+
+  useEffect(() => {
+    if (artifactMissionRef.current !== view.missionId) return;
+    setArtifactItems((current) => reconcileProjectedPage(view.artifactItems, current));
+    if (!artifactPagesLoadedRef.current) {
+      setNextCursor(view.artifactNextCursor ?? null);
+      setNextTiebreaker(view.artifactNextTiebreaker ?? null);
+    }
+  }, [view.artifactItems, view.artifactNextCursor, view.artifactNextTiebreaker, view.missionId]);
 
   const loadMore = async () => {
     if (nextCursor === null || requestInFlightRef.current) return;
@@ -1117,10 +1240,13 @@ function ArtifactSurface({ view }: { view: MissionView }) {
       const page = await listMissionArtifacts({
         missionId,
         cursor,
+        ...(nextTiebreaker ? { tiebreaker: nextTiebreaker } : {}),
       });
       if (requestEpoch !== requestEpochRef.current) return;
+      artifactPagesLoadedRef.current = true;
       setArtifactItems((current) => appendUnique(current, page.items));
       setNextCursor(page.nextCursor);
+      setNextTiebreaker(page.nextTiebreaker);
     } catch (reason) {
       if (requestEpoch !== requestEpochRef.current) return;
       setLoadError(reason instanceof Error ? reason.message : "更多成果加载失败");
@@ -1129,6 +1255,27 @@ function ArtifactSurface({ view }: { view: MissionView }) {
         requestInFlightRef.current = false;
         setLoadingMore(false);
       }
+    }
+  };
+
+  const openPreview = async (item: MissionArtifactView) => {
+    setLoadError(null);
+    try {
+      const preview = await getMissionReviewPreview({
+        missionId: view.missionId,
+        reviewItemId: item.id,
+      });
+      const objectUrl = URL.createObjectURL(preview.blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.target = "_blank";
+      anchor.rel = "noreferrer";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (reason) {
+      setLoadError(reason instanceof Error ? reason.message : "成果预览加载失败");
     }
   };
 
@@ -1145,6 +1292,11 @@ function ArtifactSurface({ view }: { view: MissionView }) {
                   <span className="text-[10px] text-[var(--wjn-text-muted)]">{item.committed ? "已保存" : "待确认"}</span>
                 </div>
                 {item.summary ? <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-secondary)]">{item.summary}</p> : null}
+                {item.previewAvailable ? (
+                  <button type="button" onClick={() => void openPreview(item)} className="mt-2 mr-3 inline-flex text-xs font-medium text-[var(--wjn-accent-strong)] hover:underline">
+                    查看预览
+                  </button>
+                ) : null}
                 {item.downloadUrl ? (
                   <button
                     type="button"
@@ -1163,7 +1315,7 @@ function ArtifactSurface({ view }: { view: MissionView }) {
       {loadError ? <p className="mt-3 text-xs text-[var(--wjn-error)]">{loadError}</p> : null}
       {nextCursor !== null ? (
         <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="wjn-button-secondary mt-3 h-8 w-full text-xs disabled:opacity-45">
-          {loadingMore ? "正在加载…" : `加载更多成果（已显示 ${artifactItems.length}/${view.artifactCount}）`}
+          {loadingMore ? "正在加载…" : `加载更多成果（已显示 ${artifactItems.length}/${view.visibleArtifactCount ?? view.artifactCount}）`}
         </button>
       ) : null}
     </div>
@@ -1175,6 +1327,27 @@ function appendUnique<T extends { id: string }>(current: T[], incoming: T[]): T[
   return [...current, ...incoming.filter((item) => !known.has(item.id))];
 }
 
+function reconcileProjectedPage<T extends { id: string }>(
+  authoritative: T[],
+  current: T[],
+): T[] {
+  const authoritativeIds = new Set(authoritative.map((item) => item.id));
+  return [
+    ...authoritative,
+    ...current.filter((item) => !authoritativeIds.has(item.id)),
+  ];
+}
+
+function safeExternalUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function TraceSurface({ view }: { view: MissionView }) {
   const [items, setItems] = useState<MissionItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -1183,6 +1356,7 @@ function TraceSurface({ view }: { view: MissionView }) {
   const [error, setError] = useState<string | null>(null);
   const requestEpochRef = useRef(0);
   const requestInFlightRef = useRef(false);
+  const observedLastItemSeqRef = useRef(view.lastItemSeq);
 
   useEffect(() => {
     ++requestEpochRef.current;
@@ -1192,6 +1366,7 @@ function TraceSurface({ view }: { view: MissionView }) {
     setStarted(false);
     setLoading(false);
     setError(null);
+    observedLastItemSeqRef.current = view.lastItemSeq;
     return () => {
       ++requestEpochRef.current;
       requestInFlightRef.current = false;
@@ -1221,6 +1396,14 @@ function TraceSurface({ view }: { view: MissionView }) {
       }
     }
   };
+
+  useEffect(() => {
+    const previousSeq = observedLastItemSeqRef.current;
+    observedLastItemSeqRef.current = view.lastItemSeq;
+    if (started && view.lastItemSeq > previousSeq && !requestInFlightRef.current) {
+      void load(null);
+    }
+  }, [started, view.lastItemSeq]);
   if (!started) {
     return (
       <div className="px-5 py-5" data-testid="mission-trace-idle">

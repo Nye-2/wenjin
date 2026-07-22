@@ -66,7 +66,12 @@ from src.mission_runtime.contracts import (
     SubagentExecutionRequest,
     ToolExecutionRequest,
 )
-from src.mission_runtime.ports import MissionStorePort
+from src.mission_runtime.events import publish_after_commit
+from src.mission_runtime.ports import (
+    MissionClockPort,
+    MissionEventPublisherPort,
+    MissionStorePort,
+)
 from src.mission_runtime.reference_authority import canonical_reference_read
 from src.models import create_chat_model
 from src.models.provider_schema import parse_json_object, strict_provider_schema
@@ -93,6 +98,7 @@ from src.subagent_runtime.contracts import (
     SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
     SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
     SubagentAction,
+    SubagentActionCheckpoint,
     SubagentBatchResult,
     SubagentBudget,
     SubagentContextRead,
@@ -236,6 +242,70 @@ async def _append_model_ledger_item_once(
         if existing:
             raise RuntimeError(
                 "model_call_id has a divergent durable ledger item"
+            ) from exc
+        raise
+
+
+async def _append_model_usage_with_checkpoint_once(
+    store: MissionStorePort,
+    *,
+    job: SubagentJobSpec,
+    usage_draft: MissionItemDraftPayload,
+    checkpoint_draft: MissionItemDraftPayload,
+) -> None:
+    async def existing(
+        draft: MissionItemDraftPayload,
+    ) -> list[MissionItemPayload]:
+        return await store.list_items(
+            job.mission_id,
+            item_type=draft.item_type,
+            operation_id=draft.operation_id,
+            limit=2,
+        )
+
+    usage_items, checkpoint_items = await asyncio.gather(
+        existing(usage_draft),
+        existing(checkpoint_draft),
+    )
+    if usage_items or checkpoint_items:
+        if (
+            len(usage_items) == 1
+            and len(checkpoint_items) == 1
+            and _mission_item_matches_draft(usage_items[0], usage_draft)
+            and _mission_item_matches_draft(
+                checkpoint_items[0], checkpoint_draft
+            )
+        ):
+            return
+        raise RuntimeError(
+            "subagent model receipt and action checkpoint diverged"
+        )
+
+    try:
+        await _append_under_current_lease(
+            store,
+            mission_id=job.mission_id,
+            lease_owner=job.lease_owner,
+            lease_epoch=job.lease_epoch,
+            items=[usage_draft, checkpoint_draft],
+        )
+    except Exception as exc:
+        usage_items, checkpoint_items = await asyncio.gather(
+            existing(usage_draft),
+            existing(checkpoint_draft),
+        )
+        if (
+            len(usage_items) == 1
+            and len(checkpoint_items) == 1
+            and _mission_item_matches_draft(usage_items[0], usage_draft)
+            and _mission_item_matches_draft(
+                checkpoint_items[0], checkpoint_draft
+            )
+        ):
+            return
+        if usage_items or checkpoint_items:
+            raise RuntimeError(
+                "subagent model receipt and action checkpoint diverged"
             ) from exc
         raise
 
@@ -531,6 +601,11 @@ class MissionItemOperationJournal(OperationJournal):
                 kind=MissionOperationKind.TOOL,
                 request_hash=_operation_request_hash(MissionOperationKind.TOOL, operation.operation_key),
                 claimant=operation.operation_id,
+                model_call_job_id=(
+                    operation.caller_id
+                    if operation.caller_kind is ToolCallerKind.SUBAGENT
+                    else None
+                ),
                 lease_epoch=operation.lease_epoch,
                 ttl_seconds=self.operation_ttl_seconds,
             ),
@@ -930,8 +1005,27 @@ class MissionSubagentToolAdapter(SubagentToolPort):
 
 
 class MissionSubagentLedger(SubagentLedgerPort):
-    def __init__(self, store: MissionStorePort) -> None:
+    def __init__(
+        self,
+        store: MissionStorePort,
+        *,
+        events: MissionEventPublisherPort | None = None,
+        clock: MissionClockPort | None = None,
+    ) -> None:
         self.store = store
+        self.events = events
+        self.clock = clock
+
+    async def command_pending(self, job: SubagentJobSpec) -> bool:
+        mission = await self.store.get(job.mission_id)
+        if mission is None:
+            return True
+        if (
+            mission.lease_owner != job.lease_owner
+            or mission.lease_epoch != job.lease_epoch
+        ):
+            return True
+        return mission.last_command_seq > mission.last_applied_command_seq
 
     async def record_progress(
         self,
@@ -948,7 +1042,25 @@ class MissionSubagentLedger(SubagentLedgerPort):
             "role_label": job.role_label,
             "lifecycle_phase": phase,
             "job_fingerprint": subagent_job_fingerprint(job),
+            **(
+                {"frozen_budget": job.budget.model_dump(mode="json")}
+                if phase == "running"
+                else {}
+            ),
         }
+        progress_status = str((payload_json or {}).get("status") or "")
+        artifact_refs = (payload_json or {}).get("artifact_refs")
+        published_artifact = (
+            progress_status == "completed"
+            and isinstance(artifact_refs, list)
+            and bool(artifact_refs)
+        )
+        if (
+            phase in {"running", "terminal"}
+            or progress_status == "milestone"
+            or published_artifact
+        ):
+            canonical_payload["public_summary"] = summary[:500]
         progress_hash = subagent_progress_sha256(
             summary=summary,
             payload_json=canonical_payload,
@@ -980,6 +1092,54 @@ class MissionSubagentLedger(SubagentLedgerPort):
                 payload_json=canonical_payload,
             ),
         )
+        if self.events is not None and self.clock is not None:
+            mission = await self.store.get(job.mission_id)
+            if mission is not None:
+                await publish_after_commit(self.events, self.clock, mission)
+
+    async def load_action_checkpoints(
+        self,
+        job: SubagentJobSpec,
+    ) -> tuple[SubagentActionCheckpoint, ...]:
+        items: list[MissionItemPayload] = []
+        after_seq = 0
+        while True:
+            page = await self.store.list_items(
+                job.mission_id,
+                after_seq=after_seq,
+                item_type="subagent_action_checkpoint",
+                limit=100,
+            )
+            items.extend(page)
+            if len(page) < 100:
+                break
+            after_seq = page[-1].seq
+        expected_fingerprint = subagent_job_fingerprint(job)
+        recovered: dict[int, SubagentActionCheckpoint] = {}
+        for item in items:
+            if item.producer != job.job_id:
+                continue
+            checkpoint = SubagentActionCheckpoint.model_validate(
+                item.payload_json
+            )
+            if (
+                checkpoint.job_id != job.job_id
+                or checkpoint.operation_id != job.operation_id
+                or checkpoint.job_fingerprint != expected_fingerprint
+            ):
+                raise RuntimeError(
+                    "durable subagent action checkpoint has divergent identity"
+                )
+            prior = recovered.get(checkpoint.turn)
+            if prior is not None and prior != checkpoint:
+                raise RuntimeError(
+                    "durable subagent turn has divergent action checkpoints"
+                )
+            recovered[checkpoint.turn] = checkpoint
+        turns = sorted(recovered)
+        if turns and turns != list(range(1, turns[-1] + 1)):
+            raise RuntimeError("durable subagent action checkpoints are not contiguous")
+        return tuple(recovered[turn] for turn in turns)
 
     async def record_model_usage(
         self,
@@ -1016,6 +1176,62 @@ class MissionSubagentLedger(SubagentLedgerPort):
                     "attempt": attempt,
                 },
             ),
+        )
+
+    async def record_model_usage_with_action(
+        self,
+        job: SubagentJobSpec,
+        *,
+        turn: int,
+        attempt: int,
+        model_call_id: str,
+        usage_receipt: ModelUsageReceipt,
+        action: SubagentAction,
+    ) -> None:
+        if (
+            usage_receipt.model_id != job.model_id
+            or usage_receipt.usage.total_tokens <= 0
+        ):
+            raise SubagentModelUsageError(
+                "Subagent usage receipt does not match the model call"
+            )
+        checkpoint = SubagentActionCheckpoint(
+            job_id=job.job_id,
+            operation_id=job.operation_id,
+            turn=turn,
+            job_fingerprint=subagent_job_fingerprint(job),
+            action=action,
+        )
+        usage_draft = MissionItemDraftPayload(
+            item_type="usage_receipt",
+            operation_id=model_call_id,
+            phase=MissionItemPhase.COMPLETED,
+            stage_id=job.stage_id,
+            producer=job.job_id,
+            summary="Subagent model usage recorded",
+            payload_json={
+                **usage_receipt.model_dump(mode="json"),
+                "model_call_id": model_call_id,
+                "parent_operation_id": job.operation_id,
+                "job_id": job.job_id,
+                "turn": turn,
+                "attempt": attempt,
+            },
+        )
+        checkpoint_draft = MissionItemDraftPayload(
+            item_type="subagent_action_checkpoint",
+            operation_id=f"subagent-action:{job.job_id}:{turn}",
+            phase=MissionItemPhase.COMPLETED,
+            stage_id=job.stage_id,
+            producer=job.job_id,
+            summary="Subagent action checkpoint saved",
+            payload_json=checkpoint.model_dump(mode="json"),
+        )
+        await _append_model_usage_with_checkpoint_once(
+            self.store,
+            job=job,
+            usage_draft=usage_draft,
+            checkpoint_draft=checkpoint_draft,
         )
 
     async def record_model_call_started(
@@ -1159,7 +1375,7 @@ class LangChainSubagentModel(SubagentModelPort):
                 "model_turns": max(job.budget.max_turns - len({item.turn for item in steps}), 0),
                 "tool_steps": max(
                     job.budget.max_tool_steps
-                    - sum(1 for item in steps if item.kind == "tool" and not item.summary.startswith("Load selected context:")),
+                    - sum(1 for item in steps if item.kind == "tool"),
                     0,
                 ),
             },
@@ -1480,13 +1696,19 @@ class MissionSubagentRuntimeAdapter:
         monotonic_clock: Callable[[], float] = monotonic,
         model_call_timeout_seconds: float = 0.0,
         model_call_completion_margin_seconds: float = 0.0,
+        events: MissionEventPublisherPort | None = None,
+        clock: MissionClockPort | None = None,
     ) -> None:
         self.store = store
         self.tools = tools
         self.runtime = SubagentRuntime(
             model=model,
             tools=tools,
-            ledger=MissionSubagentLedger(store),
+            ledger=MissionSubagentLedger(
+                store,
+                events=events,
+                clock=clock,
+            ),
             max_concurrency=max_concurrency,
             max_jobs_per_batch=max_jobs_per_batch,
             monotonic_clock=monotonic_clock,
@@ -1495,8 +1717,13 @@ class MissionSubagentRuntimeAdapter:
         )
 
     async def run(self, request: SubagentExecutionRequest) -> MissionPortOutcome:
-        terminal_items = await self._terminal_progress_items(request)
-        frozen_budgets = self._frozen_terminal_budgets(terminal_items)
+        progress_items = await self._progress_items(request)
+        terminal_items = [
+            item
+            for item in progress_items
+            if item.payload_json.get("lifecycle_phase") == "terminal"
+        ]
+        frozen_budgets = self._frozen_budgets(progress_items)
         jobs = _subagent_jobs(
             request,
             input_schema_resolver=self.tools.input_schemas,
@@ -1530,10 +1757,15 @@ class MissionSubagentRuntimeAdapter:
         self,
         request: SubagentExecutionRequest,
     ) -> MissionPortOutcome | None:
-        terminal_items = await self._terminal_progress_items(request)
+        progress_items = await self._progress_items(request)
+        terminal_items = [
+            item
+            for item in progress_items
+            if item.payload_json.get("lifecycle_phase") == "terminal"
+        ]
         if not terminal_items:
             return None
-        frozen_budgets = self._frozen_terminal_budgets(terminal_items)
+        frozen_budgets = self._frozen_budgets(progress_items)
         jobs = _subagent_jobs(
             request,
             input_schema_resolver=self.tools.input_schemas,
@@ -1549,11 +1781,11 @@ class MissionSubagentRuntimeAdapter:
             )
         )
 
-    async def _terminal_progress_items(
+    async def _progress_items(
         self,
         request: SubagentExecutionRequest,
     ) -> list[MissionItemPayload]:
-        terminal_items: list[MissionItemPayload] = []
+        progress_items: list[MissionItemPayload] = []
         after_seq = 0
         while True:
             items = await self.store.list_items(
@@ -1563,17 +1795,13 @@ class MissionSubagentRuntimeAdapter:
                 operation_id=request.operation_id,
                 limit=100,
             )
-            terminal_items.extend(
-                item
-                for item in items
-                if item.payload_json.get("lifecycle_phase") == "terminal"
-            )
+            progress_items.extend(items)
             if len(items) < 100:
-                return terminal_items
+                return progress_items
             after_seq = items[-1].seq
 
     @staticmethod
-    def _frozen_terminal_budgets(
+    def _frozen_budgets(
         items: list[MissionItemPayload],
     ) -> dict[str, SubagentBudget]:
         frozen: dict[str, SubagentBudget] = {}
@@ -1581,20 +1809,20 @@ class MissionSubagentRuntimeAdapter:
             payload = item.payload_json
             job_id = str(payload.get("job_id") or "")
             raw_budget = payload.get("frozen_budget")
+            if raw_budget is None:
+                continue
             if not job_id or not isinstance(raw_budget, dict):
-                raise RuntimeError(
-                    "durable subagent terminal receipt has no frozen job budget"
-                )
+                raise RuntimeError("durable subagent progress has invalid frozen budget")
             try:
                 budget = SubagentBudget.model_validate(raw_budget)
             except ValueError as exc:
                 raise RuntimeError(
-                    "durable subagent terminal receipt has an invalid frozen budget"
+                    "durable subagent progress has an invalid frozen budget"
                 ) from exc
             prior = frozen.get(job_id)
             if prior is not None and prior != budget:
                 raise RuntimeError(
-                    "durable subagent terminal receipts have divergent frozen budgets"
+                    "durable subagent progress has divergent frozen budgets"
                 )
             frozen[job_id] = budget
         return frozen
@@ -1676,6 +1904,7 @@ class MissionSandboxReceiptStore(SandboxReceiptStore):
                 kind=MissionOperationKind.SANDBOX,
                 request_hash=_operation_request_hash(MissionOperationKind.SANDBOX, request.operation_key),
                 claimant=sandbox_job_id,
+                model_call_job_id=request.provenance.subagent_id,
                 lease_epoch=request.provenance.lease_epoch,
                 ttl_seconds=request.limits.wall_time_seconds + 30,
             ),
@@ -1945,9 +2174,14 @@ def _subagent_jobs(
                 1,
             )
             budget_raw["max_turns"] = min(requested_turns, allocated_turns)
-            budget_raw["max_tool_steps"] = max(
-                SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
-                int(budget_raw.get("max_tool_steps") or 0),
+            context_read_count = len(job_values["context_reads"])
+            budget_raw["max_tool_steps"] = min(
+                32,
+                max(
+                    SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
+                    int(budget_raw.get("max_tool_steps") or 0),
+                    context_read_count + 2,
+                ),
             )
             budget_raw["max_context_bytes"] = max(
                 SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
@@ -2132,7 +2366,17 @@ def _evidence_source_type(
 
 
 def _subagent_port_outcome(batch: SubagentBatchResult) -> MissionPortOutcome:
-    failed = [item for item in batch.results if item.status is SubagentStatus.FAILED]
+    failed = [
+        item
+        for item in batch.results
+        if item.status
+        in {
+            SubagentStatus.FAILED,
+            SubagentStatus.TIMED_OUT,
+            SubagentStatus.CANCELLED,
+        }
+        and not item.partial_result_available
+    ]
     useful = [item for item in batch.results if item.status is SubagentStatus.COMPLETED or item.partial_result_available]
     status = MissionPortOutcomeStatus.COMPLETED if useful else MissionPortOutcomeStatus.FAILED
     summary = f"{len(useful)} of {len(batch.results)} subagent jobs produced usable results"
