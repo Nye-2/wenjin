@@ -22,6 +22,7 @@ from src.dataservice_client.contracts.mission import (
     MissionCommitStartPayload,
     MissionCreatePayload,
     MissionDerivedReviewItemCreatePayload,
+    MissionDispatchClaimPayload,
     MissionDispatchReleasePayload,
     MissionItemSeqsPayload,
     MissionLeaseClaimPayload,
@@ -310,6 +311,17 @@ async def release_mission_dispatch(
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     result = await _store(uow).release_dispatch_claim(mission_id, command)
+    await uow.commit()
+    return envelope_ok(result.model_dump(mode="json"))
+
+
+@router.post("/missions/{mission_id}/dispatch/claim")
+async def claim_mission_dispatch(
+    mission_id: str,
+    command: MissionDispatchClaimPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    result = await _store(uow).claim_dispatch_for_run(mission_id, command)
     await uow.commit()
     return envelope_ok(result.model_dump(mode="json"))
 

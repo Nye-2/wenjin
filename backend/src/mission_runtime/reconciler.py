@@ -9,6 +9,7 @@ from src.dataservice_client.contracts.mission import (
     MissionRunnableBatchClaimPayload,
 )
 from src.dataservice_client.errors import DataServiceClientError
+from src.mission_runtime.contracts import MISSION_DISPATCH_TTL_SECONDS
 from src.mission_runtime.ports import (
     MissionClockPort,
     MissionEventPublisherPort,
@@ -16,6 +17,7 @@ from src.mission_runtime.ports import (
     MissionWakeupPublisherPort,
     SystemMissionClock,
 )
+from src.observability.prometheus import track_mission_reconciliation
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class MissionReconciler:
         wakeups: MissionWakeupPublisherPort,
         events: MissionEventPublisherPort,
         clock: MissionClockPort | None = None,
-        lease_ttl_seconds: int = 60,
+        lease_ttl_seconds: int = MISSION_DISPATCH_TTL_SECONDS,
     ) -> None:
         self.store = store
         self.wakeups = wakeups
@@ -42,7 +44,7 @@ class MissionReconciler:
         self,
         *,
         worker_id: str,
-        limit: int = 20,
+        limit: int = 2,
     ) -> list[str]:
         claimed = await self.store.claim_runnable(
             MissionRunnableBatchClaimPayload(
@@ -54,8 +56,14 @@ class MissionReconciler:
         published: list[str] = []
         for run in claimed:
             try:
-                await self.wakeups.publish(run.mission_id)
+                await self.wakeups.publish(
+                    run.mission_id,
+                    dispatch_owner=worker_id,
+                    dispatch_epoch=run.dispatch_epoch,
+                    enqueued_at=self.clock.now(),
+                )
             except Exception:
+                track_mission_reconciliation("publish_failed")
                 logger.warning(
                     "Reconciler wakeup publish failed for %s; due row remains recoverable",
                     run.mission_id,
@@ -74,6 +82,7 @@ class MissionReconciler:
                         raise
                 continue
             published.append(run.mission_id)
+            track_mission_reconciliation("published")
         return published
 
 

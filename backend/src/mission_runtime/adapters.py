@@ -93,7 +93,11 @@ from src.sandbox.contracts import (
     SandboxOperationRequest,
     SandboxOperationResult,
 )
-from src.subagent_runtime import SubagentRuntime, subagent_job_fingerprint
+from src.subagent_runtime import (
+    SubagentCapacityPort,
+    SubagentRuntime,
+    subagent_job_fingerprint,
+)
 from src.subagent_runtime.contracts import (
     SUBAGENT_MIN_RUNTIME_CONTEXT_BYTES,
     SUBAGENT_MIN_RUNTIME_TOOL_STEPS,
@@ -1696,6 +1700,7 @@ class MissionSubagentRuntimeAdapter:
         monotonic_clock: Callable[[], float] = monotonic,
         model_call_timeout_seconds: float = 0.0,
         model_call_completion_margin_seconds: float = 0.0,
+        capacity: SubagentCapacityPort | None = None,
         events: MissionEventPublisherPort | None = None,
         clock: MissionClockPort | None = None,
     ) -> None:
@@ -1714,6 +1719,7 @@ class MissionSubagentRuntimeAdapter:
             monotonic_clock=monotonic_clock,
             model_call_timeout_seconds=model_call_timeout_seconds,
             model_call_completion_margin_seconds=model_call_completion_margin_seconds,
+            capacity=capacity,
         )
 
     async def run(self, request: SubagentExecutionRequest) -> MissionPortOutcome:
@@ -1747,6 +1753,22 @@ class MissionSubagentRuntimeAdapter:
             finally:
                 _ACTIVE_SUBAGENT_DEADLINE.reset(token)
             recovered.update({item.job_id: item for item in fresh.results})
+            if fresh.pending_job_ids:
+                return MissionPortOutcome(
+                    status=MissionPortOutcomeStatus.YIELDED,
+                    summary=(
+                        f"Subagent quantum completed; {len(fresh.pending_job_ids)} "
+                        "jobs remain runnable"
+                    ),
+                    payload_json={
+                        "completed_job_ids": sorted(recovered),
+                        "pending_job_ids": list(fresh.pending_job_ids),
+                        "pending_reasons": {
+                            job_id: reason.value
+                            for job_id, reason in fresh.pending_reasons.items()
+                        },
+                    },
+                )
         result = SubagentBatchResult(
             operation_id=request.operation_id,
             results=tuple(recovered[job.job_id] for job in jobs),

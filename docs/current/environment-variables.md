@@ -1,7 +1,7 @@
 # Environment Variables
 
 > Status: Current
-> Updated: 2026-07-11
+> Updated: 2026-07-22
 
 `.env.example` is the exhaustive template. This document records architectural meaning and production requirements. `.env` is local and must never be committed.
 
@@ -46,7 +46,7 @@ Reasoning effort wire values are `low`, `medium`, `high`, and `xhigh`. Deploymen
 | `CELERY_TASK_SOFT_TIME_LIMIT` | task soft limit; Mission work is sliced before this |
 | `CELERY_TASK_TIME_LIMIT` | task hard limit |
 
-Queue names and Mission worker prefetch are deployment commands in `docker-compose.yml`, not user-configurable workflow data. `worker` consumes `default,priority`; `mission-worker` consumes `long_running` with prefetch 1.
+Queue names, Mission replica count, dispatch lifetime, and concurrency limits are deployment/runtime constants, not user-configurable workflow data. `worker` consumes `default,priority`; Compose starts two `mission-worker` replicas on `long_running`, each with concurrency 1 and prefetch 1. Active subagent quanta are globally capped at four through Redis even when more Mission replicas are deployed.
 
 ## Sandbox vNext
 

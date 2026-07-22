@@ -42,6 +42,7 @@ from src.dataservice_client.contracts.mission import (
     MissionCommitFinishPayload,
     MissionCommitStartPayload,
     MissionCreatePayload,
+    MissionDispatchClaimPayload,
     MissionItemDraftPayload,
     MissionLeaseClaimPayload,
     MissionLeaseReleasePayload,
@@ -561,11 +562,12 @@ async def mission_session() -> AsyncSession:
 
 def _create_payload(
     *,
+    workspace_id: str = "workspace-1",
     thread_id: str = "thread-1",
     idempotency_key: str = "mission-create-1",
 ) -> MissionCreatePayload:
     return MissionCreatePayload(
-        workspace_id="workspace-1",
+        workspace_id=workspace_id,
         thread_id=thread_id,
         user_id="user-1",
         workspace_type="sci",
@@ -589,11 +591,22 @@ async def _created(store: MissionStore, **kwargs: str) -> str:
 
 
 async def _claim(store: MissionStore, mission_id: str, *, version: int, worker: str = "worker-1"):
+    dispatch_owner = f"dispatcher:{worker}"
+    dispatched = await store.claim_dispatch_for_run(
+        mission_id,
+        MissionDispatchClaimPayload(
+            worker_id=dispatch_owner,
+            expected_state_version=version,
+            ttl_seconds=60,
+        ),
+    )
     return await store.claim_run_lease(
         mission_id,
         MissionLeaseClaimPayload(
             worker_id=worker,
-            expected_state_version=version,
+            dispatch_owner=dispatch_owner,
+            dispatch_epoch=dispatched.dispatch_epoch,
+            expected_state_version=dispatched.state_version,
             ttl_seconds=120,
         ),
     )
@@ -785,12 +798,10 @@ async def test_resume_requires_exact_pending_request_id(
 ) -> None:
     store = MissionStore(mission_session, autocommit=True)
     created = await store.create_run(_create_payload())
-    claimed = await store.claim_run_lease(
+    claimed = await _claim(
+        store,
         created.mission.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=created.mission.state_version,
-        ),
+        version=created.mission.state_version,
     )
     await store.append_items_and_update_snapshot(
         created.mission.mission_id,
@@ -3044,7 +3055,7 @@ async def test_stale_queue_hint_cannot_claim_a_waiting_or_delayed_mission(
     assert snapshot is not None
     assert snapshot.status == "waiting"
     assert snapshot.next_wakeup_at is None
-    with pytest.raises(DataServiceConflictError, match="not runnable"):
+    with pytest.raises(DataServiceConflictError, match="not dispatchable"):
         await _claim(store, mission_id, version=snapshot.state_version)
 
     record = await store.repository.get_run(mission_id, for_update=True)
@@ -3053,8 +3064,198 @@ async def test_stale_queue_hint_cannot_claim_a_waiting_or_delayed_mission(
     record.next_wakeup_at = datetime.now(UTC) + timedelta(minutes=5)
     await mission_session.commit()
 
-    with pytest.raises(DataServiceConflictError, match="not runnable"):
+    with pytest.raises(DataServiceConflictError, match="not dispatchable"):
         await _claim(store, mission_id, version=snapshot.state_version)
+
+
+@pytest.mark.asyncio
+async def test_delayed_dispatch_reserves_its_generation_but_cannot_run_early(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        idempotency_key="delayed-dispatch",
+        thread_id="delayed-dispatch-thread",
+    )
+    record = await store.repository.get_run(mission_id, for_update=True)
+    assert record is not None
+    not_before = datetime.now(UTC) + timedelta(minutes=5)
+    record.next_wakeup_at = not_before
+    await mission_session.commit()
+
+    dispatched = await store.claim_dispatch_for_run(
+        mission_id,
+        MissionDispatchClaimPayload(
+            worker_id="delayed-dispatcher",
+            expected_state_version=0,
+            ttl_seconds=600,
+            not_before_at=not_before,
+        ),
+    )
+
+    assert dispatched.dispatch_owner == "delayed-dispatcher"
+    assert dispatched.dispatch_epoch == 1
+    with pytest.raises(DataServiceConflictError, match="not runnable"):
+        await store.claim_run_lease(
+            mission_id,
+            MissionLeaseClaimPayload(
+                worker_id="worker-early",
+                dispatch_owner="delayed-dispatcher",
+                dispatch_epoch=dispatched.dispatch_epoch,
+                expected_state_version=dispatched.state_version,
+                ttl_seconds=120,
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_only_one_mission_can_hold_a_workspace_execution_slot(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    first_id = await _created(
+        store,
+        idempotency_key="workspace-slot-1",
+        thread_id="workspace-slot-thread-1",
+    )
+    first = await _claim(store, first_id, version=0, worker="worker-a")
+    second_id = await _created(
+        store,
+        idempotency_key="workspace-slot-2",
+        thread_id="workspace-slot-thread-2",
+    )
+
+    with pytest.raises(
+        DataServiceConflictError,
+        match="Workspace already has an active Mission driver",
+    ):
+        await _claim(store, second_id, version=0, worker="worker-b")
+
+    assert first.lease_owner == "worker-a"
+    second = await store.load_run_snapshot(second_id)
+    assert second is not None and second.lease_owner is None
+
+
+@pytest.mark.asyncio
+async def test_workspace_dispatch_turn_prefers_the_older_runnable_mission(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    first_id = await _created(
+        store,
+        idempotency_key="dispatch-turn-1",
+        thread_id="dispatch-turn-thread-1",
+    )
+    first_dispatch = await store.claim_dispatch_for_run(
+        first_id,
+        MissionDispatchClaimPayload(
+            worker_id="dispatcher-first",
+            expected_state_version=0,
+            ttl_seconds=900,
+        ),
+    )
+    second_id = await _created(
+        store,
+        idempotency_key="dispatch-turn-2",
+        thread_id="dispatch-turn-thread-2",
+    )
+
+    with pytest.raises(
+        DataServiceConflictError,
+        match="Workspace already has an active Mission dispatch",
+    ):
+        await store.claim_dispatch_for_run(
+            second_id,
+            MissionDispatchClaimPayload(
+                worker_id="dispatcher-second",
+                expected_state_version=0,
+                ttl_seconds=900,
+            ),
+        )
+
+    first_lease = await store.claim_run_lease(
+        first_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-first",
+            dispatch_owner="dispatcher-first",
+            dispatch_epoch=first_dispatch.dispatch_epoch,
+            expected_state_version=first_dispatch.state_version,
+            ttl_seconds=120,
+        ),
+    )
+    second_record = await store.repository.get_run(second_id, for_update=True)
+    assert second_record is not None
+    second_record.next_wakeup_at = datetime.now(UTC) - timedelta(minutes=1)
+    await mission_session.commit()
+    released_first = await store.release_run_lease(
+        first_id,
+        MissionLeaseReleasePayload(
+            worker_id="worker-first",
+            lease_epoch=first_lease.lease_epoch,
+            expected_state_version=first_lease.state_version,
+            next_wakeup_at=datetime.now(UTC) - timedelta(seconds=30),
+        ),
+    )
+
+    with pytest.raises(
+        DataServiceConflictError,
+        match="earlier runnable Mission",
+    ):
+        await store.claim_dispatch_for_run(
+            first_id,
+            MissionDispatchClaimPayload(
+                worker_id="dispatcher-first-next",
+                expected_state_version=released_first.state_version,
+                ttl_seconds=900,
+            ),
+        )
+
+    second_dispatch = await store.claim_dispatch_for_run(
+        second_id,
+        MissionDispatchClaimPayload(
+            worker_id="dispatcher-second-next",
+            expected_state_version=0,
+            ttl_seconds=900,
+        ),
+    )
+    assert second_dispatch.dispatch_owner == "dispatcher-second-next"
+
+
+@pytest.mark.asyncio
+async def test_runnable_batch_selects_one_oldest_mission_per_workspace(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    crowded_workspace_ids = [
+        await _created(
+            store,
+            idempotency_key=f"crowded-workspace-{index}",
+            thread_id=f"crowded-thread-{index}",
+        )
+        for index in range(9)
+    ]
+    other_workspace_id = await _created(
+        store,
+        workspace_id="workspace-2",
+        idempotency_key="other-workspace",
+        thread_id="other-workspace-thread",
+    )
+
+    claimed = await store.claim_runnable_batch_skip_locked(
+        MissionRunnableBatchClaimPayload(
+            worker_id="reconciler-workspaces",
+            ttl_seconds=120,
+            limit=2,
+        )
+    )
+
+    assert {run.workspace_id for run in claimed} == {"workspace-1", "workspace-2"}
+    crowded_claims = [
+        run for run in claimed if run.mission_id in crowded_workspace_ids
+    ]
+    assert len(crowded_claims) == 1
+    assert any(run.mission_id == other_workspace_id for run in claimed)
 
 
 @pytest.mark.asyncio

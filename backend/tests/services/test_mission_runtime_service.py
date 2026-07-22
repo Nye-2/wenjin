@@ -22,7 +22,7 @@ from src.services.mission_runtime_service import MissionRuntimeService
 def _service(*, review_result=None, commit_result=None):
     runtime = SimpleNamespace(
         start=AsyncMock(),
-        wakeups=SimpleNamespace(publish=AsyncMock(return_value=True)),
+        notify_runnable=AsyncMock(return_value=True),
     )
     missions = SimpleNamespace(
         get=AsyncMock(),
@@ -85,7 +85,7 @@ async def test_nonterminal_review_feedback_appends_command_and_wakes_mission() -
     assert command.command_type == "review_feedback"
     assert command.payload_json["review_item_ids"] == ["review-1"]
     assert command.payload_json["reset_stage_ids"] == ["literature_positioning"]
-    runtime.wakeups.publish.assert_awaited_once()
+    runtime.notify_runnable.assert_awaited_once()
     assert result.continuation_mission_id is None
 
 
@@ -122,7 +122,7 @@ async def test_set_review_mode_accepts_only_a_mode_allowed_by_pinned_policy() ->
     )
 
     missions.append_command.assert_awaited_once()
-    runtime.wakeups.publish.assert_awaited_once()
+    runtime.notify_runnable.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -147,7 +147,7 @@ async def test_set_review_mode_rejects_mode_outside_pinned_policy() -> None:
         )
 
     missions.append_command.assert_not_awaited()
-    runtime.wakeups.publish.assert_not_awaited()
+    runtime.notify_runnable.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -170,7 +170,7 @@ async def test_successful_commit_does_not_reopen_research_loop() -> None:
         request_id="commit-1",
     )
 
-    runtime.wakeups.publish.assert_not_awaited()
+    runtime.notify_runnable.assert_not_awaited()
     runtime.start.assert_not_awaited()
     missions.append_command.assert_not_awaited()
 

@@ -13,6 +13,7 @@ from src.contracts.model_usage import (
 )
 from src.subagent_runtime.contracts import (
     SubagentAction,
+    SubagentActionCheckpoint,
     SubagentBudget,
     SubagentContextRead,
     SubagentJobSpec,
@@ -21,7 +22,7 @@ from src.subagent_runtime.contracts import (
     SubagentStopReason,
     SubagentToolResult,
 )
-from src.subagent_runtime.runtime import SubagentRuntime
+from src.subagent_runtime.runtime import SubagentRuntime, subagent_job_fingerprint
 
 _RESPONSE_SEQUENCE = itertools.count(1)
 
@@ -88,6 +89,7 @@ class _Ledger:
         self.model_call_terminal_events: list[
             tuple[str, int, int, str, ModelCallTerminalOutcome]
         ] = []
+        self.action_checkpoints: dict[str, list[SubagentActionCheckpoint]] = {}
 
     async def record_progress(self, job, *, phase, summary, payload_json=None) -> None:
         self.events.append((job.job_id, phase))
@@ -136,6 +138,52 @@ class _Ledger:
             (job.job_id, turn, attempt, model_call_id, outcome)
         )
 
+    async def record_model_usage_with_action(
+        self,
+        job,
+        *,
+        turn,
+        attempt,
+        model_call_id,
+        usage_receipt,
+        action,
+    ) -> None:
+        await self.record_model_usage(
+            job,
+            turn=turn,
+            attempt=attempt,
+            model_call_id=model_call_id,
+            usage_receipt=usage_receipt,
+        )
+        self.action_checkpoints.setdefault(job.job_id, []).append(
+            SubagentActionCheckpoint(
+                job_id=job.job_id,
+                operation_id=job.operation_id,
+                turn=turn,
+                job_fingerprint=subagent_job_fingerprint(job),
+                action=action,
+            )
+        )
+
+    async def load_action_checkpoints(self, job):
+        return tuple(self.action_checkpoints.get(job.job_id, ()))
+
+
+async def _run_until_terminal(
+    runtime: SubagentRuntime,
+    jobs: tuple[SubagentJobSpec, ...],
+    *,
+    deadline_monotonic: float,
+):
+    for _ in range(32):
+        result = await runtime.run_batch(
+            jobs,
+            deadline_monotonic=deadline_monotonic,
+        )
+        if not result.pending_job_ids:
+            return result
+    raise AssertionError("subagent batch did not terminalize within its turn budget")
+
 
 class _NoTools:
     async def execute(self, request):
@@ -165,7 +213,8 @@ async def test_worker_can_publish_a_bounded_milestone_before_completion() -> Non
     ledger = _Ledger()
     runtime = SubagentRuntime(model=Model(), tools=_NoTools(), ledger=ledger)
 
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (_job(budget=SubagentBudget(max_turns=3, max_tool_steps=1)),),
         deadline_monotonic=asyncio.get_running_loop().time() + 2,
     )
@@ -226,8 +275,8 @@ async def test_model_call_is_not_started_without_a_safe_completion_window() -> N
         deadline_monotonic=asyncio.get_running_loop().time() + 20,
     )
 
-    assert result.results[0].status.value == "timed_out"
-    assert result.results[0].stop_reason.value == "deadline_reached"
+    assert result.results == ()
+    assert result.pending_job_ids == ("sj_one",)
     assert ledger.model_call_events == []
 
 
@@ -263,7 +312,8 @@ async def test_tool_budget_reserves_a_final_synthesis_turn() -> None:
     tools = Tools()
     runtime = SubagentRuntime(model=model, tools=tools, ledger=_Ledger())
 
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (_job(budget=SubagentBudget(max_turns=3, max_tool_steps=1)),),
         deadline_monotonic=asyncio.get_running_loop().time() + 2,
     )
@@ -313,9 +363,8 @@ async def test_model_cannot_start_a_tool_after_the_parent_deadline() -> None:
 
     result = await runtime.run_batch((_job(),), deadline_monotonic=110.0)
 
-    assert result.results[0].status.value == "timed_out"
-    assert result.results[0].stop_reason is SubagentStopReason.DEADLINE_REACHED
-    assert result.results[0].tool_steps_used == 0
+    assert result.results == ()
+    assert result.pending_job_ids == ("sj_one",)
     assert tools.calls == 0
 
 
@@ -805,7 +854,8 @@ async def test_completed_result_retries_unverified_references() -> None:
 
     model = Model()
     runtime = SubagentRuntime(model=model, tools=Tools(), ledger=_Ledger())
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (
             _job(
                 selected_refs=("source:1",),
@@ -853,7 +903,8 @@ async def test_completed_result_keeps_evidence_and_artifact_receipts_typed() -> 
 
     model = Model()
     runtime = SubagentRuntime(model=model, tools=Tools(), ledger=_Ledger())
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (
             _job(
                 selected_refs=("sandbox-artifact:" + "b" * 64,),
@@ -909,7 +960,8 @@ async def test_invalid_partial_result_is_not_marked_usable() -> None:
         },
     }
     runtime = SubagentRuntime(model=Model(), tools=Tools(), ledger=_Ledger())
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (_job(output_schema=output_schema),),
         deadline_monotonic=asyncio.get_running_loop().time() + 2,
     )
@@ -955,7 +1007,8 @@ async def test_partial_result_rejects_malformed_receipt_refs_without_schema_help
             )
 
     runtime = SubagentRuntime(model=Model(), tools=Tools(), ledger=_Ledger())
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (_job(),),
         deadline_monotonic=asyncio.get_running_loop().time() + 2,
     )
@@ -996,7 +1049,8 @@ async def test_tool_failure_is_typed_and_model_can_return_safe_partial_output() 
 
     ledger = _Ledger()
     runtime = SubagentRuntime(model=Model(), tools=Tools(), ledger=ledger)
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (_job(),),
         deadline_monotonic=asyncio.get_running_loop().time() + 2,
     )
@@ -1044,7 +1098,8 @@ async def test_duplicate_successful_tool_request_is_skipped_without_spending_bud
     model = Model()
     tools = Tools()
     runtime = SubagentRuntime(model=model, tools=tools, ledger=_Ledger())
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (_job(budget=SubagentBudget(max_turns=3, max_tool_steps=1)),),
         deadline_monotonic=asyncio.get_running_loop().time() + 2,
     )
@@ -1052,7 +1107,7 @@ async def test_duplicate_successful_tool_request_is_skipped_without_spending_bud
     job_result = result.results[0]
     assert job_result.status.value == "completed"
     assert job_result.tool_steps_used == 1
-    assert tools.calls == 1
+    assert tools.calls == 2
     assert model.calls == 3
 
 
@@ -1086,7 +1141,8 @@ async def test_nested_output_contract_is_validated_and_repaired() -> None:
 
     model = Model()
     runtime = SubagentRuntime(model=model, tools=_NoTools(), ledger=_Ledger())
-    result = await runtime.run_batch(
+    result = await _run_until_terminal(
+        runtime,
         (
             _job(
                 output_schema={

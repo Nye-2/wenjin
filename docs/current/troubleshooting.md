@@ -1,7 +1,7 @@
 # Troubleshooting
 
 > Status: Current
-> Updated: 2026-07-11
+> Updated: 2026-07-22
 
 ## 1. Chat says work started, but Mission Console is empty
 
@@ -17,17 +17,22 @@ Do not infer success from assistant prose. A launch is real only after the Missi
 
 ## 2. Mission remains `created` or `planning`
 
-Inspect `mission-worker` logs and worker queues. It must consume `long_running` with prefetch 1. Verify Celery/Redis, then inspect Mission lease fields and recent items.
+Inspect both `mission-worker` replicas and the worker queues. Each replica must consume only `long_running` with concurrency 1 and prefetch 1. Verify Celery/Redis, then inspect Mission dispatch fields, lease fields, and recent items.
 
 Common causes:
 
 - no worker for `long_running`;
+- another Mission in the same workspace currently owns the single dispatch/execution slot; the older due Mission is intentionally scheduled first;
+- the queue message carries a superseded dispatch owner/epoch and correctly exits as `stale_delivery`;
+- global subagent capacity is saturated or Redis is unavailable, so the subagent quantum is being deferred with bounded backoff;
 - stale model profile or missing policy hash;
 - policy references an unknown tool group/stage;
 - budget preflight produced a durable wait;
 - a provider capability required at start is unavailable.
 
 Never repair this by updating status manually. Fix the prerequisite and resume/reconcile through runtime APIs.
+
+Use `mission_queue_wait_seconds` to distinguish queue pressure from slow execution and `mission_slice_duration_seconds` to distinguish long slices from broker delay. Check `mission_dispatch_events_total`, `mission_reconciliation_total`, and `mission_lease_events_total` when queue wait rises. A few stale deliveries are expected under at-least-once recovery; a sustained rise means broker delay or dispatch churn. Check `mission_subagent_capacity_total` for `saturated` or `unavailable` before increasing worker replicas. More Mission replicas do not raise the global subagent limit of four and do not allow concurrent writes in one workspace.
 
 ## 3. Mission is `waiting`
 
@@ -162,7 +167,7 @@ Large stdout/stderr/diffs become output refs. Absence from inline payload does n
 
 ## 15. Mission worker died mid-slice
 
-The lease should expire and the reconciler should republish a due mission. Verify no terminal status, `lease_expires_at`, `next_wakeup_at`, and the last durable item. A replacement worker must claim a new epoch and stale effects must fail fencing.
+The lease should expire and the reconciler should reserve a new dispatch generation and republish a due mission. Verify no terminal status, `dispatch_owner`/`dispatch_epoch`/`dispatch_expires_at`, `lease_expires_at`, `next_wakeup_at`, and the last durable item. A replacement worker must consume the current dispatch, claim a new lease epoch, and reject stale effects. A successfully published but lost message may wait for the bounded dispatch lifetime (900 seconds) before reconciliation supersedes it.
 
 Do not clear lease columns manually except during controlled incident recovery with an audited DataService operation.
 

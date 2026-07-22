@@ -86,6 +86,12 @@ class DirectMissionStoreAdapter:
     async def claim_runnable(self, command):
         return await self.store.claim_runnable_batch_skip_locked(command)
 
+    async def claim_dispatch(self, mission_id, command):
+        return await self.store.claim_dispatch_for_run(mission_id, command)
+
+    async def release_dispatch(self, mission_id, command):
+        return await self.store.release_dispatch_claim(mission_id, command)
+
     async def append_items(self, mission_id, command):
         return await self.store.append_items_and_update_snapshot(mission_id, command)
 

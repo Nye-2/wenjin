@@ -1,7 +1,9 @@
 """Mission-native subagent jobs."""
 
+from .capacity import RedisSubagentCapacityLimiter
 from .contracts import *  # noqa: F403
 from .runtime import (
+    SubagentCapacityPort,
     SubagentLedgerPort,
     SubagentModelPort,
     SubagentRuntime,
@@ -10,9 +12,11 @@ from .runtime import (
 )
 
 __all__ = [
+    "SubagentCapacityPort",
     "SubagentLedgerPort",
     "SubagentModelPort",
     "SubagentRuntime",
     "SubagentToolPort",
+    "RedisSubagentCapacityLimiter",
     "subagent_job_fingerprint",
 ]

@@ -1,7 +1,7 @@
 # Deployment Runbook
 
 > Status: Current
-> Updated: 2026-07-11
+> Updated: 2026-07-22
 
 Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable truth; Redis carries Celery and event hints; separate workers handle chat/short jobs and long Mission slices.
 
@@ -24,7 +24,7 @@ Wenjin is deployed with Docker Compose. PostgreSQL and DataService hold durable 
 | `dataservice` | sole runtime transaction boundary |
 | `bootstrap-admin` | one-shot admin/catalog bootstrap |
 | `worker` | `default,priority` queues |
-| `mission-worker` | `long_running`, concurrency 1, prefetch 1 |
+| `mission-worker` | two replicas for `long_running`; each concurrency 1, prefetch 1 |
 | `celery-beat` | single scheduler for Mission reconciliation, ChatTurn dispatch recovery, bounded periodic credit grants, authorization expiry, and preview cleanup |
 | `gateway` | HTTP, chat streams, Mission API/SSE |
 | `frontend` | Next.js UI |
@@ -91,10 +91,26 @@ curl -fsS http://localhost:2026/api/readyz
 Check that:
 
 - migration and bootstrap exited successfully;
-- DataService, Gateway, all three workers, and frontend are healthy;
-- worker inspection includes a consumer for `long_running`;
+- DataService, Gateway, the default worker, both Mission worker replicas, and frontend are healthy;
+- worker inspection includes two consumers for `long_running`, each with concurrency 1 and prefetch 1;
 - the model response contains GPT-5.6 Sol, Terra, and Luna only;
 - readiness reports DataService, Redis, task backend, and sandbox preflight correctly.
+
+### Mission worker capacity and observability
+
+`mission-worker` deliberately has no `container_name`; Compose creates two replicas from the same service definition. Keep each replica at concurrency 1 and prefetch 1. Scaling is performed by changing the reviewed replica count (or temporarily with `docker compose up -d --scale mission-worker=<n>`), never by increasing per-process concurrency. DataService permits one active dispatch and one active Mission lease per workspace because the current writable Sandbox is workspace-shared; the oldest due Mission receives the next workspace turn. Additional replicas increase cross-workspace throughput, not same-workspace write parallelism.
+
+The reconciler publishes at most two newly runnable Missions per scheduled pass. Every queue message is bound to one dispatch owner/epoch and the default 900-second dispatch lifetime covers normal bounded queue bursts. A stale or superseded message cannot acquire a Mission lease. Subagent model/tool quanta have a separate Redis-backed global capacity of four; this prevents multiplying provider and Sandbox pressure when Mission replicas scale.
+
+Prometheus discovers all Mission worker replicas with Docker DNS under the `wenjin-mission-worker` job. Alert on sustained queue wait, repeated fence loss, reconciliation publication failures, or capacity saturation using:
+
+- `mission_queue_wait_seconds` (intentional countdown is excluded);
+- `mission_slice_duration_seconds` and `mission_slices_total`;
+- `mission_lease_events_total` and `mission_dispatch_events_total`;
+- `mission_reconciliation_total`;
+- `mission_subagent_capacity_total`.
+
+Do not add `mission_id`, workspace id, or worker-generated UUIDs as metric labels. Queue wait approaching one slice duration is a capacity warning; repeated `stale_delivery` is normally harmless at-least-once cleanup, but a sustained rise indicates dispatch expiry, broker delay, or duplicate publication pressure.
 
 ### Mission preview lifecycle
 

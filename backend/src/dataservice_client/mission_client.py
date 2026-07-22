@@ -23,6 +23,7 @@ from src.dataservice_client.contracts.mission import (
     MissionCreatePayload,
     MissionCreateResultPayload,
     MissionDerivedReviewItemCreatePayload,
+    MissionDispatchClaimPayload,
     MissionDispatchReleasePayload,
     MissionEvidencePagePayload,
     MissionHistoryPagePayload,
@@ -378,6 +379,17 @@ class MissionDataServiceClient:
             json=command.model_dump(mode="json"),
         )
         return [MissionRunPayload.model_validate(item) for item in response["data"]]
+
+    async def claim_dispatch(
+        self,
+        mission_id: str,
+        command: MissionDispatchClaimPayload,
+    ) -> MissionRunPayload:
+        return await self._post(
+            f"/internal/v1/missions/{mission_id}/dispatch/claim",
+            command,
+            MissionRunPayload,
+        )
 
     async def release_dispatch(
         self,

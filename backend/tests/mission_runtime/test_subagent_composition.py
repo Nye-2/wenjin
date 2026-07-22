@@ -44,6 +44,17 @@ from src.subagent_runtime.contracts import (
 from .conftest import FakeQuality, ScriptedAgent, start_request
 
 
+def _lease_claim(run, *, ttl_seconds: int) -> MissionLeaseClaimPayload:
+    assert run.dispatch_owner is not None
+    return MissionLeaseClaimPayload(
+        worker_id="worker-1",
+        dispatch_owner=run.dispatch_owner,
+        dispatch_epoch=run.dispatch_epoch,
+        expected_state_version=run.state_version,
+        ttl_seconds=ttl_seconds,
+    )
+
+
 @pytest.mark.asyncio
 async def test_subagent_model_ledger_replay_is_idempotent(runtime_factory) -> None:
     runtime, deps = runtime_factory(agent=ScriptedAgent([]))
@@ -52,11 +63,7 @@ async def test_subagent_model_ledger_replay_is_idempotent(runtime_factory) -> No
     assert initial is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=initial.state_version,
-            ttl_seconds=240,
-        ),
+        _lease_claim(initial, ttl_seconds=240),
     )
     job = SubagentJobSpec(
         job_id="sj-ledger-idempotent",
@@ -116,11 +123,7 @@ async def test_subagent_action_checkpoint_is_atomic_with_usage_and_replayable(
     assert initial is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=initial.state_version,
-            ttl_seconds=240,
-        ),
+        _lease_claim(initial, ttl_seconds=240),
     )
     job = SubagentJobSpec(
         job_id="sj-action-checkpoint",
@@ -189,11 +192,7 @@ async def test_subagent_terminal_identity_rejects_divergent_replay(
     assert initial is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=initial.state_version,
-            ttl_seconds=240,
-        ),
+        _lease_claim(initial, ttl_seconds=240),
     )
     job = SubagentJobSpec(
         job_id="sj-terminal-identity",
@@ -688,11 +687,7 @@ async def test_on_demand_critic_uses_pinned_schema_without_stage_authority(
     assert current is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=current.state_version,
-            ttl_seconds=120,
-        ),
+        _lease_claim(current, ttl_seconds=120),
     )
 
     outcome = await runtime.subagents.run(
@@ -797,11 +792,7 @@ async def test_domain_auditor_schema_is_not_mutated_by_stage_contract(
     assert current is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=current.state_version,
-            ttl_seconds=120,
-        ),
+        _lease_claim(current, ttl_seconds=120),
     )
 
     outcome = await runtime.subagents.run(
@@ -872,11 +863,7 @@ async def test_subagent_context_budget_expands_to_fit_frozen_checkpoint(
     assert current is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=current.state_version,
-            ttl_seconds=120,
-        ),
+        _lease_claim(current, ttl_seconds=120),
     )
 
     outcome = await runtime.subagents.run(
@@ -928,11 +915,7 @@ async def test_subagent_semantic_success_without_usage_fails_closed(
     assert current is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=current.state_version,
-            ttl_seconds=120,
-        ),
+        _lease_claim(current, ttl_seconds=120),
     )
     adapter = MissionSubagentRuntimeAdapter(
         store=deps["store"],
@@ -999,11 +982,7 @@ async def test_subagent_recovery_adopts_terminal_before_recomputing_budget(
     assert current is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=current.state_version,
-            ttl_seconds=120,
-        ),
+        _lease_claim(current, ttl_seconds=120),
     )
     request = SubagentExecutionRequest(
         mission=claimed,
@@ -1130,11 +1109,7 @@ async def test_sandbox_terminal_receipt_is_adopted_from_mission_items(
     assert current is not None
     claimed = await deps["store"].claim_lease(
         receipt.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=current.state_version,
-            ttl_seconds=120,
-        ),
+        _lease_claim(current, ttl_seconds=120),
     )
     operation_input = RunPythonInput(script="print('ok')\n")
     request = SandboxOperationRequest.build(

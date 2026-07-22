@@ -55,6 +55,12 @@ class SubagentStopReason(StrEnum):
     PARTIAL_RESULT_AVAILABLE = "partial_result_available"
 
 
+class SubagentPendingReason(StrEnum):
+    QUANTUM_BOUNDARY = "quantum_boundary"
+    CAPACITY_SATURATED = "capacity_saturated"
+    DEADLINE_REACHED = "deadline_reached"
+
+
 class SubagentModelOutputError(ValueError):
     """The provider returned an invalid structured subagent action."""
 
@@ -252,7 +258,21 @@ class SubagentJobResult(_FrozenModel):
 
 class SubagentBatchResult(_FrozenModel):
     operation_id: str
-    results: tuple[SubagentJobResult, ...] = Field(min_length=1)
+    results: tuple[SubagentJobResult, ...] = ()
+    pending_job_ids: tuple[str, ...] = ()
+    pending_reasons: dict[str, SubagentPendingReason] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def require_tracked_jobs(self) -> SubagentBatchResult:
+        result_ids = [item.job_id for item in self.results]
+        if not result_ids and not self.pending_job_ids:
+            raise ValueError("subagent batch must contain terminal or pending jobs")
+        all_ids = [*result_ids, *self.pending_job_ids]
+        if len(all_ids) != len(set(all_ids)):
+            raise ValueError("subagent batch job ids must be unique")
+        if set(self.pending_reasons) != set(self.pending_job_ids):
+            raise ValueError("pending_reasons must exactly match pending_job_ids")
+        return self
 
 
 __all__ = [name for name in globals() if name.startswith("Subagent")]

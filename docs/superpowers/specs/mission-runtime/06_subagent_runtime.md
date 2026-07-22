@@ -94,8 +94,8 @@ Storage rule:
 
 Execution topology:
 
-- Production runs subagent model loops as bounded async child tasks inside the active MissionDriveSlice. Ordinary planning/tool work retains the 180-second slice window; a subagent batch receives one runtime-owned 900-second operation window capped from the original delivery start. The Mission Celery worker uses a killable prefork child-process boundary around that combined window. There is no independent Celery subagent queue, callback writer, or `subagent_jobs` table.
-- A root-scoped registry enforces mission-level max concurrency, total spawn budget, per-child wall time, and cancellation. One batch admits at most four jobs, equal to the default concurrency, so a second wave cannot inherit an almost-expired shared deadline. Horizontal scale comes from multiple missions/workers, not distributed ownership of one small research team.
+- Production runs subagent model loops as bounded async child tasks inside the active 180-second MissionDriveSlice. A subagent operation has a cumulative 900-second active-execution budget across multiple deliveries, not one extended Celery task. Each job performs at most one fresh model action per quantum; its usage receipt and semantic action checkpoint are durable before a requested tool runs, so the next delivery resumes without repeating the charged call. There is no independent Celery subagent queue, callback writer, or `subagent_jobs` table.
+- A root-scoped registry enforces mission-level concurrency, total spawn budget, per-child turns/tools/context, and cancellation. One batch admits at most four jobs. A Redis-backed token lease caps active subagent quanta at four globally across the two Mission worker replicas; capacity saturation yields the pending job with a short backoff. Horizontal Mission scale therefore cannot multiply provider or Sandbox pressure without bound.
 - Default max spawn depth is `1`: WorkspaceAgent/MissionRuntime may spawn children; children cannot recursively create more subagents. A later depth change is a policy/version change, not prompt freedom.
 - Child context is fresh and bounded by default. Full parent-history fork is forbidden; only the explicit mission checkpoint, stage contract, selected refs, task, tools, and exit criteria are provided.
 - Parent-mediated coordination is the default. Children return structured results to MissionRuntime and do not message siblings or share an unowned mutable scratch bus.
@@ -209,7 +209,8 @@ It cannot create user-review items or decide StageAcceptance. MissionRuntime and
 - Failed tool call creates structured tool result meta and a semantic ledger entry.
 - Main chat does not receive raw subagent transcript.
 - Child context never receives full parent history by default, and subagents cannot recursively spawn at depth 1.
-- Mission-level concurrency/turn/time budgets prevent one team from exhausting the worker.
+- Mission-level concurrency/turn/time budgets plus the global capacity lease prevent one team or additional Mission replicas from exhausting the worker/provider pool.
+- A quantum can checkpoint a model-requested tool, yield, and resume it without repeating the receipt-bearing model call.
 - A MissionDriveSlice cannot cleanly yield while an untracked child task remains live.
 - Mission Console can show summary without loading full ledger.
 - Semantic ledger can be paginated and is ordered by MissionItem seq; raw trace is lazy and TTL-managed.

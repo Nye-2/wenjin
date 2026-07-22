@@ -44,7 +44,7 @@ WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1 \
 
 This command starts a uniquely named `pgvector/pgvector:pg16` container, binds it to a random loopback port, upgrades one randomly named empty database through `110_deduplicate_mission_references`, and provisions a sibling database at revision 108 for a data-bearing 108→110 cutover check. It removes the container plus its anonymous data volume after the run. The fixture constructs its own database URLs and never migrates the configured Wenjin database. Override the image only when required with `WENJIN_POSTGRES_VERIFICATION_IMAGE`.
 
-The release result must contain six passed tests and zero skipped tests. Without Docker, the default test suite reports these tests as explicitly skipped; `WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1` converts missing Docker or image infrastructure into a release-blocking failure. The gate covers reflected columns, unique and partial indexes, checks, foreign keys and `ON DELETE` actions, the data-preserving 109 snapshot cleanup and 110 evidence-count repair, plus observed PostgreSQL row-lock waits for concurrent authorize, idempotent replay, settle/delete, and delete/release accounting transitions.
+The release result must contain seven passed tests and zero skipped tests. Without Docker, the default test suite reports these tests as explicitly skipped; `WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1` converts missing Docker or image infrastructure into a release-blocking failure. The gate covers reflected columns, unique and partial indexes, checks, foreign keys and `ON DELETE` actions, the data-preserving 109 snapshot cleanup and 110 evidence-count repair, observed PostgreSQL row-lock waits for concurrent authorize, idempotent replay, settle/delete, and delete/release accounting transitions, plus an observed PostgreSQL advisory-lock wait for the per-workspace Mission execution slot.
 
 Architecture-focused coverage must include:
 
@@ -99,7 +99,9 @@ HTTP 200, prose that mentions sources, or a completed event without receipts is 
 - `docker compose config --quiet` passes;
 - migration and bootstrap one-shots succeed;
 - DataService/Gateway/workers/frontend are healthy;
-- `mission-worker` consumes only `long_running`, concurrency 1, prefetch 1;
+- Compose starts two `mission-worker` replicas; each consumes only `long_running` with concurrency 1 and prefetch 1, and no fixed `container_name` prevents scaling;
+- a queue delivery without the current dispatch owner/epoch is rejected, and two Missions in one workspace cannot hold active execution leases concurrently;
+- Prometheus discovers both Mission worker replicas and exposes bounded queue-wait, slice, lease/dispatch, reconciliation, and subagent-capacity metrics without Mission-id labels;
 - sandbox image digest and production attestations are real, not placeholders;
 - readiness checks DataService, Redis, task backend, and sandbox;
 - admin analytics reads `mission-stats`;

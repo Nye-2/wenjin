@@ -106,7 +106,7 @@ class MissionRuntimeService:
                 payload_json={"reason": reason},
             ),
         )
-        await self.runtime.wakeups.publish(
+        await self.runtime.notify_runnable(
             mission_id,
             command_hint=request_id,
         )
@@ -146,7 +146,7 @@ class MissionRuntimeService:
             MissionStatus.FAILED,
             MissionStatus.CANCELLED,
         }:
-            await self.runtime.wakeups.publish(
+            await self.runtime.notify_runnable(
                 mission_id,
                 command_hint=command_id,
             )
@@ -219,7 +219,7 @@ class MissionRuntimeService:
                 },
             ),
         )
-        await self.runtime.wakeups.publish(mission_id, command_hint=command_id)
+        await self.runtime.notify_runnable(mission_id, command_hint=command_id)
         return result.mission
 
     async def review(
@@ -397,7 +397,7 @@ class MissionRuntimeService:
                     },
                 ),
             )
-            await self.runtime.wakeups.publish(
+            await self.runtime.notify_runnable(
                 mission_id,
                 command_hint=command_id,
             )

@@ -48,9 +48,13 @@ from .conftest import FakeMissionStore, MutableClock, ScriptedAgent, start_reque
 
 @pytest.mark.asyncio
 async def test_celery_wakeup_publisher_schedules_delayed_slice() -> None:
+    enqueued_at = datetime(2026, 7, 22, tzinfo=UTC)
     with patch("src.task.celery_app.celery_app.send_task") as send_task:
         await CeleryMissionWakeupPublisher().publish(
             "mission-1",
+            dispatch_owner="dispatcher-1",
+            dispatch_epoch=3,
+            enqueued_at=enqueued_at,
             command_hint="retry",
             delay_seconds=5,
         )
@@ -58,7 +62,13 @@ async def test_celery_wakeup_publisher_schedules_delayed_slice() -> None:
     send_task.assert_called_once_with(
         "src.task.tasks.drive_mission",
         args=["mission-1"],
-        kwargs={"command_hint": "retry"},
+        kwargs={
+            "dispatch_owner": "dispatcher-1",
+            "dispatch_epoch": 3,
+            "enqueued_at": enqueued_at.isoformat(),
+            "scheduled_delay_seconds": 5,
+            "command_hint": "retry",
+        },
         queue="long_running",
         countdown=5,
     )

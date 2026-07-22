@@ -192,7 +192,6 @@ services:
 
   worker: &worker-base
     image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
-    container_name: wenjin-worker
     restart: unless-stopped
     env_file:
       - ./.env
@@ -251,7 +250,8 @@ services:
 
   mission-worker:
     <<: *worker-base
-    container_name: wenjin-mission-worker
+    deploy:
+      replicas: 2
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/wenjin
       - REDIS_ENABLED=true

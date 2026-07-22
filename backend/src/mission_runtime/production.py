@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -1182,12 +1183,20 @@ class CeleryMissionWakeupPublisher:
         self,
         mission_id: str,
         *,
+        dispatch_owner: str,
+        dispatch_epoch: int,
+        enqueued_at: datetime,
         command_hint: str | None = None,
         delay_seconds: int = 0,
     ) -> None:
         from src.task.celery_app import celery_app
 
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {
+            "dispatch_owner": dispatch_owner,
+            "dispatch_epoch": dispatch_epoch,
+            "enqueued_at": enqueued_at.isoformat(),
+            "scheduled_delay_seconds": delay_seconds,
+        }
         if command_hint is not None:
             kwargs["command_hint"] = command_hint
         delivery_options: dict[str, Any] = {"queue": "long_running"}

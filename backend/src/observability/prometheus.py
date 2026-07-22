@@ -24,8 +24,45 @@ _task_duration_seconds: Any | None = None
 _run_dispatch_total: Any | None = None
 _run_wait_seconds: Any | None = None
 _run_wait_polls: Any | None = None
+_mission_queue_wait_seconds: Any | None = None
+_mission_slice_duration_seconds: Any | None = None
+_mission_slices_total: Any | None = None
+_mission_lease_events_total: Any | None = None
+_mission_dispatch_events_total: Any | None = None
+_mission_reconciliation_total: Any | None = None
+_mission_subagent_capacity_total: Any | None = None
 _worker_metrics_server_started = False
 _worker_metrics_lock = threading.Lock()
+
+_MISSION_QUEUE_WAIT_BUCKETS = (
+    0.1,
+    0.5,
+    1.0,
+    2.0,
+    5.0,
+    10.0,
+    30.0,
+    60.0,
+    120.0,
+    180.0,
+    300.0,
+    600.0,
+    900.0,
+)
+_MISSION_SLICE_DURATION_BUCKETS = (
+    0.1,
+    0.5,
+    1.0,
+    2.0,
+    5.0,
+    10.0,
+    30.0,
+    60.0,
+    120.0,
+    180.0,
+    210.0,
+    225.0,
+)
 
 
 def _prometheus_multiproc_dir() -> str | None:
@@ -62,6 +99,10 @@ def _init_metrics() -> None:
     global _http_requests_total, _http_request_duration_seconds
     global _active_tasks_gauge, _task_duration_seconds
     global _run_dispatch_total, _run_wait_seconds, _run_wait_polls
+    global _mission_queue_wait_seconds, _mission_slice_duration_seconds
+    global _mission_slices_total, _mission_lease_events_total
+    global _mission_dispatch_events_total, _mission_reconciliation_total
+    global _mission_subagent_capacity_total
 
     if _http_requests_total is not None:
         return
@@ -108,6 +149,42 @@ def _init_metrics() -> None:
         "run_wait_polls",
         "Number of poll iterations used to resolve run wait",
         ["outcome"],
+    )
+    _mission_queue_wait_seconds = Histogram(
+        "mission_queue_wait_seconds",
+        "Mission delivery wait after its scheduled availability",
+        buckets=_MISSION_QUEUE_WAIT_BUCKETS,
+    )
+    _mission_slice_duration_seconds = Histogram(
+        "mission_slice_duration_seconds",
+        "Mission slice execution duration",
+        ["outcome"],
+        buckets=_MISSION_SLICE_DURATION_BUCKETS,
+    )
+    _mission_slices_total = Counter(
+        "mission_slices_total",
+        "Mission slices by bounded outcome and reason",
+        ["outcome", "reason"],
+    )
+    _mission_lease_events_total = Counter(
+        "mission_lease_events_total",
+        "Mission lease and delivery fence events",
+        ["result"],
+    )
+    _mission_dispatch_events_total = Counter(
+        "mission_dispatch_events_total",
+        "Mission dispatch reservation and publication events",
+        ["result"],
+    )
+    _mission_reconciliation_total = Counter(
+        "mission_reconciliation_total",
+        "Mission reconciliation outcomes",
+        ["result"],
+    )
+    _mission_subagent_capacity_total = Counter(
+        "mission_subagent_capacity_total",
+        "Global subagent capacity acquisition outcomes",
+        ["result"],
     )
 
 
@@ -260,3 +337,39 @@ def observe_run_wait(outcome: str, duration: float, polls: int) -> None:
         _run_wait_seconds.labels(outcome=outcome).observe(max(0.0, float(duration)))
     if _run_wait_polls is not None:
         _run_wait_polls.labels(outcome=outcome).observe(max(0, int(polls)))
+
+
+def observe_mission_queue_wait(duration: float) -> None:
+    if _mission_queue_wait_seconds is not None:
+        _mission_queue_wait_seconds.observe(max(0.0, float(duration)))
+
+
+def track_mission_slice(*, outcome: str, reason: str, duration: float) -> None:
+    if _mission_slice_duration_seconds is not None:
+        _mission_slice_duration_seconds.labels(outcome=outcome).observe(
+            max(0.0, float(duration))
+        )
+    if _mission_slices_total is not None:
+        _mission_slices_total.labels(outcome=outcome, reason=reason).inc()
+    if reason in {
+        "delivery_expired",
+        "lease_fence_lost",
+        "lease_not_acquired",
+        "stale_delivery",
+    } and _mission_lease_events_total is not None:
+        _mission_lease_events_total.labels(result=reason).inc()
+
+
+def track_mission_dispatch(result: str) -> None:
+    if _mission_dispatch_events_total is not None:
+        _mission_dispatch_events_total.labels(result=result).inc()
+
+
+def track_mission_reconciliation(result: str) -> None:
+    if _mission_reconciliation_total is not None:
+        _mission_reconciliation_total.labels(result=result).inc()
+
+
+def track_mission_subagent_capacity(result: str) -> None:
+    if _mission_subagent_capacity_total is not None:
+        _mission_subagent_capacity_total.labels(result=result).inc()

@@ -24,6 +24,7 @@ from src.subagent_runtime.contracts import (
     SubagentModelOutputError,
     SubagentModelTurn,
     SubagentModelUsageError,
+    SubagentPendingReason,
     SubagentStatus,
     SubagentStep,
     SubagentStopReason,
@@ -54,6 +55,12 @@ class SubagentModelPort(Protocol):
 
 class SubagentToolPort(Protocol):
     async def execute(self, request: SubagentToolRequest) -> SubagentToolResult: ...
+
+
+class SubagentCapacityPort(Protocol):
+    async def try_acquire(self, job: SubagentJobSpec) -> str | None: ...
+
+    async def release(self, token: str) -> None: ...
 
 
 class SubagentLedgerPort(Protocol):
@@ -159,6 +166,8 @@ class SubagentRuntime:
         max_transient_model_retries: int = 2,
         model_call_timeout_seconds: float = 0.0,
         model_call_completion_margin_seconds: float = 0.0,
+        capacity: SubagentCapacityPort | None = None,
+        max_new_model_turns_per_quantum: int = 1,
     ) -> None:
         if (
             max_concurrency < 1
@@ -166,6 +175,7 @@ class SubagentRuntime:
             or max_transient_model_retries < 0
             or model_call_timeout_seconds < 0
             or model_call_completion_margin_seconds < 0
+            or max_new_model_turns_per_quantum < 1
         ):
             raise ValueError("subagent concurrency and batch limits must be positive")
         self.model = model
@@ -178,7 +188,12 @@ class SubagentRuntime:
         self.max_transient_model_retries = max_transient_model_retries
         self.model_call_timeout_seconds = model_call_timeout_seconds
         self.model_call_completion_margin_seconds = model_call_completion_margin_seconds
-        self._active: dict[str, asyncio.Task[SubagentJobResult]] = {}
+        self.capacity = capacity
+        self.max_new_model_turns_per_quantum = max_new_model_turns_per_quantum
+        self._active: dict[
+            str,
+            asyncio.Task[SubagentJobResult | SubagentPendingReason],
+        ] = {}
         self._active_waiters: dict[str, int] = {}
         self._terminal: dict[str, SubagentJobResult] = {}
         self._job_fingerprints: dict[str, str] = {}
@@ -201,9 +216,23 @@ class SubagentRuntime:
 
         semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        async def bounded(job: SubagentJobSpec) -> SubagentJobResult:
+        async def bounded(
+            job: SubagentJobSpec,
+        ) -> SubagentJobResult | SubagentPendingReason:
             async with semaphore:
-                return await self._run_stable(job, deadline_monotonic=deadline_monotonic)
+                token: str | None = None
+                if self.capacity is not None:
+                    token = await self.capacity.try_acquire(job)
+                    if token is None:
+                        return SubagentPendingReason.CAPACITY_SATURATED
+                try:
+                    return await self._run_stable(
+                        job,
+                        deadline_monotonic=deadline_monotonic,
+                    )
+                finally:
+                    if token is not None:
+                        await self.capacity.release(token)
 
         tasks = [
             asyncio.create_task(bounded(job), name=f"subagent-batch:{job.job_id}")
@@ -217,14 +246,31 @@ class SubagentRuntime:
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
-        return SubagentBatchResult(operation_id=jobs[0].operation_id, results=tuple(results))
+        terminal = tuple(
+            item for item in results if isinstance(item, SubagentJobResult)
+        )
+        pending = tuple(
+            job.job_id
+            for job, item in zip(jobs, results, strict=True)
+            if isinstance(item, SubagentPendingReason)
+        )
+        return SubagentBatchResult(
+            operation_id=jobs[0].operation_id,
+            results=terminal,
+            pending_job_ids=pending,
+            pending_reasons={
+                job.job_id: item
+                for job, item in zip(jobs, results, strict=True)
+                if isinstance(item, SubagentPendingReason)
+            },
+        )
 
     async def _run_stable(
         self,
         job: SubagentJobSpec,
         *,
         deadline_monotonic: float,
-    ) -> SubagentJobResult:
+    ) -> SubagentJobResult | SubagentPendingReason:
         fingerprint = subagent_job_fingerprint(job)
         async with self._registry_lock:
             prior_fingerprint = self._job_fingerprints.get(job.job_id)
@@ -247,14 +293,17 @@ class SubagentRuntime:
         cancelled = False
         try:
             result = await asyncio.shield(active)
-            async with self._registry_lock:
-                self._remember_terminal_result_locked(job.job_id, result)
+            if isinstance(result, SubagentJobResult):
+                async with self._registry_lock:
+                    self._remember_terminal_result_locked(job.job_id, result)
             return result
         except asyncio.CancelledError:
             cancelled = True
             raise
         finally:
-            reap_orphan: asyncio.Task[SubagentJobResult] | None = None
+            reap_orphan: asyncio.Task[
+                SubagentJobResult | SubagentPendingReason
+            ] | None = None
             async with self._registry_lock:
                 waiter_count = self._active_waiters.get(job.job_id, 0) - 1
                 if waiter_count > 0:
@@ -268,10 +317,11 @@ class SubagentRuntime:
                         except BaseException:
                             pass
                         else:
-                            self._remember_terminal_result_locked(
-                                job.job_id,
-                                completed_result,
-                            )
+                            if isinstance(completed_result, SubagentJobResult):
+                                self._remember_terminal_result_locked(
+                                    job.job_id,
+                                    completed_result,
+                                )
                     if self._active.get(job.job_id) is active:
                         self._active.pop(job.job_id, None)
                 elif cancelled and waiter_count <= 0:
@@ -299,7 +349,7 @@ class SubagentRuntime:
         job: SubagentJobSpec,
         *,
         deadline_monotonic: float,
-    ) -> SubagentJobResult:
+    ) -> SubagentJobResult | SubagentPendingReason:
         await self.ledger.record_progress(
             job,
             phase="running",
@@ -319,6 +369,7 @@ class SubagentRuntime:
             else ()
         )
         checkpoints_by_turn = {item.turn: item for item in checkpoints}
+        new_model_turns = 0
         base_context_bytes = len(
             json.dumps(
                 job.model_dump(mode="json", exclude={"budget"}),
@@ -349,16 +400,7 @@ class SubagentRuntime:
                     tool_results=tuple(tool_results),
                 )
             if self.monotonic_clock() >= deadline_monotonic:
-                return await self._terminal_result(
-                    job,
-                    status=SubagentStatus.TIMED_OUT,
-                    stop_reason=SubagentStopReason.DEADLINE_REACHED,
-                    summary="研究成员在读取所选材料时到达本次协作时限",
-                    result_json={},
-                    turns=0,
-                    tools=tool_steps_used,
-                    tool_results=tuple(tool_results),
-                )
+                return SubagentPendingReason.DEADLINE_REACHED
             request_fingerprint = _tool_request_fingerprint(
                 context_read.tool_name,
                 context_read.arguments,
@@ -458,16 +500,7 @@ class SubagentRuntime:
                     tool_results=tuple(tool_results),
                 )
             if self.monotonic_clock() >= deadline_monotonic:
-                return await self._terminal_result(
-                    job,
-                    status=SubagentStatus.TIMED_OUT,
-                    stop_reason=(SubagentStopReason.PARTIAL_RESULT_AVAILABLE if partial else SubagentStopReason.DEADLINE_REACHED),
-                    summary="研究成员到达本次协作时限",
-                    result_json=partial,
-                    turns=turn - 1,
-                    tools=tool_steps_used,
-                    tool_results=tuple(tool_results),
-                )
+                return SubagentPendingReason.DEADLINE_REACHED
             finalization_only = (
                 turn == job.budget.max_turns
                 or tool_steps_used >= job.budget.max_tool_steps
@@ -495,6 +528,7 @@ class SubagentRuntime:
                         deadline_monotonic=deadline_monotonic,
                     )
                     action = model_turn.action
+                    new_model_turns += 1
                 if await self._command_pending(job):
                     if action.partial_result_json:
                         partial = dict(action.partial_result_json)
@@ -506,20 +540,7 @@ class SubagentRuntime:
                         tool_results=tuple(tool_results),
                     )
             except SubagentModelAdmissionDeferred:
-                return await self._terminal_result(
-                    job,
-                    status=(SubagentStatus.COMPLETED if partial else SubagentStatus.TIMED_OUT),
-                    stop_reason=(
-                        SubagentStopReason.PARTIAL_RESULT_AVAILABLE
-                        if partial
-                        else SubagentStopReason.DEADLINE_REACHED
-                    ),
-                    summary="剩余协作时间不足以安全完成下一次模型分析，已保留当前进度",
-                    result_json=partial,
-                    turns=turn - 1,
-                    tools=tool_steps_used,
-                    tool_results=tuple(tool_results),
-                )
+                return SubagentPendingReason.DEADLINE_REACHED
             except SubagentModelOutputError as exc:
                 retry_summary = f"Structured worker response was invalid; retrying within the bounded turn budget. Repair requirement: {exc}"
                 steps.append(
@@ -612,6 +633,8 @@ class SubagentRuntime:
                             ),
                         )
                     )
+                if new_model_turns >= self.max_new_model_turns_per_quantum:
+                    return SubagentPendingReason.QUANTUM_BOUNDARY
                 continue
             if action.kind == "complete":
                 schema_errors = _validate_output_contract(action.result_json, job.output_schema)
@@ -626,6 +649,8 @@ class SubagentRuntime:
                         },
                     )
                     if turn < job.budget.max_turns:
+                        if new_model_turns >= self.max_new_model_turns_per_quantum:
+                            return SubagentPendingReason.QUANTUM_BOUNDARY
                         steps.append(
                             SubagentStep(
                                 turn=turn,
@@ -673,6 +698,8 @@ class SubagentRuntime:
                         },
                     )
                     if turn < job.budget.max_turns:
+                        if new_model_turns >= self.max_new_model_turns_per_quantum:
+                            return SubagentPendingReason.QUANTUM_BOUNDARY
                         continue
                     return await self._terminal_result(
                         job,
@@ -708,25 +735,17 @@ class SubagentRuntime:
                     tool_results=tuple(tool_results),
                 )
 
+            if (
+                checkpoint is None
+                and new_model_turns >= self.max_new_model_turns_per_quantum
+            ):
+                # The action checkpoint is the hand-off boundary. Execute a
+                # requested tool from the next delivery, where it receives the
+                # full short-slice budget and can reuse its durable receipt.
+                return SubagentPendingReason.QUANTUM_BOUNDARY
+
             if self.monotonic_clock() >= deadline_monotonic:
-                return await self._terminal_result(
-                    job,
-                    status=(
-                        SubagentStatus.COMPLETED
-                        if partial
-                        else SubagentStatus.TIMED_OUT
-                    ),
-                    stop_reason=(
-                        SubagentStopReason.PARTIAL_RESULT_AVAILABLE
-                        if partial
-                        else SubagentStopReason.DEADLINE_REACHED
-                    ),
-                    summary="模型分析已完成，但本轮剩余时间不足以安全启动工具",
-                    result_json=partial,
-                    turns=turn,
-                    tools=tool_steps_used,
-                    tool_results=tuple(tool_results),
-                )
+                return SubagentPendingReason.DEADLINE_REACHED
 
             tool_name = action.tool_name or ""
             if tool_name not in job.allowed_tools:
@@ -757,6 +776,8 @@ class SubagentRuntime:
                     summary=duplicate_summary,
                     payload_json={"tool_name": tool_name, "status": "duplicate_skipped"},
                 )
+                if new_model_turns >= self.max_new_model_turns_per_quantum:
+                    return SubagentPendingReason.QUANTUM_BOUNDARY
                 continue
             if finalization_only:
                 return await self._terminal_result(
@@ -831,6 +852,8 @@ class SubagentRuntime:
                     "artifact_refs": list(tool_result.artifact_refs),
                 },
             )
+            if new_model_turns >= self.max_new_model_turns_per_quantum:
+                return SubagentPendingReason.QUANTUM_BOUNDARY
 
         return await self._terminal_result(
             job,
@@ -974,28 +997,14 @@ class SubagentRuntime:
                     detail=str(exc),
                 )
                 raise
-            atomic_recorder = getattr(
-                self.ledger,
-                "record_model_usage_with_action",
-                None,
+            await self.ledger.record_model_usage_with_action(
+                job,
+                turn=turn,
+                attempt=attempt,
+                model_call_id=model_call_id,
+                usage_receipt=usage_receipt,
+                action=model_turn.action,
             )
-            if atomic_recorder is not None:
-                await atomic_recorder(
-                    job,
-                    turn=turn,
-                    attempt=attempt,
-                    model_call_id=model_call_id,
-                    usage_receipt=usage_receipt,
-                    action=model_turn.action,
-                )
-            else:
-                await self.ledger.record_model_usage(
-                    job,
-                    turn=turn,
-                    attempt=attempt,
-                    model_call_id=model_call_id,
-                    usage_receipt=usage_receipt,
-                )
             return model_turn
 
     async def _terminal_result(
@@ -1246,6 +1255,7 @@ def subagent_job_fingerprint(job: SubagentJobSpec) -> str:
 
 
 __all__ = [
+    "SubagentCapacityPort",
     "SubagentLedgerPort",
     "SubagentModelPort",
     "SubagentRuntime",

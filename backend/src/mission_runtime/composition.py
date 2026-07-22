@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from src.academic.cache.redis_client import redis_client
 from src.dataservice_client import AsyncDataServiceClient
 from src.mission_runtime.adapters import (
     LangChainSubagentModel,
@@ -48,7 +49,8 @@ from src.mission_runtime.production import (
 )
 from src.mission_runtime.runtime import MissionRuntime
 from src.services.model_catalog_cache import resolve_runtime_model_id
-from src.subagent_runtime.runtime import SubagentModelPort
+from src.subagent_runtime.capacity import RedisSubagentCapacityLimiter
+from src.subagent_runtime.runtime import SubagentCapacityPort, SubagentModelPort
 from src.tools.orchestrator import (
     ToolCatalog,
     ToolExecutionGuard,
@@ -88,6 +90,7 @@ class MissionCompositionDependencies:
     events: MissionEventPublisherPort
     wakeups: MissionWakeupPublisherPort
     subagent_model: SubagentModelPort | None = None
+    subagent_capacity: SubagentCapacityPort | None = None
     limits: MissionSliceLimits | None = None
     subagent_max_concurrency: int = 4
     subagent_max_jobs_per_batch: int = 4
@@ -118,6 +121,7 @@ async def build_production_mission_runtime(
             review_candidates=StrictReviewCandidateBuilder(),
             events=WorkspaceMissionEventPublisher(),
             wakeups=CeleryMissionWakeupPublisher(),
+            subagent_capacity=RedisSubagentCapacityLimiter(redis_client),
             limits=MissionSliceLimits(max_model_turns=1),
         ),
     )
@@ -194,6 +198,7 @@ def compose_mission_runtime(
         tools=subagent_tools,
         max_concurrency=dependencies.subagent_max_concurrency,
         max_jobs_per_batch=dependencies.subagent_max_jobs_per_batch,
+        capacity=dependencies.subagent_capacity,
         model_call_timeout_seconds=(
             SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS
             if dependencies.subagent_model is None

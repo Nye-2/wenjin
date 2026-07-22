@@ -35,6 +35,7 @@ from src.dataservice_client.contracts.mission import (
     MissionApplyCommandsPayload,
     MissionCreatePayload,
     MissionCreateResultPayload,
+    MissionDispatchClaimPayload,
     MissionDispatchReleasePayload,
     MissionItemDraftPayload,
     MissionItemPayload,
@@ -188,6 +189,35 @@ class MissionLifecycleOperations:
                 "MissionRun already has an active driver",
                 detail={"mission_id": mission_id, "lease_owner": run.lease_owner},
             )
+        if (
+            run.dispatch_owner != command.dispatch_owner
+            or run.dispatch_epoch != command.dispatch_epoch
+            or run.dispatch_expires_at is None
+            or _aware(run.dispatch_expires_at) <= now
+        ):
+            raise DataServiceConflictError(
+                "Mission delivery fence was lost",
+                detail={
+                    "mission_id": mission_id,
+                    "dispatch_epoch": run.dispatch_epoch,
+                },
+            )
+        await self.repository.lock_workspace_execution_slot(run.workspace_id)
+        active_workspace_mission = await self.repository.find_active_workspace_lease(
+            workspace_id=run.workspace_id,
+            excluding_mission_id=mission_id,
+            now=now,
+        )
+        if active_workspace_mission is not None:
+            raise DataServiceConflictError(
+                "Workspace already has an active Mission driver",
+                detail={
+                    "mission_id": mission_id,
+                    "workspace_id": run.workspace_id,
+                    "active_mission_id": active_workspace_mission.mission_id,
+                    "reason": "workspace_execution_slot_busy",
+                },
+            )
         run.lease_owner = command.worker_id
         run.lease_epoch += 1
         run.lease_expires_at = now + timedelta(seconds=command.ttl_seconds)
@@ -254,14 +284,153 @@ class MissionLifecycleOperations:
         command: MissionRunnableBatchClaimPayload,
     ) -> list[MissionRunPayload]:
         now = await self.repository.database_now()
-        runs = await self.repository.claim_runnable_rows(now=now, limit=command.limit)
+        runs = await self.repository.claim_runnable_rows(
+            now=now,
+            limit=command.limit,
+        )
+        claimed: list[Any] = []
+        claimed_workspaces: set[str] = set()
         for run in runs:
+            if len(claimed) >= command.limit:
+                break
+            if run.workspace_id in claimed_workspaces:
+                continue
+            if not await self.repository.try_lock_workspace_execution_slot(
+                run.workspace_id
+            ):
+                continue
+            active_workspace_mission = (
+                await self.repository.find_active_workspace_lease(
+                    workspace_id=run.workspace_id,
+                    excluding_mission_id=run.mission_id,
+                    now=now,
+                )
+            )
+            active_workspace_dispatch = (
+                await self.repository.find_active_workspace_dispatch(
+                    workspace_id=run.workspace_id,
+                    excluding_mission_id=run.mission_id,
+                    now=now,
+                )
+            )
+            if (
+                active_workspace_mission is not None
+                or active_workspace_dispatch is not None
+            ):
+                continue
+            claimed_workspaces.add(run.workspace_id)
             run.dispatch_owner = command.worker_id
             run.dispatch_epoch += 1
             run.dispatch_expires_at = now + timedelta(seconds=command.ttl_seconds)
             self._touch(run, now)
+            claimed.append(run)
         await self._finish()
-        return [mission_run_to_payload(run) for run in runs]
+        return [mission_run_to_payload(run) for run in claimed]
+
+    async def claim_dispatch_for_run(
+        self,
+        mission_id: str,
+        command: MissionDispatchClaimPayload,
+    ) -> MissionRunPayload:
+        run = await self._locked_run(mission_id)
+        self._require_nonterminal(run)
+        self._require_state_version(run, command.expected_state_version)
+        now = await self.repository.database_now()
+        expires_at = _aware(run.lease_expires_at)
+        wakeup_at = _aware(run.next_wakeup_at)
+        not_before_at = _aware(command.not_before_at) or now
+        if not_before_at > now + timedelta(seconds=command.ttl_seconds):
+            raise DataServiceValidationError(
+                "Mission dispatch not_before_at exceeds its claim lifetime"
+            )
+        wakeup_due = wakeup_at is not None and wakeup_at <= not_before_at
+        lease_expired = (
+            run.lease_owner is not None
+            and expires_at is not None
+            and expires_at <= now
+        )
+        if not wakeup_due and not lease_expired:
+            raise DataServiceConflictError(
+                "MissionRun is not dispatchable",
+                detail={"mission_id": mission_id},
+            )
+        if run.lease_owner is not None and expires_at is not None and expires_at > now:
+            raise DataServiceConflictError(
+                "MissionRun already has an active driver",
+                detail={"mission_id": mission_id, "lease_owner": run.lease_owner},
+            )
+        dispatch_expires_at = _aware(run.dispatch_expires_at)
+        if (
+            run.dispatch_owner is not None
+            and dispatch_expires_at is not None
+            and dispatch_expires_at > now
+        ):
+            raise DataServiceConflictError(
+                "MissionRun already has an active dispatch",
+                detail={
+                    "mission_id": mission_id,
+                    "dispatch_owner": run.dispatch_owner,
+                    "dispatch_epoch": run.dispatch_epoch,
+                },
+            )
+        await self.repository.lock_workspace_execution_slot(run.workspace_id)
+        active_workspace_mission = await self.repository.find_active_workspace_lease(
+            workspace_id=run.workspace_id,
+            excluding_mission_id=mission_id,
+            now=now,
+        )
+        if active_workspace_mission is not None:
+            raise DataServiceConflictError(
+                "Workspace already has an active Mission driver",
+                detail={
+                    "mission_id": mission_id,
+                    "workspace_id": run.workspace_id,
+                    "active_mission_id": active_workspace_mission.mission_id,
+                    "reason": "workspace_execution_slot_busy",
+                },
+            )
+        active_workspace_dispatch = (
+            await self.repository.find_active_workspace_dispatch(
+                workspace_id=run.workspace_id,
+                excluding_mission_id=mission_id,
+                now=now,
+            )
+        )
+        if active_workspace_dispatch is not None:
+            raise DataServiceConflictError(
+                "Workspace already has an active Mission dispatch",
+                detail={
+                    "mission_id": mission_id,
+                    "workspace_id": run.workspace_id,
+                    "active_mission_id": active_workspace_dispatch.mission_id,
+                    "reason": "workspace_dispatch_slot_busy",
+                },
+            )
+        oldest_workspace_run = (
+            await self.repository.find_oldest_dispatchable_workspace_run(
+                workspace_id=run.workspace_id,
+                now=now,
+            )
+        )
+        if (
+            oldest_workspace_run is not None
+            and oldest_workspace_run.mission_id != mission_id
+        ):
+            raise DataServiceConflictError(
+                "An earlier runnable Mission owns the workspace dispatch turn",
+                detail={
+                    "mission_id": mission_id,
+                    "workspace_id": run.workspace_id,
+                    "earlier_mission_id": oldest_workspace_run.mission_id,
+                    "reason": "workspace_dispatch_turn_wait",
+                },
+            )
+        run.dispatch_owner = command.worker_id
+        run.dispatch_epoch += 1
+        run.dispatch_expires_at = now + timedelta(seconds=command.ttl_seconds)
+        self._touch(run, now)
+        await self._finish()
+        return mission_run_to_payload(run)
 
     async def release_dispatch_claim(
         self,

@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import uuid
 from collections.abc import Awaitable
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from math import isfinite
 from typing import Any, TypeVar
@@ -41,6 +42,8 @@ from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionApplyCommandsPayload,
     MissionCreatePayload,
+    MissionDispatchClaimPayload,
+    MissionDispatchReleasePayload,
     MissionItemDraftPayload,
     MissionItemPayload,
     MissionItemPhase,
@@ -61,6 +64,10 @@ from src.dataservice_client.contracts.mission import (
 )
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
+    MISSION_DISPATCH_TTL_SECONDS,
+    MISSION_MODEL_COMPLETION_MARGIN_SECONDS,
+    MISSION_SUBAGENT_CAPACITY_RETRY_SECONDS,
+    SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS,
     MissionAgentDecision,
     MissionAgentProtocolError,
     MissionAgentResponseError,
@@ -97,6 +104,7 @@ from src.mission_runtime.ports import (
     ToolOrchestratorPort,
 )
 from src.models.provider_errors import is_transient_model_error
+from src.observability.prometheus import track_mission_dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -572,7 +580,7 @@ class MissionRuntime:
         )
         await publish_after_commit(self.events, self.clock, result.mission)
         await self._publish_wakeup(mission_id, command_hint=request_id)
-        return result.mission
+        return await self.store.get(mission_id) or result.mission
 
     async def cancel(
         self,
@@ -599,13 +607,15 @@ class MissionRuntime:
         )
         await publish_after_commit(self.events, self.clock, result.mission)
         await self._publish_wakeup(mission_id, command_hint=request_id)
-        return result.mission
+        return await self.store.get(mission_id) or result.mission
 
     async def run_slice(
         self,
         mission_id: str,
         *,
         worker_id: str,
+        dispatch_owner: str | None = None,
+        dispatch_epoch: int | None = None,
         command_hint: str | None = None,
     ) -> MissionSliceTelemetry:
         initial = await self.store.get(mission_id)
@@ -618,9 +628,89 @@ class MissionRuntime:
                 "mission_already_terminal",
                 command_hint=command_hint,
             )
-        if _status_value(initial) == "waiting" and initial.last_command_seq <= initial.last_applied_command_seq:
+        waiting_without_command = (
+            _status_value(initial) == "waiting"
+            and initial.last_command_seq <= initial.last_applied_command_seq
+        )
+        if (
+            waiting_without_command
+            and dispatch_owner is None
+            and dispatch_epoch is None
+            and initial.dispatch_owner is None
+        ):
             return self._telemetry(
                 initial,
+                MissionSliceOutcome.WAITING,
+                "mission_waiting_for_input",
+                command_hint=command_hint,
+            )
+
+        if dispatch_owner is None and dispatch_epoch is None and (
+            initial.dispatch_owner is None
+            or initial.dispatch_expires_at is None
+            or not _expires_after(initial.dispatch_expires_at, self.clock.now())
+        ):
+            local_dispatch_owner = f"mission-inline-dispatch:{uuid.uuid4().hex}"
+            try:
+                initial = await self.store.claim_dispatch(
+                    mission_id,
+                    MissionDispatchClaimPayload(
+                        worker_id=local_dispatch_owner,
+                        expected_state_version=initial.state_version,
+                        ttl_seconds=MISSION_DISPATCH_TTL_SECONDS,
+                    ),
+                )
+            except Exception as exc:
+                if not _is_conflict(exc):
+                    raise
+            else:
+                dispatch_owner = local_dispatch_owner
+                dispatch_epoch = initial.dispatch_epoch
+
+        effective_dispatch_owner = dispatch_owner or initial.dispatch_owner
+        effective_dispatch_epoch = (
+            dispatch_epoch if dispatch_epoch is not None else initial.dispatch_epoch
+        )
+        if (
+            not effective_dispatch_owner
+            or effective_dispatch_epoch < 1
+            or initial.dispatch_owner != effective_dispatch_owner
+            or initial.dispatch_epoch != effective_dispatch_epoch
+        ):
+            return self._telemetry(
+                initial,
+                MissionSliceOutcome.YIELDED,
+                "stale_delivery",
+                command_hint=command_hint,
+            )
+        if (
+            initial.dispatch_expires_at is None
+            or not _expires_after(initial.dispatch_expires_at, self.clock.now())
+        ):
+            return self._telemetry(
+                initial,
+                MissionSliceOutcome.YIELDED,
+                "delivery_expired",
+                command_hint=command_hint,
+            )
+
+        if waiting_without_command:
+            try:
+                await self.store.release_dispatch(
+                    mission_id,
+                    MissionDispatchReleasePayload(
+                        worker_id=effective_dispatch_owner,
+                        dispatch_epoch=effective_dispatch_epoch,
+                    ),
+                )
+            except Exception as exc:
+                if not _is_conflict(exc):
+                    raise
+            else:
+                track_mission_dispatch("waiting_delivery_released")
+            latest = await self.store.get(mission_id) or initial
+            return self._telemetry(
+                latest,
                 MissionSliceOutcome.WAITING,
                 "mission_waiting_for_input",
                 command_hint=command_hint,
@@ -631,6 +721,8 @@ class MissionRuntime:
                 mission_id,
                 MissionLeaseClaimPayload(
                     worker_id=worker_id,
+                    dispatch_owner=effective_dispatch_owner,
+                    dispatch_epoch=effective_dispatch_epoch,
                     expected_state_version=initial.state_version,
                     ttl_seconds=self.limits.lease_ttl_seconds,
                 ),
@@ -638,6 +730,23 @@ class MissionRuntime:
         except Exception as exc:
             if not _is_conflict(exc):
                 raise
+            try:
+                await self.store.release_dispatch(
+                    mission_id,
+                    MissionDispatchReleasePayload(
+                        worker_id=effective_dispatch_owner,
+                        dispatch_epoch=effective_dispatch_epoch,
+                    ),
+                )
+            except Exception as release_exc:
+                if not _is_conflict(release_exc):
+                    logger.warning(
+                        "Mission dispatch release failed after lease conflict mission=%s",
+                        mission_id,
+                        exc_info=True,
+                    )
+            else:
+                track_mission_dispatch("lease_claim_released")
             latest = await self.store.get(mission_id) or initial
             return self._telemetry(
                 latest,
@@ -673,7 +782,7 @@ class MissionRuntime:
                 if not _is_conflict(exc):
                     raise
                 latest = await self.store.get(mission_id) or state.run
-                lease_is_current = latest.lease_owner == state.worker_id and latest.lease_epoch == state.run.lease_epoch and latest.lease_expires_at is not None and latest.lease_expires_at > self.clock.now()
+                lease_is_current = latest.lease_owner == state.worker_id and latest.lease_epoch == state.run.lease_epoch and _expires_after(latest.lease_expires_at, self.clock.now())
                 if _status_value(latest) not in _TERMINAL_STATUSES and lease_is_current:
                     # A durable command may legitimately advance state_version
                     # while this driver is inside a model/tool call. Discard the
@@ -816,6 +925,12 @@ class MissionRuntime:
 
             recovered, recovery_outcome = await self._recover_inflight_operation(state)
             if recovery_outcome is not None:
+                if recovery_outcome is MissionSliceOutcome.YIELDED:
+                    return await self._checkpoint_and_yield(
+                        state,
+                        reason="subagent_quantum_yielded",
+                        command_hint=command_hint,
+                    )
                 return self._telemetry(
                     state.run,
                     recovery_outcome,
@@ -1022,6 +1137,12 @@ class MissionRuntime:
                 continue
             outcome = await self._handle_decision(state, decision)
             if outcome is not None:
+                if outcome is MissionSliceOutcome.YIELDED:
+                    return await self._checkpoint_and_yield(
+                        state,
+                        reason="subagent_quantum_yielded",
+                        command_hint=command_hint,
+                    )
                 return self._telemetry(
                     state.run,
                     outcome,
@@ -1513,7 +1634,6 @@ class MissionRuntime:
                 "frozen_context": frozen_context.model_dump(mode="json"),
             },
         )
-        self._open_subagent_operation_window(state)
         if self._slice_time_below_operation_reserve(state, kind="subagent"):
             return None
         return await self._execute_subagent_operation(
@@ -1818,6 +1938,11 @@ class MissionRuntime:
                     "kind": kind,
                     "call_item_seq": call_item_seq,
                     **(
+                        {"active_seconds": 0.0, "quantum_count": 0}
+                        if kind == "subagent"
+                        else {}
+                    ),
+                    **(
                         {
                             "required_budget_seconds": payload_json.get(
                                 "required_budget_seconds"
@@ -1954,7 +2079,40 @@ class MissionRuntime:
         stage_id: str | None,
         frozen_context: SubagentFrozenContext,
     ) -> MissionSliceOutcome | None:
-        self._open_subagent_operation_window(state)
+        inflight = state.run.snapshot_json.get("inflight_operation")
+        inflight_snapshot = dict(inflight) if isinstance(inflight, dict) else {}
+        try:
+            active_seconds = max(
+                0.0,
+                float(inflight_snapshot.get("active_seconds") or 0.0),
+            )
+        except (TypeError, ValueError):
+            active_seconds = 0.0
+        remaining_active_seconds = (
+            self.limits.subagent_operation_time_seconds - active_seconds
+        )
+        if remaining_active_seconds <= 0:
+            return await self._finish_port_operation(
+                state,
+                operation_id=operation_id,
+                kind="subagent",
+                item_type="subagent_completed",
+                stage_id=stage_id,
+                producer="subagent_runtime",
+                outcome=MissionPortOutcome(
+                    status=MissionPortOutcomeStatus.FAILED,
+                    summary="Subagent active execution budget was exhausted",
+                    payload_json={
+                        "active_seconds": active_seconds,
+                        "budget_seconds": self.limits.subagent_operation_time_seconds,
+                    },
+                ),
+            )
+        quantum_started = self.clock.monotonic()
+        quantum_deadline = min(
+            state.deadline_monotonic,
+            quantum_started + remaining_active_seconds,
+        )
         request = SubagentExecutionRequest(
             mission=state.run,
             operation_id=operation_id,
@@ -1962,7 +2120,7 @@ class MissionRuntime:
             input_scope=input_scope,
             stage_id=stage_id,
             frozen_context=frozen_context,
-            deadline_monotonic=state.deadline_monotonic,
+            deadline_monotonic=quantum_deadline,
         )
         try:
             outcome = await self._invoke_with_deadline(
@@ -1984,6 +2142,61 @@ class MissionRuntime:
                 )
         if await self._reconcile_model_call_ledger(state):
             return MissionSliceOutcome.TERMINAL
+        elapsed = max(0.0, self.clock.monotonic() - quantum_started)
+        if outcome.status is MissionPortOutcomeStatus.YIELDED:
+            current_inflight = state.run.snapshot_json.get("inflight_operation")
+            if not isinstance(current_inflight, dict):
+                return None
+            updated_inflight = dict(current_inflight)
+            updated_active_seconds = min(
+                self.limits.subagent_operation_time_seconds,
+                active_seconds + elapsed,
+            )
+            updated_inflight["active_seconds"] = updated_active_seconds
+            updated_inflight["quantum_count"] = (
+                int(updated_inflight.get("quantum_count") or 0) + 1
+            )
+            pending_reasons = outcome.payload_json.get("pending_reasons")
+            if isinstance(pending_reasons, dict):
+                updated_inflight["pending_reasons"] = dict(pending_reasons)
+            active_budget_cannot_admit_model = (
+                self.limits.subagent_operation_time_seconds
+                - updated_active_seconds
+                < SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS
+                + MISSION_MODEL_COMPLETION_MARGIN_SECONDS
+            )
+            deadline_only = (
+                isinstance(pending_reasons, dict)
+                and bool(pending_reasons)
+                and set(pending_reasons.values()) == {"deadline_reached"}
+            )
+            if deadline_only and active_budget_cannot_admit_model:
+                return await self._finish_port_operation(
+                    state,
+                    operation_id=operation_id,
+                    kind="subagent",
+                    item_type="subagent_completed",
+                    stage_id=stage_id,
+                    producer="subagent_runtime",
+                    outcome=MissionPortOutcome(
+                        status=MissionPortOutcomeStatus.FAILED,
+                        summary="Subagent active execution budget cannot admit another model turn",
+                        payload_json={
+                            **outcome.payload_json,
+                            "active_seconds": updated_active_seconds,
+                            "budget_seconds": self.limits.subagent_operation_time_seconds,
+                        },
+                    ),
+                )
+            await self._append(
+                state,
+                items=[],
+                snapshot=self._merge_snapshot(
+                    state.run.snapshot_json,
+                    {"inflight_operation": updated_inflight},
+                ),
+            )
+            return MissionSliceOutcome.YIELDED
         if outcome.status is MissionPortOutcomeStatus.FAILED:
             adopted = await self.subagents.adopt_terminal(request)
             if adopted is not None:
@@ -2516,6 +2729,21 @@ class MissionRuntime:
         command_hint: str | None,
         retry_delay_seconds: int = 0,
     ) -> MissionSliceTelemetry:
+        if (
+            retry_delay_seconds == 0
+            and reason == "subagent_quantum_yielded"
+        ):
+            inflight = state.run.snapshot_json.get("inflight_operation")
+            pending_reasons = (
+                inflight.get("pending_reasons")
+                if isinstance(inflight, dict)
+                else None
+            )
+            if (
+                isinstance(pending_reasons, dict)
+                and "capacity_saturated" in pending_reasons.values()
+            ):
+                retry_delay_seconds = MISSION_SUBAGENT_CAPACITY_RETRY_SECONDS
         checkpoint_seq = state.run.last_item_seq + 1
         checkpoint_ref = f"mission-item://{state.run.mission_id}/{checkpoint_seq}"
         recent_items = await self._recent_items(state.run, limit=100)
@@ -2764,7 +2992,7 @@ class MissionRuntime:
                     or latest.lease_owner != state.worker_id
                     or latest.lease_epoch != state.run.lease_epoch
                     or latest.lease_expires_at is None
-                    or latest.lease_expires_at <= self.clock.now()
+                    or not _expires_after(latest.lease_expires_at, self.clock.now())
                 ):
                     raise
                 state.run = latest
@@ -2911,7 +3139,7 @@ class MissionRuntime:
             or latest.lease_owner != state.worker_id
             or latest.lease_epoch != state.run.lease_epoch
             or latest.lease_expires_at is None
-            or latest.lease_expires_at <= self.clock.now()
+            or not _expires_after(latest.lease_expires_at, self.clock.now())
         ):
             raise MissionLeaseLostError(
                 "Mission lease changed while an operation was running"
@@ -2934,7 +3162,7 @@ class MissionRuntime:
                     or current.lease_owner != state.worker_id
                     or current.lease_epoch != state.run.lease_epoch
                     or current.lease_expires_at is None
-                    or current.lease_expires_at <= self.clock.now()
+                    or not _expires_after(current.lease_expires_at, self.clock.now())
                 ):
                     raise MissionLeaseLostError(
                         "Mission lease changed while its heartbeat was being committed"
@@ -3138,19 +3366,71 @@ class MissionRuntime:
         command_hint: str | None = None,
         delay_seconds: int = 0,
     ) -> bool:
+        current = await self.store.get(mission_id)
+        if current is None or _status_value(current) in _TERMINAL_STATUSES:
+            track_mission_dispatch("not_runnable")
+            return False
+        dispatch_owner = f"mission-dispatch:{uuid.uuid4().hex}"
+        try:
+            claimed = await self.store.claim_dispatch(
+                mission_id,
+                MissionDispatchClaimPayload(
+                    worker_id=dispatch_owner,
+                    expected_state_version=current.state_version,
+                    ttl_seconds=MISSION_DISPATCH_TTL_SECONDS + delay_seconds,
+                    not_before_at=(
+                        self.clock.now() + timedelta(seconds=delay_seconds)
+                        if delay_seconds > 0
+                        else None
+                    ),
+                ),
+            )
+        except Exception as exc:
+            if _is_conflict(exc):
+                track_mission_dispatch("already_scheduled")
+                return False
+            track_mission_dispatch("claim_failed")
+            logger.warning(
+                "Mission dispatch claim failed for %s; reconciler will recover it",
+                mission_id,
+                exc_info=True,
+            )
+            return False
+        track_mission_dispatch("claimed")
+        enqueued_at = self.clock.now()
         try:
             await self.wakeups.publish(
                 mission_id,
+                dispatch_owner=dispatch_owner,
+                dispatch_epoch=claimed.dispatch_epoch,
+                enqueued_at=enqueued_at,
                 command_hint=command_hint,
                 delay_seconds=delay_seconds,
             )
         except Exception:
+            track_mission_dispatch("publish_failed")
             logger.warning(
                 "Mission wakeup publish failed for %s; reconciler will recover it",
                 mission_id,
                 exc_info=True,
             )
+            try:
+                await self.store.release_dispatch(
+                    mission_id,
+                    MissionDispatchReleasePayload(
+                        worker_id=dispatch_owner,
+                        dispatch_epoch=claimed.dispatch_epoch,
+                    ),
+                )
+            except Exception as release_exc:
+                if not _is_conflict(release_exc):
+                    logger.warning(
+                        "Mission dispatch release failed for %s",
+                        mission_id,
+                        exc_info=True,
+                    )
             return False
+        track_mission_dispatch("published")
         return True
 
     async def notify_runnable(
@@ -3169,29 +3449,6 @@ class MissionRuntime:
             self.limits.wall_time_seconds - self.limits.shutdown_margin_seconds,
         )
         return remaining <= next_step_reserve or state.model_turns >= self.limits.max_model_turns or state.tool_steps >= self.limits.max_tool_steps
-
-    def _open_subagent_operation_window(self, state: _SliceState) -> None:
-        """Give one in-process worker batch a longer, still bounded deadline.
-
-        Ordinary planning/tool slices retain the short wall clock. The extension
-        is capped relative to the original slice start so repeated decisions
-        cannot grow one Celery delivery without bound.
-        """
-
-        now = self.clock.monotonic()
-        delivery_cap = (
-            state.started_monotonic
-            + self.limits.wall_time_seconds
-            + self.limits.subagent_operation_time_seconds
-        )
-        operation_deadline = min(
-            now + self.limits.subagent_operation_time_seconds,
-            delivery_cap,
-        )
-        state.deadline_monotonic = max(
-            state.deadline_monotonic,
-            operation_deadline,
-        )
 
     def _slice_time_below_operation_reserve(
         self,
@@ -3646,6 +3903,14 @@ def _transient_retry_delay_seconds(run: MissionRunPayload) -> int:
         attempt = 1
     exponent = min(max(attempt - 1, 0), 4)
     return min(5 * (1 << exponent), 60)
+
+
+def _expires_after(value: datetime | None, now: datetime) -> bool:
+    if value is None:
+        return False
+    normalized_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    normalized_now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+    return normalized_value > normalized_now
 
 
 __all__ = [

@@ -111,7 +111,7 @@ mission_idempotency_key
 
 One thread can have at most one non-terminal foreground MissionRun. One MissionRun can have only one active driver. Every driver write validates both `state_version` and `lease_epoch`; a stale worker cannot publish a valid result after lease takeover.
 
-Queue delivery is at-least-once. A queue message carries only mission/command identity, and a reconciler re-enqueues runnable or expired-lease missions. Stable command ids and operation keys make duplicate dispatch safe. Mission state/command commit always precedes best-effort queue publish; `mission_runs.next_wakeup_at` makes the publish-after-commit crash window recoverable without an outbox.
+Queue delivery is at-least-once. Before publication, DataService reserves one dispatch owner/epoch; the queue message carries `mission_id`, that exact generation, enqueue time, optional command hint, and intentional countdown. Lease claim atomically consumes only the matching live dispatch, so a delayed message from a superseded generation cannot execute. A reconciler reserves and republishes runnable, expired-dispatch, or expired-lease Missions. Stable command ids and operation keys make duplicate delivery safe. Mission state/command commit always precedes best-effort queue publish; publish failure releases the dispatch reservation, while `mission_runs.next_wakeup_at` and the bounded dispatch lifetime cover process-loss uncertainty without an outbox.
 
 Command append and command application are distinct immutable facts. Appending a command advances `last_command_seq`; the active driver polls after `last_applied_command_seq` at every safe loop boundary and advances the cursor only in the same transaction as the resulting state change/audit item. A queue/event hint may wake work sooner but cannot make a command visible or applied by itself.
 
@@ -120,6 +120,7 @@ Command append and command application are distinct immutable facts. Appending a
 One Celery delivery owns one bounded `MissionDriveSlice`, not the whole MissionRun lifecycle.
 
 ```text
+validate and consume the message's dispatch owner/epoch
 claim lease with database time and increment lease_epoch
 load bounded snapshot + unapplied commands
 drive up to slice wall-time / model-turn / tool-step budget
@@ -131,9 +132,11 @@ best-effort enqueue continuation
 Rules:
 
 - Slice wall-time is strictly below the Celery soft/hard limit and Redis broker visibility timeout, with measured shutdown margin.
-- A dedicated mission-worker consumes the `long_running` queue with late ack, reject-on-worker-lost, and prefetch multiplier `1`; do not impose its scheduling profile on short chat and preprocessing jobs. Task/result backend state is operational telemetry only.
-- A clean yield cannot leave untracked in-process model calls or subagent tasks alive. In-process children finish/cancel first; external sandbox/provider jobs must already have a stable operation id and durable receipt reference that a later slice can adopt.
+- Two dedicated mission-worker replicas consume the `long_running` queue with late ack, reject-on-worker-lost, process concurrency `1`, and prefetch multiplier `1`; do not impose their scheduling profile on short chat and preprocessing jobs. Task/result backend state is operational telemetry only.
+- A clean yield cannot leave untracked in-process model calls or subagent tasks alive. Each subagent job performs at most one fresh model action in a quantum, checkpoints its receipt-backed action before a requested tool, and resumes the pending operation in a later delivery. The parent operation has a cumulative 900-second active budget rather than one 900-second Celery delivery.
+- Redis caps active subagent quanta at four globally. Capacity saturation defers the durable job with bounded backoff; the lease is tokenized and self-expiring.
 - Only the current lease holder writes MissionRun/MissionItems. External workers/providers never callback directly into mission state; a current driver collects and normalizes their receipt.
+- DataService serializes dispatch and lease admission per workspace. Different workspaces may use both replicas, but the current shared writable Sandbox permits only one active Mission in a workspace. When several are due, the oldest runnable wakeup owns the next dispatch turn so a fast continuation cannot starve its peer.
 - Reconciler claims batches with `FOR UPDATE SKIP LOCKED`; direct queue consumers claim one mission by id. Lease expiry uses database time to avoid worker clock skew.
 - Crash recovery waits for lease expiry or explicit worker-lost handling, acquires a higher epoch, and continues from bounded state. It does not mark an otherwise recoverable mission failed.
 
@@ -321,7 +324,7 @@ MissionRuntime.resume(mission_id, resume_payload)
 MissionRuntime.cancel(mission_id)
 ```
 
-Worker queue task should receive only `mission_id`.
+Worker queue tasks receive the bounded delivery ticket: `mission_id`, `dispatch_owner`, `dispatch_epoch`, `enqueued_at`, optional `command_hint`, and the scheduled-delay value used only to normalize queue-wait telemetry. None of those fields is Mission truth by itself.
 
 The task returns after one drive slice with `completed | yielded | waiting | terminal` telemetry. That return value is never MissionRun truth; the next action is derived from the committed MissionRun.
 
@@ -336,8 +339,11 @@ The task returns after one drive slice with `completed | yielded | waiting | ter
 - Restart recovery reads MissionRun scalar columns plus bounded `snapshot_json`, not chat transcript.
 - Stale lease epoch writes are rejected after worker takeover.
 - Duplicate queue/command delivery does not duplicate tool, sandbox, subagent, or commit side effects.
+- A stale or expired dispatch generation cannot acquire a Mission lease.
+- Two different MissionRuns in the same workspace cannot hold active execution leases concurrently.
 - A publish-after-commit crash is recovered from `next_wakeup_at` without an outbox row.
 - A long mission completes through multiple bounded drive slices without hitting Celery hard limits.
+- A subagent tool request checkpoints at one quantum boundary and resumes without repeating its receipt-bearing model call; global-capacity saturation backs off without becoming terminal.
 - Review-driven child continuation invalidates only the source-stage dependency closure and preserves unaffected passed stages.
 - `prefetch=1`, broker visibility margin, safe-yield, DB-time lease, and `SKIP LOCKED` reconciler behavior are covered by integration tests.
 - A command appended while a valid driver is running is observed at the next safe boundary even when its queue/event hint is dropped.

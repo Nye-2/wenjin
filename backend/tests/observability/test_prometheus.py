@@ -86,6 +86,74 @@ class TestTaskMetrics:
             prom._run_wait_seconds = saved_wait_seconds
             prom._run_wait_polls = saved_wait_polls
 
+    def test_mission_metrics_use_bounded_operational_labels(self):
+        import src.observability.prometheus as prom
+
+        saved = (
+            prom._mission_queue_wait_seconds,
+            prom._mission_slice_duration_seconds,
+            prom._mission_slices_total,
+            prom._mission_lease_events_total,
+            prom._mission_dispatch_events_total,
+            prom._mission_reconciliation_total,
+            prom._mission_subagent_capacity_total,
+        )
+        queue_wait = MagicMock()
+        slice_duration = MagicMock()
+        slices = MagicMock()
+        leases = MagicMock()
+        dispatch = MagicMock()
+        reconciliation = MagicMock()
+        capacity = MagicMock()
+        (
+            prom._mission_queue_wait_seconds,
+            prom._mission_slice_duration_seconds,
+            prom._mission_slices_total,
+            prom._mission_lease_events_total,
+            prom._mission_dispatch_events_total,
+            prom._mission_reconciliation_total,
+            prom._mission_subagent_capacity_total,
+        ) = (
+            queue_wait,
+            slice_duration,
+            slices,
+            leases,
+            dispatch,
+            reconciliation,
+            capacity,
+        )
+        try:
+            prom.observe_mission_queue_wait(2.5)
+            prom.track_mission_slice(
+                outcome="yielded",
+                reason="lease_fence_lost",
+                duration=1.25,
+            )
+            prom.track_mission_dispatch("published")
+            prom.track_mission_reconciliation("published")
+            prom.track_mission_subagent_capacity("acquired")
+        finally:
+            (
+                prom._mission_queue_wait_seconds,
+                prom._mission_slice_duration_seconds,
+                prom._mission_slices_total,
+                prom._mission_lease_events_total,
+                prom._mission_dispatch_events_total,
+                prom._mission_reconciliation_total,
+                prom._mission_subagent_capacity_total,
+            ) = saved
+
+        queue_wait.observe.assert_called_once_with(2.5)
+        slice_duration.labels.assert_called_once_with(outcome="yielded")
+        slices.labels.assert_called_once_with(
+            outcome="yielded",
+            reason="lease_fence_lost",
+        )
+        leases.labels.assert_called_once_with(result="lease_fence_lost")
+        dispatch.labels.assert_called_once_with(result="published")
+        reconciliation.labels.assert_called_once_with(result="published")
+        capacity.labels.assert_called_once_with(result="acquired")
+
 
 class TestWorkerPrometheus:
     def test_prepare_worker_prometheus_resets_multiproc_dir(self):

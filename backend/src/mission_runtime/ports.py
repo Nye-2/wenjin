@@ -12,6 +12,7 @@ from src.dataservice_client.contracts.mission import (
     MissionApplyCommandsPayload,
     MissionCreatePayload,
     MissionCreateResultPayload,
+    MissionDispatchClaimPayload,
     MissionDispatchReleasePayload,
     MissionItemPayload,
     MissionLeaseClaimPayload,
@@ -58,6 +59,8 @@ class MissionStorePort(Protocol):
     async def release_lease(self, mission_id: str, command: MissionLeaseReleasePayload) -> MissionRunPayload: ...
 
     async def claim_runnable(self, command: MissionRunnableBatchClaimPayload) -> list[MissionRunPayload]: ...
+
+    async def claim_dispatch(self, mission_id: str, command: MissionDispatchClaimPayload) -> MissionRunPayload: ...
 
     async def release_dispatch(self, mission_id: str, command: MissionDispatchReleasePayload) -> MissionRunPayload: ...
 
@@ -144,6 +147,9 @@ class MissionWakeupPublisherPort(Protocol):
         self,
         mission_id: str,
         *,
+        dispatch_owner: str,
+        dispatch_epoch: int,
+        enqueued_at: datetime,
         command_hint: str | None = None,
         delay_seconds: int = 0,
     ) -> None: ...

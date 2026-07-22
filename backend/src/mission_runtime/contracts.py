@@ -26,10 +26,15 @@ MISSION_SLICE_NEXT_STEP_RESERVE_SECONDS = 165.0
 MISSION_TOOL_START_RESERVE_SECONDS = 45.0
 SUBAGENT_MODEL_REQUEST_TIMEOUT_SECONDS = 145.0
 MISSION_MODEL_MAX_OUTPUT_TOKENS = 8_192
-MISSION_TASK_SOFT_TIME_LIMIT_SECONDS = 1140
-MISSION_TASK_HARD_TIME_LIMIT_SECONDS = 1170
+MISSION_TASK_SOFT_TIME_LIMIT_SECONDS = 210
+MISSION_TASK_HARD_TIME_LIMIT_SECONDS = 225
 MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS = 3600
 MISSION_WORKER_PREFETCH_MULTIPLIER = 1
+# A published delivery may wait behind one or more bounded slices. Keep its
+# generation fence valid across a normal burst while still allowing the
+# reconciler to recover a genuinely lost publication in bounded time.
+MISSION_DISPATCH_TTL_SECONDS = 900
+MISSION_SUBAGENT_CAPACITY_RETRY_SECONDS = 5
 
 
 class _StrictModel(BaseModel):
@@ -58,6 +63,7 @@ class MissionPortOutcomeStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     WAITING = "waiting"
+    YIELDED = "yielded"
 
 
 class StageQualityVerdict(StrEnum):

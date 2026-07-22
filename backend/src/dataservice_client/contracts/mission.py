@@ -290,6 +290,8 @@ class MissionCheckpointPayload(MissionAppendPayload):
 
 class MissionLeaseClaimPayload(_StrictModel):
     worker_id: str = Field(min_length=1, max_length=160)
+    dispatch_owner: str = Field(min_length=1, max_length=160)
+    dispatch_epoch: int = Field(ge=1)
     expected_state_version: int = Field(ge=0)
     ttl_seconds: int = Field(default=120, ge=5, le=3600)
 
@@ -312,6 +314,13 @@ class MissionRunnableBatchClaimPayload(_StrictModel):
     worker_id: str = Field(min_length=1, max_length=160)
     ttl_seconds: int = Field(default=120, ge=5, le=3600)
     limit: int = Field(default=20, ge=1, le=100)
+
+
+class MissionDispatchClaimPayload(_StrictModel):
+    worker_id: str = Field(min_length=1, max_length=160)
+    expected_state_version: int = Field(ge=0)
+    ttl_seconds: int = Field(default=120, ge=5, le=3600)
+    not_before_at: datetime | None = None
 
 
 class MissionDispatchReleasePayload(_StrictModel):

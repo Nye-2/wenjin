@@ -38,6 +38,8 @@ def test_mission_worker_health_requires_validated_gpt56_default_profile() -> Non
 def test_mission_worker_uses_a_killable_prefork_boundary() -> None:
     mission_worker = _compose("docker-compose.yml")["services"]["mission-worker"]
 
+    assert "container_name" not in mission_worker
+    assert mission_worker["deploy"]["replicas"] == 2
     assert "CELERY_WORKER_POOL=prefork" in mission_worker["environment"]
     assert mission_worker["command"][
         mission_worker["command"].index("--prefetch-multiplier") + 1

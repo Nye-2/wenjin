@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,7 +11,6 @@ from src.mission_runtime.contracts import (
     MISSION_BROKER_VISIBILITY_TIMEOUT_SECONDS,
     MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS,
     MISSION_SLICE_WALL_TIME_SECONDS,
-    MISSION_SUBAGENT_OPERATION_TIME_SECONDS,
     MISSION_TASK_HARD_TIME_LIMIT_SECONDS,
     MISSION_TASK_SOFT_TIME_LIMIT_SECONDS,
     MISSION_WORKER_PREFETCH_MULTIPLIER,
@@ -37,7 +37,6 @@ def test_mission_task_has_bounded_long_running_delivery_profile() -> None:
     assert MISSION_WORKER_PREFETCH_MULTIPLIER == 1
     assert (
         MISSION_SLICE_WALL_TIME_SECONDS
-        + MISSION_SUBAGENT_OPERATION_TIME_SECONDS
         + MISSION_SLICE_SHUTDOWN_MARGIN_SECONDS
         < MISSION_TASK_SOFT_TIME_LIMIT_SECONDS
         < MISSION_TASK_HARD_TIME_LIMIT_SECONDS
@@ -65,6 +64,8 @@ async def test_drive_slice_returns_only_runtime_telemetry() -> None:
     result = await drive_mission_slice_async(
         "mission-1",
         worker_id="worker-1",
+        dispatch_owner="dispatcher-1",
+        dispatch_epoch=7,
         command_hint="command-1",
         runtime=runtime,
     )
@@ -72,6 +73,8 @@ async def test_drive_slice_returns_only_runtime_telemetry() -> None:
     runtime.run_slice.assert_awaited_once_with(
         "mission-1",
         worker_id="worker-1",
+        dispatch_owner="dispatcher-1",
+        dispatch_epoch=7,
         command_hint="command-1",
     )
     assert result == {
@@ -121,6 +124,8 @@ async def test_drive_slice_builds_production_runtime_without_manual_bootstrap() 
         result = await drive_mission_slice_async(
             "mission-1",
             worker_id="worker-1",
+            dispatch_owner="dispatcher-1",
+            dispatch_epoch=7,
         )
 
     builder.assert_awaited_once_with(dataservice)
@@ -129,22 +134,37 @@ async def test_drive_slice_builds_production_runtime_without_manual_bootstrap() 
     runtime.run_slice.assert_awaited_once_with(
         "mission-1",
         worker_id="worker-1",
+        dispatch_owner="dispatcher-1",
+        dispatch_epoch=7,
         command_hint=None,
     )
     assert result["outcome"] == "completed"
 
 
 @pytest.mark.asyncio
-async def test_celery_wakeup_payload_contains_only_mission_and_optional_hint() -> None:
+async def test_celery_wakeup_payload_contains_dispatch_fence_and_hint() -> None:
     publisher = CeleryMissionWakeupPublisher()
     fake_app = MagicMock()
+    enqueued_at = datetime(2026, 7, 22, tzinfo=UTC)
 
     with patch("src.task.celery_app.celery_app", fake_app):
-        await publisher.publish("mission-1", command_hint="command-1")
+        await publisher.publish(
+            "mission-1",
+            dispatch_owner="dispatcher-1",
+            dispatch_epoch=7,
+            enqueued_at=enqueued_at,
+            command_hint="command-1",
+        )
 
     fake_app.send_task.assert_called_once_with(
         "src.task.tasks.drive_mission",
         args=["mission-1"],
-        kwargs={"command_hint": "command-1"},
+        kwargs={
+            "dispatch_owner": "dispatcher-1",
+            "dispatch_epoch": 7,
+            "enqueued_at": enqueued_at.isoformat(),
+            "scheduled_delay_seconds": 0,
+            "command_hint": "command-1",
+        },
         queue="long_running",
     )

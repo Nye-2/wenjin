@@ -23,6 +23,7 @@ from src.dataservice_client.contracts.mission import (
     MissionApplyCommandsPayload,
     MissionCreatePayload,
     MissionCreateResultPayload,
+    MissionDispatchClaimPayload,
     MissionDispatchReleasePayload,
     MissionItemPayload,
     MissionItemPhase,
@@ -321,6 +322,22 @@ class FakeMissionStore:
             raise conflict("terminal")
         if run.lease_owner is not None and run.lease_expires_at is not None and run.lease_expires_at > self.clock.now():
             raise conflict("active lease")
+        if any(
+            other.mission_id != mission_id
+            and other.workspace_id == run.workspace_id
+            and other.lease_owner is not None
+            and other.lease_expires_at is not None
+            and other.lease_expires_at > self.clock.now()
+            for other in self.runs.values()
+        ):
+            raise conflict("workspace execution slot busy")
+        if (
+            run.dispatch_owner != command.dispatch_owner
+            or run.dispatch_epoch != command.dispatch_epoch
+            or run.dispatch_expires_at is None
+            or run.dispatch_expires_at <= self.clock.now()
+        ):
+            raise conflict("delivery fence")
         run.lease_owner = command.worker_id
         run.lease_epoch += 1
         run.lease_expires_at = self.clock.now() + timedelta(seconds=command.ttl_seconds)
@@ -370,19 +387,159 @@ class FakeMissionStore:
     ) -> list[MissionRunPayload]:
         self.claim_runnable_calls += 1
         result: list[MissionRunPayload] = []
-        for run in self.runs.values():
+        claimed_workspaces: set[str] = set()
+        far_future = datetime.max.replace(tzinfo=UTC)
+        ordered_runs = sorted(
+            self.runs.values(),
+            key=lambda run: (
+                min(
+                    value
+                    for value in (
+                        run.next_wakeup_at,
+                        run.lease_expires_at,
+                    )
+                    if value is not None
+                )
+                if run.next_wakeup_at is not None
+                or run.lease_expires_at is not None
+                else far_future,
+                run.mission_id,
+            ),
+        )
+        for run in ordered_runs:
             if len(result) >= command.limit:
                 break
             due = (run.next_wakeup_at is not None and run.next_wakeup_at <= self.clock.now()) or (run.lease_expires_at is not None and run.lease_expires_at <= self.clock.now())
             lease_available = run.lease_owner is None or run.lease_expires_at is None or run.lease_expires_at <= self.clock.now()
             dispatch_available = run.dispatch_owner is None or run.dispatch_expires_at is None or run.dispatch_expires_at <= self.clock.now()
-            if run.status.value not in {"completed", "failed", "cancelled"} and due and lease_available and dispatch_available:
+            workspace_active = any(
+                other.mission_id != run.mission_id
+                and other.workspace_id == run.workspace_id
+                and other.status.value not in {"completed", "failed", "cancelled"}
+                and other.lease_owner is not None
+                and other.lease_expires_at is not None
+                and other.lease_expires_at > self.clock.now()
+                for other in self.runs.values()
+            )
+            workspace_dispatched = any(
+                other.mission_id != run.mission_id
+                and other.workspace_id == run.workspace_id
+                and other.status.value not in {"completed", "failed", "cancelled"}
+                and other.dispatch_owner is not None
+                and other.dispatch_expires_at is not None
+                and other.dispatch_expires_at > self.clock.now()
+                for other in self.runs.values()
+            )
+            if run.workspace_id in claimed_workspaces:
+                continue
+            if run.status.value not in {"completed", "failed", "cancelled"} and due and lease_available and dispatch_available and not workspace_active and not workspace_dispatched:
+                claimed_workspaces.add(run.workspace_id)
                 run.dispatch_owner = command.worker_id
                 run.dispatch_epoch += 1
                 run.dispatch_expires_at = self.clock.now() + timedelta(seconds=command.ttl_seconds)
                 self._touch(run)
                 result.append(self._copy_run(run))
         return result
+
+    async def claim_dispatch(
+        self,
+        mission_id: str,
+        command: MissionDispatchClaimPayload,
+    ) -> MissionRunPayload:
+        run = self._require_run(mission_id)
+        self._require_version(run, command.expected_state_version)
+        not_before_at = command.not_before_at or self.clock.now()
+        due = (
+            run.next_wakeup_at is not None
+            and run.next_wakeup_at <= not_before_at
+        ) or (
+            run.lease_expires_at is not None
+            and run.lease_expires_at <= self.clock.now()
+        )
+        if not due:
+            raise conflict("not dispatchable")
+        if (
+            run.lease_owner is not None
+            and run.lease_expires_at is not None
+            and run.lease_expires_at > self.clock.now()
+        ):
+            raise conflict("active lease")
+        if any(
+            other.mission_id != mission_id
+            and other.workspace_id == run.workspace_id
+            and other.status.value not in {"completed", "failed", "cancelled"}
+            and other.lease_owner is not None
+            and other.lease_expires_at is not None
+            and other.lease_expires_at > self.clock.now()
+            for other in self.runs.values()
+        ):
+            raise conflict("workspace execution slot busy")
+        if (
+            run.dispatch_owner is not None
+            and run.dispatch_expires_at is not None
+            and run.dispatch_expires_at > self.clock.now()
+        ):
+            raise conflict("active dispatch")
+        if any(
+            other.mission_id != mission_id
+            and other.workspace_id == run.workspace_id
+            and other.status.value not in {"completed", "failed", "cancelled"}
+            and other.dispatch_owner is not None
+            and other.dispatch_expires_at is not None
+            and other.dispatch_expires_at > self.clock.now()
+            for other in self.runs.values()
+        ):
+            raise conflict("workspace dispatch slot busy")
+        dispatchable = [
+            other
+            for other in self.runs.values()
+            if other.workspace_id == run.workspace_id
+            and other.status.value not in {"completed", "failed", "cancelled"}
+            and (
+                (
+                    other.next_wakeup_at is not None
+                    and other.next_wakeup_at <= self.clock.now()
+                )
+                or (
+                    other.lease_expires_at is not None
+                    and other.lease_expires_at <= self.clock.now()
+                )
+            )
+            and (
+                other.lease_owner is None
+                or other.lease_expires_at is None
+                or other.lease_expires_at <= self.clock.now()
+            )
+            and (
+                other.dispatch_owner is None
+                or other.dispatch_expires_at is None
+                or other.dispatch_expires_at <= self.clock.now()
+            )
+        ]
+        if dispatchable:
+            oldest = min(
+                dispatchable,
+                key=lambda other: (
+                    min(
+                        value
+                        for value in (
+                            other.next_wakeup_at,
+                            other.lease_expires_at,
+                        )
+                        if value is not None
+                    ),
+                    other.mission_id,
+                ),
+            )
+            if oldest.mission_id != mission_id:
+                raise conflict("workspace dispatch turn wait")
+        run.dispatch_owner = command.worker_id
+        run.dispatch_epoch += 1
+        run.dispatch_expires_at = self.clock.now() + timedelta(
+            seconds=command.ttl_seconds
+        )
+        self._touch(run)
+        return self._copy_run(run)
 
     async def release_dispatch(self, mission_id: str, command: MissionDispatchReleasePayload) -> MissionRunPayload:
         run = self._require_run(mission_id)
@@ -952,18 +1109,25 @@ class FakeWakeups:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.published: list[tuple[str, str | None]] = []
+        self.deliveries: list[tuple[str, str, int, datetime]] = []
         self.delays: list[int] = []
 
     async def publish(
         self,
         mission_id: str,
         *,
+        dispatch_owner: str,
+        dispatch_epoch: int,
+        enqueued_at: datetime,
         command_hint: str | None = None,
         delay_seconds: int = 0,
     ) -> None:
         if self.fail:
             raise RuntimeError("queue unavailable")
         self.published.append((mission_id, command_hint))
+        self.deliveries.append(
+            (mission_id, dispatch_owner, dispatch_epoch, enqueued_at)
+        )
         self.delays.append(delay_seconds)
 
 

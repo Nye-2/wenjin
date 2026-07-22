@@ -23,7 +23,7 @@ Wenjin (问津) is a chat-native AI workbench for academic research and writing.
 - Chat finance table: `thread_turn_billings`; it atomically binds one user message, bounded hold, assistant message, exact usage, and credit transaction, and survives thread deletion as audit truth.
 - Catalog tables: `mission_policies`, `worker_skills`.
 - Default worker queues: `default,priority`.
-- Mission worker queue: `long_running`, concurrency 1, prefetch 1.
+- Mission worker queue: `long_running`, two replicas, each concurrency 1 and prefetch 1; global subagent quantum capacity 4.
 - Current migration head: `110_deduplicate_mission_references`.
 - Migrations 086-110 are irreversible development cutovers; use drop/reseed, never compatibility layers. Migration 107 rejects non-empty development data.
 

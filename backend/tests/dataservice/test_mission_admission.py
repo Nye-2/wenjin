@@ -28,6 +28,7 @@ from src.dataservice.domains.model_catalog.repository import ModelCatalogReposit
 from src.dataservice_client.contracts.mission import (
     MissionAppendPayload,
     MissionCreatePayload,
+    MissionDispatchClaimPayload,
     MissionItemDraftPayload,
     MissionLeaseClaimPayload,
     MissionReservationReconcilePayload,
@@ -45,6 +46,33 @@ TABLES = [
     CreditReservation.__table__,
     CreditTransaction.__table__,
 ]
+
+
+async def _claim_mission(
+    store: MissionStore,
+    mission_id: str,
+    *,
+    state_version: int,
+):
+    dispatch_owner = "test-admission-dispatcher"
+    dispatched = await store.claim_dispatch_for_run(
+        mission_id,
+        MissionDispatchClaimPayload(
+            worker_id=dispatch_owner,
+            expected_state_version=state_version,
+            ttl_seconds=60,
+        ),
+    )
+    return await store.claim_run_lease(
+        mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-1",
+            dispatch_owner=dispatch_owner,
+            dispatch_epoch=dispatched.dispatch_epoch,
+            expected_state_version=dispatched.state_version,
+            ttl_seconds=120,
+        ),
+    )
 
 
 @pytest_asyncio.fixture
@@ -239,13 +267,10 @@ async def test_budget_wait_resume_and_terminal_settlement_are_one_lifecycle(
     await admission_session.commit()
 
     store = MissionStore(admission_session, autocommit=False)
-    claimed = await store.claim_run_lease(
+    claimed = await _claim_mission(
+        store,
         created.mission.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=resumed.mission.state_version,
-            ttl_seconds=120,
-        ),
+        state_version=resumed.mission.state_version,
     )
     running = await store.append_items_and_update_snapshot(
         created.mission.mission_id,
@@ -385,13 +410,10 @@ async def test_unresolved_model_usage_retains_reservation_for_reconciliation(
     assert reservation is not None
 
     store = MissionStore(admission_session, autocommit=False)
-    claimed = await store.claim_run_lease(
+    claimed = await _claim_mission(
+        store,
         created.mission.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=created.mission.state_version,
-            ttl_seconds=120,
-        ),
+        state_version=created.mission.state_version,
     )
     model_call_id = "model-call:workspace:unresolved-settlement"
     running = await store.append_items_and_update_snapshot(
@@ -504,13 +526,10 @@ async def test_failed_mission_settles_exact_measured_usage(
     assert reservation is not None
 
     store = MissionStore(admission_session, autocommit=False)
-    claimed = await store.claim_run_lease(
+    claimed = await _claim_mission(
+        store,
         created.mission.mission_id,
-        MissionLeaseClaimPayload(
-            worker_id="worker-1",
-            expected_state_version=created.mission.state_version,
-            ttl_seconds=120,
-        ),
+        state_version=created.mission.state_version,
     )
     model_call_id = "model-call:workspace:failed-measured-settlement"
     running = await store.append_items_and_update_snapshot(

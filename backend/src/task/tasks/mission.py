@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from celery import shared_task
@@ -30,6 +32,8 @@ async def drive_mission_slice_async(
     mission_id: str,
     *,
     worker_id: str,
+    dispatch_owner: str,
+    dispatch_epoch: int,
     command_hint: str | None = None,
     runtime: MissionRuntime | None = None,
     review_commit: ReviewCommitRuntime | None = None,
@@ -43,6 +47,8 @@ async def drive_mission_slice_async(
         result = await runtime.run_slice(
             mission_id,
             worker_id=worker_id,
+            dispatch_owner=dispatch_owner,
+            dispatch_epoch=dispatch_epoch,
             command_hint=command_hint,
         )
         after = (
@@ -69,6 +75,8 @@ async def drive_mission_slice_async(
         return await drive_mission_slice_async(
             mission_id,
             worker_id=worker_id,
+            dispatch_owner=dispatch_owner,
+            dispatch_epoch=dispatch_epoch,
             command_hint=command_hint,
             runtime=configured_runtime,
             review_commit=build_review_commit_runtime(dataservice),
@@ -78,7 +86,7 @@ async def drive_mission_slice_async(
 async def reconcile_missions_async(
     *,
     worker_id: str,
-    limit: int = 20,
+    limit: int = 2,
     runtime: MissionRuntime | None = None,
 ) -> dict[str, Any]:
     if runtime is None:
@@ -118,26 +126,63 @@ async def reconcile_missions_async(
 def _drive_mission_entry(
     task_self: Any,
     mission_id: str,
+    dispatch_owner: str,
+    dispatch_epoch: int,
+    enqueued_at: str,
+    scheduled_delay_seconds: int = 0,
     command_hint: str | None = None,
 ) -> dict[str, Any]:
+    from src.observability.prometheus import (
+        observe_mission_queue_wait,
+        track_mission_slice,
+        track_task_end,
+        track_task_start,
+    )
     from src.task.worker import run_worker_coroutine
 
     runner = cast(
         Callable[[Awaitable[dict[str, Any]]], dict[str, Any]],
         run_worker_coroutine,
     )
-    return runner(
-        drive_mission_slice_async(
-            mission_id,
-            worker_id=mission_worker_id(task_self, mission_id),
-            command_hint=command_hint,
+    started = time.perf_counter()
+    track_task_start()
+    try:
+        queued_at = datetime.fromisoformat(enqueued_at)
+        if queued_at.tzinfo is None:
+            queued_at = queued_at.replace(tzinfo=UTC)
+        queue_wait = (
+            datetime.now(UTC) - queued_at
+        ).total_seconds() - max(0, scheduled_delay_seconds)
+        observe_mission_queue_wait(queue_wait)
+        payload = runner(
+            drive_mission_slice_async(
+                mission_id,
+                worker_id=mission_worker_id(task_self, mission_id),
+                dispatch_owner=dispatch_owner,
+                dispatch_epoch=dispatch_epoch,
+                command_hint=command_hint,
+            )
         )
-    )
+        track_mission_slice(
+            outcome=str(payload.get("outcome") or "unknown"),
+            reason=str(payload.get("reason") or "unknown"),
+            duration=time.perf_counter() - started,
+        )
+        return payload
+    except Exception:
+        track_mission_slice(
+            outcome="error",
+            reason="task_exception",
+            duration=time.perf_counter() - started,
+        )
+        raise
+    finally:
+        track_task_end("mission_slice", time.perf_counter() - started)
 
 
 def _reconcile_missions_entry(
     task_self: Any,
-    limit: int = 20,
+    limit: int = 2,
 ) -> dict[str, Any]:
     from src.task.worker import run_worker_coroutine
 

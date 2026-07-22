@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.database.base import generate_uuid
 from src.database.models.mission import (
@@ -42,6 +44,24 @@ def _aware(value: datetime) -> datetime:
 def _bucket_datetime(value: datetime | str) -> datetime:
     parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
     return _aware(parsed)
+
+
+def _workspace_execution_lock_key(workspace_id: str) -> int:
+    digest = hashlib.sha256(
+        f"mission-workspace-slot:{workspace_id}".encode()
+    ).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+def _mission_due_at(record: Any = MissionRunRecord):
+    wakeup = record.next_wakeup_at
+    lease_expiry = record.lease_expires_at
+    return case(
+        (wakeup.is_(None), lease_expiry),
+        (lease_expiry.is_(None), wakeup),
+        (wakeup <= lease_expiry, wakeup),
+        else_=lease_expiry,
+    )
 
 
 def _current_review_rows(mission_id: str):
@@ -387,6 +407,71 @@ class MissionRepository:
             MissionRunRecord.lease_expires_at.is_(None),
             MissionRunRecord.lease_expires_at <= now,
         )
+        active_workspace_run = aliased(MissionRunRecord)
+        workspace_driver_active = exists(
+            select(1).where(
+                active_workspace_run.workspace_id == MissionRunRecord.workspace_id,
+                active_workspace_run.mission_id != MissionRunRecord.mission_id,
+                active_workspace_run.status.in_(NONTERMINAL_MISSION_STATUSES),
+                active_workspace_run.lease_owner.is_not(None),
+                active_workspace_run.lease_expires_at.is_not(None),
+                active_workspace_run.lease_expires_at > now,
+            )
+        )
+        dispatched_workspace_run = aliased(MissionRunRecord)
+        workspace_dispatch_active = exists(
+            select(1).where(
+                dispatched_workspace_run.workspace_id
+                == MissionRunRecord.workspace_id,
+                dispatched_workspace_run.mission_id
+                != MissionRunRecord.mission_id,
+                dispatched_workspace_run.status.in_(NONTERMINAL_MISSION_STATUSES),
+                dispatched_workspace_run.dispatch_owner.is_not(None),
+                dispatched_workspace_run.dispatch_expires_at.is_not(None),
+                dispatched_workspace_run.dispatch_expires_at > now,
+            )
+        )
+        earlier_workspace_run = aliased(MissionRunRecord)
+        earlier_due = or_(
+            and_(
+                earlier_workspace_run.next_wakeup_at.is_not(None),
+                earlier_workspace_run.next_wakeup_at <= now,
+            ),
+            and_(
+                earlier_workspace_run.lease_expires_at.is_not(None),
+                earlier_workspace_run.lease_expires_at <= now,
+            ),
+        )
+        earlier_due_at = _mission_due_at(earlier_workspace_run)
+        current_due_at = _mission_due_at()
+        workspace_has_earlier_runnable = exists(
+            select(1).where(
+                earlier_workspace_run.workspace_id
+                == MissionRunRecord.workspace_id,
+                earlier_workspace_run.mission_id
+                != MissionRunRecord.mission_id,
+                earlier_workspace_run.status.in_(NONTERMINAL_MISSION_STATUSES),
+                earlier_due,
+                or_(
+                    earlier_workspace_run.lease_owner.is_(None),
+                    earlier_workspace_run.lease_expires_at.is_(None),
+                    earlier_workspace_run.lease_expires_at <= now,
+                ),
+                or_(
+                    earlier_workspace_run.dispatch_owner.is_(None),
+                    earlier_workspace_run.dispatch_expires_at.is_(None),
+                    earlier_workspace_run.dispatch_expires_at <= now,
+                ),
+                or_(
+                    earlier_due_at < current_due_at,
+                    and_(
+                        earlier_due_at == current_due_at,
+                        earlier_workspace_run.mission_id
+                        < MissionRunRecord.mission_id,
+                    ),
+                ),
+            )
+        )
         statement = (
             select(MissionRunRecord)
             .where(
@@ -398,13 +483,123 @@ class MissionRepository:
                     MissionRunRecord.dispatch_expires_at.is_(None),
                     MissionRunRecord.dispatch_expires_at <= now,
                 ),
+                ~workspace_driver_active,
+                ~workspace_dispatch_active,
+                ~workspace_has_earlier_runnable,
             )
-            .order_by(MissionRunRecord.next_wakeup_at.asc().nulls_last())
+            .order_by(
+                _mission_due_at().asc().nulls_last(),
+                MissionRunRecord.mission_id.asc(),
+            )
             .limit(limit)
             .with_for_update(skip_locked=True)
         )
         result = await self.session.execute(statement)
         return list(result.scalars())
+
+    async def lock_workspace_execution_slot(self, workspace_id: str) -> None:
+        """Serialize Mission lease claims for one workspace transactionally."""
+
+        if self.session.get_bind().dialect.name != "postgresql":
+            return
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": _workspace_execution_lock_key(workspace_id)},
+        )
+
+    async def try_lock_workspace_execution_slot(self, workspace_id: str) -> bool:
+        """Try to serialize a batch dispatch without risking lock-order waits."""
+
+        if self.session.get_bind().dialect.name != "postgresql":
+            return True
+        acquired = await self.session.scalar(
+            text("SELECT pg_try_advisory_xact_lock(:lock_key)"),
+            {"lock_key": _workspace_execution_lock_key(workspace_id)},
+        )
+        return bool(acquired)
+
+    async def find_active_workspace_lease(
+        self,
+        *,
+        workspace_id: str,
+        excluding_mission_id: str,
+        now: datetime,
+    ) -> MissionRunRecord | None:
+        result = await self.session.execute(
+            select(MissionRunRecord)
+            .where(
+                MissionRunRecord.workspace_id == workspace_id,
+                MissionRunRecord.mission_id != excluding_mission_id,
+                MissionRunRecord.status.in_(NONTERMINAL_MISSION_STATUSES),
+                MissionRunRecord.lease_owner.is_not(None),
+                MissionRunRecord.lease_expires_at.is_not(None),
+                MissionRunRecord.lease_expires_at > now,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_active_workspace_dispatch(
+        self,
+        *,
+        workspace_id: str,
+        excluding_mission_id: str,
+        now: datetime,
+    ) -> MissionRunRecord | None:
+        result = await self.session.execute(
+            select(MissionRunRecord)
+            .where(
+                MissionRunRecord.workspace_id == workspace_id,
+                MissionRunRecord.mission_id != excluding_mission_id,
+                MissionRunRecord.status.in_(NONTERMINAL_MISSION_STATUSES),
+                MissionRunRecord.dispatch_owner.is_not(None),
+                MissionRunRecord.dispatch_expires_at.is_not(None),
+                MissionRunRecord.dispatch_expires_at > now,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_oldest_dispatchable_workspace_run(
+        self,
+        *,
+        workspace_id: str,
+        now: datetime,
+    ) -> MissionRunRecord | None:
+        due = or_(
+            and_(
+                MissionRunRecord.next_wakeup_at.is_not(None),
+                MissionRunRecord.next_wakeup_at <= now,
+            ),
+            and_(
+                MissionRunRecord.lease_expires_at.is_not(None),
+                MissionRunRecord.lease_expires_at <= now,
+            ),
+        )
+        result = await self.session.execute(
+            select(MissionRunRecord)
+            .where(
+                MissionRunRecord.workspace_id == workspace_id,
+                MissionRunRecord.status.in_(NONTERMINAL_MISSION_STATUSES),
+                due,
+                or_(
+                    MissionRunRecord.lease_owner.is_(None),
+                    MissionRunRecord.lease_expires_at.is_(None),
+                    MissionRunRecord.lease_expires_at <= now,
+                ),
+                or_(
+                    MissionRunRecord.dispatch_owner.is_(None),
+                    MissionRunRecord.dispatch_expires_at.is_(None),
+                    MissionRunRecord.dispatch_expires_at <= now,
+                ),
+            )
+            .order_by(
+                _mission_due_at().asc().nulls_last(),
+                MissionRunRecord.mission_id.asc(),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     def append_item(
         self,

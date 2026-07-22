@@ -13,9 +13,11 @@ from src.contracts.stage_acceptance import (
     StageInstantiationRule,
 )
 from src.dataservice_client.contracts.mission import (
+    MissionDispatchClaimPayload,
     MissionItemDraftPayload,
     MissionItemPhase,
     MissionLeaseClaimPayload,
+    MissionLeaseReleasePayload,
     MissionReviewItemPayload,
     MissionReviewStatus,
     MissionRiskLevel,
@@ -24,6 +26,7 @@ from src.dataservice_client.contracts.mission import (
 )
 from src.dataservice_client.errors import DataServiceClientError
 from src.mission_runtime.contracts import (
+    MISSION_DISPATCH_TTL_SECONDS,
     MissionAgentDecision,
     MissionAgentProtocolError,
     MissionContinuationDirective,
@@ -1289,7 +1292,7 @@ async def test_tool_can_run_with_operation_window_even_when_another_model_call_c
 
 
 @pytest.mark.asyncio
-async def test_subagent_receives_a_dedicated_extended_operation_window(
+async def test_subagent_quantum_stays_inside_the_parent_slice_window(
     runtime_factory,
 ) -> None:
     clock = MutableClock()
@@ -1313,7 +1316,66 @@ async def test_subagent_receives_a_dedicated_extended_operation_window(
 
     assert result.outcome is MissionSliceOutcome.YIELDED
     assert deps["subagents"].calls == ["long-worker"]
-    assert deps["subagents"].deadlines == [160.0]
+    assert deps["subagents"].deadlines == [110.0]
+
+
+@pytest.mark.asyncio
+async def test_subagent_quantum_yield_preserves_inflight_operation_across_delivery(
+    runtime_factory,
+) -> None:
+    class QuantumSubagents:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def run(self, request: Any) -> MissionPortOutcome:
+            self.calls += 1
+            if self.calls == 1:
+                return MissionPortOutcome(
+                    status=MissionPortOutcomeStatus.YIELDED,
+                    summary="One durable worker action completed",
+                    payload_json={
+                        "pending_job_ids": ["sj-1"],
+                        "pending_reasons": {"sj-1": "capacity_saturated"},
+                    },
+                )
+            return MissionPortOutcome(
+                status=MissionPortOutcomeStatus.COMPLETED,
+                summary="Worker synthesis completed",
+                payload_json={"jobs": [{"job_id": "sj-1"}]},
+            )
+
+        async def adopt_terminal(self, request: Any) -> MissionPortOutcome | None:
+            return None
+
+    subagents = QuantumSubagents()
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent(
+            [subagent_decision("quantized-worker"), complete_decision()]
+        ),
+        subagents=subagents,
+    )
+    receipt = await runtime.start(start_request())
+
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    checkpointed = await deps["store"].get(receipt.mission_id)
+    second = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
+    completed = await deps["store"].get(receipt.mission_id)
+
+    assert first.outcome is MissionSliceOutcome.YIELDED
+    assert first.reason == "subagent_quantum_yielded"
+    assert checkpointed is not None
+    inflight = checkpointed.snapshot_json["inflight_operation"]
+    assert inflight["operation_id"] == "quantized-worker"
+    assert inflight["quantum_count"] == 1
+    assert checkpointed.active_subagent_count == 1
+    assert checkpointed.snapshot_json["inflight_operation"]["pending_reasons"] == {
+        "sj-1": "capacity_saturated"
+    }
+    assert deps["wakeups"].delays[-1] == 5
+    assert second.outcome is MissionSliceOutcome.COMPLETED
+    assert completed is not None and completed.active_subagent_count == 0
+    assert "inflight_operation" not in completed.snapshot_json
+    assert subagents.calls == 2
 
 
 @pytest.mark.asyncio
@@ -1392,11 +1454,21 @@ async def test_stale_worker_cannot_write_after_lease_takeover(runtime_factory) -
         clock.advance(7)
         current = await store.get(receipt.mission_id)
         assert current is not None
+        dispatched = await store.claim_dispatch(
+            receipt.mission_id,
+            MissionDispatchClaimPayload(
+                worker_id="takeover-dispatcher",
+                expected_state_version=current.state_version,
+                ttl_seconds=6,
+            ),
+        )
         await store.claim_lease(
             receipt.mission_id,
             MissionLeaseClaimPayload(
                 worker_id="worker-new",
-                expected_state_version=current.state_version,
+                dispatch_owner="takeover-dispatcher",
+                dispatch_epoch=dispatched.dispatch_epoch,
+                expected_state_version=dispatched.state_version,
                 ttl_seconds=6,
             ),
         )
@@ -1646,6 +1718,127 @@ async def test_reconciler_publish_failure_releases_dispatch_and_expiry_republish
     assert await healthy.reconcile_once(worker_id="reconciler-c") == []
     deps["clock"].advance(6)
     assert await healthy.reconcile_once(worker_id="reconciler-c") == [receipt.mission_id]
+
+
+@pytest.mark.asyncio
+async def test_stale_dispatch_generation_cannot_acquire_the_mission_lease(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
+    receipt = await runtime.start(start_request())
+    first_delivery = deps["wakeups"].deliveries[0]
+
+    deps["clock"].advance(MISSION_DISPATCH_TTL_SECONDS + 1)
+    reconciler = MissionReconciler(
+        store=deps["store"],
+        wakeups=deps["wakeups"],
+        events=deps["events"],
+        clock=deps["clock"],
+    )
+    assert await reconciler.reconcile_once(worker_id="reconciler-new") == [
+        receipt.mission_id
+    ]
+    latest_delivery = deps["wakeups"].deliveries[-1]
+
+    stale = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-stale",
+        dispatch_owner=first_delivery[1],
+        dispatch_epoch=first_delivery[2],
+    )
+    current = await deps["store"].get(receipt.mission_id)
+
+    assert stale.outcome is MissionSliceOutcome.YIELDED
+    assert stale.reason == "stale_delivery"
+    assert current is not None and current.lease_owner is None
+
+    accepted = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-current",
+        dispatch_owner=latest_delivery[1],
+        dispatch_epoch=latest_delivery[2],
+    )
+    assert accepted.outcome is MissionSliceOutcome.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_waiting_delivery_is_consumed_without_holding_the_dispatch_slot(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    receipt = await runtime.start(start_request())
+    delivery = deps["wakeups"].deliveries[0]
+    deps["store"].runs[receipt.mission_id].status = MissionStatus.WAITING
+
+    result = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-waiting",
+        dispatch_owner=delivery[1],
+        dispatch_epoch=delivery[2],
+    )
+    waiting = await deps["store"].get(receipt.mission_id)
+
+    assert result.outcome is MissionSliceOutcome.WAITING
+    assert result.reason == "mission_waiting_for_input"
+    assert waiting is not None and waiting.dispatch_owner is None
+
+
+@pytest.mark.asyncio
+async def test_workspace_dispatch_turn_hands_off_to_the_older_waiting_mission(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([]))
+    first = await runtime.start(
+        start_request(
+            mission_idempotency_key="workspace-slot-first",
+            thread_id="workspace-slot-thread-first",
+        )
+    )
+    deps["clock"].advance(1)
+    second = await runtime.start(
+        start_request(
+            mission_idempotency_key="workspace-slot-second",
+            thread_id="workspace-slot-thread-second",
+        )
+    )
+    assert first.wakeup_published is True
+    assert second.wakeup_published is False
+    assert len(deps["wakeups"].deliveries) == 1
+    first_delivery = deps["wakeups"].deliveries[0]
+    first_run = await deps["store"].get(first.mission_id)
+    assert first_run is not None
+    first_claimed = await deps["store"].claim_lease(
+        first.mission_id,
+        MissionLeaseClaimPayload(
+            worker_id="worker-first",
+            dispatch_owner=first_delivery[1],
+            dispatch_epoch=first_delivery[2],
+            expected_state_version=first_run.state_version,
+            ttl_seconds=240,
+        ),
+    )
+
+    deps["clock"].advance(1)
+    await deps["store"].release_lease(
+        first.mission_id,
+        MissionLeaseReleasePayload(
+            worker_id="worker-first",
+            lease_epoch=first_claimed.lease_epoch,
+            expected_state_version=first_claimed.state_version,
+            next_wakeup_at=deps["clock"].now(),
+        ),
+    )
+    assert await runtime.notify_runnable(first.mission_id) is False
+    reconciler = MissionReconciler(
+        store=deps["store"],
+        wakeups=deps["wakeups"],
+        events=deps["events"],
+        clock=deps["clock"],
+    )
+
+    assert await reconciler.reconcile_once(worker_id="reconciler-slot") == [
+        second.mission_id
+    ]
 
 
 @pytest.mark.asyncio
@@ -2746,7 +2939,9 @@ async def test_successful_decision_clears_recovered_transient_error(runtime_fact
     runtime, deps = runtime_factory(agent=ScriptedAgent([timeout, complete_decision()]))
     receipt = await runtime.start(start_request())
 
-    await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    assert first.continuation_published is True
+    assert deps["wakeups"].delays[-1] == 5
     deps["clock"].advance(5)
     completed = await runtime.run_slice(receipt.mission_id, worker_id="worker-2")
     run = await deps["store"].get(receipt.mission_id)
@@ -2832,6 +3027,7 @@ async def test_repeated_stage_operation_failures_stop_without_unbounded_replanni
     receipt = await runtime.start(start_request())
 
     first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    deps["clock"].advance(5)
     second = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
     third = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
     run = await deps["store"].get(receipt.mission_id)
@@ -2949,6 +3145,7 @@ async def test_repeated_transient_model_timeouts_stop_instead_of_retrying_foreve
     receipt = await runtime.start(start_request())
 
     first = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    deps["clock"].advance(5)
     second = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
     run = await deps["store"].get(receipt.mission_id)
 
