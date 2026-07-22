@@ -14,6 +14,7 @@ from src.contracts.stage_acceptance import (
 )
 from src.dataservice_client.contracts.mission import (
     MissionItemDraftPayload,
+    MissionItemPhase,
     MissionLeaseClaimPayload,
     MissionReviewItemPayload,
     MissionReviewStatus,
@@ -1809,6 +1810,78 @@ async def test_cancel_after_more_than_one_command_page_is_not_stranded(
 
 
 @pytest.mark.asyncio
+async def test_pause_on_early_command_page_does_not_hide_later_cancel(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
+    receipt = await runtime.start(start_request())
+    await deps["store"].append_command(
+        receipt.mission_id,
+        MissionUserCommandPayload(
+            command_id="pause-before-more-commands",
+            command_type="pause",
+            summary="Pause before the remaining queued commands",
+        ),
+    )
+    for index in range(100):
+        await deps["store"].append_command(
+            receipt.mission_id,
+            MissionUserCommandPayload(
+                command_id=f"queued-correction-{index}",
+                command_type="correction",
+                summary=f"queued correction {index}",
+                payload_json={"index": index},
+            ),
+        )
+    await runtime.cancel(
+        receipt.mission_id,
+        request_id="cancel-after-early-pause",
+        reason="Cancel supersedes the earlier pause",
+    )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert run is not None and run.status is MissionStatus.CANCELLED
+    assert run.last_applied_command_seq == run.last_command_seq
+    assert "pending_command_control" not in run.snapshot_json
+    assert deps["agent"].contexts == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_on_early_command_page_consumes_remaining_commands(
+    runtime_factory,
+) -> None:
+    runtime, deps = runtime_factory(agent=ScriptedAgent([complete_decision()]))
+    receipt = await runtime.start(start_request())
+    await runtime.cancel(
+        receipt.mission_id,
+        request_id="cancel-before-more-commands",
+        reason="Cancel before the remaining queued commands",
+    )
+    for index in range(100):
+        await deps["store"].append_command(
+            receipt.mission_id,
+            MissionUserCommandPayload(
+                command_id=f"post-cancel-correction-{index}",
+                command_type="correction",
+                summary=f"post-cancel correction {index}",
+                payload_json={"index": index},
+            ),
+        )
+
+    result = await runtime.run_slice(receipt.mission_id, worker_id="worker-1")
+    run = await deps["store"].get(receipt.mission_id)
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert run is not None and run.status is MissionStatus.CANCELLED
+    assert run.last_applied_command_seq == run.last_command_seq
+    assert "pending_command_control" not in run.snapshot_json
+    assert deps["agent"].contexts == []
+
+
+@pytest.mark.asyncio
 async def test_cancel_during_model_turn_stops_stale_driver_before_dispatch(
     runtime_factory,
 ) -> None:
@@ -1834,6 +1907,199 @@ async def test_cancel_during_model_turn_stops_stale_driver_before_dispatch(
     assert result.reason == "durable_command_applied"
     assert run is not None and run.status.value == "cancelled"
     assert tools.calls == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_closes_recovered_inflight_operation_lifecycle(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    tools = FakeTools()
+    tools.crash_once.add("cancel-after-crash")
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([tool_decision("cancel-after-crash")]),
+        clock=clock,
+        store=store,
+        tools=tools,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
+            max_model_turns=4,
+            max_tool_steps=4,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    with pytest.raises(SimulatedWorkerCrash):
+        await runtime.run_slice(receipt.mission_id, worker_id="worker-crashed")
+    await runtime.cancel(
+        receipt.mission_id,
+        request_id="cancel-recovered-operation",
+        reason="Stop the recovered operation",
+    )
+    clock.advance(21)
+
+    result = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-cancel-recovery",
+    )
+    run = await deps["store"].get(receipt.mission_id)
+    operation_items = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.operation_id == "cancel-after-crash"
+    ]
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert run is not None and run.status is MissionStatus.CANCELLED
+    assert "inflight_operation" not in run.snapshot_json
+    assert [item.item_type for item in operation_items] == [
+        "tool_call",
+        "tool_result",
+    ]
+    assert operation_items[-1].phase is MissionItemPhase.CANCELLED
+    assert operation_items[-1].payload_json["error_code"] == "cancelled_by_user"
+
+
+@pytest.mark.asyncio
+async def test_cancel_does_not_duplicate_existing_inflight_terminal(
+    runtime_factory,
+) -> None:
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    tools = FakeTools()
+    tools.crash_once.add("terminal-before-cancel")
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([tool_decision("terminal-before-cancel")]),
+        clock=clock,
+        store=store,
+        tools=tools,
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
+            max_model_turns=4,
+            max_tool_steps=4,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    with pytest.raises(SimulatedWorkerCrash):
+        await runtime.run_slice(receipt.mission_id, worker_id="worker-crashed")
+    deps["store"].seed_items(
+        receipt.mission_id,
+        [
+            MissionItemDraftPayload(
+                item_type="tool_result",
+                operation_id="terminal-before-cancel",
+                phase=MissionItemPhase.COMPLETED,
+                producer="tool_orchestrator",
+                summary="Tool already completed before cancellation was applied",
+            )
+        ],
+    )
+    await runtime.cancel(
+        receipt.mission_id,
+        request_id="cancel-after-existing-terminal",
+        reason="Stop the mission",
+    )
+    clock.advance(21)
+
+    result = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-cancel-recovery",
+    )
+    operation_items = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.operation_id == "terminal-before-cancel"
+    ]
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert [item.item_type for item in operation_items] == [
+        "tool_call",
+        "tool_result",
+    ]
+    assert operation_items[-1].phase is MissionItemPhase.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_cancel_closes_parent_batch_when_only_one_subagent_is_terminal(
+    runtime_factory,
+) -> None:
+    class CrashingSubagents:
+        async def run(self, request: Any) -> MissionPortOutcome:
+            del request
+            raise SimulatedWorkerCrash()
+
+        async def adopt_terminal(self, request: Any) -> MissionPortOutcome | None:
+            del request
+            return None
+
+    clock = MutableClock()
+    store = FakeMissionStore(clock)
+    runtime, deps = runtime_factory(
+        agent=ScriptedAgent([subagent_decision("partially-terminal-batch")]),
+        clock=clock,
+        store=store,
+        subagents=CrashingSubagents(),
+        limits=MissionSliceLimits(
+            wall_time_seconds=10,
+            shutdown_margin_seconds=1,
+            lease_ttl_seconds=20,
+            heartbeat_interval_seconds=2,
+            max_model_turns=4,
+            max_tool_steps=4,
+        ),
+    )
+    receipt = await runtime.start(start_request())
+
+    with pytest.raises(SimulatedWorkerCrash):
+        await runtime.run_slice(receipt.mission_id, worker_id="worker-crashed")
+    deps["store"].seed_items(
+        receipt.mission_id,
+        [
+            MissionItemDraftPayload(
+                item_type="subagent_progress",
+                operation_id="partially-terminal-batch",
+                phase=MissionItemPhase.COMPLETED,
+                producer="finished-member",
+                summary="One member completed before the parent was cancelled",
+                payload_json={
+                    "job_id": "finished-member",
+                    "lifecycle_phase": "terminal",
+                },
+            )
+        ],
+    )
+    await runtime.cancel(
+        receipt.mission_id,
+        request_id="cancel-partial-subagent-batch",
+        reason="Stop the remaining members",
+    )
+    clock.advance(21)
+
+    result = await runtime.run_slice(
+        receipt.mission_id,
+        worker_id="worker-cancel-recovery",
+    )
+    operation_items = [
+        item
+        for item in deps["store"].items[receipt.mission_id]
+        if item.operation_id == "partially-terminal-batch"
+    ]
+
+    assert result.outcome is MissionSliceOutcome.TERMINAL
+    assert [item.item_type for item in operation_items] == [
+        "subagent_spawned",
+        "subagent_progress",
+        "subagent_completed",
+    ]
+    assert operation_items[-1].phase is MissionItemPhase.CANCELLED
 
 
 @pytest.mark.asyncio

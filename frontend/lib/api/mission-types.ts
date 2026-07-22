@@ -46,6 +46,11 @@ export interface MissionSubagentView {
   role: string;
   status: "queued" | "working" | "done" | "needs_input" | "failed" | "cancelled";
   summary?: string | null;
+  milestones: Array<{
+    kind: "finding" | "formula" | "file" | "figure" | "checkpoint";
+    summary: string;
+    createdAt: string;
+  }>;
 }
 
 export interface MissionEvidenceView {
@@ -64,6 +69,7 @@ export interface MissionArtifactView {
   kind: string;
   summary?: string | null;
   previewAvailable: boolean;
+  previewExpiresAt?: string | null;
   committed: boolean;
   downloadUrl?: string | null;
 }
@@ -243,7 +249,7 @@ export interface MissionView {
   reviewNextCursor?: string | null;
   evidenceCount: number;
   artifactCount: number;
-  visibleArtifactCount?: number;
+  artifactRevision: string;
   reviewItems: MissionReviewItemView[];
   reviewSummary: MissionReviewSummary;
   reviewMode: MissionReviewMode;

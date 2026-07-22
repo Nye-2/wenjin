@@ -503,10 +503,11 @@ class MissionRuntime:
                     output_key = ""
                     review_item = by_id.get(source_ref)
                     if review_item is not None:
-                        if review_item.status is MissionReviewStatus.COMMITTED:
-                            committed = review_item
-                        else:
-                            committed = committed_by_output.get(review_item.output_key)
+                        committed: MissionReviewItemPayload | None = (
+                            review_item
+                            if review_item.status is MissionReviewStatus.COMMITTED
+                            else committed_by_output.get(review_item.output_key)
+                        )
                         if committed is not None:
                             target_ref = committed.target_ref
                             output_key = committed.output_key
@@ -1050,7 +1051,13 @@ class MissionRuntime:
             "pending_command_refs": refs,
             "next_actions": ["replan_from_durable_commands"],
         }
-        incoming_inputs = [value for command in commands for value in (command.payload_json.get("mission_inputs") if isinstance(command.payload_json.get("mission_inputs"), list) else []) if isinstance(value, dict)]
+        incoming_inputs: list[dict[str, Any]] = []
+        for command in commands:
+            raw_inputs = command.payload_json.get("mission_inputs")
+            if isinstance(raw_inputs, list):
+                incoming_inputs.extend(
+                    value for value in raw_inputs if isinstance(value, dict)
+                )
         if incoming_inputs:
             snapshot_patch["mission_inputs"] = merge_mission_input_manifests(
                 state.run.snapshot_json.get("mission_inputs"),
@@ -1109,6 +1116,31 @@ class MissionRuntime:
         command_types = {str(command.payload_json.get("command_type") or "steer") for command in commands}
         review_modes = [str(command.payload_json.get("review_mode") or "") for command in commands if command.payload_json.get("command_type") == "set_review_mode"]
         review_feedback_commands = [command for command in commands if command.payload_json.get("command_type") == "review_feedback"]
+        has_more_commands = commands[-1].seq < state.run.last_command_seq
+        raw_pending_control = state.run.snapshot_json.get("pending_command_control")
+        pending_control = (
+            dict(raw_pending_control)
+            if isinstance(raw_pending_control, dict)
+            else {}
+        )
+        pending_control_type = str(pending_control.get("command_type") or "")
+        pause_commands = [
+            command
+            for command in commands
+            if command.payload_json.get("command_type") == "pause"
+        ]
+        if "cancel" in command_types or pending_control_type == "cancel":
+            pending_control = {"command_type": "cancel"}
+        elif pause_commands:
+            pending_control = {
+                "command_type": "pause",
+                "operation_id": pause_commands[-1].operation_id,
+            }
+        elif pending_control_type != "pause":
+            pending_control = {}
+        snapshot_patch["pending_command_control"] = (
+            pending_control if has_more_commands and pending_control else None
+        )
         reset_stage_ids = tuple(dict.fromkeys(stage_id for command in review_feedback_commands for stage_id in self._review_feedback_reset_stage_ids(command)))
         invalidated_stage_ids: set[str] = set()
         if reset_stage_ids:
@@ -1128,15 +1160,22 @@ class MissionRuntime:
             snapshot_patch["stage_item_counts"] = retained_item_counts or None
         target_status: MissionStatus | None = None
         result: MissionSliceOutcome | None = None
-        if "cancel" in command_types:
+        if not has_more_commands and pending_control.get("command_type") == "cancel":
             target_status = MissionStatus.CANCELLED
             result = MissionSliceOutcome.TERMINAL
             snapshot_patch["failure_reason"] = "cancelled_by_user"
             snapshot_patch["inflight_operation"] = None
-            snapshot_patch["subagent_summary"] = {
-                "active": 0,
-                "latest": [],
-            }
+            cancelled_inflight = self._cancelled_inflight_item(state.run)
+            if (
+                cancelled_inflight is not None
+                and cancelled_inflight.operation_id is not None
+                and not await self._operation_has_terminal(
+                    mission_id=state.run.mission_id,
+                    operation_id=cancelled_inflight.operation_id,
+                    item_types=(cancelled_inflight.item_type,),
+                )
+            ):
+                items.append(cancelled_inflight)
             items.append(
                 MissionItemDraftPayload(
                     item_type="status_update",
@@ -1146,20 +1185,19 @@ class MissionRuntime:
                     payload_json={},
                 )
             )
-        elif "pause" in command_types:
-            pause_command = next(command for command in reversed(commands) if command.payload_json.get("command_type") == "pause")
+        elif not has_more_commands and pending_control.get("command_type") == "pause":
             target_status = MissionStatus.WAITING
             result = MissionSliceOutcome.WAITING
             snapshot_patch["waiting_reason"] = "user_input"
             snapshot_patch["pending_request"] = {
-                "request_id": pause_command.operation_id,
+                "request_id": str(pending_control.get("operation_id") or ""),
                 "type": "user_pause",
                 "summary": "任务已暂停；在对话中说明继续或补充要求后，问津会从当前进度恢复。",
             }
             items.append(
                 MissionItemDraftPayload(
                     item_type="pause_request",
-                    operation_id=pause_command.operation_id,
+                    operation_id=str(pending_control.get("operation_id") or ""),
                     phase=MissionItemPhase.COMPLETED,
                     producer="mission_runtime",
                     summary="Mission paused by user",
@@ -1173,7 +1211,7 @@ class MissionRuntime:
             and command_types - {"set_review_mode"}
         ):
             target_status = MissionStatus.PLANNING
-        elif _status_value(state.run) == "waiting":
+        elif _status_value(state.run) == "waiting" and not has_more_commands:
             target_status = MissionStatus.WAITING
             result = MissionSliceOutcome.WAITING
 
@@ -1332,6 +1370,7 @@ class MissionRuntime:
         if await self._operation_has_terminal(
             state.run.mission_id,
             decision.operation_id,
+            item_types=self._decision_terminal_item_types(decision.kind),
         ):
             await self._append(
                 state,
@@ -3450,6 +3489,8 @@ class MissionRuntime:
         self,
         mission_id: str,
         operation_id: str,
+        *,
+        item_types: tuple[str, ...],
     ) -> bool:
         after_seq = 0
         while True:
@@ -3460,14 +3501,59 @@ class MissionRuntime:
                 operation_id=operation_id,
             )
             if any(
-                item.phase
-                in {MissionItemPhase.COMPLETED, MissionItemPhase.FAILED}
+                item.item_type in item_types
+                and item.phase
+                in {
+                    MissionItemPhase.COMPLETED,
+                    MissionItemPhase.FAILED,
+                    MissionItemPhase.CANCELLED,
+                }
                 for item in items
             ):
                 return True
             if len(items) < 100:
                 return False
             after_seq = items[-1].seq
+
+    @staticmethod
+    def _decision_terminal_item_types(
+        kind: MissionDecisionKind,
+    ) -> tuple[str, ...]:
+        return {
+            MissionDecisionKind.TOOL: ("tool_result",),
+            MissionDecisionKind.SUBAGENT: ("subagent_completed",),
+            MissionDecisionKind.QUALITY: ("quality_check",),
+            MissionDecisionKind.REVIEW: ("status_update", "error"),
+        }[kind]
+
+    @staticmethod
+    def _cancelled_inflight_item(
+        run: MissionRunPayload,
+    ) -> MissionItemDraftPayload | None:
+        inflight = run.snapshot_json.get("inflight_operation")
+        if not isinstance(inflight, dict):
+            return None
+        operation_id = str(inflight.get("operation_id") or "").strip()
+        kind = str(inflight.get("kind") or "").strip()
+        item_type = {
+            "tool": "tool_result",
+            "subagent": "subagent_completed",
+        }.get(kind)
+        if not operation_id or item_type is None:
+            return None
+        return MissionItemDraftPayload(
+            item_type=item_type,
+            operation_id=operation_id,
+            phase=MissionItemPhase.CANCELLED,
+            stage_id=run.active_stage_id,
+            producer="mission_runtime",
+            summary="任务已按你的要求停止；该执行步骤没有继续运行。",
+            payload_json={
+                "status": "cancelled",
+                "error_code": "cancelled_by_user",
+                "recoverable": True,
+            },
+        )
 
     @staticmethod
     def _failed_port_outcome(summary: str, exc: BaseException) -> MissionPortOutcome:
@@ -3552,8 +3638,14 @@ def _reference_id(value: Any) -> str | None:
 
 def _transient_retry_delay_seconds(run: MissionRunPayload) -> int:
     guard = run.snapshot_json.get("loop_guard")
-    attempt = int(guard.get("transient_failures") or 1) if isinstance(guard, dict) else 1
-    return min(5 * (2 ** min(max(attempt - 1, 0), 4)), 60)
+    raw_attempt = guard.get("transient_failures") if isinstance(guard, dict) else 1
+    attempt: int
+    try:
+        attempt = int(raw_attempt or 1)
+    except (TypeError, ValueError):
+        attempt = 1
+    exponent = min(max(attempt - 1, 0), 4)
+    return min(5 * (1 << exponent), 60)
 
 
 __all__ = [

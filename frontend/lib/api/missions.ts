@@ -155,11 +155,22 @@ interface MissionViewWire {
   required_stage_ids: string[];
   stage_summaries: Array<{ stage_id: string; title: string; status: MissionStageView["status"]; summary?: string | null }>;
   team_summary?: string | null;
-  subagents: Array<{ subagent_id: string; display_name: string; role_label: string; status: MissionSubagentView["status"]; summary?: string | null }>;
+  subagents: Array<{
+    subagent_id: string;
+    display_name: string;
+    role_label: string;
+    status: MissionSubagentView["status"];
+    summary?: string | null;
+    milestones: Array<{
+      kind: MissionSubagentView["milestones"][number]["kind"];
+      summary: string;
+      created_at: string;
+    }>;
+  }>;
   evidence_items: Array<{ item_id: string; seq: number; title: string; source_type: MissionEvidenceView["sourceType"]; source_label?: string | null; summary?: string | null; citation?: string | null; verified: boolean }>;
   evidence_page: { total: number; returned: number; next_cursor?: number | null };
-  artifact_items: Array<{ item_id: string; seq: number; title: string; kind: string; summary?: string | null; preview_available: boolean; committed: boolean; download_url?: string | null }>;
-  artifact_page: { total: number; returned: number; next_cursor?: number | null; next_tiebreaker?: string | null };
+  artifact_items: Array<{ item_id: string; seq: number; title: string; kind: string; summary?: string | null; preview_available: boolean; preview_expires_at?: string | null; committed: boolean; download_url?: string | null }>;
+  artifact_page: { total: number; returned: number; next_cursor?: number | null; next_tiebreaker?: string | null; revision: string };
   review_policy: { mode: MissionReviewMode; protected_outputs_require_confirmation: boolean; draft_outputs_may_be_automatic: boolean };
   review_selection_revision: string;
   quality_highlights: string[];
@@ -285,7 +296,7 @@ function projectView(wire: MissionViewWire): MissionView {
   const stages = wire.stage_summaries.map((stage) => ({ id: stage.stage_id, title: stage.title, status: stage.status, summary: stage.summary }));
   const reviewItems = wire.review_items.map(missionReviewItem);
   const evidenceItems = wire.evidence_items.map((item) => ({ id: item.item_id, title: item.title, sourceType: item.source_type, sourceLabel: item.source_label, summary: item.summary, citation: item.citation, verified: item.verified }));
-  const artifactItems = wire.artifact_items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed, downloadUrl: item.download_url }));
+  const artifactItems = wire.artifact_items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, previewExpiresAt: item.preview_expires_at, committed: item.committed, downloadUrl: item.download_url }));
   return {
     missionId: run.mission_id,
     workspaceId: run.workspace_id,
@@ -360,16 +371,27 @@ function projectView(wire: MissionViewWire): MissionView {
     requiredStageIds: wire.required_stage_ids,
     teamSummary: wire.team_summary,
     activeSubagentCount: run.active_subagent_count,
-    subagents: wire.subagents.map((item) => ({ id: item.subagent_id, name: item.display_name, role: item.role_label, status: item.status, summary: item.summary })),
+    subagents: wire.subagents.map((item) => ({
+      id: item.subagent_id,
+      name: item.display_name,
+      role: item.role_label,
+      status: item.status,
+      summary: item.summary,
+      milestones: item.milestones.map((milestone) => ({
+        kind: milestone.kind,
+        summary: milestone.summary,
+        createdAt: milestone.created_at,
+      })),
+    })),
     evidenceItems,
     artifactItems,
     evidenceNextCursor: wire.evidence_page.next_cursor,
     artifactNextCursor: wire.artifact_page.next_cursor,
     artifactNextTiebreaker: wire.artifact_page.next_tiebreaker,
     reviewNextCursor: wire.review_page?.next_cursor,
-    evidenceCount: run.evidence_count,
-    artifactCount: run.artifact_count,
-    visibleArtifactCount: wire.artifact_page.total,
+    evidenceCount: wire.evidence_page.total,
+    artifactCount: wire.artifact_page.total,
+    artifactRevision: wire.artifact_page.revision,
     reviewItems,
     reviewSummary: { pending: wire.review_summary.pending, needsMoreEvidence: wire.review_summary.needs_more_evidence, accepted: wire.review_summary.accepted, committed: wire.review_summary.committed },
     reviewMode: run.review_mode,
@@ -528,7 +550,7 @@ export async function listMissionArtifacts(options: {
   cursor: number;
   tiebreaker?: string | null;
   limit?: number;
-}): Promise<MissionProjectionPage<MissionArtifactView> & { nextTiebreaker: string | null }> {
+}): Promise<MissionProjectionPage<MissionArtifactView> & { nextTiebreaker: string | null; revision: string }> {
   const params = new URLSearchParams({ cursor: String(options.cursor), limit: String(options.limit ?? 50) });
   if (options.tiebreaker) params.set("tiebreaker", options.tiebreaker);
   const response = await authorizedFetch(`${API}/missions/${encodeURIComponent(options.missionId)}/artifacts?${params}`);
@@ -537,10 +559,11 @@ export async function listMissionArtifacts(options: {
     page: MissionViewWire["artifact_page"];
   }>(response, "成果加载失败");
   return {
-    items: payload.items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, committed: item.committed, downloadUrl: item.download_url })),
+    items: payload.items.map((item) => ({ id: item.item_id, title: item.title, kind: item.kind, summary: item.summary, previewAvailable: item.preview_available, previewExpiresAt: item.preview_expires_at, committed: item.committed, downloadUrl: item.download_url })),
     nextCursor: payload.page.next_cursor ?? null,
     nextTiebreaker: payload.page.next_tiebreaker ?? null,
     total: payload.page.total,
+    revision: payload.page.revision,
   };
 }
 

@@ -56,7 +56,7 @@ Do not deduplicate by hiding duplicate UI rows. The durable operation/commit bou
 
 Mission SSE is an invalidation channel. Reconnect with `Last-Event-ID`; on any gap, visibility restore, malformed event, or Redis interruption, fetch MissionView and needed items again. Do not replay hints into a local workflow state.
 
-If events are absent but canonical state changes, the UI should still recover on polling/refocus/manual refresh. If events arrive for another owner/workspace, stop release and fix isolation.
+The SSE endpoint itself polls canonical Mission rows and reconnects from its durable cursor; the client refetches MissionView after each hint and after reconnect. If canonical state changes remain invisible after reconnect or a manual refresh, inspect the DB change query and ownership filters rather than adding a second browser polling truth. If events arrive for another owner/workspace, stop release and fix isolation.
 
 ## 6. Search-required Mission refuses to start
 
@@ -170,9 +170,9 @@ Do not clear lease columns manually except during controlled incident recovery w
 
 Inspect the Mission billing snapshot and `credit_reservations.mission_id`. Reservation must be idempotent. Settlement records zero or policy-defined actual charge for failed/cancelled work and estimated/actual charge for completed work. Missing durable reservation is a runtime error, not a reason to synthesize one in the UI.
 
-## 17. Migration fails around 086-108
+## 17. Migration fails around 086-110
 
-These are irreversible development migrations. Confirm the chain is linear and `alembic heads` reports `108_remove_workspace_discipline`. Migration 107 rejects non-empty users, pricing, Mission, or credit data by design. Drop/reseed instead of reconstructing removed tables or resetting cumulative counters. The release check runs the complete chain on an isolated empty PostgreSQL database as well as the migration contract tests.
+These are irreversible development migrations. Confirm the chain is linear and `alembic heads` reports `110_deduplicate_mission_references`. Migration 107 rejects non-empty users, pricing, Mission, or credit data by design. Drop/reseed instead of reconstructing removed tables or resetting cumulative counters. The release check runs the complete chain on an isolated empty PostgreSQL database, then separately seeds revision 108 and verifies the data-bearing 109/110 cutovers against real PostgreSQL semantics.
 
 ## 18. DataService or Gateway import fails
 

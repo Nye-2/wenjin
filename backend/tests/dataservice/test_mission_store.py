@@ -212,14 +212,20 @@ def _subagent_terminal_progress(
     operation_id: str,
     job_id: str,
     result_version: int,
+    summary: str | None = None,
+    display_name: str = "终态核验员",
+    role_label: str = "终态核验",
+    status: str = "completed",
 ) -> MissionItemDraftPayload:
-    summary = f"Subagent terminal version {result_version}"
+    summary = summary or f"Subagent terminal version {result_version}"
     payload = {
         "job_id": job_id,
-        "display_name": "终态核验员",
-        "role_label": "终态核验",
+        "display_name": display_name,
+        "role_label": role_label,
         "lifecycle_phase": "terminal",
         "job_fingerprint": "a" * 64,
+        "status": status,
+        "public_summary": summary,
         "frozen_budget": {
             "max_turns": 1,
             "max_tool_steps": 1,
@@ -246,6 +252,18 @@ def _subagent_terminal_progress(
         producer=job_id,
         summary=summary,
         payload_json=payload,
+    )
+
+
+def _subagent_spawned(operation_id: str) -> MissionItemDraftPayload:
+    return MissionItemDraftPayload(
+        item_type="subagent_spawned",
+        operation_id=operation_id,
+        phase="started",
+        stage_id="literature",
+        producer="workspace_agent",
+        summary="Subagent batch started",
+        payload_json={"input_scope": {"jobs": []}},
     )
 
 
@@ -2081,6 +2099,138 @@ async def test_operation_finish_atomically_projects_semantic_references_once(
 
 
 @pytest.mark.asyncio
+async def test_operation_finish_reuses_mission_semantic_reference_projection(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-reference-ssot",
+        idempotency_key="reference-ssot",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+    for index in range(2):
+        reference = MissionSemanticReferencePayload(
+            category="evidence",
+            reference_id="upload://attachment-1",
+            reference_kind="uploaded_file",
+            title=("附件1.xlsx" if index == 0 else "附件1.xlsx（再次读取）"),
+            source_type="upload",
+            verified=True,
+            metadata={"observed_at": f"2026-07-11T00:00:0{index}Z"},
+        )
+        operation_key = f"read-attachment-{index + 1}"
+        operation = await store.claim_operation(
+            mission_id,
+            MissionOperationClaimPayload(
+                operation_key=operation_key,
+                kind="tool",
+                request_hash=str(index + 1) * 64,
+                claimant=f"tool-call-{index + 1}",
+                lease_epoch=claimed.lease_epoch,
+            ),
+        )
+        finished = await store.finish_operation(
+            mission_id,
+            MissionOperationFinishPayload(
+                operation_key=operation_key,
+                kind="tool",
+                request_hash=str(index + 1) * 64,
+                claimant=f"tool-call-{index + 1}",
+                lease_epoch=claimed.lease_epoch,
+                claim_token=operation.receipt.claim_token,
+                status="succeeded",
+                receipt_json={"read": index + 1},
+                references=[reference],
+            ),
+        )
+        assert finished.finalized is True
+
+    current = await store.load_run_snapshot(mission_id)
+    page = await store.list_evidence_projection_page(mission_id)
+    evidence_items = await store.list_items_page(
+        mission_id,
+        item_type="evidence",
+        limit=10,
+    )
+
+    assert current is not None
+    assert page is not None
+    assert current.evidence_count == 1
+    assert page.page.total == 1
+    assert [item.title for item in page.items] == ["附件1.xlsx"]
+    assert len(evidence_items) == 1
+
+
+@pytest.mark.asyncio
+async def test_operation_finish_rejects_divergent_semantic_reference_reuse(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(
+        store,
+        thread_id="thread-reference-conflict",
+        idempotency_key="reference-conflict",
+    )
+    claimed = await _claim(store, mission_id, version=0)
+
+    for index, title in enumerate(("附件1.xlsx", "被悄悄改名的附件.xlsx"), start=1):
+        operation_key = f"reference-conflict-{index}"
+        operation = await store.claim_operation(
+            mission_id,
+            MissionOperationClaimPayload(
+                operation_key=operation_key,
+                kind="tool",
+                request_hash=str(index) * 64,
+                claimant=f"tool-call-reference-conflict-{index}",
+                lease_epoch=claimed.lease_epoch,
+            ),
+        )
+        finish = MissionOperationFinishPayload(
+            operation_key=operation_key,
+            kind="tool",
+            request_hash=str(index) * 64,
+            claimant=f"tool-call-reference-conflict-{index}",
+            lease_epoch=claimed.lease_epoch,
+            claim_token=operation.receipt.claim_token,
+            status="succeeded",
+            receipt_json={"read": index},
+            references=[
+                MissionSemanticReferencePayload(
+                    category="evidence",
+                    reference_id="upload://attachment-conflict",
+                    reference_kind="uploaded_file",
+                    title=title,
+                    uri=(
+                        "upload://attachment-conflict"
+                        if index == 1
+                        else "upload://different-attachment"
+                    ),
+                    source_type="upload",
+                    verified=True,
+                )
+            ],
+        )
+        if index == 1:
+            result = await store.finish_operation(mission_id, finish)
+            assert result.finalized is True
+        else:
+            with pytest.raises(
+                DataServiceConflictError,
+                match="semantic reference identity",
+            ):
+                await store.finish_operation(mission_id, finish)
+
+    page = await store.list_evidence_projection_page(mission_id)
+    second_receipt = await store.get_operation(mission_id, "reference-conflict-2")
+
+    assert page is not None
+    assert [item.title for item in page.items] == ["附件1.xlsx"]
+    assert second_receipt is not None
+    assert second_receipt.status.value == "claimed"
+
+
+@pytest.mark.asyncio
 async def test_operation_reclaim_rejects_stale_attempt_token(
     mission_session: AsyncSession,
 ) -> None:
@@ -2199,6 +2349,36 @@ async def test_mission_view_retries_after_projection_version_drift(
 
     assert view is not None
     assert view.mission.state_version == expected_version
+    assert observed_calls == 4
+
+
+@pytest.mark.asyncio
+async def test_artifact_projection_retries_after_version_drift(
+    mission_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    current = await store.load_run_snapshot(mission_id)
+    assert current is not None
+    expected_version = current.state_version
+    real_get_version = store.repository.get_run_state_version
+    observed_calls = 0
+
+    async def drifting_once(candidate_mission_id: str) -> int | None:
+        nonlocal observed_calls
+        observed_calls += 1
+        if observed_calls == 1:
+            return expected_version + 1
+        return await real_get_version(candidate_mission_id)
+
+    monkeypatch.setattr(store.repository, "get_run_state_version", drifting_once)
+
+    page = await store.list_artifact_projection_page(mission_id)
+
+    assert page is not None
+    assert page.items == []
+    assert len(page.page.revision) == 64
     assert observed_calls == 4
 
 
@@ -2375,6 +2555,7 @@ async def test_artifact_projection_cursor_preserves_equal_source_sequences(
     assert first.page.next_cursor == 1
     assert first.page.next_tiebreaker == "artifact-review-a"
     assert first.items[0].preview_available is False
+    initial_revision = first.page.revision
 
     second = await store.list_artifact_projection_page(
         mission_id,
@@ -2384,7 +2565,48 @@ async def test_artifact_projection_cursor_preserves_equal_source_sequences(
     )
     assert [item.item_id for item in second.items] == ["artifact-review-b"]
     assert second.items[0].preview_available is True
+    assert second.items[0].preview_expires_at is not None
     assert second.page.next_cursor is None
+    assert second.page.revision == initial_revision
+    view = await store.get_view(mission_id, projection_item_limit=1)
+    assert view is not None
+    assert view.artifact_page.revision == initial_revision
+
+    await mission_session.execute(
+        update(MissionRunRecord)
+        .where(MissionRunRecord.mission_id == mission_id)
+        .values(state_version=MissionRunRecord.state_version + 1)
+    )
+    await mission_session.commit()
+    heartbeat_refresh = await store.list_artifact_projection_page(
+        mission_id,
+        limit=1,
+    )
+    assert heartbeat_refresh.page.revision == initial_revision
+
+    mission_session.add(
+        MissionCommitRecord(
+            commit_id="artifact-commit-b",
+            mission_id=mission_id,
+            review_item_id="artifact-review-b",
+            commit_key="artifact-commit-key-b",
+            status="committed",
+            actor_user_id="user-1",
+            targets_json={"target_ref": "asset-b"},
+            attempt_count=1,
+            created_at=now,
+            completed_at=now,
+        )
+    )
+    await mission_session.commit()
+    committed_page = await store.list_artifact_projection_page(
+        mission_id,
+        after_seq=first.page.next_cursor,
+        after_review_item_id=first.page.next_tiebreaker,
+        limit=1,
+    )
+    assert committed_page.items[0].committed is True
+    assert committed_page.page.revision != initial_revision
 
 
 @pytest.mark.asyncio
@@ -2403,6 +2625,7 @@ async def test_mission_view_projects_live_subagent_milestone(
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
             items=[
+                _subagent_spawned(operation_id),
                 _subagent_live_progress(
                     operation_id=operation_id,
                     job_id="formula-worker",
@@ -2418,7 +2641,7 @@ async def test_mission_view_projects_live_subagent_milestone(
                 "inflight_operation": {
                     "operation_id": operation_id,
                     "kind": "subagent",
-                    "call_item_seq": 1,
+                    "call_item_seq": 2,
                 }
             },
             patch=MissionRunPatchPayload(
@@ -2437,6 +2660,102 @@ async def test_mission_view_projects_live_subagent_milestone(
     assert view.subagents[0].display_name == "公式核验员"
     assert view.subagents[0].status == "working"
     assert view.subagents[0].summary == summary
+    assert view.team_summary == "1 位研究成员正在推进，已有 1 条可查看进展。"
+    assert len(view.subagents[0].milestones) == 1
+    assert view.subagents[0].milestones[0].kind == "formula"
+    assert view.subagents[0].milestones[0].summary == summary
+
+
+@pytest.mark.asyncio
+async def test_mission_view_projects_only_the_latest_subagent_batch(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _subagent_spawned("older-batch"),
+                _subagent_terminal_progress(
+                    operation_id="older-batch",
+                    job_id="older-worker",
+                    result_version=1,
+                ),
+                _subagent_spawned("current-batch"),
+                _subagent_live_progress(
+                    operation_id="current-batch",
+                    job_id="current-worker",
+                    summary="已完成当前批次的约束核验。",
+                ),
+            ],
+            snapshot_json={
+                "inflight_operation": {
+                    "operation_id": "current-batch",
+                    "kind": "subagent",
+                    "call_item_seq": 4,
+                }
+            },
+            patch=MissionRunPatchPayload(
+                status="planning",
+                active_subagent_count_delta=1,
+            ),
+        ),
+    )
+
+    view = await store.get_view(mission_id)
+
+    assert view is not None
+    assert [member.subagent_id for member in view.subagents] == ["current-worker"]
+    assert view.team_summary == "1 位研究成员正在推进，已有 1 条可查看进展。"
+
+
+@pytest.mark.asyncio
+async def test_mission_view_does_not_reuse_previous_members_before_new_batch_progress(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _subagent_spawned("completed-batch"),
+                _subagent_terminal_progress(
+                    operation_id="completed-batch",
+                    job_id="old-worker",
+                    result_version=1,
+                ),
+                _subagent_spawned("new-batch"),
+            ],
+            snapshot_json={
+                "inflight_operation": {
+                    "operation_id": "new-batch",
+                    "kind": "subagent",
+                    "call_item_seq": 4,
+                }
+            },
+            patch=MissionRunPatchPayload(
+                status="planning",
+                active_subagent_count_delta=1,
+            ),
+        ),
+    )
+
+    view = await store.get_view(mission_id)
+
+    assert view is not None
+    assert view.activity.state == "collaborating"
+    assert view.subagents == []
+    assert view.team_summary is None
 
 
 @pytest.mark.asyncio
@@ -2452,23 +2771,29 @@ async def test_mission_view_projects_model_outage_as_preserved_work(
             expected_state_version=claimed.state_version,
             lease_owner="worker-1",
             lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="artifact",
+                    phase="completed",
+                    summary="Unreviewed internal artifact candidate",
+                ),
+                _subagent_spawned("subagent-outage-parent"),
+                _subagent_terminal_progress(
+                    operation_id="subagent-outage-parent",
+                    job_id="auditor-1",
+                    result_version=1,
+                    summary="Subagent exhausted its tool-step budget",
+                    display_name="严谨派阿澈",
+                    role_label="modeling_method_auditor",
+                    status="failed",
+                )
+            ],
             snapshot_json={
                 "failure_reason": "model_service_unavailable",
                 "mission_inputs": [
                     {"member_path": "A题/A题/附件1：负荷曲线.xlsx"},
                     {"member_path": "A题\\A题\\附件2：风光曲线.xlsx"},
                 ],
-                "subagent_summary": {
-                    "latest": [
-                        {
-                            "job_id": "auditor-1",
-                            "display_name": "严谨派阿澈",
-                            "role_label": "modeling_method_auditor",
-                            "status": "completed",
-                            "result_brief": "Subagent exhausted its tool-step budget",
-                        }
-                    ]
-                },
             },
             patch=MissionRunPatchPayload(status="failed"),
         ),
@@ -2484,10 +2809,88 @@ async def test_mission_view_projects_model_outage_as_preserved_work(
     assert view.failure.category == "model_service"
     assert view.failure.recoverability == "retry_later"
     assert "无需重新上传材料" in view.failure.recommended_action
+    assert view.mission.artifact_count == 1
+    assert view.failure.preserved_progress.endswith("0 个成果。")
     assert view.input_summary.total == 2
     assert view.input_summary.names == ["附件1：负荷曲线.xlsx", "附件2：风光曲线.xlsx"]
     assert view.subagents[0].role_label == "专项查证"
     assert view.subagents[0].summary == "达到本轮工具调用上限，已保留可用进度。"
+
+
+@pytest.mark.asyncio
+async def test_terminal_subagent_projection_survives_activity_window_and_is_bounded(
+    mission_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    claimed = await _claim(store, mission_id, version=0)
+    operation_id = "completed-batch-outside-activity-window"
+    terminal_summary = "已完成模型推导并整理最终结论。"
+    progressed = await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=claimed.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                _subagent_spawned(operation_id),
+                *[
+                    _subagent_live_progress(
+                        operation_id=operation_id,
+                        job_id="bounded-worker",
+                        summary=f"已确认第 {index} 条模型约束。",
+                    )
+                    for index in range(1, 9)
+                ],
+                _subagent_terminal_progress(
+                    operation_id=operation_id,
+                    job_id="bounded-worker",
+                    result_version=1,
+                    summary=terminal_summary,
+                ),
+                MissionItemDraftPayload(
+                    item_type="subagent_completed",
+                    operation_id=operation_id,
+                    phase="completed",
+                    producer="workspace_agent",
+                    summary="Subagent batch completed",
+                ),
+            ],
+            snapshot_json={},
+            patch=MissionRunPatchPayload(status="planning"),
+        ),
+    )
+    await store.append_items_and_update_snapshot(
+        mission_id,
+        MissionAppendPayload(
+            expected_state_version=progressed.mission.state_version,
+            lease_owner="worker-1",
+            lease_epoch=claimed.lease_epoch,
+            items=[
+                MissionItemDraftPayload(
+                    item_type="status_update",
+                    operation_id=f"later-item-{index}",
+                    phase="completed",
+                    producer="mission_runtime",
+                    summary=f"Later mission activity {index}",
+                )
+                for index in range(100)
+            ],
+            snapshot_json={},
+            patch=MissionRunPatchPayload(status="failed"),
+        ),
+    )
+
+    view = await store.get_view(mission_id)
+
+    assert view is not None
+    assert [member.subagent_id for member in view.subagents] == ["bounded-worker"]
+    assert view.subagents[0].status == "done"
+    assert view.subagents[0].summary == terminal_summary
+    assert len(view.subagents[0].milestones) == 6
+    assert [item.summary for item in view.subagents[0].milestones] == [
+        f"已确认第 {index} 条模型约束。" for index in range(3, 9)
+    ]
 
 
 @pytest.mark.asyncio
@@ -3628,6 +4031,17 @@ def test_snapshot_rejects_scalar_duplication_and_oversize() -> None:
     base = _create_payload().model_dump()
     with pytest.raises(ValueError, match="duplicates"):
         MissionCreatePayload(**{**base, "snapshot_json": {"status": "running"}})
+
+    with pytest.raises(
+        ValueError,
+        match="duplicates MissionItem-derived projection.*subagent_summary",
+    ):
+        MissionCreatePayload(
+            **{
+                **base,
+                "snapshot_json": {"subagent_summary": [{"status": "working"}]},
+            }
+        )
 
     with pytest.raises(ValueError, match="exceeds"):
         MissionCreatePayload(

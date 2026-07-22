@@ -152,6 +152,7 @@ export function ResultPreviewRenderer({
           }}
         >
           {imageUrl && !imageFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Research previews may use authenticated API or arbitrary HTTPS URLs that the Next optimizer cannot fetch safely.
             <img
               src={imageUrl}
               alt={`${preview.title} 图像预览`}

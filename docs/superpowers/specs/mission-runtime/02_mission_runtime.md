@@ -242,7 +242,6 @@ plan_summary
 stage_state_summaries
 context_checkpoint_summary
 evidence_ledger_summary
-subagent_summary
 review_summary
 commit_summary
 budgets
@@ -297,7 +296,12 @@ collect_result()
 append semantic lifecycle items and optional trace refs
 ```
 
-Subagent completion appends a terminal `subagent_completed` MissionItem and updates `MissionRun.snapshot_json.subagent_summary`.
+Subagent completion appends a terminal `subagent_completed` MissionItem. Immutable
+`subagent_spawned`, `subagent_progress`, and `subagent_completed` items are the
+single source of truth for worker lifecycle and public progress. `MissionView`
+derives its bounded team summary, current member status, and typed milestones
+from that ledger; it never stores or reads a second mutable subagent summary in
+`snapshot_json`.
 
 ## Replacement of ExecutionEngineV2
 

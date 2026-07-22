@@ -22,11 +22,14 @@ DEFAULT_IMAGE = "pgvector/pgvector:pg16"
 
 @dataclass(frozen=True, slots=True)
 class PostgresReleaseDatabase:
-    """Connection details for one empty database migrated to revision 107."""
+    """Connection details for one isolated release-verification database."""
 
     async_url: str
     container_name: str
     database_name: str
+
+    def upgrade_to(self, revision: str) -> None:
+        _upgrade_database(self.async_url, revision)
 
 
 def _required() -> bool:
@@ -90,7 +93,7 @@ def _host_port(container: Any) -> int:
     return int(binding["HostPort"])
 
 
-def _upgrade_empty_database(async_url: str) -> None:
+def _upgrade_database(async_url: str, revision: str) -> None:
     env = os.environ.copy()
     env["DATABASE_URL"] = async_url
     env["PYTHONUNBUFFERED"] = "1"
@@ -101,7 +104,7 @@ def _upgrade_empty_database(async_url: str) -> None:
                 "-m",
                 "alembic",
                 "upgrade",
-                "108_remove_workspace_discipline",
+                revision,
             ],
             cwd=BACKEND_ROOT,
             env=env,
@@ -112,13 +115,14 @@ def _upgrade_empty_database(async_url: str) -> None:
         )
     except subprocess.TimeoutExpired as exc:
         pytest.fail(
-            f"Alembic did not upgrade the empty PostgreSQL database within 240 seconds: {exc}",
+            "Alembic did not upgrade the PostgreSQL release-verification "
+            f"database to {revision} within 240 seconds: {exc}",
             pytrace=False,
         )
     if result.returncode != 0:
         pytest.fail(
-            "Alembic failed to upgrade the empty PostgreSQL database to "
-            "108_remove_workspace_discipline.\n"
+            "Alembic failed to upgrade the PostgreSQL release-verification "
+            f"database to {revision}.\n"
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}",
             pytrace=False,
@@ -126,7 +130,7 @@ def _upgrade_empty_database(async_url: str) -> None:
 
 
 @pytest.fixture(scope="session")
-def postgres_107_database() -> Iterator[PostgresReleaseDatabase]:
+def postgres_110_database() -> Iterator[PostgresReleaseDatabase]:
     """Start a private PostgreSQL container and migrate its empty database."""
 
     try:
@@ -190,7 +194,7 @@ def postgres_107_database() -> Iterator[PostgresReleaseDatabase]:
             f"postgresql+asyncpg://postgres:{password}@127.0.0.1:{port}/"
             f"{database_name}"
         )
-        _upgrade_empty_database(async_url)
+        _upgrade_database(async_url, "110_deduplicate_mission_references")
 
         yield PostgresReleaseDatabase(
             async_url=async_url,
@@ -215,3 +219,70 @@ def postgres_107_database() -> Iterator[PostgresReleaseDatabase]:
                 f"volume: {cleanup_error}",
                 pytrace=False,
             )
+
+
+@pytest.fixture(scope="session")
+def postgres_108_database(
+    postgres_110_database: PostgresReleaseDatabase,
+) -> Iterator[PostgresReleaseDatabase]:
+    """Create a sibling database stopped immediately before the SSOT cutovers."""
+
+    try:
+        from docker.errors import DockerException
+
+        import docker
+    except ImportError as exc:  # pragma: no cover - docker is a project dependency
+        _infrastructure_unavailable(f"Python Docker SDK is not installed ({exc})")
+
+    client = None
+    database_name = f"wenjin_data_migration_{secrets.token_hex(8)}"
+    try:
+        try:
+            client = docker.from_env(timeout=5)
+            container = client.containers.get(postgres_110_database.container_name)
+            created = container.exec_run(
+                ["createdb", "-U", "postgres", database_name],
+            )
+        except DockerException as exc:
+            _infrastructure_unavailable(
+                f"Data-bearing PostgreSQL database could not be created ({exc})"
+            )
+        if created.exit_code != 0:
+            pytest.fail(
+                "Disposable PostgreSQL could not create the data-bearing "
+                f"database: {created.output!r}",
+                pytrace=False,
+            )
+        async_url = (
+            postgres_110_database.async_url.rsplit("/", maxsplit=1)[0]
+            + f"/{database_name}"
+        )
+        database = PostgresReleaseDatabase(
+            async_url=async_url,
+            container_name=postgres_110_database.container_name,
+            database_name=database_name,
+        )
+        database.upgrade_to("108_remove_workspace_discipline")
+        yield database
+    finally:
+        if client is not None:
+            try:
+                container = client.containers.get(
+                    postgres_110_database.container_name
+                )
+                dropped = container.exec_run(
+                    ["dropdb", "-U", "postgres", "--if-exists", database_name],
+                )
+                if dropped.exit_code != 0:
+                    pytest.fail(
+                        "Disposable PostgreSQL could not drop the data-bearing "
+                        f"database: {dropped.output!r}",
+                        pytrace=False,
+                    )
+            except DockerException as exc:  # pragma: no cover - teardown diagnostic
+                pytest.fail(
+                    f"Failed to drop the data-bearing PostgreSQL database: {exc}",
+                    pytrace=False,
+                )
+            finally:
+                client.close()

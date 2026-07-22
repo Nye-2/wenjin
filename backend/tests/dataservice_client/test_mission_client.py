@@ -454,6 +454,7 @@ async def test_artifact_client_forwards_equal_seq_tiebreaker() -> None:
                     "returned": 0,
                     "next_cursor": None,
                     "next_tiebreaker": None,
+                    "revision": "artifact-revision-7",
                 },
             },
         }
@@ -467,6 +468,7 @@ async def test_artifact_client_forwards_equal_seq_tiebreaker() -> None:
 
     assert page is not None
     assert page.page.total == 7
+    assert page.page.revision == "artifact-revision-7"
 
 
 def test_mission_contract_rejects_execution_record_fields() -> None:

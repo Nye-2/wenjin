@@ -197,10 +197,13 @@ export function useMissionWorkspace(workspaceId: string) {
       }
     })();
 
+    const mountedWorkspaceEpoch = workspaceEpochRef;
+    const mountedSwitchToken = switchTokenRef;
+    const mountedRefreshToken = refreshTokenRef;
     return () => {
-      ++workspaceEpochRef.current;
-      ++switchTokenRef.current;
-      ++refreshTokenRef.current;
+      ++mountedWorkspaceEpoch.current;
+      ++mountedSwitchToken.current;
+      ++mountedRefreshToken.current;
       pendingSwitchRef.current = null;
       switchingMissionIdRef.current = null;
     };

@@ -275,12 +275,16 @@ class ThreadService:
             error=error,
         )
         if self._dataservice is not None:
-            return await self._dataservice.patch_conversation_attachment_state(
-                str(thread.id), command
+            return bool(
+                await self._dataservice.patch_conversation_attachment_state(
+                    str(thread.id), command
+                )
             )
         async with dataservice_client() as client:
-            return await client.patch_conversation_attachment_state(
-                str(thread.id), command
+            return bool(
+                await client.patch_conversation_attachment_state(
+                    str(thread.id), command
+                )
             )
 
     async def update_attachment_preprocess_state(
@@ -310,12 +314,16 @@ class ThreadService:
             error=error,
         )
         if self._dataservice is not None:
-            return await self._dataservice.patch_conversation_attachment_state(
-                str(thread.id), command
+            return bool(
+                await self._dataservice.patch_conversation_attachment_state(
+                    str(thread.id), command
+                )
             )
         async with dataservice_client() as client:
-            return await client.patch_conversation_attachment_state(
-                str(thread.id), command
+            return bool(
+                await client.patch_conversation_attachment_state(
+                    str(thread.id), command
+                )
             )
 
     async def set_title_if_empty(

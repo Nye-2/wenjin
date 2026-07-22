@@ -42,9 +42,9 @@ WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1 \
   tests/release_verification/test_runtime_accounting_postgres.py -q -rs
 ```
 
-This command starts a uniquely named `pgvector/pgvector:pg16` container, binds it to a random loopback port, upgrades a randomly named empty database through `108_remove_workspace_discipline`, and removes the container plus its anonymous data volume after the run. The fixture constructs its own database URL and never migrates the configured Wenjin database. Override the image only when required with `WENJIN_POSTGRES_VERIFICATION_IMAGE`.
+This command starts a uniquely named `pgvector/pgvector:pg16` container, binds it to a random loopback port, upgrades one randomly named empty database through `110_deduplicate_mission_references`, and provisions a sibling database at revision 108 for a data-bearing 108→110 cutover check. It removes the container plus its anonymous data volume after the run. The fixture constructs its own database URLs and never migrates the configured Wenjin database. Override the image only when required with `WENJIN_POSTGRES_VERIFICATION_IMAGE`.
 
-The release result must contain five passed tests and zero skipped tests. Without Docker, the default test suite reports these tests as explicitly skipped; `WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1` converts missing Docker or image infrastructure into a release-blocking failure. The gate covers reflected columns, unique and partial indexes, checks, foreign keys and `ON DELETE` actions, plus observed PostgreSQL row-lock waits for concurrent authorize, idempotent replay, settle/delete, and delete/release accounting transitions.
+The release result must contain six passed tests and zero skipped tests. Without Docker, the default test suite reports these tests as explicitly skipped; `WENJIN_REQUIRE_POSTGRES_RELEASE_VERIFICATION=1` converts missing Docker or image infrastructure into a release-blocking failure. The gate covers reflected columns, unique and partial indexes, checks, foreign keys and `ON DELETE` actions, the data-preserving 109 snapshot cleanup and 110 evidence-count repair, plus observed PostgreSQL row-lock waits for concurrent authorize, idempotent replay, settle/delete, and delete/release accounting transitions.
 
 Architecture-focused coverage must include:
 
@@ -57,7 +57,7 @@ Architecture-focused coverage must include:
 - native search receipt parser and fail-closed behavior;
 - Sandbox preflight, path/symlink/network controls, manifests, read-before-write;
 - review decisions, conflicts, partial commit, idempotency, linked-domain provenance;
-- migrations 086-107 on an empty PostgreSQL database, 107 non-empty-data rejection, financial constraints, foreign-key index coverage, and DataService/Gateway import smoke.
+- migrations 086-110 on an empty PostgreSQL database, 107 non-empty-data rejection, financial constraints, foreign-key index coverage, and DataService/Gateway import smoke.
 
 ## Frontend gates
 

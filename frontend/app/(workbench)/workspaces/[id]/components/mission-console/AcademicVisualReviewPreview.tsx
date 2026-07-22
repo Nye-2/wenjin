@@ -22,10 +22,11 @@ export function AcademicVisualReviewPreview({ missionId, item }: AcademicVisualR
   const [loadedMimeType, setLoadedMimeType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState(false);
+  const hasMetadata = metadata !== undefined && metadata !== null;
   const metadataMimeType = metadata?.mimeType ?? null;
 
   useEffect(() => {
-    if (!metadata || !item.previewAvailable) return;
+    if (!hasMetadata || !item.previewAvailable) return;
     let active = true;
     let nextObjectUrl: string | null = null;
     setObjectUrl(null);
@@ -51,7 +52,7 @@ export function AcademicVisualReviewPreview({ missionId, item }: AcademicVisualR
       active = false;
       if (nextObjectUrl) URL.revokeObjectURL(nextObjectUrl);
     };
-  }, [item.id, item.previewAvailable, metadataMimeType, missionId]);
+  }, [hasMetadata, item.id, item.previewAvailable, metadataMimeType, missionId]);
 
   const metadataLines = useMemo(() => metadata ? visualMetadataLines(metadata) : [], [metadata]);
   if (!metadata) return null;

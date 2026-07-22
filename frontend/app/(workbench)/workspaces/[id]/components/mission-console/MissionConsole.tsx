@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -253,7 +253,7 @@ function MissionActivity({ view }: { view: MissionView }) {
       {view.activity.summary ? (
         <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-secondary)]">{view.activity.summary}</p>
       ) : null}
-      {view.activity.attempt || view.activity.retryAt ? (
+      {view.activity.attempt || view.activity.retryAt || view.activity.state === "collaborating" ? (
         <p className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">{activityMeta(view)}</p>
       ) : null}
       {view.currentOperation ? (
@@ -291,6 +291,35 @@ function useElapsedTime(startedAt: string | null): string {
   return `${minutes} 分 ${seconds % 60} 秒`;
 }
 
+/**
+ * 以服务端 durationSeconds 为锚点、客户端每秒续走的平滑时长。
+ * 服务端值只在 SSE refetch 时更新，直接渲染会出现"冻结后跳变"。
+ */
+function useLiveDuration(
+  durationSeconds: number | null | undefined,
+  executionStatus: MissionView["executionStatus"],
+  missionId: string,
+): string {
+  const base = durationSeconds ?? 0;
+  const isTerminal = executionStatus === "completed"
+    || executionStatus === "failed"
+    || executionStatus === "cancelled";
+  const [liveSeconds, setLiveSeconds] = useState(base);
+
+  useEffect(() => {
+    setLiveSeconds(base);
+    if (isTerminal) return;
+    const anchoredAt = Date.now();
+    const timer = window.setInterval(() => {
+      const locallyElapsed = Math.max(0, Math.floor((Date.now() - anchoredAt) / 1_000));
+      setLiveSeconds(base + locallyElapsed);
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [base, isTerminal, missionId]);
+
+  return formatMissionDuration(liveSeconds);
+}
+
 function formatRelativeTime(value: string): string {
   const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1_000));
   if (!Number.isFinite(seconds) || seconds < 10) return "刚刚";
@@ -322,13 +351,22 @@ function activityMeta(view: MissionView): string {
     }
   }
   if (activity.attempt) return `正在进行第 ${activity.attempt} 次尝试`;
-  if (activity.state === "collaborating") return `${Math.max(view.activeSubagentCount ?? 0, view.subagents.length)} 位成员参与`;
+  if (activity.state === "collaborating") {
+    return view.subagents.length
+      ? `${view.subagents.length} 位成员参与`
+      : "研究成员正在启动";
+  }
   return activityStateLabel(activity.state);
 }
 
 function MissionHeader({ view, onClose }: { view: MissionView; onClose(): void }) {
   const panelMode = useMissionUiStore((state) => state.panelMode);
   const expandMission = useMissionUiStore((state) => state.expandMission);
+  const liveDuration = useLiveDuration(
+    view.durationSeconds,
+    view.executionStatus,
+    view.missionId,
+  );
   return (
     <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-[var(--wjn-line)] px-4">
       <StatusMark status={view.executionStatus} />
@@ -339,7 +377,7 @@ function MissionHeader({ view, onClose }: { view: MissionView; onClose(): void }
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[var(--wjn-text-muted)]">
           <span>{view.activity.title}</span>
           <span aria-hidden="true">·</span>
-          <span>{formatMissionDuration(view.durationSeconds)}</span>
+          <span>{liveDuration}</span>
         </div>
       </div>
       {panelMode === "peek" ? (
@@ -445,14 +483,23 @@ function ProgressSurface({
           <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold text-[var(--wjn-text)]">
             <Users size={14} /> 研究成员
           </h3>
+          {view.teamSummary ? (
+            <p className="mb-3 text-xs leading-5 text-[var(--wjn-text-secondary)]" data-testid="mission-team-summary">
+              {view.teamSummary}
+            </p>
+          ) : null}
           <div className="space-y-3">
             {!view.subagents.length && (view.activeSubagentCount ?? 0) > 0 ? (
               <div className="flex items-center gap-2 text-xs text-[var(--wjn-text-muted)]" role="status">
                 <LoaderCircle size={14} className="animate-spin" />
-                {view.activeSubagentCount ?? 0} 位研究成员正在启动…
+                研究成员正在启动…
               </div>
             ) : null}
-            {view.subagents.map((member) => (
+            {view.subagents.map((member) => {
+              const visibleMilestones = member.milestones
+                .filter((milestone) => milestone.summary !== member.summary)
+                .slice(-3);
+              return (
               <div key={member.id} className="flex items-start gap-3" data-testid="mission-member">
                 <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--wjn-surface-subtle)] text-xs font-semibold text-[var(--wjn-accent-strong)]">
                   {member.name.slice(0, 1)}
@@ -468,13 +515,32 @@ function ProgressSurface({
                   </div>
                   <div className="text-xs text-[var(--wjn-text-secondary)]">{member.role}</div>
                   {member.summary ? (
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--wjn-text-muted)]">
+                    <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-muted)]" data-testid="mission-member-summary">
                       {member.summary}
                     </p>
                   ) : null}
+                  {visibleMilestones.length ? (
+                    <ol className="mt-2 space-y-1.5" data-testid="mission-member-milestones">
+                      {visibleMilestones.map((milestone) => (
+                        <li
+                          key={`${milestone.kind}:${milestone.createdAt}:${milestone.summary}`}
+                          className="flex items-start gap-2 text-xs leading-5 text-[var(--wjn-text-muted)]"
+                        >
+                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--wjn-accent)]" />
+                          <span>
+                            <span className="mr-1 text-[var(--wjn-text-secondary)]">
+                              {subagentMilestoneLabel(milestone.kind)}
+                            </span>
+                            {milestone.summary}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       ) : null}
@@ -500,6 +566,18 @@ function subagentStatusLabel(status: MissionView["subagents"][number]["status"])
     failed: "未完成",
     cancelled: "已停止",
   }[status];
+}
+
+function subagentMilestoneLabel(
+  kind: MissionView["subagents"][number]["milestones"][number]["kind"],
+): string {
+  return {
+    finding: "发现",
+    formula: "公式",
+    file: "文件",
+    figure: "图表",
+    checkpoint: "进展",
+  }[kind];
 }
 
 function AttentionRequestCard({
@@ -655,14 +733,6 @@ function ReviewSurface({
   }, [view.missionId, view.stateVersion]);
 
   useEffect(() => {
-    reviewMissionRef.current = view.missionId;
-    reviewPagesLoadedRef.current = false;
-    setReviewItems(view.reviewItems);
-    setNextReviewCursor(view.reviewNextCursor ?? null);
-  }, [view.missionId]);
-
-  useEffect(() => {
-    if (reviewMissionRef.current !== view.missionId) return;
     setReviewItems((current) => reconcileProjectedPage(view.reviewItems, current));
     if (!reviewPagesLoadedRef.current) {
       setNextReviewCursor(view.reviewNextCursor ?? null);
@@ -1093,29 +1163,79 @@ function EvidenceSurface({ view }: { view: MissionView }) {
   const requestInFlightRef = useRef(false);
   const evidenceMissionRef = useRef(view.missionId);
   const evidencePagesLoadedRef = useRef(false);
+  const evidenceVisibleCountRef = useRef(view.evidenceItems.length);
+  const evidenceFullyLoadedRef = useRef((view.evidenceNextCursor ?? null) === null);
+  const evidenceTailReplayCursorRef = useRef<number | null>(null);
+  const evidenceFirstPageIdsRef = useRef(new Set(view.evidenceItems.map((item) => item.id)));
 
   useEffect(() => {
-    ++requestEpochRef.current;
-    requestInFlightRef.current = false;
-    evidenceMissionRef.current = view.missionId;
-    evidencePagesLoadedRef.current = false;
-    setEvidenceItems(view.evidenceItems);
-    setNextCursor(view.evidenceNextCursor ?? null);
-    setLoadingMore(false);
-    setLoadError(null);
+    const requestEpoch = requestEpochRef;
+    const requestInFlight = requestInFlightRef;
     return () => {
-      ++requestEpochRef.current;
-      requestInFlightRef.current = false;
+      ++requestEpoch.current;
+      requestInFlight.current = false;
     };
-  }, [view.missionId]);
+  }, []);
+
+  const loadEvidencePage = useCallback(async (cursor: number) => {
+    if (requestInFlightRef.current) return;
+    const missionId = evidenceMissionRef.current;
+    const requestEpoch = ++requestEpochRef.current;
+    requestInFlightRef.current = true;
+    evidenceFullyLoadedRef.current = false;
+    setLoadingMore(true);
+    setLoadError(null);
+    try {
+      const page = await listMissionEvidence({ missionId, cursor });
+      if (requestEpoch !== requestEpochRef.current) return;
+      evidencePagesLoadedRef.current = true;
+      evidenceTailReplayCursorRef.current = cursor;
+      setEvidenceItems((current) => {
+        const next = appendUnique(current, page.items);
+        evidenceVisibleCountRef.current = next.length;
+        return next;
+      });
+      setNextCursor(page.nextCursor);
+      evidenceFullyLoadedRef.current = page.nextCursor === null;
+    } catch (reason) {
+      if (requestEpoch !== requestEpochRef.current) return;
+      setNextCursor(cursor);
+      setLoadError(reason instanceof Error ? reason.message : "更多内容加载失败");
+    } finally {
+      if (requestEpoch === requestEpochRef.current) {
+        requestInFlightRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (evidenceMissionRef.current !== view.missionId) return;
-    setEvidenceItems((current) => reconcileProjectedPage(view.evidenceItems, current));
+    const previouslyVisibleCount = evidenceVisibleCountRef.current;
+    const previousFirstPageIds = evidenceFirstPageIdsRef.current;
+    evidenceFirstPageIdsRef.current = new Set(view.evidenceItems.map((item) => item.id));
+    setEvidenceItems((current) => {
+      const next = reconcileProjectedFirstPage(
+        view.evidenceItems,
+        current,
+        previousFirstPageIds,
+      );
+      evidenceVisibleCountRef.current = next.length;
+      return next;
+    });
     if (!evidencePagesLoadedRef.current) {
       setNextCursor(view.evidenceNextCursor ?? null);
+      evidenceFullyLoadedRef.current = (view.evidenceNextCursor ?? null) === null;
+    } else if (
+      evidenceFullyLoadedRef.current
+      && view.evidenceCount > previouslyVisibleCount
+      && evidenceTailReplayCursorRef.current !== null
+    ) {
+      const replayCursor = evidenceTailReplayCursorRef.current;
+      evidenceFullyLoadedRef.current = false;
+      void loadEvidencePage(replayCursor);
     }
-  }, [view.evidenceItems, view.evidenceNextCursor, view.missionId]);
+  }, [loadEvidencePage, view.evidenceCount, view.evidenceItems, view.evidenceNextCursor, view.missionId]);
 
   const items = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -1127,27 +1247,7 @@ function EvidenceSurface({ view }: { view: MissionView }) {
 
   const loadMore = async () => {
     if (nextCursor === null || requestInFlightRef.current) return;
-    const missionId = view.missionId;
-    const cursor = nextCursor;
-    const requestEpoch = ++requestEpochRef.current;
-    requestInFlightRef.current = true;
-    setLoadingMore(true);
-    setLoadError(null);
-    try {
-      const page = await listMissionEvidence({ missionId, cursor });
-      if (requestEpoch !== requestEpochRef.current) return;
-      evidencePagesLoadedRef.current = true;
-      setEvidenceItems((current) => appendUnique(current, page.items));
-      setNextCursor(page.nextCursor);
-    } catch (reason) {
-      if (requestEpoch !== requestEpochRef.current) return;
-      setLoadError(reason instanceof Error ? reason.message : "更多内容加载失败");
-    } finally {
-      if (requestEpoch === requestEpochRef.current) {
-        requestInFlightRef.current = false;
-        setLoadingMore(false);
-      }
-    }
+    await loadEvidencePage(nextCursor);
   };
 
   return (
@@ -1192,61 +1292,88 @@ function EvidenceSurface({ view }: { view: MissionView }) {
   );
 }
 
+interface LoadedArtifactPage {
+  items: MissionArtifactView[];
+  nextCursor: number | null;
+  nextTiebreaker: string | null;
+}
+
+function assertArtifactRevision(actual: string, expected: string): void {
+  if (actual !== expected) {
+    throw new Error("成果列表刚刚更新，正在同步最新内容");
+  }
+}
+
 function ArtifactSurface({ view }: { view: MissionView }) {
-  const [artifactItems, setArtifactItems] = useState<MissionArtifactView[]>(view.artifactItems);
-  const [nextCursor, setNextCursor] = useState<number | null>(view.artifactNextCursor ?? null);
-  const [nextTiebreaker, setNextTiebreaker] = useState<string | null>(view.artifactNextTiebreaker ?? null);
+  const [tailPages, setTailPages] = useState<LoadedArtifactPage[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestEpochRef = useRef(0);
   const requestInFlightRef = useRef(false);
-  const artifactMissionRef = useRef(view.missionId);
-  const artifactPagesLoadedRef = useRef(false);
+  const projectedArtifactRevisionRef = useRef(view.artifactRevision);
+  const tailItems = useMemo(
+    () => tailPages.flatMap((page) => page.items),
+    [tailPages],
+  );
+  const artifactItems = useMemo(
+    () => reconcileProjectedPage(view.artifactItems, tailItems),
+    [tailItems, view.artifactItems],
+  );
+  const [previewClock, setPreviewClock] = useState(0);
+  const lastTailPage = tailPages.at(-1);
+  const nextCursor = lastTailPage
+    ? lastTailPage.nextCursor
+    : (view.artifactNextCursor ?? null);
+  const nextTiebreaker = lastTailPage
+    ? lastTailPage.nextTiebreaker
+    : (view.artifactNextTiebreaker ?? null);
 
   useEffect(() => {
-    ++requestEpochRef.current;
-    requestInFlightRef.current = false;
-    artifactMissionRef.current = view.missionId;
-    artifactPagesLoadedRef.current = false;
-    setArtifactItems(view.artifactItems);
-    setNextCursor(view.artifactNextCursor ?? null);
-    setNextTiebreaker(view.artifactNextTiebreaker ?? null);
-    setLoadingMore(false);
-    setLoadError(null);
+    const expirations = artifactItems
+      .flatMap((item) => item.previewExpiresAt
+        ? [Date.parse(item.previewExpiresAt)]
+        : [])
+      .filter((value) => Number.isFinite(value) && value > previewClock);
+    if (!expirations.length) return;
+    const delay = Math.min(
+      Math.max(Math.min(...expirations) - Date.now() + 100, 100),
+      2_147_000_000,
+    );
+    const timer = window.setTimeout(() => setPreviewClock(Date.now()), delay);
+    return () => window.clearTimeout(timer);
+  }, [artifactItems, previewClock]);
+
+  useEffect(() => {
+    const requestEpoch = requestEpochRef;
+    const requestInFlight = requestInFlightRef;
     return () => {
-      ++requestEpochRef.current;
-      requestInFlightRef.current = false;
+      ++requestEpoch.current;
+      requestInFlight.current = false;
     };
-  }, [view.missionId]);
-
-  useEffect(() => {
-    if (artifactMissionRef.current !== view.missionId) return;
-    setArtifactItems((current) => reconcileProjectedPage(view.artifactItems, current));
-    if (!artifactPagesLoadedRef.current) {
-      setNextCursor(view.artifactNextCursor ?? null);
-      setNextTiebreaker(view.artifactNextTiebreaker ?? null);
-    }
-  }, [view.artifactItems, view.artifactNextCursor, view.artifactNextTiebreaker, view.missionId]);
+  }, []);
 
   const loadMore = async () => {
     if (nextCursor === null || requestInFlightRef.current) return;
-    const missionId = view.missionId;
-    const cursor = nextCursor;
     const requestEpoch = ++requestEpochRef.current;
     requestInFlightRef.current = true;
     setLoadingMore(true);
     setLoadError(null);
     try {
       const page = await listMissionArtifacts({
-        missionId,
-        cursor,
+        missionId: view.missionId,
+        cursor: nextCursor,
         ...(nextTiebreaker ? { tiebreaker: nextTiebreaker } : {}),
       });
       if (requestEpoch !== requestEpochRef.current) return;
-      artifactPagesLoadedRef.current = true;
-      setArtifactItems((current) => appendUnique(current, page.items));
-      setNextCursor(page.nextCursor);
-      setNextTiebreaker(page.nextTiebreaker);
+      assertArtifactRevision(page.revision, view.artifactRevision);
+      setTailPages((current) => [
+        ...current,
+        {
+          items: page.items,
+          nextCursor: page.nextCursor,
+          nextTiebreaker: page.nextTiebreaker ?? null,
+        },
+      ]);
     } catch (reason) {
       if (requestEpoch !== requestEpochRef.current) return;
       setLoadError(reason instanceof Error ? reason.message : "更多成果加载失败");
@@ -1257,6 +1384,73 @@ function ArtifactSurface({ view }: { view: MissionView }) {
       }
     }
   };
+
+  useEffect(() => {
+    if (projectedArtifactRevisionRef.current === view.artifactRevision) return;
+    projectedArtifactRevisionRef.current = view.artifactRevision;
+
+    // A page requested against an older projection must not land after this refresh.
+    if (requestInFlightRef.current) {
+      ++requestEpochRef.current;
+      requestInFlightRef.current = false;
+      setLoadingMore(false);
+    }
+    if (!tailPages.length) return;
+
+    const previousTailWasComplete = tailPages.at(-1)?.nextCursor === null;
+    const projectedTailCount = Math.max(0, view.artifactCount - view.artifactItems.length);
+    const pageCount = previousTailWasComplete
+      ? Math.max(tailPages.length, Math.ceil(projectedTailCount / 50))
+      : tailPages.length;
+    const requestEpoch = ++requestEpochRef.current;
+    requestInFlightRef.current = true;
+
+    const replayTail = async () => {
+      setLoadingMore(true);
+      setLoadError(null);
+      try {
+        const replayed: LoadedArtifactPage[] = [];
+        let cursor = view.artifactNextCursor ?? null;
+        let tiebreaker = view.artifactNextTiebreaker ?? null;
+        for (let index = 0; index < pageCount && cursor !== null; index += 1) {
+          const page = await listMissionArtifacts({
+            missionId: view.missionId,
+            cursor,
+            ...(tiebreaker ? { tiebreaker } : {}),
+          });
+          if (requestEpoch !== requestEpochRef.current) return;
+          assertArtifactRevision(page.revision, view.artifactRevision);
+          replayed.push({
+            items: page.items,
+            nextCursor: page.nextCursor,
+            nextTiebreaker: page.nextTiebreaker ?? null,
+          });
+          cursor = page.nextCursor;
+          tiebreaker = page.nextTiebreaker ?? null;
+        }
+        if (requestEpoch !== requestEpochRef.current) return;
+        setTailPages(replayed);
+      } catch (reason) {
+        if (requestEpoch !== requestEpochRef.current) return;
+        setLoadError(reason instanceof Error ? reason.message : "成果刷新失败");
+      } finally {
+        if (requestEpoch === requestEpochRef.current) {
+          requestInFlightRef.current = false;
+          setLoadingMore(false);
+        }
+      }
+    };
+
+    void replayTail();
+  }, [
+    view.artifactCount,
+    view.artifactItems,
+    view.artifactNextCursor,
+    view.artifactNextTiebreaker,
+    view.artifactRevision,
+    view.missionId,
+    tailPages,
+  ]);
 
   const openPreview = async (item: MissionArtifactView) => {
     setLoadError(null);
@@ -1292,7 +1486,11 @@ function ArtifactSurface({ view }: { view: MissionView }) {
                   <span className="text-[10px] text-[var(--wjn-text-muted)]">{item.committed ? "已保存" : "待确认"}</span>
                 </div>
                 {item.summary ? <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-secondary)]">{item.summary}</p> : null}
-                {item.previewAvailable ? (
+                {item.previewAvailable && (
+                  !item.previewExpiresAt
+                  || !Number.isFinite(Date.parse(item.previewExpiresAt))
+                  || Date.parse(item.previewExpiresAt) > previewClock
+                ) ? (
                   <button type="button" onClick={() => void openPreview(item)} className="mt-2 mr-3 inline-flex text-xs font-medium text-[var(--wjn-accent-strong)] hover:underline">
                     查看预览
                   </button>
@@ -1315,7 +1513,7 @@ function ArtifactSurface({ view }: { view: MissionView }) {
       {loadError ? <p className="mt-3 text-xs text-[var(--wjn-error)]">{loadError}</p> : null}
       {nextCursor !== null ? (
         <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="wjn-button-secondary mt-3 h-8 w-full text-xs disabled:opacity-45">
-          {loadingMore ? "正在加载…" : `加载更多成果（已显示 ${artifactItems.length}/${view.visibleArtifactCount ?? view.artifactCount}）`}
+          {loadingMore ? "正在加载…" : `加载更多成果（已显示 ${artifactItems.length}/${view.artifactCount}）`}
         </button>
       ) : null}
     </div>
@@ -1338,6 +1536,20 @@ function reconcileProjectedPage<T extends { id: string }>(
   ];
 }
 
+function reconcileProjectedFirstPage<T extends { id: string }>(
+  authoritative: T[],
+  current: T[],
+  previousFirstPageIds: ReadonlySet<string>,
+): T[] {
+  const authoritativeIds = new Set(authoritative.map((item) => item.id));
+  return [
+    ...authoritative,
+    ...current.filter((item) => (
+      !previousFirstPageIds.has(item.id) && !authoritativeIds.has(item.id)
+    )),
+  ];
+}
+
 function safeExternalUrl(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
@@ -1348,32 +1560,36 @@ function safeExternalUrl(value: string | null | undefined): string | null {
   }
 }
 
+function mergeTraceItems(current: MissionItem[], incoming: MissionItem[]): MissionItem[] {
+  const byId = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) byId.set(item.id, item);
+  return [...byId.values()].sort((left, right) => left.seq - right.seq);
+}
+
 function TraceSurface({ view }: { view: MissionView }) {
   const [items, setItems] = useState<MissionItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failedLatestSeq, setFailedLatestSeq] = useState<number | null>(null);
   const requestEpochRef = useRef(0);
   const requestInFlightRef = useRef(false);
   const observedLastItemSeqRef = useRef(view.lastItemSeq);
 
   useEffect(() => {
-    ++requestEpochRef.current;
-    requestInFlightRef.current = false;
-    setItems([]);
-    setCursor(null);
-    setStarted(false);
-    setLoading(false);
-    setError(null);
-    observedLastItemSeqRef.current = view.lastItemSeq;
+    const requestEpoch = requestEpochRef;
+    const requestInFlight = requestInFlightRef;
     return () => {
-      ++requestEpochRef.current;
-      requestInFlightRef.current = false;
+      ++requestEpoch.current;
+      requestInFlight.current = false;
     };
-  }, [view.missionId]);
+  }, []);
 
-  const load = async (nextCursor?: string | null) => {
+  const load = useCallback(async (
+    nextCursor?: string | null,
+    options: { refreshLatest?: boolean; observedSeq?: number } = {},
+  ) => {
     if (requestInFlightRef.current) return;
     const missionId = view.missionId;
     const requestEpoch = ++requestEpochRef.current;
@@ -1383,33 +1599,47 @@ function TraceSurface({ view }: { view: MissionView }) {
     try {
       const page = await listMissionItems({ missionId, beforeSeq: nextCursor, limit: 30 });
       if (requestEpoch !== requestEpochRef.current) return;
-      setItems((current) => (nextCursor ? [...page.items, ...current] : page.items));
-      setCursor(page.nextCursor);
+      setItems((current) => (
+        nextCursor || options.refreshLatest
+          ? mergeTraceItems(current, page.items)
+          : page.items
+      ));
+      if (!options.refreshLatest) setCursor(page.nextCursor);
+      if (options.observedSeq !== undefined) {
+        observedLastItemSeqRef.current = Math.max(
+          observedLastItemSeqRef.current,
+          options.observedSeq,
+        );
+      }
+      if (options.refreshLatest) setFailedLatestSeq(null);
       setStarted(true);
     } catch {
       if (requestEpoch !== requestEpochRef.current) return;
       setError("任务轨迹暂时未能加载，请重试。");
+      if (options.refreshLatest && options.observedSeq !== undefined) {
+        setFailedLatestSeq(options.observedSeq);
+      }
     } finally {
       if (requestEpoch === requestEpochRef.current) {
         requestInFlightRef.current = false;
         setLoading(false);
       }
     }
-  };
+  }, [view.missionId]);
 
   useEffect(() => {
+    if (!started || loading || requestInFlightRef.current) return;
     const previousSeq = observedLastItemSeqRef.current;
-    observedLastItemSeqRef.current = view.lastItemSeq;
-    if (started && view.lastItemSeq > previousSeq && !requestInFlightRef.current) {
-      void load(null);
-    }
-  }, [started, view.lastItemSeq]);
+    if (view.lastItemSeq <= previousSeq) return;
+    if (failedLatestSeq === view.lastItemSeq) return;
+    void load(null, { refreshLatest: true, observedSeq: view.lastItemSeq });
+  }, [failedLatestSeq, load, loading, started, view.lastItemSeq]);
   if (!started) {
     return (
       <div className="px-5 py-5" data-testid="mission-trace-idle">
         <QuietEmpty icon={History} title="按需查看任务轨迹" detail="这里展示阶段、工具与成员的语义摘要，不显示原始日志和工具 JSON。" />
         {error ? <p role="alert" className="mt-3 text-center text-xs text-[var(--wjn-error)]">{error}</p> : null}
-        <button type="button" disabled={loading} onClick={() => void load(null)} className="wjn-button-secondary mx-auto mt-4 flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-45">{loading ? <LoaderCircle size={14} className="animate-spin" /> : null}{error ? "重新加载任务轨迹" : "加载任务轨迹"}</button>
+        <button type="button" disabled={loading} onClick={() => void load(null, { observedSeq: view.lastItemSeq })} className="wjn-button-secondary mx-auto mt-4 flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-45">{loading ? <LoaderCircle size={14} className="animate-spin" /> : null}{error ? "重新加载任务轨迹" : "加载任务轨迹"}</button>
       </div>
     );
   }
@@ -1427,7 +1657,21 @@ function TraceSurface({ view }: { view: MissionView }) {
         ))}
       </div>
       {error ? <p role="alert" className="mt-3 text-xs text-[var(--wjn-error)]">{error}</p> : null}
-      {cursor ? <button type="button" disabled={loading} onClick={() => void load(cursor)} className="wjn-button-secondary mt-4 flex h-8 w-full items-center justify-center gap-2 text-xs">{loading ? <LoaderCircle size={14} className="animate-spin" /> : null}{error ? "重试加载更早记录" : "加载更早记录"}</button> : null}
+      {failedLatestSeq !== null ? (
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => void load(null, {
+            refreshLatest: true,
+            observedSeq: Math.max(failedLatestSeq, view.lastItemSeq),
+          })}
+          className="wjn-button-secondary mt-4 flex h-8 w-full items-center justify-center gap-2 text-xs disabled:opacity-45"
+        >
+          {loading ? <LoaderCircle size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          重试加载最新进展
+        </button>
+      ) : null}
+      {cursor ? <button type="button" disabled={loading} onClick={() => void load(cursor)} className="wjn-button-secondary mt-4 flex h-8 w-full items-center justify-center gap-2 text-xs disabled:opacity-45">{loading ? <LoaderCircle size={14} className="animate-spin" /> : null}{error && failedLatestSeq === null ? "重试加载更早记录" : "加载更早记录"}</button> : null}
     </div>
   );
 }

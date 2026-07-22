@@ -3,7 +3,7 @@
 Status: Implemented; production deployment acceptance pending
 Updated: 2026-07-17
 
-Implementation outcome: production paths were deleted/migrated, migrations 086-107 form one head, and the strict scanner reports zero findings. A clean Docker drop/reseed deployment is the only supported baseline; 107 rejects non-empty development data before installing cumulative Mission accounting and atomic chat billing. Release still requires the persisted live probe for all enabled models, complete backend/frontend suites, and a real-provider multi-turn browser chain covering chat authorization/settlement, Mission start, steer, subagents, stage acceptance, pause/resume, preview, user review, commit, evidence, artifacts, trace, and panel demand.
+Implementation outcome: production paths were deleted/migrated, migrations 086-110 form one head, and the strict scanner reports zero findings. A clean Docker drop/reseed deployment is the only supported baseline; 107 rejects non-empty development data before installing cumulative Mission accounting and atomic chat billing, while 108-110 complete workspace-field and projection SSOT cutovers. Release still requires the persisted live probe for all enabled models, complete backend/frontend suites, and a real-provider multi-turn browser chain covering chat authorization/settlement, Mission start, steer, subagents, stage acceptance, pause/resume, preview, user review, commit, evidence, artifacts, trace, and panel demand.
 Depends on: all mission-runtime specs
 
 ## Goal

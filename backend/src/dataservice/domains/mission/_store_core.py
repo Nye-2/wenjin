@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,7 +44,10 @@ from src.dataservice.common.errors import (
 from src.dataservice.domains.mission.projection import (
     mission_review_item_to_payload,
 )
-from src.dataservice.domains.mission.repository import MissionRepository
+from src.dataservice.domains.mission.repository import (
+    ArtifactProjectionRevisionRow,
+    MissionRepository,
+)
 from src.dataservice.domains.pricing.contracts import (
     GlobalCreditPolicyConfig,
     MissionPricingPolicyConfig,
@@ -67,6 +70,7 @@ from src.dataservice_client.contracts.mission import (
     MissionRunPatchPayload,
     MissionStageSummaryPayload,
     MissionStatus,
+    MissionSubagentMilestonePayload,
     MissionSubagentSummaryPayload,
     validate_mission_snapshot,
 )
@@ -953,7 +957,12 @@ def _project_current_operation(
     return None
 
 
-def _project_failure(run: MissionRunRecord, *, passed_stages: int) -> MissionFailurePayload | None:
+def _project_failure(
+    run: MissionRunRecord,
+    *,
+    passed_stages: int,
+    visible_artifact_count: int,
+) -> MissionFailurePayload | None:
     if run.status != MissionStatus.FAILED.value:
         return None
     reason = str((run.snapshot_json or {}).get("failure_reason") or "repeated_failure")
@@ -981,7 +990,7 @@ def _project_failure(run: MissionRunRecord, *, passed_stages: int) -> MissionFai
         action = "补充约束或调整任务要求后，从已保存进度继续。"
     preserved = (
         f"已保留 {passed_stages} 个已通过阶段、{run.evidence_count} 条来源与结果、"
-        f"{run.artifact_count} 个成果。"
+        f"{visible_artifact_count} 个成果。"
     )
     return MissionFailurePayload(
         category=category,
@@ -1411,59 +1420,55 @@ def _project_subagents(
     run: MissionRunRecord,
     records: list[MissionItemRecord],
 ) -> tuple[str | None, list[MissionSubagentSummaryPayload]]:
-    team_summary = _text(run.snapshot_json.get("team_summary"))
-    raw = run.snapshot_json.get("subagent_summary")
-    summary = raw if isinstance(raw, dict) else {}
-    latest = summary.get("latest")
-    snapshot_rows = latest if isinstance(latest, list) else []
-    inflight = run.snapshot_json.get("inflight_operation")
-    active_operation_id = (
-        str(inflight.get("operation_id") or "")
-        if isinstance(inflight, dict) and inflight.get("kind") == "subagent"
-        else ""
+    latest_operation_id = next(
+        (
+            record.operation_id
+            for record in reversed(records)
+            if record.item_type == "subagent_progress" and record.operation_id
+        ),
+        None,
     )
     progress_by_job: dict[str, MissionItemRecord] = {}
     public_summary_by_job: dict[str, str] = {}
-    if active_operation_id:
-        for record in records:
-            if (
-                record.item_type != "subagent_progress"
-                or record.operation_id != active_operation_id
-            ):
-                continue
-            job_id = _text((record.payload_json or {}).get("job_id"))
-            if job_id:
-                progress_by_job[job_id] = record
-                public_summary = _text(
-                    (record.payload_json or {}).get("public_summary")
+    milestones_by_job: dict[str, list[MissionSubagentMilestonePayload]] = {}
+    for record in records:
+        if (
+            record.item_type != "subagent_progress"
+            or record.operation_id != latest_operation_id
+        ):
+            continue
+        payload = dict(record.payload_json or {})
+        job_id = _text(payload.get("job_id"))
+        if not job_id:
+            continue
+        progress_by_job[job_id] = record
+        public_summary = _text(payload.get("public_summary"))
+        if public_summary:
+            public_summary_by_job[job_id] = public_summary
+        milestone_kind = _public_subagent_milestone_kind(payload)
+        if public_summary and milestone_kind is not None:
+            milestones_by_job.setdefault(job_id, []).append(
+                MissionSubagentMilestonePayload(
+                    kind=milestone_kind,
+                    summary=_public_subagent_summary(public_summary)
+                    or "研究成员已更新可查看进展。",
+                    created_at=record.created_at,
                 )
-                if public_summary:
-                    public_summary_by_job[job_id] = public_summary
-    rows: list[dict[str, Any]] = []
-    if progress_by_job:
-        for record in progress_by_job.values():
-            payload = dict(record.payload_json or {})
-            lifecycle_phase = _text(payload.get("lifecycle_phase")) or "progress"
-            rows.append(
-                {
-                    "job_id": payload.get("job_id"),
-                    "display_name": payload.get("display_name"),
-                    "role_label": payload.get("role_label"),
-                    "status": (
-                        payload.get("status")
-                        if lifecycle_phase == "terminal"
-                        else "working"
-                    ),
-                    "result_brief": public_summary_by_job.get(
-                        str(payload.get("job_id") or "")
-                    ),
-                }
             )
-    else:
-        rows = [row for row in snapshot_rows if isinstance(row, dict)]
+
     projected: list[MissionSubagentSummaryPayload] = []
-    for index, row in enumerate(rows):
-        raw_status = _text(row.get("status")) or "working"
+    for index, (job_id, record) in enumerate(progress_by_job.items()):
+        row = dict(record.payload_json or {})
+        lifecycle_phase = _text(row.get("lifecycle_phase")) or "progress"
+        raw_status = _text(row.get("status"))
+        if lifecycle_phase != "terminal":
+            raw_status = "working"
+        elif not raw_status:
+            raw_status = "completed" if record.phase == "completed" else "failed"
+        if lifecycle_phase != "terminal" and run.status == "cancelled":
+            raw_status = "cancelled"
+        elif lifecycle_phase != "terminal" and run.status in {"completed", "failed"}:
+            raw_status = "failed"
         status = {
             "pending": "queued",
             "queued": "queued",
@@ -1478,14 +1483,46 @@ def _project_subagents(
         }.get(raw_status, "working")
         projected.append(
             MissionSubagentSummaryPayload(
-                subagent_id=_text(row.get("job_id")) or f"member-{index + 1}",
+                subagent_id=job_id or f"member-{index + 1}",
                 display_name=_text(row.get("display_name")) or f"研究成员 {index + 1}",
                 role_label=_public_subagent_role(row.get("role_label")),
                 status=status,
-                summary=_public_subagent_summary(row.get("result_brief")),
+                summary=_public_subagent_summary(public_summary_by_job.get(job_id)),
+                milestones=milestones_by_job.get(job_id, [])[-6:],
             )
         )
-    return team_summary, projected
+    return _subagent_team_summary(projected), projected
+
+
+def _public_subagent_milestone_kind(
+    payload: dict[str, Any],
+) -> Literal["finding", "formula", "file", "figure", "checkpoint"] | None:
+    if payload.get("status") == "milestone":
+        value = _text(payload.get("progress_kind")) or "checkpoint"
+        if value in {"finding", "formula", "file", "figure", "checkpoint"}:
+            return value
+        return "checkpoint"
+    artifact_refs = payload.get("artifact_refs")
+    if payload.get("status") == "completed" and isinstance(artifact_refs, list) and artifact_refs:
+        return "file"
+    return None
+
+
+def _subagent_team_summary(
+    members: list[MissionSubagentSummaryPayload],
+) -> str | None:
+    if not members:
+        return None
+    working = sum(member.status in {"queued", "working"} for member in members)
+    milestones = sum(len(member.milestones) for member in members)
+    if working:
+        progress = f"，已有 {milestones} 条可查看进展" if milestones else ""
+        return f"{working} 位研究成员正在推进{progress}。"
+    done = sum(member.status == "done" for member in members)
+    unfinished = len(members) - done
+    if unfinished:
+        return f"{len(members)} 位研究成员中 {done} 位已完成，{unfinished} 位保留了当前进度。"
+    return f"{done} 位研究成员均已完成本轮协作。"
 
 
 def _public_subagent_summary(value: object) -> str | None:
@@ -1557,9 +1594,50 @@ def _project_artifact(
             and record.preview_expires_at is not None
             and _aware(record.preview_expires_at) > _aware(now)
         ),
+        preview_expires_at=(
+            record.preview_expires_at if record.preview_ref else None
+        ),
         committed=committed,
         download_available=committed and operation == "assets.create_from_preview",
     )
+
+
+def _artifact_projection_revision(
+    rows: list[ArtifactProjectionRevisionRow],
+) -> str:
+    """Hash only the ordered values that can change the public artifact surface."""
+
+    projection = []
+    for row in rows:
+        committed = (
+            row.review_status == "committed" or row.commit_status == "committed"
+        )
+        projection.append(
+            {
+                "committed": committed,
+                "download_available": committed
+                and row.materialization_operation == "assets.create_from_preview",
+                "item_id": row.review_item_id,
+                "kind": row.artifact_kind or row.target_kind,
+                "preview_expires_at": (
+                    _aware(row.preview_expires_at).isoformat()
+                    if row.preview_expires_at is not None
+                    else None
+                ),
+                "preview_ref": row.preview_ref,
+                "seq": row.source_item_seq,
+                "summary": row.summary,
+                "title": row.title,
+            }
+        )
+    encoded = json.dumps(
+        projection,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
 
 def _project_quality_highlights(run: MissionRunRecord) -> list[str]:
     raw = run.snapshot_json.get("quality_summary")

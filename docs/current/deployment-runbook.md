@@ -61,7 +61,7 @@ cd backend && .venv/bin/python -m alembic heads
 cd backend && .venv/bin/python -m src.quality.mission_cutover_gate --project-root ..
 ```
 
-Alembic must report one head: `108_remove_workspace_discipline`. The cutover gate must report zero findings.
+Alembic must report one head: `110_deduplicate_mission_references`. The cutover gate must report zero findings.
 
 ## 5. Start
 

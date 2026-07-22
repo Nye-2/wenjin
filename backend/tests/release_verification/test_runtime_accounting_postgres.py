@@ -1,8 +1,9 @@
-"""Release verification for migration 107 and PostgreSQL accounting locks."""
+"""Release verification through migration 110 and PostgreSQL accounting locks."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -84,10 +85,10 @@ def _uuid() -> str:
 
 @pytest.fixture
 async def billing_scenario(
-    postgres_107_database: Any,
+    postgres_110_database: Any,
 ) -> AsyncIterator[BillingScenario]:
     engine = create_async_engine(
-        postgres_107_database.async_url,
+        postgres_110_database.async_url,
         pool_size=4,
         max_overflow=0,
         pool_pre_ping=True,
@@ -356,12 +357,12 @@ def _index_predicate(index: dict[str, Any]) -> str:
     )
 
 
-def _assert_107_schema(sync_connection: Any) -> None:
+def _assert_110_schema(sync_connection: Any) -> None:
     inspector = inspect(sync_connection)
     revision = sync_connection.execute(
         text("SELECT version_num FROM alembic_version")
     ).scalar_one()
-    assert revision == "108_remove_workspace_discipline"
+    assert revision == "110_deduplicate_mission_references"
 
     user_columns = {column["name"]: column for column in inspector.get_columns("users")}
     for name in ("thread_consumed_tokens", "reserved_thread_free_tokens"):
@@ -533,15 +534,133 @@ def _assert_107_schema(sync_connection: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_postgres_upgrades_to_107_with_runtime_accounting_schema(
-    postgres_107_database: Any,
+async def test_empty_postgres_upgrades_to_110_with_runtime_accounting_schema(
+    postgres_110_database: Any,
 ) -> None:
-    engine = create_async_engine(postgres_107_database.async_url)
+    engine = create_async_engine(postgres_110_database.async_url)
     try:
         async with engine.connect() as connection:
-            await connection.run_sync(_assert_107_schema)
+            await connection.run_sync(_assert_110_schema)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_data_bearing_postgres_upgrades_from_108_to_110_ssot(
+    postgres_108_database: Any,
+) -> None:
+    mission_id = _uuid()
+    snapshot = {
+        "subagent_summary": {"latest": [{"job_id": "worker-1"}]},
+        "team_summary": "旧的快照投影",
+        "quality_summary": {"highlights": ["应保留"]},
+    }
+    evidence_payloads = [
+        {"reference_id": "doi:10.1000/example", "title": "初次观察"},
+        {"reference_id": "doi:10.1000/example", "title": "重复观察"},
+        {"reference_id": "", "title": "无语义标识的材料"},
+        {"title": "历史材料"},
+    ]
+    engine = create_async_engine(postgres_108_database.async_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO mission_runs (
+                        mission_id, workspace_id, user_id, workspace_type,
+                        mission_policy_id, title, objective, status, review_mode,
+                        model_id, reasoning_effort, snapshot_json,
+                        runtime_context_json, evidence_count, last_item_seq
+                    ) VALUES (
+                        :mission_id, :workspace_id, :user_id, 'sci',
+                        'release-verification-policy', '带数据迁移验证',
+                        '验证投影单一事实来源切换', 'completed',
+                        'balanced_default', 'gpt-5.6-terra', 'xhigh',
+                        CAST(:snapshot_json AS JSONB), '{}'::jsonb, 99, 5
+                    )
+                    """
+                ),
+                {
+                    "mission_id": mission_id,
+                    "workspace_id": _uuid(),
+                    "user_id": _uuid(),
+                    "snapshot_json": json.dumps(snapshot, ensure_ascii=False),
+                },
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO mission_items (
+                        id, mission_id, seq, item_type, phase, payload_json
+                    ) VALUES (
+                        :id, :mission_id, :seq, :item_type, 'completed',
+                        CAST(:payload_json AS JSONB)
+                    )
+                    """
+                ),
+                [
+                    {
+                        "id": _uuid(),
+                        "mission_id": mission_id,
+                        "seq": index,
+                        "item_type": "evidence",
+                        "payload_json": json.dumps(payload, ensure_ascii=False),
+                    }
+                    for index, payload in enumerate(evidence_payloads, start=1)
+                ]
+                + [
+                    {
+                        "id": _uuid(),
+                        "mission_id": mission_id,
+                        "seq": 5,
+                        "item_type": "artifact",
+                        "payload_json": json.dumps(
+                            {"reference_id": "doi:10.1000/example"}
+                        ),
+                    }
+                ],
+            )
+    finally:
+        await engine.dispose()
+
+    postgres_108_database.upgrade_to("110_deduplicate_mission_references")
+
+    upgraded_engine = create_async_engine(postgres_108_database.async_url)
+    try:
+        async with upgraded_engine.connect() as connection:
+            revision = (
+                await connection.execute(
+                    text("SELECT version_num FROM alembic_version")
+                )
+            ).scalar_one()
+            row = (
+                await connection.execute(
+                    text(
+                        "SELECT snapshot_json, evidence_count "
+                        "FROM mission_runs WHERE mission_id = :mission_id"
+                    ),
+                    {"mission_id": mission_id},
+                )
+            ).one()
+            item_count = (
+                await connection.execute(
+                    text(
+                        "SELECT COUNT(*) FROM mission_items "
+                        "WHERE mission_id = :mission_id"
+                    ),
+                    {"mission_id": mission_id},
+                )
+            ).scalar_one()
+    finally:
+        await upgraded_engine.dispose()
+
+    assert revision == "110_deduplicate_mission_references"
+    assert row.snapshot_json == {
+        "quality_summary": {"highlights": ["应保留"]}
+    }
+    assert row.evidence_count == 3
+    assert item_count == 5
 
 
 @pytest.mark.asyncio

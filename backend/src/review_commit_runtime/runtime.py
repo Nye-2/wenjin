@@ -7,6 +7,7 @@ import hmac
 import json
 import re
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -21,6 +22,7 @@ from src.dataservice_client.contracts.mission import (
     MissionReviewDecisionsPayload,
     MissionReviewDecisionStatus,
     MissionReviewItemPayload,
+    MissionRunPayload,
 )
 from src.dataservice_client.errors import DataServiceClientError
 from src.dataservice_client.mission_client import MissionDataServiceClient
@@ -386,7 +388,7 @@ class ReviewCommitRuntime:
 
     async def _supersede_uncommittable(
         self,
-        run,
+        run: MissionRunPayload,
         item: MissionReviewItemPayload,
         *,
         actor_user_id: str,
@@ -424,7 +426,12 @@ class ReviewCommitRuntime:
             ),
         )
 
-    async def _require_run(self, mission_id: str, *, actor_user_id: str):
+    async def _require_run(
+        self,
+        mission_id: str,
+        *,
+        actor_user_id: str,
+    ) -> MissionRunPayload:
         return await require_owned_mission(
             self._missions,
             self._membership,
@@ -483,7 +490,7 @@ def _durable_decision_status(action: ReviewAction) -> MissionReviewDecisionStatu
     return MissionReviewDecisionStatus(action.value + "ed")
 
 
-def _preview_hash(preview: dict) -> str:
+def _preview_hash(preview: dict[str, Any]) -> str:
     encoded = json.dumps(
         preview,
         ensure_ascii=False,

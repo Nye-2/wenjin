@@ -40,11 +40,13 @@ typecheck:
 	uv run mypy src/
 
 typecheck-incremental:
-	uv run mypy --follow-imports=skip \
-		src/runtime/runs/manager.py \
+	uv run mypy \
+		src/agents/workspace_agent/agent.py \
+		src/mission_runtime/runtime.py \
+		src/runtime/chat_turns/manager.py \
+		src/review_commit_runtime/runtime.py \
 		src/quality/release_gate.py \
 		src/services/release_gate_service.py \
-		src/services/execution_commit_service.py \
 		src/services/thread_events.py \
 		src/services/thread_service.py
 

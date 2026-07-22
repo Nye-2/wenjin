@@ -6,7 +6,7 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -17,7 +17,7 @@ from langchain_core.messages import (
     SystemMessage,
 )
 from langchain_core.messages.utils import message_chunk_to_message
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from src.agents.workspace_agent.contracts import (
     AgentAction,
@@ -33,8 +33,9 @@ from src.agents.workspace_agent.contracts import (
     WorkspaceAgentReply,
 )
 from src.agents.workspace_agent.prompts import render_workspace_agent_prompt
+from src.dataservice_client.contracts.mission import MissionRunPayload
 from src.mission_runtime import MissionStartRejectedError, MissionStartRejectionCode
-from src.mission_runtime.contracts import MissionStartRequest
+from src.mission_runtime.contracts import MissionStartReceipt, MissionStartRequest
 from src.mission_runtime.production import (
     MissionProductionConfigurationError,
     MissionProductionConfigurationErrorCode,
@@ -47,7 +48,7 @@ class WorkspaceAgentProtocolError(RuntimeError):
 
 
 class WorkspaceMissionPort(Protocol):
-    async def start(self, request: MissionStartRequest): ...
+    async def start(self, request: MissionStartRequest) -> MissionStartReceipt: ...
 
     async def steer(
         self,
@@ -60,7 +61,7 @@ class WorkspaceMissionPort(Protocol):
         request_id: str | None = None,
         mission_inputs: tuple[dict[str, Any], ...] = (),
         prism_context_ref: dict[str, Any] | None = None,
-    ): ...
+    ) -> MissionRunPayload: ...
 
     async def review(
         self,
@@ -71,7 +72,7 @@ class WorkspaceMissionPort(Protocol):
         review_item_ids: tuple[str, ...],
         decision: str,
         rationale: str | None,
-    ): ...
+    ) -> MissionRunPayload: ...
 
     async def request_commit(
         self,
@@ -80,10 +81,10 @@ class WorkspaceMissionPort(Protocol):
         actor_user_id: str,
         review_item_ids: tuple[str, ...],
         request_id: str,
-    ): ...
+    ) -> MissionRunPayload: ...
 
 
-_ACTION_MODELS = {
+_ACTION_MODELS: dict[str, type[BaseModel]] = {
     "answer": AnswerAction,
     "ask_user": AskUserAction,
     "start_mission": StartMissionAction,
@@ -178,7 +179,7 @@ def _partial_json_string_field(arguments: str, field: str) -> str:
 def _tool_descriptors(
     context: WorkspaceAgentContext | None = None,
 ) -> list[dict[str, Any]]:
-    descriptors = [
+    descriptors: list[dict[str, Any]] = [
         {
             "type": "function",
             "function": {
@@ -276,7 +277,7 @@ def _with_aggregated_usage(
         return response
     combined: dict[str, Any] = {}
     for item in responses:
-        usage = item.usage_metadata or {}
+        usage: dict[str, Any] = dict(item.usage_metadata or {})
         for key, value in usage.items():
             if isinstance(value, int):
                 combined[key] = int(combined.get(key) or 0) + value
@@ -357,7 +358,10 @@ class WorkspaceAgent:
                 raise WorkspaceAgentProtocolError(
                     "WorkspaceAgent provider stream returned a non-message chunk"
                 )
-            aggregate = chunk if aggregate is None else aggregate + chunk
+            aggregate = cast(
+                AIMessageChunk,
+                chunk if aggregate is None else aggregate + chunk,
+            )
             if on_text_delta is not None:
                 delta = projector.feed(chunk)
                 if delta:
@@ -412,7 +416,7 @@ class WorkspaceAgent:
             context,
             on_text_delta=on_text_delta,
         )
-        usage = provider_message.usage_metadata or {}
+        usage: dict[str, Any] = dict(provider_message.usage_metadata or {})
         if isinstance(action, AnswerAction):
             return WorkspaceAgentReply(text=action.text, action=action, metadata={"usage": usage})
         if isinstance(action, AskUserAction):
@@ -450,7 +454,7 @@ class WorkspaceAgent:
                         mission_idempotency_key=(f"mission:{context.thread_id}:{context.user_message_id}"),
                         mission_policy_id=spec.mission_policy_id,
                         parent_mission_id=parent_mission_id,
-                        review_mode=context.review_mode.value,
+                        review_mode=context.review_mode,
                         model_id=context.model_id,
                         reasoning_effort=context.reasoning_effort,
                         snapshot_json={

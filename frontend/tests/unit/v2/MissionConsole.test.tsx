@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 
 import { MissionConsole as MissionConsoleView } from "@/app/(workbench)/workspaces/[id]/components/mission-console/MissionConsole";
@@ -59,8 +59,19 @@ function makeView(missionId = "mission-1"): MissionView {
     stages: [{ id: "scope", title: "收敛问题", status: "passed" }, { id: "literature", title: "查找与核验证据", status: "active" }],
     requiredStageIds: ["scope", "literature"],
     teamSummary: "按方法、评测和隐私三个侧面并行推进",
-    subagents: [{ id: "s-1", name: "严谨派阿澈", role: "方法与实验审校", status: "working", summary: "核对 Non-IID 设定" }],
-    evidenceItems: [], artifactItems: [], evidenceCount: 0, artifactCount: 0,
+    subagents: [{
+      id: "s-1",
+      name: "严谨派阿澈",
+      role: "方法与实验审校",
+      status: "working",
+      summary: "核对 Non-IID 设定",
+      milestones: [{
+        kind: "finding",
+        summary: "已确认 Non-IID 实验分组口径",
+        createdAt: "2026-07-11T00:00:30Z",
+      }],
+    }],
+    evidenceItems: [], artifactItems: [], evidenceCount: 0, artifactCount: 0, artifactRevision: "artifact-revision-1",
     reviewItems: [{ id: "r-1", title: "可写创新点", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false, requiresExplicitReview: true, previewAvailable: false, commitEligible: false, reasonLabel: "涉及核心论断，需要逐项确认", preview: { claim: "异构性与自适应秩聚合存在可验证关联" } }],
     reviewSummary: { pending: 1, needsMoreEvidence: 0, accepted: 0, committed: 0 }, reviewMode: "balanced_default", reviewPolicy: { protectedOutputsRequireConfirmation: true, draftOutputsMayBeAutomatic: true }, reviewSelectionRevision: "review-selection-revision-1",
     commitSummary: { pending: 0, applying: 0, committed: 0, failed: 0 }, qualityHighlights: [], lastItemSeq: 4, stateVersion: 2,
@@ -76,6 +87,10 @@ function deferred<T>() {
 }
 
 describe("MissionConsole", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     useMissionUiStore.getState().clearWorkspaceFocus();
@@ -97,6 +112,7 @@ describe("MissionConsole", () => {
       items: [{ id: "artifact-2", title: "完整研究稿", kind: "document", previewAvailable: true, committed: false }],
       nextCursor: null,
       total: 2,
+      revision: "artifact-revision-1",
     });
     listMissionItemsMock.mockResolvedValue({ items: [{ id: "i-1", missionId: "mission-1", seq: 1, itemType: "evidence", phase: "completed", summary: "找到一篇可核验论文", createdAt: "2026-07-11T00:00:00Z" }], nextCursor: null });
     listMissionReviewsMock.mockResolvedValue({
@@ -110,7 +126,23 @@ describe("MissionConsole", () => {
     render(<MissionConsole view={makeView()} onClose={() => undefined} />);
     expect(screen.getByText("严谨派阿澈")).toBeInTheDocument();
     expect(screen.getByText("查找与核验证据")).toBeInTheDocument();
+    expect(screen.getByTestId("mission-member-summary")).toHaveTextContent("核对 Non-IID 设定");
+    expect(screen.getByTestId("mission-member-milestones")).toHaveTextContent("已确认 Non-IID 实验分组口径");
+    expect(screen.getByTestId("mission-team-summary")).toHaveTextContent("按方法、评测和隐私三个侧面并行推进");
     expect(screen.queryByText(/provider|schema|high risk|blocked/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a calm startup state before active member details arrive", () => {
+    const view = makeView();
+    view.activity = { state: "collaborating", title: "研究成员正在协作" };
+    view.activeSubagentCount = 1;
+    view.subagents = [];
+
+    render(<MissionConsole view={view} onClose={() => undefined} />);
+
+    expect(screen.getAllByText(/研究成员正在启动/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/0 位成员/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("mission-team-summary")).toHaveTextContent("按方法、评测和隐私三个侧面并行推进");
   });
 
   it("loads review items beyond the initial Mission projection", async () => {
@@ -149,6 +181,34 @@ describe("MissionConsole", () => {
     expect(screen.getByTestId("mission-current-operation")).toHaveTextContent("正在核对 8 份附件数据");
     expect(screen.getByLabelText("任务实时概览")).toHaveTextContent("9/9");
     expect(screen.getByText("已通过 1/2")).toBeInTheDocument();
+  });
+
+  it("advances active Mission duration and freezes it after the Mission terminates", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:05:00Z"));
+    const running = makeView();
+    running.durationSeconds = 42;
+    const { rerender } = render(<MissionConsole view={running} onClose={() => undefined} />);
+
+    expect(screen.getByText("42 秒")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.getByText("45 秒")).toBeInTheDocument();
+
+    const switched = makeView("mission-2");
+    switched.durationSeconds = 42;
+    rerender(<MissionConsole view={switched} onClose={() => undefined} />);
+    expect(screen.getByText("42 秒")).toBeInTheDocument();
+
+    const completed = {
+      ...switched,
+      executionStatus: "completed" as const,
+      durationSeconds: 46,
+    };
+    rerender(<MissionConsole view={completed} onClose={() => undefined} />);
+    expect(screen.getByText("46 秒")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(screen.getByText("46 秒")).toBeInTheDocument();
   });
 
   it("explains a preserved failure and routes continuation through chat", () => {
@@ -563,6 +623,27 @@ describe("MissionConsole", () => {
     );
   });
 
+  it("hides a signed artifact preview when its projected expiry arrives", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:00Z"));
+    const view = makeView();
+    view.artifactItems = [{
+      id: "artifact-preview",
+      title: "临时预览",
+      kind: "document",
+      previewAvailable: true,
+      previewExpiresAt: "2026-07-11T00:00:01Z",
+      committed: false,
+    }];
+    view.artifactCount = 1;
+    render(<MissionConsole view={view} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+
+    expect(screen.getByRole("button", { name: "查看预览" })).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_200));
+    expect(screen.queryByRole("button", { name: "查看预览" })).not.toBeInTheDocument();
+  });
+
   it("drops a late evidence page after Mission identity changes", async () => {
     const latePage = deferred<{
       items: Array<{ id: string; title: string; sourceType: "paper"; verified: boolean }>;
@@ -617,11 +698,49 @@ describe("MissionConsole", () => {
     expect(screen.getByText("后续核验证据")).toBeInTheDocument();
   });
 
+  it("automatically replays the evidence tail when new results arrive after full pagination", async () => {
+    listMissionEvidenceMock
+      .mockResolvedValueOnce({
+        items: [{ id: "ev-2", title: "已加载的尾部证据", sourceType: "paper", verified: true }],
+        nextCursor: null,
+        total: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          { id: "ev-2", title: "已加载的尾部证据", sourceType: "paper", verified: true },
+          { id: "ev-3", title: "运行中新增的证据", sourceType: "dataset", verified: true },
+        ],
+        nextCursor: null,
+        total: 3,
+      });
+    const first = makeView();
+    first.evidenceItems = [{ id: "ev-1", title: "首批证据", sourceType: "paper", verified: true }];
+    first.evidenceCount = 2;
+    first.evidenceNextCursor = 12;
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+    expect(await screen.findByText("已加载的尾部证据")).toBeInTheDocument();
+
+    const refreshed = {
+      ...first,
+      evidenceItems: [...first.evidenceItems],
+      evidenceCount: 3,
+      stateVersion: 3,
+    };
+    rerender(<MissionConsole view={refreshed} onClose={() => undefined} />);
+
+    expect(await screen.findByText("运行中新增的证据")).toBeInTheDocument();
+    expect(listMissionEvidenceMock).toHaveBeenCalledTimes(2);
+    expect(listMissionEvidenceMock).toHaveBeenLastCalledWith({ missionId: "mission-1", cursor: 12 });
+  });
+
   it("drops a late artifact page after Mission identity changes", async () => {
     const latePage = deferred<{
       items: Array<{ id: string; title: string; kind: string; previewAvailable: boolean; committed: boolean }>;
       nextCursor: null;
       total: number;
+      revision: string;
     }>();
     listMissionArtifactsMock.mockReturnValueOnce(latePage.promise);
     const first = makeView("mission-1");
@@ -643,11 +762,144 @@ describe("MissionConsole", () => {
         items: [{ id: "artifact-a-late", title: "任务 A 晚到成果", kind: "document", previewAvailable: true, committed: false }],
         nextCursor: null,
         total: 2,
+        revision: "artifact-revision-1",
       });
       await latePage.promise;
     });
     expect(screen.getByText("任务 B 成果")).toBeInTheDocument();
     expect(screen.queryByText("任务 A 晚到成果")).not.toBeInTheDocument();
+  });
+
+  it("keeps loaded artifact pages and removes superseded first-page items on same-Mission refresh", async () => {
+    listMissionArtifactsMock
+      .mockResolvedValueOnce({
+        items: [{ id: "artifact-2", title: "完整研究稿", kind: "document", previewAvailable: true, committed: false }],
+        nextCursor: null,
+        total: 3,
+        revision: "artifact-revision-1",
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: "artifact-2", title: "完整研究稿", kind: "document", previewAvailable: true, committed: false }],
+        nextCursor: null,
+        total: 3,
+        revision: "artifact-revision-2",
+      });
+    const first = makeView();
+    first.artifactItems = [{ id: "artifact-1", title: "首批成果", kind: "document", previewAvailable: false, committed: false }];
+    first.artifactCount = 3;
+    first.artifactNextCursor = 14;
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
+    expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
+
+    const refreshed = makeView();
+    refreshed.artifactItems = [{ id: "artifact-3", title: "替代后的首批成果", kind: "document", previewAvailable: false, committed: false }];
+    refreshed.artifactCount = 3;
+    refreshed.artifactNextCursor = 14;
+    refreshed.artifactRevision = "artifact-revision-2";
+    refreshed.stateVersion = 3;
+    rerender(<MissionConsole view={refreshed} onClose={() => undefined} />);
+
+    expect(screen.getByText("替代后的首批成果")).toBeInTheDocument();
+    expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
+    expect(screen.queryByText("首批成果")).not.toBeInTheDocument();
+  });
+
+  it("revalidates a loaded artifact tail when the projection changes without changing its count", async () => {
+    listMissionArtifactsMock
+      .mockResolvedValueOnce({
+        items: [{ id: "artifact-old", title: "旧版研究稿", kind: "document", previewAvailable: false, committed: false }],
+        nextCursor: null,
+        nextTiebreaker: null,
+        total: 2,
+        revision: "artifact-revision-1",
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: "artifact-new", title: "替代后的研究稿", kind: "document", previewAvailable: false, committed: false }],
+        nextCursor: null,
+        nextTiebreaker: null,
+        total: 2,
+        revision: "artifact-revision-2",
+      });
+    const first = makeView();
+    first.artifactItems = [{ id: "artifact-1", title: "首批成果", kind: "document", previewAvailable: false, committed: false }];
+    first.artifactCount = 2;
+    first.artifactNextCursor = 14;
+    first.artifactNextTiebreaker = "artifact-1";
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
+    expect(await screen.findByText("旧版研究稿")).toBeInTheDocument();
+
+    rerender(<MissionConsole view={{ ...first, artifactRevision: "artifact-revision-2", stateVersion: 3 }} onClose={() => undefined} />);
+
+    expect(await screen.findByText("替代后的研究稿")).toBeInTheDocument();
+    expect(screen.queryByText("旧版研究稿")).not.toBeInTheDocument();
+    expect(listMissionArtifactsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not replay a loaded artifact tail for a state-only heartbeat", async () => {
+    const first = makeView();
+    first.artifactItems = [{ id: "artifact-1", title: "首批成果", kind: "document", previewAvailable: false, committed: false }];
+    first.artifactCount = 2;
+    first.artifactNextCursor = 14;
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
+    expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
+
+    rerender(<MissionConsole view={{ ...first, stateVersion: 3 }} onClose={() => undefined} />);
+    await act(async () => Promise.resolve());
+
+    expect(listMissionArtifactsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("automatically replays the artifact tail when a generated file arrives after full pagination", async () => {
+    listMissionArtifactsMock
+      .mockResolvedValueOnce({
+        items: [{ id: "artifact-2", title: "已加载的研究稿", kind: "document", previewAvailable: false, committed: false }],
+        nextCursor: null,
+        nextTiebreaker: null,
+        total: 2,
+        revision: "artifact-revision-1",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          { id: "artifact-2", title: "已加载的研究稿", kind: "document", previewAvailable: false, committed: false },
+          { id: "artifact-3", title: "运行中生成的结果.xlsx", kind: "spreadsheet_result", previewAvailable: false, committed: true },
+        ],
+        nextCursor: null,
+        nextTiebreaker: null,
+        total: 3,
+        revision: "artifact-revision-2",
+      });
+    const first = makeView();
+    first.artifactItems = [{ id: "artifact-1", title: "首批成果", kind: "document", previewAvailable: false, committed: false }];
+    first.artifactCount = 2;
+    first.artifactNextCursor = 14;
+    first.artifactNextTiebreaker = "artifact-1";
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
+    expect(await screen.findByText("已加载的研究稿")).toBeInTheDocument();
+
+    const refreshed = {
+      ...first,
+      artifactItems: [...first.artifactItems],
+      artifactCount: 3,
+      artifactRevision: "artifact-revision-2",
+      stateVersion: 3,
+    };
+    rerender(<MissionConsole view={refreshed} onClose={() => undefined} />);
+
+    expect(await screen.findByText("运行中生成的结果.xlsx")).toBeInTheDocument();
+    expect(listMissionArtifactsMock).toHaveBeenCalledTimes(2);
+    expect(listMissionArtifactsMock).toHaveBeenLastCalledWith({
+      missionId: "mission-1",
+      cursor: 14,
+      tiebreaker: "artifact-1",
+    });
   });
 
   it("loads semantic trace only after the user asks", async () => {
@@ -657,6 +909,116 @@ describe("MissionConsole", () => {
     fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
     await waitFor(() => expect(screen.getByText("找到一篇可核验论文")).toBeInTheDocument());
     expect(screen.queryByText(/tool_json|stdout|api_key/i)).not.toBeInTheDocument();
+  });
+
+  it("merges a newer trace window without dropping already loaded history", async () => {
+    listMissionItemsMock
+      .mockResolvedValueOnce({
+        items: [
+          { id: "i-31", missionId: "mission-1", seq: 31, itemType: "stage", phase: "completed", summary: "当前阶段开始", createdAt: "2026-07-11T00:31:00Z" },
+          { id: "i-32", missionId: "mission-1", seq: 32, itemType: "stage", phase: "progress", summary: "正在核验", createdAt: "2026-07-11T00:32:00Z" },
+        ],
+        nextCursor: "31",
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: "i-1", missionId: "mission-1", seq: 1, itemType: "stage", phase: "completed", summary: "最早的任务记录", createdAt: "2026-07-11T00:01:00Z" }],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          { id: "i-32", missionId: "mission-1", seq: 32, itemType: "stage", phase: "completed", summary: "核验已完成", createdAt: "2026-07-11T00:32:00Z" },
+          { id: "i-33", missionId: "mission-1", seq: 33, itemType: "artifact", phase: "completed", summary: "生成最新成果", createdAt: "2026-07-11T00:33:00Z" },
+        ],
+        nextCursor: null,
+      });
+    const first = makeView();
+    first.lastItemSeq = 32;
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
+    expect(await screen.findByText("正在核验")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "加载更早记录" }));
+    expect(await screen.findByText("最早的任务记录")).toBeInTheDocument();
+
+    const refreshed = { ...first, lastItemSeq: 33, stateVersion: 3 };
+    rerender(<MissionConsole view={refreshed} onClose={() => undefined} />);
+
+    expect(await screen.findByText("生成最新成果")).toBeInTheDocument();
+    expect(screen.getByText("最早的任务记录")).toBeInTheDocument();
+    expect(screen.getByText("当前阶段开始")).toBeInTheDocument();
+    expect(screen.getByText("核验已完成")).toBeInTheDocument();
+    expect(screen.queryByText("正在核验")).not.toBeInTheDocument();
+    expect(listMissionItemsMock).toHaveBeenLastCalledWith({
+      missionId: "mission-1",
+      beforeSeq: null,
+      limit: 30,
+    });
+  });
+
+  it("refreshes the latest trace after an SSE update arrives during history pagination", async () => {
+    const olderPage = deferred<{
+      items: Array<{ id: string; missionId: string; seq: number; itemType: string; phase: string; summary: string; createdAt: string }>;
+      nextCursor: null;
+    }>();
+    listMissionItemsMock
+      .mockResolvedValueOnce({
+        items: [{ id: "i-32", missionId: "mission-1", seq: 32, itemType: "stage", phase: "progress", summary: "当前轨迹", createdAt: "2026-07-11T00:32:00Z" }],
+        nextCursor: "32",
+      })
+      .mockReturnValueOnce(olderPage.promise)
+      .mockResolvedValueOnce({
+        items: [{ id: "i-33", missionId: "mission-1", seq: 33, itemType: "artifact", phase: "completed", summary: "并发到达的新进展", createdAt: "2026-07-11T00:33:00Z" }],
+        nextCursor: "32",
+      });
+    const first = makeView();
+    first.lastItemSeq = 32;
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
+    expect(await screen.findByText("当前轨迹")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "加载更早记录" }));
+
+    rerender(<MissionConsole view={{ ...first, lastItemSeq: 33, stateVersion: 3 }} onClose={() => undefined} />);
+    await act(async () => {
+      olderPage.resolve({
+        items: [{ id: "i-1", missionId: "mission-1", seq: 1, itemType: "stage", phase: "completed", summary: "更早的轨迹", createdAt: "2026-07-11T00:01:00Z" }],
+        nextCursor: null,
+      });
+      await olderPage.promise;
+    });
+
+    expect(await screen.findByText("并发到达的新进展")).toBeInTheDocument();
+    expect(screen.getByText("更早的轨迹")).toBeInTheDocument();
+    expect(listMissionItemsMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not acknowledge a failed latest-trace refresh and offers an explicit retry", async () => {
+    listMissionItemsMock
+      .mockResolvedValueOnce({
+        items: [{ id: "i-32", missionId: "mission-1", seq: 32, itemType: "stage", phase: "progress", summary: "当前轨迹", createdAt: "2026-07-11T00:32:00Z" }],
+        nextCursor: null,
+      })
+      .mockRejectedValueOnce(new Error("temporary latest trace failure"))
+      .mockResolvedValueOnce({
+        items: [{ id: "i-33", missionId: "mission-1", seq: 33, itemType: "artifact", phase: "completed", summary: "重试后出现的新进展", createdAt: "2026-07-11T00:33:00Z" }],
+        nextCursor: null,
+      });
+    const first = makeView();
+    first.lastItemSeq = 32;
+    const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
+    expect(await screen.findByText("当前轨迹")).toBeInTheDocument();
+
+    rerender(<MissionConsole view={{ ...first, lastItemSeq: 33, stateVersion: 3 }} onClose={() => undefined} />);
+    expect(await screen.findByRole("button", { name: /重试加载最新进展/ })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("任务轨迹暂时未能加载，请重试");
+    expect(listMissionItemsMock).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: /重试加载最新进展/ }));
+    expect(await screen.findByText("重试后出现的新进展")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /重试加载最新进展/ })).not.toBeInTheDocument();
+    expect(listMissionItemsMock).toHaveBeenCalledTimes(3);
   });
 
   it("drops a late trace page and starts the next Mission trace cleanly", async () => {

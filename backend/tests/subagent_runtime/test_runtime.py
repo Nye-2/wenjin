@@ -585,6 +585,79 @@ async def test_one_fatal_job_reaps_all_batch_siblings() -> None:
 
 
 @pytest.mark.asyncio
+async def test_failed_batch_does_not_cancel_job_shared_with_another_batch() -> None:
+    shared_started = asyncio.Event()
+    allow_fatal = asyncio.Event()
+    release_shared = asyncio.Event()
+    shared_cancelled = asyncio.Event()
+
+    class FatalWorker(BaseException):
+        pass
+
+    class Model:
+        shared_calls = 0
+
+        async def next_action(self, job, steps, tool_results):
+            del steps, tool_results
+            if job.job_id == "sj_fatal":
+                await allow_fatal.wait()
+                raise FatalWorker("simulated worker process loss")
+            self.shared_calls += 1
+            shared_started.set()
+            try:
+                await release_shared.wait()
+            except asyncio.CancelledError:
+                shared_cancelled.set()
+                raise
+            return _model_turn(
+                kind="complete",
+                summary="shared work completed",
+                result_json={"value": 1},
+            )
+
+    model = Model()
+    runtime = SubagentRuntime(
+        model=model,
+        tools=_NoTools(),
+        ledger=_Ledger(),
+        max_concurrency=2,
+    )
+    deadline = asyncio.get_running_loop().time() + 30
+    failing_batch = asyncio.create_task(
+        runtime.run_batch(
+            (_job("sj_fatal"), _job("sj_shared")),
+            deadline_monotonic=deadline,
+        )
+    )
+    await asyncio.wait_for(shared_started.wait(), timeout=1)
+    surviving_batch = asyncio.create_task(
+        runtime.run_batch(
+            (_job("sj_shared"),),
+            deadline_monotonic=deadline,
+        )
+    )
+    for _ in range(20):
+        if runtime._active_waiters.get("sj_shared") == 2:
+            break
+        await asyncio.sleep(0)
+    assert runtime._active_waiters.get("sj_shared") == 2
+
+    allow_fatal.set()
+    with pytest.raises(FatalWorker):
+        await failing_batch
+
+    assert not shared_cancelled.is_set()
+    assert not surviving_batch.done()
+    release_shared.set()
+    result = await surviving_batch
+
+    assert result.results[0].status.value == "completed"
+    assert model.shared_calls == 1
+    assert runtime._active == {}
+    assert runtime._active_waiters == {}
+
+
+@pytest.mark.asyncio
 async def test_completed_result_uses_structured_summary_as_user_facing_brief() -> None:
     class Model:
         async def next_action(self, job, steps, tool_results):
@@ -845,6 +918,52 @@ async def test_invalid_partial_result_is_not_marked_usable() -> None:
     assert job_result.status.value == "failed"
     assert job_result.partial_result_available is False
     assert "partial_result_contract_invalid" in job_result.warnings
+
+
+@pytest.mark.asyncio
+async def test_partial_result_rejects_malformed_receipt_refs_without_schema_help() -> None:
+    class Model:
+        calls = 0
+
+        async def next_action(self, job, steps, tool_results):
+            del job, steps
+            self.calls += 1
+            if not tool_results:
+                return _model_turn(
+                    kind="tool",
+                    tool_name="research.search",
+                    arguments={"query": "federated PEFT"},
+                    summary="load a receipt-backed source",
+                )
+            return _model_turn(
+                kind="stop",
+                summary="return the bounded partial result",
+                stop_reason=SubagentStopReason.PARTIAL_RESULT_AVAILABLE,
+                partial_result_json={
+                    "evidence_refs": ["source:actual", 7],
+                    "artifact_refs": "artifact:not-an-array",
+                },
+            )
+
+    class Tools:
+        async def execute(self, request):
+            del request
+            return SubagentToolResult(
+                status="completed",
+                summary="source loaded",
+                evidence_refs=("source:actual",),
+            )
+
+    runtime = SubagentRuntime(model=Model(), tools=Tools(), ledger=_Ledger())
+    result = await runtime.run_batch(
+        (_job(),),
+        deadline_monotonic=asyncio.get_running_loop().time() + 2,
+    )
+
+    job_result = result.results[0]
+    assert job_result.status.value == "failed"
+    assert job_result.partial_result_available is False
+    assert "partial_result_refs_unverified" in job_result.warnings
 
 
 @pytest.mark.asyncio

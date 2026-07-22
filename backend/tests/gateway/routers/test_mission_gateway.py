@@ -48,6 +48,21 @@ from src.gateway.routers import missions
         ("model_call_started", "Workspace Agent model call started", "问津开始分析并规划下一步"),
         ("subagent_progress", "建模审查员 started", "建模审查员开始工作"),
         (
+            "subagent_progress",
+            "Selected context could not be loaded",
+            "未读取到所需材料，研究成员正在调整",
+        ),
+        (
+            "subagent_progress",
+            "The current Mission slice cannot cover this tool's pinned attempt boundary.",
+            "本轮处理范围已到边界，正在续接后续工作",
+        ),
+        (
+            "subagent_progress",
+            "Subagent exhausted its model-turn budget",
+            "研究成员已保留本轮分析进度",
+        ),
+        (
             "subagent_result",
             "0 of 1 subagent jobs produced usable results",
             "本轮研究成员结果未达到可用要求，正在调整",
@@ -223,6 +238,99 @@ def test_trace_defaults_to_latest_page_and_pages_backwards() -> None:
     assert older.json()["items"][0]["seq"] == 321
     assert older.json()["items"][-1]["seq"] == 350
     assert older.json()["items"][0]["detail_available"] is False
+
+
+def test_trace_uses_legacy_subagent_summary_when_public_summary_is_absent() -> None:
+    run = _run(last_item_seq=1)
+    dataservice = _dataservice(run)
+    dataservice.missions.list_items = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                id="progress-1",
+                mission_id=run.mission_id,
+                seq=1,
+                item_type="subagent_progress",
+                phase=MissionItemPhase.PROGRESS,
+                stage_id=None,
+                producer="subagent_runtime",
+                summary="Read 2290 character(s) from math-modeling-case.pdf.",
+                payload_json={"job_id": "job-1"},
+                payload_ref=None,
+                created_at=datetime(2026, 7, 11, tzinfo=UTC),
+            )
+        ]
+    )
+    client = _client(run=run, runtime=SimpleNamespace(), dataservice=dataservice)
+
+    response = client.get("/missions/mission-1/items", params={"limit": 30})
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["summary"] == (
+        "已读取研究材料：math-modeling-case.pdf"
+    )
+
+
+def test_trace_does_not_expose_arbitrary_legacy_subagent_summary() -> None:
+    run = _run(last_item_seq=1)
+    dataservice = _dataservice(run)
+    dataservice.missions.list_items = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                id="progress-private",
+                mission_id=run.mission_id,
+                seq=1,
+                item_type="subagent_progress",
+                phase=MissionItemPhase.PROGRESS,
+                stage_id=None,
+                producer="subagent_runtime",
+                summary="内部推理：候选结论仍包含未经确认的用户材料。",
+                payload_json={"job_id": "job-private"},
+                payload_ref=None,
+                created_at=datetime(2026, 7, 11, tzinfo=UTC),
+            )
+        ]
+    )
+    client = _client(run=run, runtime=SimpleNamespace(), dataservice=dataservice)
+
+    response = client.get("/missions/mission-1/items", params={"limit": 30})
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["summary"] == "研究成员完成了一项工作"
+
+
+def test_trace_hides_internal_accounting_and_model_terminal_receipts() -> None:
+    run = _run(last_item_seq=3)
+    dataservice = _dataservice(run)
+    now = datetime(2026, 7, 11, tzinfo=UTC)
+    dataservice.missions.list_items = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                id=f"item-{seq}",
+                mission_id=run.mission_id,
+                seq=seq,
+                item_type=item_type,
+                phase=MissionItemPhase.PROGRESS,
+                stage_id=None,
+                producer="mission_runtime",
+                summary=summary,
+                payload_json={},
+                payload_ref=None,
+                created_at=now,
+            )
+            for seq, item_type, summary in (
+                (1, "usage_receipt", "Model usage recorded"),
+                (2, "model_call_terminal", "Subagent model call unresolved"),
+                (3, "status_update", "Mission drive loop started"),
+            )
+        ]
+    )
+    client = _client(run=run, runtime=SimpleNamespace(), dataservice=dataservice)
+
+    response = client.get("/missions/mission-1/items", params={"limit": 30})
+
+    assert response.status_code == 200
+    assert [item["seq"] for item in response.json()["items"]] == [3]
+    assert response.json()["items"][0]["summary"] == "研究任务开始推进"
 
 
 def test_committed_mission_file_download_is_owned_and_attachment_scoped(tmp_path, monkeypatch) -> None:

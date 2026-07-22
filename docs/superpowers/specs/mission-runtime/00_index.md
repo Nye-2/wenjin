@@ -37,8 +37,10 @@ Final schema chain:
 - `106_remove_sandbox_pricing_policy`: converge pricing and credit reservations on Mission-owned billing.
 - `107_runtime_accounting`: require Mission execution budgets and add atomic chat-turn authorization/settlement plus user-balance counters.
 - `108_remove_workspace_discipline`: remove the unused workspace discipline field from persistence and public contracts.
+- `109_subagent_progress_ssot`: remove duplicate snapshot-level worker projections and retain the subagent MissionItem ledger as SSOT.
+- `110_deduplicate_mission_references`: project one Mission evidence entry per semantic reference while retaining operation receipts as immutable provenance.
 
-Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. A clean empty-database migration through `108` is the release baseline; 107 rejects non-empty development data and requires drop/reseed.
+Remaining production-environment acceptance includes the independent native-search probe, production Sandbox attestations, and a real-provider/real-Docker multi-turn browser scenario. Search-required policies correctly fail closed until valid receipts exist. A clean empty-database migration through `110` is the release baseline; 107 rejects non-empty development data and requires drop/reseed.
 
 ## Locked Decisions
 

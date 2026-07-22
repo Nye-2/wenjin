@@ -63,9 +63,14 @@ _SCALAR_COUNTER_KEYS = frozenset(
 _SUMMARY_KEYS = frozenset(
     {
         "evidence_ledger_summary",
-        "subagent_summary",
         "review_summary",
         "commit_summary",
+    }
+)
+_FORBIDDEN_SNAPSHOT_KEYS = frozenset(
+    {
+        "subagent_summary",
+        "team_summary",
     }
 )
 
@@ -170,6 +175,12 @@ def _validate_snapshot(value: dict[str, Any]) -> dict[str, Any]:
     duplicate_scalars = sorted(set(snapshot) & (_SNAPSHOT_SCALAR_KEYS | _SCALAR_COUNTER_KEYS))
     if duplicate_scalars:
         raise ValueError("snapshot_json duplicates canonical MissionRun scalar field(s): " + ", ".join(duplicate_scalars))
+    duplicate_projections = sorted(set(snapshot) & _FORBIDDEN_SNAPSHOT_KEYS)
+    if duplicate_projections:
+        raise ValueError(
+            "snapshot_json duplicates MissionItem-derived projection(s): "
+            + ", ".join(duplicate_projections)
+        )
     for summary_key in _SUMMARY_KEYS:
         summary = snapshot.get(summary_key)
         if isinstance(summary, dict):
@@ -933,6 +944,12 @@ class MissionFailurePayload(_StrictModel):
     failed_at: datetime
 
 
+class MissionSubagentMilestonePayload(_StrictModel):
+    kind: Literal["finding", "formula", "file", "figure", "checkpoint"]
+    summary: str = Field(min_length=1, max_length=500)
+    created_at: datetime
+
+
 class MissionSubagentSummaryPayload(_StrictModel):
     subagent_id: str
     display_name: str
@@ -946,6 +963,10 @@ class MissionSubagentSummaryPayload(_StrictModel):
         "cancelled",
     ]
     summary: str | None = None
+    milestones: list[MissionSubagentMilestonePayload] = Field(
+        default_factory=list,
+        max_length=6,
+    )
 
 
 class MissionEvidenceSummaryPayload(_StrictModel):
@@ -966,6 +987,7 @@ class MissionArtifactSummaryPayload(_StrictModel):
     kind: str
     summary: str | None = None
     preview_available: bool = False
+    preview_expires_at: datetime | None = None
     committed: bool = False
     download_available: bool = False
 
@@ -1013,6 +1035,10 @@ class MissionProjectionPagePayload(_StrictModel):
     next_tiebreaker: str | None = None
 
 
+class MissionArtifactProjectionPagePayload(MissionProjectionPagePayload):
+    revision: str = Field(min_length=16, max_length=64)
+
+
 class MissionCursorPagePayload(_StrictModel):
     total: int = Field(ge=0)
     returned: int = Field(ge=0)
@@ -1046,7 +1072,7 @@ class MissionEvidencePagePayload(_StrictModel):
 
 class MissionArtifactPagePayload(_StrictModel):
     items: list[MissionArtifactSummaryPayload] = Field(default_factory=list)
-    page: MissionProjectionPagePayload
+    page: MissionArtifactProjectionPagePayload
 
 
 class MissionViewPayload(_StrictModel):
@@ -1067,7 +1093,7 @@ class MissionViewPayload(_StrictModel):
     evidence_items: list[MissionEvidenceSummaryPayload] = Field(default_factory=list)
     evidence_page: MissionProjectionPagePayload
     artifact_items: list[MissionArtifactSummaryPayload] = Field(default_factory=list)
-    artifact_page: MissionProjectionPagePayload
+    artifact_page: MissionArtifactProjectionPagePayload
     review_policy: MissionReviewPolicyPayload
     review_selection_revision: str = Field(min_length=16, max_length=64)
     quality_highlights: list[str] = Field(default_factory=list)

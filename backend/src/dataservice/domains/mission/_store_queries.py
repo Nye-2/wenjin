@@ -12,6 +12,7 @@ from src.dataservice.domains.mission._store_core import (
     _REVIEW_TRANSITIONS,
     NONTERMINAL_MISSION_STATUSES,
     MissionProjectionStaleError,
+    _artifact_projection_revision,
     _decode_history_cursor,
     _decode_record_cursor,
     _encode_history_cursor,
@@ -36,6 +37,7 @@ from src.dataservice.domains.mission.projection import (
 )
 from src.dataservice_client.contracts.mission import (
     MissionArtifactPagePayload,
+    MissionArtifactProjectionPagePayload,
     MissionCommitSummaryPayload,
     MissionCursorPagePayload,
     MissionEvidencePagePayload,
@@ -387,21 +389,28 @@ class MissionQueryOperations:
             mission_id=mission_id,
             review_item_ids=sorted(projected_review_ids),
         )
-        evidence_records = await self.repository.list_items_by_types(
+        evidence_records = await self.repository.list_unique_evidence_items(
             mission_id=mission_id,
-            item_types=("evidence",),
             limit=projection_item_limit + 1,
         )
         pending_review_sources = await self.repository.list_items_by_seqs(
             mission_id=mission_id,
             seqs=tuple(record.source_item_seq for record in visible_review_records if record.status == "pending" and record.source_item_seq is not None),
         )
-        activity_records = await self.repository.list_items(
-            mission_id=mission_id,
-            after_seq=max(0, run.last_item_seq - 100),
-            limit=100,
-        )
         inflight = (run.snapshot_json or {}).get("inflight_operation")
+        active_subagent_operation_id: str | None = None
+        if isinstance(inflight, dict) and inflight.get("kind") == "subagent":
+            active_subagent_operation_id = (
+                str(inflight.get("operation_id") or "") or None
+            )
+        activity_records, subagent_progress_records = (
+            await self.repository.list_activity_with_subagent_projection(
+                mission_id=mission_id,
+                after_seq=max(0, run.last_item_seq - 100),
+                activity_limit=100,
+                operation_id=active_subagent_operation_id,
+            )
+        )
         inflight_seq = int(inflight.get("call_item_seq") or 0) if isinstance(inflight, dict) else 0
         if inflight_seq and all(record.seq != inflight_seq for record in activity_records):
             activity_records = [
@@ -423,12 +432,22 @@ class MissionQueryOperations:
             observed_stage_ids=[record.stage_id for record in pending_review_sources if record.stage_id is not None],
         )
         passed_stage_count = sum(1 for stage in stage_summaries if stage.status == "passed")
-        team_summary, subagents = _project_subagents(run, activity_records)
+        team_summary, subagents = _project_subagents(
+            run,
+            subagent_progress_records,
+        )
         committed_review_ids = {record.review_item_id for record in commit_records if record.status == "committed"}
         commits_by_review_item = {
             str(record.review_item_id): record for record in commit_records
         }
         projection_now = datetime.now(UTC)
+        artifact_revision_rows = (
+            await self.repository.list_artifact_projection_revision_rows(
+                mission_id=mission_id,
+            )
+        )
+        visible_artifact_count = len(artifact_revision_rows)
+        artifact_revision = _artifact_projection_revision(artifact_revision_rows)
         return MissionViewPayload(
             mission=mission_run_to_view_payload(run),
             activity=_project_activity(
@@ -437,7 +456,11 @@ class MissionQueryOperations:
             ),
             current_operation=_project_current_operation(run, activity_records),
             input_summary=_project_input_summary(run),
-            failure=_project_failure(run, passed_stages=passed_stage_count),
+            failure=_project_failure(
+                run,
+                passed_stages=passed_stage_count,
+                visible_artifact_count=visible_artifact_count,
+            ),
             attention_request=_project_attention_request(run),
             review_summary=MissionReviewSummaryPayload(**review_counts),
             commit_summary=MissionCommitSummaryPayload(**commit_counts),
@@ -484,10 +507,8 @@ class MissionQueryOperations:
                 )
                 for record in artifact_review_records
             ],
-            artifact_page=MissionProjectionPagePayload(
-                total=await self.repository.count_current_artifact_review_items(
-                    mission_id=mission_id
-                ),
+            artifact_page=MissionArtifactProjectionPagePayload(
+                total=visible_artifact_count,
                 returned=len(artifact_review_records),
                 next_cursor=(
                     artifact_review_records[-1].source_item_seq
@@ -499,6 +520,7 @@ class MissionQueryOperations:
                     if len(artifact_records) > projection_item_limit
                     else None
                 ),
+                revision=artifact_revision,
             ),
             review_policy=MissionReviewPolicyPayload(
                 mode=run.review_mode,
@@ -523,9 +545,8 @@ class MissionQueryOperations:
         run = await self.repository.get_run(mission_id)
         if run is None:
             return None
-        records = await self.repository.list_items_by_types(
+        records = await self.repository.list_unique_evidence_items(
             mission_id=mission_id,
-            item_types=("evidence",),
             after_seq=after_seq,
             limit=limit + 1,
         )
@@ -547,9 +568,42 @@ class MissionQueryOperations:
         after_review_item_id: str = "",
         limit: int = 50,
     ) -> MissionArtifactPagePayload | None:
-        run = await self.repository.get_run(mission_id)
-        if run is None:
-            return None
+        last_start_version: int | None = None
+        last_end_version: int | None = None
+        for _attempt in range(_MISSION_VIEW_READ_ATTEMPTS):
+            start_version = await self.repository.get_run_state_version(mission_id)
+            if start_version is None:
+                return None
+            page = await self._list_artifact_projection_page_once(
+                mission_id,
+                after_seq=after_seq,
+                after_review_item_id=after_review_item_id,
+                limit=limit,
+            )
+            end_version = await self.repository.get_run_state_version(mission_id)
+            if start_version == end_version:
+                return page
+            last_start_version = start_version
+            last_end_version = end_version
+            self.session.expire_all()
+        raise MissionProjectionStaleError(
+            "Mission artifact projection changed repeatedly while it was being read",
+            detail={
+                "mission_id": mission_id,
+                "attempts": _MISSION_VIEW_READ_ATTEMPTS,
+                "start_state_version": last_start_version,
+                "end_state_version": last_end_version,
+            },
+        )
+
+    async def _list_artifact_projection_page_once(
+        self,
+        mission_id: str,
+        *,
+        after_seq: int,
+        after_review_item_id: str,
+        limit: int,
+    ) -> MissionArtifactPagePayload:
         artifact_records = await self.repository.list_current_artifact_review_items(
             mission_id=mission_id,
             after_seq=after_seq,
@@ -569,6 +623,11 @@ class MissionQueryOperations:
             if record.status == "committed"
         }
         projection_now = datetime.now(UTC)
+        artifact_revision_rows = (
+            await self.repository.list_artifact_projection_revision_rows(
+                mission_id=mission_id,
+            )
+        )
         return MissionArtifactPagePayload(
             items=[
                 _project_artifact(
@@ -578,10 +637,8 @@ class MissionQueryOperations:
                 )
                 for record in page_records
             ],
-            page=MissionProjectionPagePayload(
-                total=await self.repository.count_current_artifact_review_items(
-                    mission_id=mission_id
-                ),
+            page=MissionArtifactProjectionPagePayload(
+                total=len(artifact_revision_rows),
                 returned=len(page_records),
                 next_cursor=(
                     page_records[-1].source_item_seq
@@ -593,6 +650,7 @@ class MissionQueryOperations:
                     if len(artifact_records) > limit and page_records
                     else None
                 ),
+                revision=_artifact_projection_revision(artifact_revision_rows),
             ),
         )
 

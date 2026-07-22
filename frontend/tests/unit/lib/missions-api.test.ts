@@ -82,7 +82,7 @@ function missionViewWire() {
     evidence_items: [],
     evidence_page: { total: 1, returned: 0, next_cursor: 12 },
     artifact_items: [],
-    artifact_page: { total: 1, returned: 0, next_cursor: 14 },
+    artifact_page: { total: 1, returned: 0, next_cursor: 14, revision: "artifact-revision-42" },
     review_policy: {
       mode: "balanced_default",
       protected_outputs_require_confirmation: true,
@@ -120,6 +120,9 @@ describe("Mission projection API", () => {
   it("projects activity and uses the dedicated review selection revision", async () => {
     const wire = missionViewWire();
     wire.mission.artifact_count = 6;
+    wire.mission.evidence_count = 9;
+    wire.evidence_page.total = 1;
+    wire.artifact_page.total = 1;
     authorizedFetchMock.mockResolvedValueOnce(jsonResponse(wire));
 
     const view = await getMissionView("mission-1");
@@ -136,13 +139,45 @@ describe("Mission projection API", () => {
     expect(view.inputSummary.ready).toBe(2);
     expect(view.reviewSelectionRevision).toBe("4e623f1e58e841dd80c8f16a39497f95");
     expect(view.reviewSelectionRevision).not.toBe(String(view.stateVersion));
-    expect(view.artifactCount).toBe(6);
+    expect(view.artifactRevision).toBe("artifact-revision-42");
+    expect(view.artifactCount).toBe(1);
+    expect(view.evidenceCount).toBe(1);
     expect(view.reviewItems[0]).toMatchObject({
       requiresExplicitReview: true,
       batchAcceptable: true,
       suggestedSelected: false,
       commitEligible: false,
       commitBlockReason: "review_item_not_accepted",
+    });
+  });
+
+  it("projects confirmed worker milestones from the Mission ledger", async () => {
+    const wire = {
+      ...missionViewWire(),
+      team_summary: "1 位研究成员正在推进，已有 1 条可查看进展。",
+      subagents: [{
+        subagent_id: "worker-1",
+        display_name: "优化建模员",
+        role_label: "负责求解模型",
+        status: "working",
+        summary: "已确认功率平衡约束",
+        updated_at: "2026-07-14T00:01:30Z",
+        milestones: [{
+          kind: "formula",
+          summary: "已确认逐时功率平衡方程",
+          created_at: "2026-07-14T00:01:20Z",
+        }],
+      }],
+    };
+    authorizedFetchMock.mockResolvedValueOnce(jsonResponse(wire));
+
+    const view = await getMissionView("mission-1");
+
+    expect(view.teamSummary).toBe("1 位研究成员正在推进，已有 1 条可查看进展。");
+    expect(view.subagents[0]).toMatchObject({
+      id: "worker-1",
+      status: "working",
+      milestones: [{ kind: "formula", summary: "已确认逐时功率平衡方程" }],
     });
   });
 
@@ -239,8 +274,8 @@ describe("Mission projection API", () => {
         page: { total: 2, returned: 1, next_cursor: null },
       }))
       .mockResolvedValueOnce(jsonResponse({
-        items: [{ item_id: "artifact-15", seq: 15, title: "研究稿", kind: "document", summary: "完整稿", preview_available: true, committed: true }],
-        page: { total: 2, returned: 1, next_cursor: 15, next_tiebreaker: "review-15" },
+        items: [{ item_id: "artifact-15", seq: 15, title: "研究稿", kind: "document", summary: "完整稿", preview_available: true, preview_expires_at: "2026-07-14T01:00:00Z", committed: true }],
+        page: { total: 2, returned: 1, next_cursor: 15, next_tiebreaker: "review-15", revision: "artifact-revision-43" },
       }));
 
     await expect(listMissionEvidence({ missionId: "mission-1", cursor: 12 })).resolves.toMatchObject({
@@ -249,10 +284,11 @@ describe("Mission projection API", () => {
       total: 2,
     });
     await expect(listMissionArtifacts({ missionId: "mission-1", cursor: 14, tiebreaker: "review-14" })).resolves.toMatchObject({
-      items: [{ id: "artifact-15", title: "研究稿", committed: true }],
+      items: [{ id: "artifact-15", title: "研究稿", previewExpiresAt: "2026-07-14T01:00:00Z", committed: true }],
       nextCursor: 15,
       nextTiebreaker: "review-15",
       total: 2,
+      revision: "artifact-revision-43",
     });
     expect(authorizedFetchMock).toHaveBeenNthCalledWith(1, "/api/missions/mission-1/evidence?cursor=12&limit=50");
     expect(authorizedFetchMock).toHaveBeenNthCalledWith(2, "/api/missions/mission-1/artifacts?cursor=14&limit=50&tiebreaker=review-14");

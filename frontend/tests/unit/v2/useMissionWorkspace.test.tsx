@@ -38,6 +38,7 @@ function missionView(missionId: string, stateVersion = 1): MissionView {
     artifactItems: [],
     evidenceCount: 0,
     artifactCount: 0,
+    artifactRevision: "artifact-revision-1",
     reviewItems: [],
     reviewSummary: { pending: 0, needsMoreEvidence: 0, accepted: 0, committed: 0 },
     reviewMode: "balanced_default",

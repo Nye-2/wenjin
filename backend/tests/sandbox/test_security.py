@@ -72,13 +72,20 @@ def test_protected_or_escape_paths_are_rejected(path: str) -> None:
 
 
 def test_secret_redaction_covers_bearer_keys_and_assignments() -> None:
-    raw = "Authorization: Bearer token-value\nOPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz\nGITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz123456\npassword=hunter2"
+    openai_key = "sk-" + "abcdefghijklmnopqrstuvwxyz"
+    github_token = "ghp_" + "abcdefghijklmnopqrstuvwxyz123456"
+    raw = (
+        "Authorization: Bearer token-value\n"
+        f"OPENAI_API_KEY={openai_key}\n"
+        f"GITHUB_TOKEN={github_token}\n"
+        "password=hunter2"
+    )
 
     redacted = redact_secrets(raw)
 
     assert "token-value" not in redacted
-    assert "sk-abcdefghijklmnopqrstuvwxyz" not in redacted
-    assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in redacted
+    assert openai_key not in redacted
+    assert github_token not in redacted
     assert "hunter2" not in redacted
     assert redacted.count("[REDACTED]") >= 3
 

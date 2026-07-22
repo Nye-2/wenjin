@@ -87,7 +87,8 @@ Storage rule:
 - Do not create `subagent_jobs` or keep `subagent_task_records` as runtime SSOT.
 - Active worker-local bookkeeping lives in the composed SubagentRuntime registry and is bounded by the current MissionDriveSlice; it is not queue or database truth.
 - Durable lifecycle is represented by immutable `subagent_spawned`, bounded `subagent_progress`, and terminal `subagent_completed` MissionItems sharing a stable operation id.
-- Terminal UI summary is stored in `MissionRun.snapshot_json.subagent_summary`. While a batch is active, DataService projects each worker from its newest durable `subagent_progress` item so Mission Console does not wait for terminal aggregation.
+- Immutable `subagent_spawned`, `subagent_progress`, and `subagent_completed` items are the SSOT for worker lifecycle and public progress. DataService derives the bounded team summary, each member's newest state, and typed milestones from this ledger for both active and terminal batches; `snapshot_json` contains no duplicate subagent summary.
+- Public milestones are typed as `finding`, `formula`, `file`, `figure`, or `checkpoint` and are emitted only after a concrete, checkable result exists. They expose useful work products without exposing private reasoning, model scratch text, or filler status updates.
 - Semantic lifecycle is paginated from MissionItems. Raw wire logs, token deltas, and verbose tool traces are external payload refs with redaction and TTL; they are not copied into the durable ledger.
 - Mission queue delivery is at-least-once. Spawn uses a stable operation key, and terminal results are accepted only by the current parent mission lease holder.
 

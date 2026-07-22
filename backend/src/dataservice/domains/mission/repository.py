@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,6 +18,21 @@ from src.database.models.mission import (
 )
 
 NONTERMINAL_MISSION_STATUSES = ("created", "planning", "running", "waiting")
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactProjectionRevisionRow:
+    review_item_id: str
+    source_item_seq: int
+    title: str
+    target_kind: str
+    summary: str | None
+    review_status: str
+    preview_ref: str | None
+    preview_expires_at: datetime | None
+    artifact_kind: str | None
+    materialization_operation: str | None
+    commit_status: str | None
 
 
 def _aware(value: datetime) -> datetime:
@@ -481,6 +497,107 @@ class MissionRepository:
         result = await self.session.execute(statement)
         return list(result.scalars())
 
+    async def list_activity_with_subagent_projection(
+        self,
+        *,
+        mission_id: str,
+        after_seq: int,
+        activity_limit: int,
+        operation_id: str | None = None,
+    ) -> tuple[list[MissionItemRecord], list[MissionItemRecord]]:
+        """Load recent activity and bounded worker projection in one query."""
+
+        selected_operation_id = operation_id
+        if selected_operation_id is None:
+            selected_operation_id = (
+                select(MissionItemRecord.operation_id)
+                .where(
+                    MissionItemRecord.mission_id == mission_id,
+                    MissionItemRecord.item_type == "subagent_spawned",
+                    MissionItemRecord.operation_id.is_not(None),
+                )
+                .order_by(MissionItemRecord.seq.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+        job_id = MissionItemRecord.payload_json["job_id"].as_string()
+        base_filters = (
+            MissionItemRecord.mission_id == mission_id,
+            MissionItemRecord.operation_id == selected_operation_id,
+            MissionItemRecord.item_type == "subagent_progress",
+            job_id.is_not(None),
+        )
+        latest_ranked = (
+            select(
+                MissionItemRecord.id.label("item_id"),
+                func.row_number()
+                .over(
+                    partition_by=job_id,
+                    order_by=MissionItemRecord.seq.desc(),
+                )
+                .label("projection_rank"),
+            )
+            .where(*base_filters)
+            .subquery()
+        )
+        public_ranked = (
+            select(
+                MissionItemRecord.id.label("item_id"),
+                func.row_number()
+                .over(
+                    partition_by=job_id,
+                    order_by=MissionItemRecord.seq.desc(),
+                )
+                .label("projection_rank"),
+            )
+            .where(
+                *base_filters,
+                MissionItemRecord.payload_json["public_summary"]
+                .as_string()
+                .is_not(None),
+            )
+            .subquery()
+        )
+        projection_ids = (
+            select(latest_ranked.c.item_id)
+            .where(latest_ranked.c.projection_rank == 1)
+            .union(
+                select(public_ranked.c.item_id).where(
+                    public_ranked.c.projection_rank <= 7
+                )
+            )
+            .subquery()
+        )
+        activity_ids = (
+            select(MissionItemRecord.id.label("item_id"))
+            .where(
+                MissionItemRecord.mission_id == mission_id,
+                MissionItemRecord.seq > after_seq,
+            )
+            .order_by(MissionItemRecord.seq.asc())
+            .limit(activity_limit)
+            .subquery()
+        )
+        combined_ids = (
+            select(activity_ids.c.item_id)
+            .union(select(projection_ids.c.item_id))
+            .subquery()
+        )
+        is_subagent_projection = MissionItemRecord.id.in_(
+            select(projection_ids.c.item_id)
+        ).label("is_subagent_projection")
+        result = await self.session.execute(
+            select(MissionItemRecord, is_subagent_projection)
+            .where(
+                MissionItemRecord.id.in_(select(combined_ids.c.item_id)),
+            )
+            .order_by(MissionItemRecord.seq.asc())
+        )
+        rows = list(result.all())
+        activity = [record for record, _is_projection in rows if record.seq > after_seq]
+        projection = [record for record, is_projection in rows if is_projection]
+        return activity, projection
+
     async def list_operation_receipt_items(
         self,
         *,
@@ -630,6 +747,87 @@ class MissionRepository:
             statement = statement.with_for_update()
         result = await self.session.execute(statement)
         return list(result.scalars())
+
+    async def list_unique_evidence_items(
+        self,
+        *,
+        mission_id: str,
+        after_seq: int = 0,
+        limit: int = 50,
+    ) -> list[MissionItemRecord]:
+        """Project one stable ledger item per Mission evidence reference."""
+
+        reference_id = MissionItemRecord.payload_json["reference_id"].as_string()
+        reference_identity = case(
+            (
+                and_(reference_id.is_not(None), reference_id != ""),
+                reference_id,
+            ),
+            else_=MissionItemRecord.id,
+        )
+        ranked = (
+            select(
+                MissionItemRecord.id.label("item_id"),
+                MissionItemRecord.seq.label("item_seq"),
+                func.row_number()
+                .over(
+                    partition_by=reference_identity,
+                    order_by=MissionItemRecord.seq.asc(),
+                )
+                .label("reference_rank"),
+            )
+            .where(
+                MissionItemRecord.mission_id == mission_id,
+                MissionItemRecord.item_type == "evidence",
+            )
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(MissionItemRecord)
+            .join(ranked, ranked.c.item_id == MissionItemRecord.id)
+            .where(
+                ranked.c.reference_rank == 1,
+                ranked.c.item_seq > after_seq,
+            )
+            .order_by(ranked.c.item_seq.asc())
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def list_existing_semantic_references(
+        self,
+        *,
+        mission_id: str,
+        reference_keys: tuple[tuple[str, str], ...],
+    ) -> dict[tuple[str, str], MissionItemRecord]:
+        if not reference_keys:
+            return {}
+        categories = {category for category, _reference_id in reference_keys}
+        reference_ids = {
+            reference_id for _category, reference_id in reference_keys
+        }
+        reference_id_value = (
+            MissionItemRecord.payload_json["reference_id"].as_string()
+        )
+        result = await self.session.execute(
+            select(MissionItemRecord)
+            .where(
+                MissionItemRecord.mission_id == mission_id,
+                MissionItemRecord.item_type.in_(categories),
+                reference_id_value.in_(reference_ids),
+            )
+            .order_by(MissionItemRecord.seq.asc())
+        )
+        requested = set(reference_keys)
+        existing: dict[tuple[str, str], MissionItemRecord] = {}
+        for record in result.scalars():
+            key = (
+                str(record.item_type),
+                str(record.payload_json.get("reference_id") or ""),
+            )
+            if key in requested:
+                existing.setdefault(key, record)
+        return existing
 
     async def count_items(
         self,
@@ -794,14 +992,78 @@ class MissionRepository:
         )
         return list(result.scalars())
 
-    async def count_current_artifact_review_items(self, *, mission_id: str) -> int:
+    async def list_artifact_projection_revision_rows(
+        self,
+        *,
+        mission_id: str,
+    ) -> list[ArtifactProjectionRevisionRow]:
+        """Return the compact, ordered inputs that define the public artifact view."""
+
         artifacts = _current_artifact_rows(mission_id)
+        artifact_kind = MissionReviewItemRecord.preview_json["artifact_kind"].as_string()
+        materialization_operation = MissionReviewItemRecord.preview_json[
+            "materialization"
+        ]["operation"].as_string()
         result = await self.session.execute(
-            select(func.count(artifacts.c.review_item_id)).where(
-                artifacts.c.artifact_rank == 1
+            select(
+                MissionReviewItemRecord.review_item_id,
+                MissionReviewItemRecord.source_item_seq,
+                MissionReviewItemRecord.title,
+                MissionReviewItemRecord.target_kind,
+                MissionReviewItemRecord.summary,
+                MissionReviewItemRecord.status.label("review_status"),
+                MissionReviewItemRecord.preview_ref,
+                MissionReviewItemRecord.preview_expires_at,
+                artifact_kind.label("artifact_kind"),
+                materialization_operation.label("materialization_operation"),
+                MissionCommitRecord.status.label("commit_status"),
+            )
+            .join(
+                artifacts,
+                artifacts.c.review_item_id
+                == MissionReviewItemRecord.review_item_id,
+            )
+            .outerjoin(
+                MissionCommitRecord,
+                and_(
+                    MissionCommitRecord.mission_id
+                    == MissionReviewItemRecord.mission_id,
+                    MissionCommitRecord.review_item_id
+                    == MissionReviewItemRecord.review_item_id,
+                ),
+            )
+            .where(artifacts.c.artifact_rank == 1)
+            .order_by(
+                artifacts.c.source_item_seq.asc(),
+                artifacts.c.review_item_id.asc(),
             )
         )
-        return int(result.scalar_one())
+        return [
+            ArtifactProjectionRevisionRow(
+                review_item_id=str(row.review_item_id),
+                source_item_seq=int(row.source_item_seq),
+                title=str(row.title),
+                target_kind=str(row.target_kind),
+                summary=str(row.summary) if row.summary is not None else None,
+                review_status=str(row.review_status),
+                preview_ref=(
+                    str(row.preview_ref) if row.preview_ref is not None else None
+                ),
+                preview_expires_at=row.preview_expires_at,
+                artifact_kind=(
+                    str(row.artifact_kind) if row.artifact_kind is not None else None
+                ),
+                materialization_operation=(
+                    str(row.materialization_operation)
+                    if row.materialization_operation is not None
+                    else None
+                ),
+                commit_status=(
+                    str(row.commit_status) if row.commit_status is not None else None
+                ),
+            )
+            for row in result.all()
+        ]
 
     async def list_review_items_for_replacement(
         self,
@@ -1018,4 +1280,8 @@ class MissionRepository:
         return int(result.scalar_one())
 
 
-__all__ = ["MissionRepository", "NONTERMINAL_MISSION_STATUSES"]
+__all__ = [
+    "ArtifactProjectionRevisionRow",
+    "MissionRepository",
+    "NONTERMINAL_MISSION_STATUSES",
+]

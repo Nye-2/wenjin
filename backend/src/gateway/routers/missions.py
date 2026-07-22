@@ -94,6 +94,13 @@ _TRACE_SUMMARY_LABELS = {
     "Model service was temporarily unavailable; Mission will retry": "连接暂时波动，问津正在重试",
     "Model service remained unavailable; Mission stopped with its partial work preserved": "连接多次未恢复，已保留当前成果",
     "Model service is busy; preserving worker context and retrying": "连接暂时波动，研究成员正在重试",
+    "Selected context could not be loaded": "未读取到所需材料，研究成员正在调整",
+    "Tool invocation failed before producing a typed result": "研究工具本轮未完成，研究成员正在调整",
+    "The current Mission slice cannot cover this tool's pinned attempt boundary.": "本轮处理范围已到边界，正在续接后续工作",
+    "The Mission slice cannot cover another pinned tool attempt.": "本轮处理范围已到边界，正在续接后续工作",
+    "Subagent exhausted its model-turn budget": "研究成员已保留本轮分析进度",
+    "Subagent exhausted its tool-step budget": "研究成员已保留本轮工具进度",
+    "Subagent exhausted its retries for structured model output": "结构化结果未通过校验，已保留当前进度",
 }
 
 _TRACE_FALLBACK_LABELS = {
@@ -108,6 +115,13 @@ _TRACE_FALLBACK_LABELS = {
     "status_update": "任务状态已更新",
 }
 
+_HIDDEN_PUBLIC_TRACE_ITEM_TYPES = {
+    "billing_reconciliation_required",
+    "model_call_terminal",
+    "subagent_action_checkpoint",
+    "usage_receipt",
+}
+
 _READ_MATERIAL_RE = re.compile(r"^Read \d+ (?:character|byte)\(s\) from (.+)\.$")
 _SUBAGENT_RESULT_RE = re.compile(r"^(\d+) of \d+ subagent jobs produced usable results$")
 _HAS_CJK_RE = re.compile(r"[\u3400-\u9fff]")
@@ -119,7 +133,12 @@ def _bounded_trace_text(value: str, *, limit: int = 180) -> str:
     return f"{value[:limit].rstrip()}…"
 
 
-def _public_trace_summary(*, item_type: str, summary: str | None) -> str:
+def _public_trace_summary(
+    *,
+    item_type: str,
+    summary: str | None,
+    allow_freeform: bool = True,
+) -> str:
     """Project an internal ledger receipt into calm, user-facing trace text."""
     normalized = (summary or "").strip()
     if not normalized:
@@ -153,9 +172,22 @@ def _public_trace_summary(*, item_type: str, summary: str | None) -> str:
         return f"{usable} 位研究成员已完成本轮工作"
     if item_type in {"evidence", "artifact"}:
         return _bounded_trace_text(normalized)
+    if not allow_freeform:
+        return _TRACE_FALLBACK_LABELS.get(item_type, "任务进展已更新")
     if normalized.startswith(("{", "[")) or not _HAS_CJK_RE.search(normalized):
         return _TRACE_FALLBACK_LABELS.get(item_type, "任务进展已更新")
     return _bounded_trace_text(normalized)
+
+
+def _public_trace_item_summary(item: Any) -> str:
+    public_summary = ""
+    if item.item_type == "subagent_progress":
+        public_summary = str((item.payload_json or {}).get("public_summary") or "").strip()
+    return _public_trace_summary(
+        item_type=item.item_type,
+        summary=public_summary or item.summary,
+        allow_freeform=item.item_type != "subagent_progress" or bool(public_summary),
+    )
 
 
 class _StrictModel(BaseModel):
@@ -599,19 +631,12 @@ async def list_mission_trace_items(
                 "phase": item.phase.value,
                 "stage_id": item.stage_id,
                 "producer": item.producer,
-                "summary": _public_trace_summary(
-                    item_type=item.item_type,
-                    summary=(
-                        str(item.payload_json.get("public_summary") or "") or None
-                        if item.item_type == "subagent_progress"
-                        else item.summary
-                    ),
-                ),
+                "summary": _public_trace_item_summary(item),
                 "created_at": item.created_at.isoformat(),
                 "detail_available": bool(item.payload_json or item.payload_ref),
             }
             for item in items
-            if item.item_type != "subagent_action_checkpoint"
+            if item.item_type not in _HIDDEN_PUBLIC_TRACE_ITEM_TYPES
         ],
         "next_cursor": items[0].seq if items and items[0].seq > 1 else None,
     }

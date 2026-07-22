@@ -43,6 +43,7 @@ from src.dataservice_client.contracts.mission import (
     MissionOperationFinishPayload,
     MissionOperationFinishResultPayload,
     MissionOperationReceiptPayload,
+    MissionSemanticReferencePayload,
 )
 
 _MODEL_LEDGER_ITEM_TYPES = frozenset(
@@ -64,6 +65,43 @@ ModelLedgerPayload = (
 
 def _enum_value(value: object) -> object:
     return getattr(value, "value", value)
+
+
+def _semantic_reference_projection(
+    reference: MissionSemanticReferencePayload,
+) -> dict[str, Any]:
+    return {
+        "reference_id": reference.reference_id,
+        "kind": reference.reference_kind,
+        "title": reference.title,
+        "uri": reference.uri,
+        "metadata": reference.metadata,
+        "source_type": _enum_value(reference.source_type),
+        "verified": reference.verified,
+    }
+
+
+def _stored_semantic_reference_projection(
+    record: MissionItemRecord,
+) -> dict[str, Any]:
+    payload = dict(record.payload_json or {})
+    return {
+        "reference_id": payload.get("reference_id"),
+        "kind": payload.get("kind"),
+        "title": payload.get("title"),
+        "uri": payload.get("uri"),
+        "metadata": payload.get("metadata") or {},
+        "source_type": payload.get("source_type"),
+        "verified": payload.get("verified", False),
+    }
+
+
+def _semantic_reference_identity(projection: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": projection.get("kind"),
+        "uri": projection.get("uri"),
+        "source_type": projection.get("source_type"),
+    }
 
 
 def _execution_record_matches(
@@ -818,6 +856,39 @@ class MissionExecutionOperations:
             )
         if receipt.claimant != command.claimant or receipt.lease_epoch != command.lease_epoch:
             raise DataServiceConflictError("Operation terminal fence was lost")
+        reference_keys = tuple(
+            (reference.category, reference.reference_id)
+            for reference in command.references
+        )
+        existing_references = (
+            await self.repository.list_existing_semantic_references(
+                mission_id=mission_id,
+                reference_keys=reference_keys,
+            )
+        )
+        for reference in command.references:
+            key = (reference.category, reference.reference_id)
+            existing = existing_references.get(key)
+            if existing is None:
+                continue
+            if _semantic_reference_identity(
+                _stored_semantic_reference_projection(existing)
+            ) != _semantic_reference_identity(
+                _semantic_reference_projection(reference)
+            ):
+                raise DataServiceConflictError(
+                    "Mission semantic reference identity was reused with incompatible kind, URI, or source type",
+                    detail={
+                        "category": reference.category,
+                        "reference_id": reference.reference_id,
+                    },
+                )
+        novel_references = [
+            reference
+            for reference in command.references
+            if (reference.category, reference.reference_id)
+            not in existing_references
+        ]
         appended = self._append_drafts(
             run,
             [
@@ -849,18 +920,12 @@ class MissionExecutionOperations:
                         producer=command.producer or command.claimant,
                         summary=reference.title or reference.reference_id,
                         payload_json={
-                            "reference_id": reference.reference_id,
-                            "kind": reference.reference_kind,
-                            "title": reference.title,
-                            "uri": reference.uri,
-                            "metadata": reference.metadata,
-                            "source_type": reference.source_type,
-                            "verified": reference.verified,
+                            **_semantic_reference_projection(reference),
                             "receipt_operation_key": command.operation_key,
                         },
                         payload_ref=reference.reference_id,
                     )
-                    for reference in command.references
+                    for reference in novel_references
                 ],
             ],
             now=now,

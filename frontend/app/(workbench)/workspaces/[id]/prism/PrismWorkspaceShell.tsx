@@ -659,6 +659,7 @@ export function PrismWorkspaceShell({
           ) : isMarkdownFile(activeFile) ? (
             <MarkdownRenderer content={editorValue} className="prose-chat text-[var(--wjn-text)]" />
           ) : isImageFile(activeFile) && assetUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Prism previews may be inline data URLs or authenticated workspace assets.
             <img
               src={assetUrl}
               alt={fileName(activeFile.path)}

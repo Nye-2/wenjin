@@ -2387,22 +2387,6 @@ def _subagent_port_outcome(batch: SubagentBatchResult) -> MissionPortOutcome:
             "jobs": [item.model_dump(mode="json") for item in batch.results],
             "failed_job_ids": [item.job_id for item in failed],
         },
-        snapshot_patch={
-            "subagent_summary": {
-                "active": 0,
-                "latest": [
-                    {
-                        "job_id": item.job_id,
-                        "display_name": item.display_name,
-                        "role_label": item.role_label,
-                        "status": item.status.value,
-                        "stop_reason": item.stop_reason.value,
-                        "result_brief": item.result_brief,
-                    }
-                    for item in batch.results
-                ],
-            }
-        },
     )
 
 

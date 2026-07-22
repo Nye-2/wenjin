@@ -179,6 +179,7 @@ class SubagentRuntime:
         self.model_call_timeout_seconds = model_call_timeout_seconds
         self.model_call_completion_margin_seconds = model_call_completion_margin_seconds
         self._active: dict[str, asyncio.Task[SubagentJobResult]] = {}
+        self._active_waiters: dict[str, int] = {}
         self._terminal: dict[str, SubagentJobResult] = {}
         self._job_fingerprints: dict[str, str] = {}
         self._registry_lock = asyncio.Lock()
@@ -240,22 +241,58 @@ class SubagentRuntime:
                     name=f"subagent:{job.job_id}",
                 )
                 self._active[job.job_id] = active
+            self._active_waiters[job.job_id] = (
+                self._active_waiters.get(job.job_id, 0) + 1
+            )
+        cancelled = False
         try:
             result = await asyncio.shield(active)
+            async with self._registry_lock:
+                self._remember_terminal_result_locked(job.job_id, result)
+            return result
         except asyncio.CancelledError:
-            active.cancel()
-            await asyncio.gather(active, return_exceptions=True)
+            cancelled = True
             raise
         finally:
-            if active.done():
-                async with self._registry_lock:
-                    self._active.pop(job.job_id, None)
-        async with self._registry_lock:
-            prior = self._terminal.get(job.job_id)
-            if prior is not None and prior.result_sha256 != result.result_sha256:
-                raise RuntimeError("duplicate subagent job produced a divergent terminal result")
-            self._terminal[job.job_id] = result
-        return result
+            reap_orphan: asyncio.Task[SubagentJobResult] | None = None
+            async with self._registry_lock:
+                waiter_count = self._active_waiters.get(job.job_id, 0) - 1
+                if waiter_count > 0:
+                    self._active_waiters[job.job_id] = waiter_count
+                else:
+                    self._active_waiters.pop(job.job_id, None)
+                if active.done():
+                    if not active.cancelled():
+                        try:
+                            completed_result = active.result()
+                        except BaseException:
+                            pass
+                        else:
+                            self._remember_terminal_result_locked(
+                                job.job_id,
+                                completed_result,
+                            )
+                    if self._active.get(job.job_id) is active:
+                        self._active.pop(job.job_id, None)
+                elif cancelled and waiter_count <= 0:
+                    active.cancel()
+                    if self._active.get(job.job_id) is active:
+                        self._active.pop(job.job_id, None)
+                    reap_orphan = active
+            if reap_orphan is not None:
+                await asyncio.gather(reap_orphan, return_exceptions=True)
+
+    def _remember_terminal_result_locked(
+        self,
+        job_id: str,
+        result: SubagentJobResult,
+    ) -> None:
+        prior = self._terminal.get(job_id)
+        if prior is not None and prior.result_sha256 != result.result_sha256:
+            raise RuntimeError(
+                "duplicate subagent job produced a divergent terminal result"
+            )
+        self._terminal[job_id] = result
 
     async def _run_job(
         self,
@@ -1173,12 +1210,16 @@ def _validate_receipt_backed_result_refs(
         if isinstance(node, dict):
             for key, child in node.items():
                 child_path = f"{path}.{key}"
-                if key in allowed_by_field and isinstance(child, list):
+                if key in allowed_by_field:
+                    if not isinstance(child, list):
+                        errors.append(f"{child_path} must be an array of receipt refs")
+                        continue
                     for index, ref in enumerate(child):
-                        if (
-                            isinstance(ref, str)
-                            and ref not in allowed_by_field[key]
-                        ):
+                        if not isinstance(ref, str):
+                            errors.append(
+                                f"{child_path}[{index}] must be a string receipt ref"
+                            )
+                        elif ref not in allowed_by_field[key]:
                             errors.append(f"{child_path}[{index}] is not backed by a tool receipt")
                     continue
                 visit(child, path=child_path)
