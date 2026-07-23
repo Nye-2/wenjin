@@ -93,6 +93,7 @@ export interface MissionCardBlock {
   evidence_count?: number;
   /** review_request */
   review_item_ids?: string[];
+  items?: Array<{ review_item_id: string; title: string }>;
   count?: number;
   summary?: string | null;
   /** material_request */
@@ -385,6 +386,17 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
           block.review_item_ids = raw.review_item_ids.filter(
             (id): id is string => typeof id === "string" && id.length > 0,
           );
+        }
+        if (Array.isArray(raw.items)) {
+          const items = raw.items
+            .filter(
+              (item): item is { review_item_id: string; title: string } =>
+                isRecord(item) &&
+                typeof item.review_item_id === "string" &&
+                typeof item.title === "string",
+            )
+            .map((item) => ({ review_item_id: item.review_item_id, title: item.title }));
+          if (items.length > 0) block.items = items;
         }
         if (typeof raw.count === "number") block.count = raw.count;
         if (typeof raw.summary === "string") block.summary = raw.summary;

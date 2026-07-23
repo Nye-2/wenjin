@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MissionCard } from "@/app/(workbench)/workspaces/[id]/components/MissionCardBlock";
 import type { MissionCardBlock } from "@/lib/api/blocks";
+import { useMissionUiStore } from "@/stores/mission-ui-store";
 
 const { commitMissionReviewsMock, decideMissionReviewsMock, getMissionViewMock } = vi.hoisted(() => ({
   commitMissionReviewsMock: vi.fn(),
@@ -104,5 +105,12 @@ describe("MissionCard", () => {
   it("renders terminal states", () => {
     render(<MissionCard block={{ kind: "mission_card", card: "terminal", mission_id: "m-1", status: "completed", title: "共享单车" }} />);
     expect(screen.getByText("研究已完成：共享单车")).toBeInTheDocument();
+  });
+
+  it("offers a reason action for a failed terminal card", () => {
+    render(<MissionCard block={{ kind: "mission_card", card: "terminal", mission_id: "m-1", status: "failed", title: "测试页摘要" }} />);
+    expect(screen.getByText("任务未能完成：测试页摘要")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看原因" }));
+    expect(useMissionUiStore.getState().panelMode).toBe("expanded");
   });
 });

@@ -16,6 +16,7 @@ import {
   decideMissionReviews,
   getMissionView,
 } from "@/lib/api/missions";
+import { useMissionUiStore } from "@/stores/mission-ui-store";
 
 const cardShell: React.CSSProperties = {
   margin: "8px 0",
@@ -171,6 +172,15 @@ function ReviewRequestCard({ block }: { block: MissionCardBlock }) {
         <Stamp size={15} aria-hidden="true" />
         {outcomeLabel ?? `${count} 项产出待你确认`}
       </div>
+      {!outcome && block.items && block.items.length > 0 ? (
+        <ul style={{ ...detailText, margin: "8px 0 0", paddingLeft: 18 }}>
+          {block.items.map((item) => (
+            <li key={item.review_item_id} style={{ marginTop: 2 }}>
+              {item.title}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {block.summary ? <p style={detailText}>{block.summary}</p> : null}
       {!outcome && itemIds.length > 0 ? (
         <div style={actionRow}>
@@ -249,11 +259,19 @@ export function MissionCard({
             <CheckCircle2 size={15} aria-hidden="true" />
           )}
           {failed
-            ? "任务未能完成，点进展查看原因"
+            ? `任务未能完成${(block.mission_title ?? block.title) ? `：${block.mission_title ?? block.title}` : ""}`
             : cancelled
               ? "任务已停止"
               : `研究已完成${(block.mission_title ?? block.title) ? `：${block.mission_title ?? block.title}` : ""}`}
         </div>
+        {failed ? (
+          <div style={actionRow}>
+            <CardButton
+              label="查看原因"
+              onClick={() => useMissionUiStore.getState().expandMission()}
+            />
+          </div>
+        ) : null}
       </div>
     );
   }
