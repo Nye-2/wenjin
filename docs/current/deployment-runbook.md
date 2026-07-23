@@ -85,7 +85,7 @@ Do not run a second ad-hoc frontend/backend stack on alternate ports as the norm
 docker compose ps
 docker compose logs --tail=200 migrate dataservice gateway worker mission-worker frontend
 curl -fsS http://localhost:2026/api/models?purpose=chat
-curl -fsS http://localhost:2026/api/readyz
+curl -fsS http://localhost:2026/readyz
 ```
 
 Check that:
