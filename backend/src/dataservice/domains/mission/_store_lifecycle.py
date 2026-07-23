@@ -22,10 +22,13 @@ from src.dataservice.common.errors import (
 )
 from src.dataservice.domains.mission._store_core import (
     TERMINAL_MISSION_STATUSES,
+    _attention_default_summary,
+    _attention_title,
     _aware,
     _create_request_matches,
     _text,
 )
+from src.dataservice.domains.mission.chat_cards import MissionChatCardContext
 from src.dataservice.domains.mission.projection import (
     mission_item_to_payload,
     mission_run_to_payload,
@@ -696,6 +699,22 @@ class MissionLifecycleOperations:
             self._transition_status(run, MissionStatus.WAITING, now=now)
         run.next_wakeup_at = None
         self._touch(run, now)
+        self._enqueue_chat_card(
+            "material_request_created",
+            MissionChatCardContext.from_run(run),
+            {
+                "request_id": command.request_id,
+                "title": (
+                    _text(pending_request.get("title"))
+                    or _attention_title(command.reason)
+                ),
+                "summary": (
+                    _text(pending_request.get("summary"))
+                    or _text(pending_request.get("question"))
+                    or _attention_default_summary(command.reason)
+                ),
+            },
+        )
         await self._finish()
         return MissionAppendResultPayload(
             mission=mission_run_to_payload(run),

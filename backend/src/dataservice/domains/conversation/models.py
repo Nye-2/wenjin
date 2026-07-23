@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database.base import Base, TimestampMixin, UUIDMixin
 from src.dataservice.domains.conversation.block_protocol import CANONICAL_BLOCK_KINDS
 
-JSONB_DEFAULT = "'{}'::jsonb"
+CONVERSATION_JSON_TYPE = JSON().with_variant(JSONB, "postgresql")
+
+CONVERSATION_JSON_DEFAULT = "'{}'"
 
 
 class ThreadMessage(Base, UUIDMixin, TimestampMixin):
@@ -44,16 +46,16 @@ class ThreadMessage(Base, UUIDMixin, TimestampMixin):
     sequence_index: Mapped[int] = mapped_column(Integer, nullable=False)
     timestamp: Mapped[Any | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
+        CONVERSATION_JSON_TYPE,
         nullable=False,
         default=dict,
-        server_default=JSONB_DEFAULT,
+        server_default=CONVERSATION_JSON_DEFAULT,
     )
     source_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
+        CONVERSATION_JSON_TYPE,
         nullable=False,
         default=dict,
-        server_default=JSONB_DEFAULT,
+        server_default=CONVERSATION_JSON_DEFAULT,
     )
 
 
@@ -83,10 +85,10 @@ class MessageBlock(Base, UUIDMixin, TimestampMixin):
     block_type: Mapped[str] = mapped_column(String(32), nullable=False)
     sequence_index: Mapped[int] = mapped_column(Integer, nullable=False)
     payload_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
+        CONVERSATION_JSON_TYPE,
         nullable=False,
         default=dict,
-        server_default=JSONB_DEFAULT,
+        server_default=CONVERSATION_JSON_DEFAULT,
     )
 
 
@@ -118,10 +120,10 @@ class ToolInvocationRecord(Base, UUIDMixin, TimestampMixin):
     tool_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     input_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
+        CONVERSATION_JSON_TYPE,
         nullable=False,
         default=dict,
-        server_default=JSONB_DEFAULT,
+        server_default=CONVERSATION_JSON_DEFAULT,
     )
 
 
@@ -154,8 +156,8 @@ class ToolResultRecord(Base, UUIDMixin, TimestampMixin):
     status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
+        CONVERSATION_JSON_TYPE,
         nullable=False,
         default=dict,
-        server_default=JSONB_DEFAULT,
+        server_default=CONVERSATION_JSON_DEFAULT,
     )

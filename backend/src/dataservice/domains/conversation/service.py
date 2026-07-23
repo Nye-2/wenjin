@@ -127,9 +127,40 @@ class DataServiceConversationService:
         return self.to_thread_projection(thread)
 
     async def append_message(self, command: ConversationMessageCreateCommand) -> ThreadMessage:
+        message, _ = await self._append_message_locked(command, card_id=None)
+        return message
+
+    async def append_card_message(
+        self,
+        command: ConversationMessageCreateCommand,
+        *,
+        card_id: str,
+    ) -> tuple[ThreadMessage, bool]:
+        """Append one card message unless ``card_id`` already exists in the thread.
+
+        Returns the persisted message and whether it was newly appended.
+        """
+        return await self._append_message_locked(command, card_id=card_id)
+
+    async def _append_message_locked(
+        self,
+        command: ConversationMessageCreateCommand,
+        *,
+        card_id: str | None,
+    ) -> tuple[ThreadMessage, bool]:
         await self.repository.lock_thread(command.thread_id)
+        if card_id:
+            existing = await self.repository.find_message_by_card_id(
+                thread_id=command.thread_id,
+                card_id=card_id,
+            )
+            if existing is not None:
+                return existing, False
         thread = await self.repository.get_thread(command.thread_id)
         sequence_index = await self.repository.next_message_sequence(command.thread_id)
+        metadata = dict(command.metadata or {})
+        if card_id:
+            metadata.setdefault("card_id", card_id)
         message = self.repository.create_message(
             thread_id=command.thread_id,
             workspace_id=command.workspace_id,
@@ -138,7 +169,7 @@ class DataServiceConversationService:
             content=command.content,
             sequence_index=sequence_index,
             timestamp=command.timestamp,
-            metadata_json=dict(command.metadata or {}),
+            metadata_json=metadata,
             source_json=dict(command.source_json or {}),
         )
         raw_blocks = command.blocks or blocks_from_message(
@@ -164,7 +195,7 @@ class DataServiceConversationService:
             thread.last_message_preview = _truncate_message_preview(command.content)
             thread.updated_at = command.timestamp or datetime.now(UTC)
         await self._finish()
-        return message
+        return message, True
 
     async def patch_attachment_state(
         self,

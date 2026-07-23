@@ -24,6 +24,7 @@ from src.dataservice.domains.mission._store_core import (
     _encode_record_cursor,
     _review_materialization_destination,
 )
+from src.dataservice.domains.mission.chat_cards import MissionChatCardContext
 from src.dataservice.domains.mission.projection import (
     mission_commit_to_payload,
     mission_review_item_to_payload,
@@ -453,6 +454,20 @@ class MissionReviewOperations:
         )
         if prepared_snapshot is not None:
             self._install_prepared_snapshot(run, prepared_snapshot)
+        if records:
+            self._enqueue_chat_card(
+                "review_request_created",
+                MissionChatCardContext.from_run(run),
+                {
+                    "review_items": [
+                        {
+                            "review_item_id": str(record.review_item_id),
+                            "title": str(record.title or ""),
+                        }
+                        for record in records
+                    ],
+                },
+            )
         if patch is not None:
             self._apply_patch(run, patch, now=now)
         self._touch(run, now)

@@ -513,6 +513,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
     });
   }
 
+  const handleMaterialAction = useCallback(() => {
+    textareaRef.current?.focus();
+    fileAttachRef.current?.open();
+  }, []);
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     const nativeEvent = e.nativeEvent as KeyboardEvent;
     if (
@@ -561,6 +566,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
               threadId={threadId}
               onIntent={handleBlockIntent}
               intentDisabled={isSending}
+              onMaterialAction={handleMaterialAction}
               pending={
                 isSending &&
                 msg.role === "assistant" &&
@@ -1196,6 +1202,7 @@ const MessageRow = memo(function MessageRow({
   threadId,
   onIntent,
   intentDisabled,
+  onMaterialAction,
   pending,
 }: {
   message: Message;
@@ -1206,6 +1213,7 @@ const MessageRow = memo(function MessageRow({
     options?: SendMessageOptions,
   ) => void;
   intentDisabled?: boolean;
+  onMaterialAction?: () => void;
   pending?: boolean;
 }) {
   const isUser = message.role === "user";
@@ -1255,6 +1263,7 @@ const MessageRow = memo(function MessageRow({
                   : undefined
               }
               intentDisabled={intentDisabled}
+              onMaterialAction={onMaterialAction}
             />
           ))
         )}

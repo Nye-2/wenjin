@@ -75,12 +75,40 @@ export interface ResultCardBlock {
   stats: RunStats;
 }
 
+/** 服务端发射的 Mission 任务卡片（chat 叙事层）。 */
+export type MissionCardKind =
+  | "stage_passed"
+  | "review_request"
+  | "material_request"
+  | "terminal";
+
+export interface MissionCardBlock {
+  kind: "mission_card";
+  card: MissionCardKind;
+  mission_id: string;
+  mission_title?: string;
+  /** stage_passed */
+  stage_id?: string;
+  stage_title?: string;
+  evidence_count?: number;
+  /** review_request */
+  review_item_ids?: string[];
+  count?: number;
+  summary?: string | null;
+  /** material_request */
+  request_id?: string;
+  title?: string;
+  /** terminal */
+  status?: "completed" | "failed" | "cancelled";
+}
+
 export type AgentBlock =
   | TextBlock
   | ThinkingBlock
   | StatusLineBlock
   | QuestionCardBlock
-  | ResultCardBlock;
+  | ResultCardBlock
+  | MissionCardBlock;
 
 export interface AgentMessage { blocks: AgentBlock[]; }
 
@@ -89,6 +117,7 @@ export const isThinking = (b: AgentBlock): b is ThinkingBlock => b.kind === "thi
 export const isStatusLine = (b: AgentBlock): b is StatusLineBlock => b.kind === "status_line";
 export const isQuestionCard = (b: AgentBlock): b is QuestionCardBlock => b.kind === "question_card";
 export const isResultCard = (b: AgentBlock): b is ResultCardBlock => b.kind === "result_card";
+export const isMissionCard = (b: AgentBlock): b is MissionCardBlock => b.kind === "mission_card";
 
 type RawRecord = Record<string, unknown>;
 
@@ -332,6 +361,45 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
 
   if (kind === "result_card") {
     return normalizeResultCard(raw) ?? fallbackTextBlock(raw);
+  }
+
+  if (kind === "mission_card") {
+    const card = raw.card;
+    if (
+      card === "stage_passed" ||
+      card === "review_request" ||
+      card === "material_request" ||
+      card === "terminal"
+    ) {
+      const missionId = stringValue(raw.mission_id);
+      if (missionId) {
+        const block: MissionCardBlock = { kind: "mission_card", card, mission_id: missionId };
+        const missionTitle = stringValue(raw.mission_title);
+        if (missionTitle) block.mission_title = missionTitle;
+        const stageId = stringValue(raw.stage_id);
+        if (stageId) block.stage_id = stageId;
+        const stageTitle = stringValue(raw.stage_title);
+        if (stageTitle) block.stage_title = stageTitle;
+        if (typeof raw.evidence_count === "number") block.evidence_count = raw.evidence_count;
+        if (Array.isArray(raw.review_item_ids)) {
+          block.review_item_ids = raw.review_item_ids.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          );
+        }
+        if (typeof raw.count === "number") block.count = raw.count;
+        if (typeof raw.summary === "string") block.summary = raw.summary;
+        const requestId = stringValue(raw.request_id);
+        if (requestId) block.request_id = requestId;
+        const title = stringValue(raw.title);
+        if (title) block.title = title;
+        const status = raw.status;
+        if (status === "completed" || status === "failed" || status === "cancelled") {
+          block.status = status;
+        }
+        return block;
+      }
+    }
+    return fallbackTextBlock(raw);
   }
 
   if (!kind) {

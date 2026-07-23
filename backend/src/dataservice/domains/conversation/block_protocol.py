@@ -17,6 +17,7 @@ class ConversationBlockKind(enum.StrEnum):
     RESULT_CARD = "result_card"
     TOOL_INVOCATION = "tool_invocation"
     TOOL_RESULT = "tool_result"
+    MISSION_CARD = "mission_card"
 
 
 CANONICAL_BLOCK_KINDS = tuple(kind.value for kind in ConversationBlockKind)

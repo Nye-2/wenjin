@@ -97,9 +97,9 @@ test("MissionView opens on demand, reviews changes, and lazy-loads semantic trac
   await expect(page.getByText("严谨派阿澈")).not.toBeVisible();
   await page.getByRole("button", { name: "打开研究任务" }).click();
   await expect(page.getByTestId("mission-console")).toBeVisible();
-  await page.getByRole("tab", { name: "进展" }).click();
   await expect(page.getByText("严谨派阿澈")).toBeVisible();
-  await page.getByTestId("mission-console").getByRole("tab", { name: /^确认/ }).click();
+  const reviewFold = page.getByTestId("mission-console").getByRole("button", { name: /确认与决定/ });
+  if ((await reviewFold.getAttribute("aria-expanded")) === "false") await reviewFold.click();
   await expect(page.getByText("需逐项确认")).toBeVisible();
   await page.getByText("查看内容预览").first().click();
   await expect(page.getByText(/异构性与自适应秩聚合存在可验证关联/)).toBeVisible();
@@ -111,7 +111,7 @@ test("MissionView opens on demand, reviews changes, and lazy-loads semantic trac
   await page.getByRole("button", { name: "保存已确认内容" }).click();
   await expect(page.getByText("已保存")).toBeVisible();
   await expect.poll(() => missionViewRequests).toBeGreaterThan(1);
-  await page.getByRole("tab", { name: "轨迹" }).click();
+  await page.getByRole("button", { name: /轨迹/ }).click();
   await expect(page.getByText("完成关键文献交叉核验")).not.toBeVisible();
   await page.getByRole("button", { name: "加载任务轨迹" }).click();
   await expect(page.getByText("完成关键文献交叉核验")).toBeVisible();
@@ -235,7 +235,8 @@ test("academic visual review loads authenticated preview bytes and supports zoom
 
   await page.goto("/workspaces/ws-mission-visual");
   await page.getByRole("button", { name: "打开研究任务" }).click();
-  await page.getByTestId("mission-console").getByRole("tab", { name: /^确认/ }).click();
+  const reviewFoldVisual = page.getByTestId("mission-console").getByRole("button", { name: /确认与决定/ });
+  if ((await reviewFoldVisual.getAttribute("aria-expanded")) === "false") await reviewFoldVisual.click();
   const preview = page.getByRole("img", { name: "三个客户端连接到中央聚合节点" });
   await expect(preview).toBeVisible();
   await expect(page.getByText("联邦客户端向全局模型提交参数更新。")).toBeVisible();

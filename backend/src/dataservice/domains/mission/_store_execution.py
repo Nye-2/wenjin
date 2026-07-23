@@ -27,7 +27,11 @@ from src.dataservice.domains.mission._store_core import (
     TERMINAL_MISSION_STATUSES,
     _aware,
     _operation_receipt_from_items,
+    _stage_contracts,
+    _stage_projection_title,
+    _text,
 )
+from src.dataservice.domains.mission.chat_cards import MissionChatCardContext
 from src.dataservice.domains.mission.projection import (
     mission_item_to_payload,
     mission_run_to_payload,
@@ -65,6 +69,16 @@ ModelLedgerPayload = (
 
 def _enum_value(value: object) -> object:
     return getattr(value, "value", value)
+
+
+def _acceptance_passed(detail: object) -> bool:
+    """Return whether one stage_acceptance entry records a passing verdict."""
+    if not isinstance(detail, dict):
+        return False
+    return (_text(detail.get("result")) or _text(detail.get("status")) or "") in {
+        "pass",
+        "passed",
+    }
 
 
 def _semantic_reference_projection(
@@ -950,6 +964,7 @@ class MissionExecutionOperations:
         if any(item.item_type == "command_received" for item in command.items):
             raise DataServiceValidationError("command_received must use append_command_once so the durable cursor advances")
         run = await self._locked_run(mission_id)
+        previous_stage_acceptance = (run.snapshot_json or {}).get("stage_acceptance")
         now = await self.repository.database_now()
         drafts_to_append, replayed = await self._prepare_execution_ledger_append(
             run,
@@ -1092,6 +1107,7 @@ class MissionExecutionOperations:
         )
         if prepared_snapshot is not None:
             self._install_prepared_snapshot(run, prepared_snapshot)
+        self._enqueue_stage_passed_cards(run, previous_stage_acceptance)
         self._apply_patch(run, command.patch, now=now)
         self._touch(run, now)
         await self._finish()
@@ -1104,6 +1120,51 @@ class MissionExecutionOperations:
             mission=mission_run_to_payload(run),
             items=[mission_item_to_payload(record) for record in resolved_records],
         )
+
+    def _enqueue_stage_passed_cards(
+        self,
+        run: MissionRunRecord,
+        previous_acceptance: Any,
+    ) -> None:
+        """Queue one chat card per stage whose acceptance just flipped to pass."""
+        if self._chat_card_emitter is None:
+            return
+        current = (run.snapshot_json or {}).get("stage_acceptance")
+        if not isinstance(current, dict):
+            return
+        before = previous_acceptance if isinstance(previous_acceptance, dict) else {}
+        newly_passed = [
+            stage_id
+            for stage_id, detail in current.items()
+            if isinstance(stage_id, str)
+            and _acceptance_passed(detail)
+            and not _acceptance_passed(before.get(stage_id))
+        ]
+        if not newly_passed:
+            return
+        context = MissionChatCardContext.from_run(run)
+        contracts = _stage_contracts(run.runtime_context_json.get("stage_contracts"))
+        for stage_id in newly_passed:
+            raw_detail = current.get(stage_id)
+            detail = raw_detail if isinstance(raw_detail, dict) else {}
+            stage_title = (
+                _text(detail.get("title"))
+                or _text(detail.get("label"))
+                or _stage_projection_title(
+                    workspace_type=run.workspace_type,
+                    stage_id=stage_id,
+                    contracts=contracts,
+                )
+            )
+            self._enqueue_chat_card(
+                "stage_passed",
+                context,
+                {
+                    "stage_id": stage_id,
+                    "stage_title": stage_title,
+                    "evidence_count": int(run.evidence_count or 0),
+                },
+            )
 
     async def checkpoint_run(
         self,

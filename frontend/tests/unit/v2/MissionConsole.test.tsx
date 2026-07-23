@@ -37,6 +37,12 @@ vi.mock("@/lib/api/missions", async () => {
   };
 });
 
+/** 统一表面后，原 tab 改为折叠区；确保对应折叠区处于展开态。 */
+function ensureFoldOpen(name: RegExp) {
+  const collapsed = screen.queryByRole("button", { name, expanded: false });
+  if (collapsed) fireEvent.click(collapsed);
+}
+
 function MissionConsole(
   props: Omit<ComponentProps<typeof MissionConsoleView>, "onChatAction" | "onMissionTarget"> & {
     onChatAction?: ComponentProps<typeof MissionConsoleView>["onChatAction"];
@@ -151,7 +157,7 @@ describe("MissionConsole", () => {
     view.reviewNextCursor = "review-page-2";
     render(<MissionConsole view={view} onClose={() => undefined} />);
 
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多待确认内容/ }));
 
     expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
@@ -180,7 +186,7 @@ describe("MissionConsole", () => {
     const { rerender } = render(
       <MissionConsole view={first} onClose={() => undefined} />,
     );
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多待确认内容/ }));
     expect(await screen.findByText("旧版尾页内容")).toBeInTheDocument();
 
@@ -206,7 +212,7 @@ describe("MissionConsole", () => {
     const { rerender } = render(
       <MissionConsole view={first} onClose={() => undefined} />,
     );
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多待确认内容/ }));
     expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
 
@@ -383,7 +389,7 @@ describe("MissionConsole", () => {
 
   it("prevents protected review items from batch acceptance", () => {
     render(<MissionConsole view={makeView()} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     fireEvent.click(screen.getByLabelText("选择 可写创新点"));
     expect(screen.getByRole("button", { name: "确认选中" })).toBeDisabled();
     expect(screen.getByText("需逐项确认")).toBeInTheDocument();
@@ -397,13 +403,13 @@ describe("MissionConsole", () => {
       requiresExplicitReview: false,
     };
     render(<MissionConsole view={view} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     const checkbox = screen.getByLabelText("选择 可写创新点");
     fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
 
-    fireEvent.click(screen.getByRole("tab", { name: "进展" }));
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    fireEvent.click(screen.getByRole("button", { name: /确认与决定/, expanded: true }));
+    ensureFoldOpen(/确认与决定/);
 
     expect(screen.getByLabelText("选择 可写创新点")).toBeChecked();
   });
@@ -414,7 +420,7 @@ describe("MissionConsole", () => {
       resolveDecision = resolve;
     }));
     render(<MissionConsole view={makeView()} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     const confirm = screen.getByRole("button", { name: "确认此项" });
 
     fireEvent.click(confirm);
@@ -441,7 +447,7 @@ describe("MissionConsole", () => {
     };
     view.reviewSummary = { pending: 0, needsMoreEvidence: 0, accepted: 1, committed: 0 };
     render(<MissionConsole view={view} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     const save = screen.getByRole("button", { name: "保存已确认内容" });
 
     fireEvent.click(save);
@@ -456,7 +462,7 @@ describe("MissionConsole", () => {
 
   it("shows the canonical preview and supports rejecting one item", async () => {
     render(<MissionConsole view={makeView()} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     fireEvent.click(screen.getByText("查看内容预览"));
     expect(screen.getByText(/异构性与自适应秩聚合存在可验证关联/)).toBeInTheDocument();
 
@@ -480,7 +486,7 @@ describe("MissionConsole", () => {
         onMissionTarget={onMissionTarget}
       />,
     );
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     fireEvent.click(screen.getByRole("button", { name: "不采纳" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(
@@ -499,7 +505,7 @@ describe("MissionConsole", () => {
     };
 
     render(<MissionConsole view={view} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     fireEvent.click(screen.getByText("查看内容预览"));
 
     expect(screen.getByRole("heading", { name: "问题理解" })).toBeInTheDocument();
@@ -544,7 +550,7 @@ describe("MissionConsole", () => {
     };
 
     const { rerender, unmount } = render(<MissionConsole view={view} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
 
     await waitFor(() => expect(screen.getByRole("img", { name: "三组柱状图比较不同方法准确率" })).toHaveAttribute("src", "blob:visual-review"));
     expect(getMissionReviewPreviewMock).toHaveBeenCalledWith({ missionId: "mission-1", reviewItemId: "r-1" });
@@ -598,7 +604,7 @@ describe("MissionConsole", () => {
     view.reviewSummary = { pending: 0, needsMoreEvidence: 0, accepted: 0, committed: 1 };
 
     render(<MissionConsole view={view} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
 
     expect(screen.getByRole("link", { name: "插入写作台" })).toHaveAttribute(
       "href",
@@ -634,7 +640,7 @@ describe("MissionConsole", () => {
     };
 
     render(<MissionConsole view={view} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    ensureFoldOpen(/确认与决定/);
     const viewPdf = await screen.findByRole("button", { name: "查看 PDF 预览" });
     fireEvent.click(viewPdf);
     expect(open).toHaveBeenCalledWith("blob:visual-pdf", "_blank", "noopener,noreferrer");
@@ -651,12 +657,12 @@ describe("MissionConsole", () => {
     view.artifactNextCursor = 14;
     render(<MissionConsole view={view} onClose={() => undefined} />);
 
-    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
-    fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+    ensureFoldOpen(/材料与成果/);
+    fireEvent.click(screen.getByRole("button", { name: "加载更多（已显示 1/2）" }));
     await waitFor(() => expect(screen.getByText("后续核验证据")).toBeInTheDocument());
     expect(listMissionEvidenceMock).toHaveBeenCalledWith({ missionId: "mission-1", cursor: 12 });
 
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
     await waitFor(() => expect(screen.getByText("完整研究稿")).toBeInTheDocument());
     expect(listMissionArtifactsMock).toHaveBeenCalledWith({ missionId: "mission-1", cursor: 14 });
@@ -675,7 +681,7 @@ describe("MissionConsole", () => {
     view.artifactCount = 1;
     render(<MissionConsole view={view} onClose={() => undefined} />);
 
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: "下载文件" }));
 
     expect(downloadMissionArtifactMock).toHaveBeenCalledWith(
@@ -698,7 +704,7 @@ describe("MissionConsole", () => {
     }];
     view.artifactCount = 1;
     render(<MissionConsole view={view} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
 
     expect(screen.getByRole("button", { name: "查看预览" })).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1_200));
@@ -717,7 +723,7 @@ describe("MissionConsole", () => {
     first.evidenceCount = 2;
     first.evidenceNextCursor = 12;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
 
     const second = makeView("mission-2");
@@ -744,7 +750,7 @@ describe("MissionConsole", () => {
     first.evidenceCount = 3;
     first.evidenceNextCursor = 12;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
     expect(await screen.findByText("后续核验证据")).toBeInTheDocument();
 
@@ -779,7 +785,7 @@ describe("MissionConsole", () => {
     first.evidenceCount = 2;
     first.evidenceNextCursor = 12;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /来源与结果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
     expect(await screen.findByText("已加载的尾部证据")).toBeInTheDocument();
 
@@ -809,7 +815,7 @@ describe("MissionConsole", () => {
     first.artifactCount = 2;
     first.artifactNextCursor = 14;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
 
     const second = makeView("mission-2");
@@ -850,7 +856,7 @@ describe("MissionConsole", () => {
     first.artifactCount = 3;
     first.artifactNextCursor = 14;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
     expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
 
@@ -889,7 +895,7 @@ describe("MissionConsole", () => {
     first.artifactNextCursor = 14;
     first.artifactNextTiebreaker = "artifact-1";
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
     expect(await screen.findByText("旧版研究稿")).toBeInTheDocument();
 
@@ -906,7 +912,7 @@ describe("MissionConsole", () => {
     first.artifactCount = 2;
     first.artifactNextCursor = 14;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
     expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
 
@@ -941,7 +947,7 @@ describe("MissionConsole", () => {
     first.artifactNextCursor = 14;
     first.artifactNextTiebreaker = "artifact-1";
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: /成果/ }));
+    ensureFoldOpen(/材料与成果/);
     fireEvent.click(screen.getByRole("button", { name: /加载更多成果/ }));
     expect(await screen.findByText("已加载的研究稿")).toBeInTheDocument();
 
@@ -965,7 +971,7 @@ describe("MissionConsole", () => {
 
   it("loads semantic trace only after the user asks", async () => {
     render(<MissionConsole view={makeView()} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    ensureFoldOpen(/轨迹/);
     expect(screen.getByTestId("mission-trace-idle")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
     await waitFor(() => expect(screen.getByText("找到一篇可核验论文")).toBeInTheDocument());
@@ -995,7 +1001,7 @@ describe("MissionConsole", () => {
     const first = makeView();
     first.lastItemSeq = 32;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    ensureFoldOpen(/轨迹/);
     fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
     expect(await screen.findByText("正在核验")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "加载更早记录" }));
@@ -1034,7 +1040,7 @@ describe("MissionConsole", () => {
     const first = makeView();
     first.lastItemSeq = 32;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    ensureFoldOpen(/轨迹/);
     fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
     expect(await screen.findByText("当前轨迹")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "加载更早记录" }));
@@ -1067,7 +1073,7 @@ describe("MissionConsole", () => {
     const first = makeView();
     first.lastItemSeq = 32;
     const { rerender } = render(<MissionConsole view={first} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    ensureFoldOpen(/轨迹/);
     fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
     expect(await screen.findByText("当前轨迹")).toBeInTheDocument();
 
@@ -1089,7 +1095,7 @@ describe("MissionConsole", () => {
     }>();
     listMissionItemsMock.mockReturnValueOnce(latePage.promise);
     const { rerender } = render(<MissionConsole view={makeView("mission-1")} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    ensureFoldOpen(/轨迹/);
     fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
 
     useMissionUiStore.getState().focusMission("mission-2", "trace");
@@ -1122,7 +1128,7 @@ describe("MissionConsole", () => {
       .mockRejectedValueOnce(new Error("provider raw trace error"))
       .mockResolvedValueOnce({ items: [{ id: "i-2", missionId: "mission-1", seq: 2, itemType: "stage", phase: "completed", summary: "完成研究问题收敛", createdAt: "2026-07-11T00:02:00Z" }], nextCursor: null });
     render(<MissionConsole view={makeView()} onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    ensureFoldOpen(/轨迹/);
 
     fireEvent.click(screen.getByRole("button", { name: "加载任务轨迹" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("任务轨迹暂时未能加载，请重试");

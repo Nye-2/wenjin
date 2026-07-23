@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.billing.policies import calculate_model_usage_credits
@@ -40,6 +43,10 @@ from src.dataservice.common.errors import (
     DataServiceConflictError,
     DataServiceNotFoundError,
     DataServiceValidationError,
+)
+from src.dataservice.domains.mission.chat_cards import (
+    MissionChatCardContext,
+    MissionChatCardEmitter,
 )
 from src.dataservice.domains.mission.projection import (
     mission_review_item_to_payload,
@@ -79,6 +86,8 @@ from src.dataservice_client.contracts.mission import (
 TERMINAL_MISSION_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 NONTERMINAL_MISSION_STATUSES = frozenset({"created", "planning", "running", "waiting"})
+
+logger = logging.getLogger(__name__)
 
 _HISTORY_CURSOR_VERSION = 1
 
@@ -274,11 +283,94 @@ def _operation_receipt_from_items(
 class _MissionStoreCore:
     """Locks, invariants, accounting, and mutation primitives shared by Mission surfaces."""
 
-    def __init__(self, session: AsyncSession, *, autocommit: bool = False) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        autocommit: bool = False,
+        chat_card_emitter: MissionChatCardEmitter | None = None,
+    ) -> None:
         self.session = session
         self.repository = MissionRepository(session)
         self.autocommit = autocommit
         self._terminalized_mission_ids: set[str] = set()
+        self._chat_card_emitter = chat_card_emitter
+        self._pending_chat_cards: list[
+            tuple[str, MissionChatCardContext, dict[str, Any]]
+        ] = []
+        self._chat_card_tasks: set[asyncio.Task[None]] = set()
+        if chat_card_emitter is not None:
+            event.listen(
+                self.session.sync_session,
+                "after_commit",
+                self._on_after_commit_emit_chat_cards,
+            )
+            event.listen(
+                self.session.sync_session,
+                "after_rollback",
+                self._on_after_rollback_drop_chat_cards,
+            )
+
+    def _enqueue_chat_card(
+        self,
+        method: str,
+        context: MissionChatCardContext,
+        payload: dict[str, Any],
+    ) -> None:
+        """Queue one best-effort chat card for post-commit emission."""
+        if self._chat_card_emitter is None:
+            return
+        self._pending_chat_cards.append((method, context, payload))
+
+    def _on_after_commit_emit_chat_cards(self, _session: Any) -> None:
+        if not self._pending_chat_cards:
+            return
+        pending = self._pending_chat_cards
+        self._pending_chat_cards = []
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning(
+                "Mission chat cards dropped: no running event loop for %d emission(s)",
+                len(pending),
+            )
+            return
+        task = loop.create_task(self._drain_chat_cards(pending))
+        self._chat_card_tasks.add(task)
+        task.add_done_callback(self._chat_card_tasks.discard)
+
+    def _on_after_rollback_drop_chat_cards(self, _session: Any) -> None:
+        self._pending_chat_cards.clear()
+
+    async def _drain_chat_cards(
+        self,
+        pending: list[tuple[str, MissionChatCardContext, dict[str, Any]]],
+    ) -> None:
+        emitter = self._chat_card_emitter
+        if emitter is None:
+            return
+        for method, context, payload in pending:
+            try:
+                await getattr(emitter, method)(context, **payload)
+            except Exception:
+                logger.warning(
+                    "Mission chat card drain failed: mission_id=%s method=%s",
+                    context.mission_id,
+                    method,
+                    exc_info=True,
+                )
+
+    async def wait_chat_card_emissions(self) -> None:
+        """Await all scheduled post-commit chat card emissions.
+
+        Emissions are fire-and-forget in production; tests and other
+        deterministic callers use this hook to observe completion.
+        """
+        while self._chat_card_tasks:
+            await asyncio.gather(
+                *tuple(self._chat_card_tasks),
+                return_exceptions=True,
+            )
 
     async def _finish(self) -> None:
         await self._settle_terminal_missions()
@@ -597,6 +689,11 @@ class _MissionStoreCore:
             run.dispatch_expires_at = None
             run.completed_at = now
             self._terminalized_mission_ids.add(str(run.mission_id))
+            self._enqueue_chat_card(
+                "terminal",
+                MissionChatCardContext.from_run(run),
+                {"status": target},
+            )
 
     def _resolve_review_wait(
         self,

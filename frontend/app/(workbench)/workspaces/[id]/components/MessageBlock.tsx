@@ -8,6 +8,7 @@ import type {
 } from "@/lib/api/blocks";
 import type { Block } from "@/stores/chat-store";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+import { MissionCard } from "./MissionCardBlock";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
@@ -47,6 +48,7 @@ interface MessageBlockProps {
     sourceBlockKind: "question_card" | "result_card",
   ) => void;
   intentDisabled?: boolean;
+  onMaterialAction?: () => void;
 }
 
 function isAgentResultCard(block: Block): block is AgentResultCardBlock {
@@ -332,6 +334,7 @@ export const MessageBlock = memo(function MessageBlock({
   block,
   onIntent,
   intentDisabled = false,
+  onMaterialAction,
 }: MessageBlockProps) {
   switch (block.kind) {
     case "text":
@@ -371,6 +374,8 @@ export const MessageBlock = memo(function MessageBlock({
           disabled={intentDisabled}
         />
       );
+    case "mission_card":
+      return <MissionCard block={block} onMaterialAction={onMaterialAction} />;
     default:
       return null;
   }

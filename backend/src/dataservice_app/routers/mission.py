@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.mission.admission import MissionAdmissionService
+from src.dataservice.domains.mission.chat_cards import MissionChatCardEmitter
 from src.dataservice.domains.mission.service import MissionStore
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
@@ -49,7 +50,11 @@ router = APIRouter(
 
 
 def _store(uow: DataServiceUnitOfWork) -> MissionStore:
-    return MissionStore(uow.required_session, autocommit=False)
+    return MissionStore(
+        uow.required_session,
+        autocommit=False,
+        chat_card_emitter=MissionChatCardEmitter(),
+    )
 
 
 @router.post("/mission-admissions")

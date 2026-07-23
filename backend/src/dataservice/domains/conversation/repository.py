@@ -190,6 +190,24 @@ class ConversationRepository:
     async def get_message(self, message_id: str) -> ThreadMessage | None:
         return await self.session.get(ThreadMessage, message_id)
 
+    async def find_message_by_card_id(
+        self,
+        *,
+        thread_id: str,
+        card_id: str,
+    ) -> ThreadMessage | None:
+        """Return the first message carrying ``metadata.card_id`` in one thread."""
+        result = await self.session.execute(
+            select(ThreadMessage)
+            .where(
+                ThreadMessage.thread_id == thread_id,
+                ThreadMessage.metadata_json["card_id"].as_string() == card_id,
+            )
+            .order_by(ThreadMessage.sequence_index.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def get_last_message(self, thread_id: str) -> ThreadMessage | None:
         result = await self.session.execute(
             select(ThreadMessage)

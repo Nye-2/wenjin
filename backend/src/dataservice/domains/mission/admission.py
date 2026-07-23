@@ -20,6 +20,7 @@ from src.dataservice.common.errors import (
     DataServiceValidationError,
 )
 from src.dataservice.domains.credit.service import DataServiceCreditService
+from src.dataservice.domains.mission.chat_cards import MissionChatCardEmitter
 from src.dataservice.domains.pricing.contracts import (
     GlobalCreditPolicyConfig,
     MissionPricingPolicyConfig,
@@ -46,7 +47,11 @@ class MissionAdmissionService:
     """Create a Mission and resolve its financial admission in one UOW."""
 
     def __init__(self, session: AsyncSession) -> None:
-        self._store = MissionStore(session, autocommit=False)
+        self._store = MissionStore(
+            session,
+            autocommit=False,
+            chat_card_emitter=MissionChatCardEmitter(),
+        )
         self._credits = DataServiceCreditService(session, autocommit=False)
         self._pricing = CanonicalPricingResolver(session)
 

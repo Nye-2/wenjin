@@ -69,14 +69,6 @@ interface MissionConsoleProps {
 
 export type MissionChatAction = "focus" | "attach" | "continue";
 
-const SURFACES = [
-  { id: "progress", label: "进展", icon: CircleDot },
-  { id: "review", label: "确认", icon: Check },
-  { id: "evidence", label: "来源与结果", icon: BookOpen },
-  { id: "artifacts", label: "成果", icon: Archive },
-  { id: "trace", label: "轨迹", icon: History },
-] as const;
-
 const EMPTY_REVIEW_SELECTION = new Set<string>();
 const MAX_REVIEW_REPLAY_PAGES = 100;
 
@@ -94,8 +86,6 @@ export function MissionConsole({
   onChatAction,
 }: MissionConsoleProps) {
   const panelMode = useMissionUiStore((state) => state.panelMode);
-  const surface = useMissionUiStore((state) => state.surface);
-  const setSurface = useMissionUiStore((state) => state.setSurface);
   const expandMission = useMissionUiStore((state) => state.expandMission);
 
   if (panelMode === "peek" && !compact) {
@@ -142,70 +132,144 @@ export function MissionConsole({
     >
       <MissionHeader view={view} onClose={onClose} />
       <MissionStaleNotice view={view} onMissionTarget={onMissionTarget} />
-      <div
-        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--wjn-line)] px-3 py-2"
-        role="tablist"
-        aria-label="任务视图"
-      >
-        {SURFACES.map(({ id, label, icon: Icon }) => {
-          const count =
-            id === "review"
-              ? view.reviewSummary.pending + view.reviewSummary.needsMoreEvidence
-              : id === "evidence"
-                ? view.evidenceCount
-                : id === "artifacts"
-                  ? view.artifactCount
-                  : 0;
-          return (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={surface === id}
-              onClick={() => setSurface(id)}
-              className={`flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--wjn-radius)] px-2.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--wjn-accent)] ${
-                surface === id
-                  ? "bg-[var(--wjn-accent-soft)] text-[var(--wjn-accent-strong)]"
-                  : "text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-text)]"
-              }`}
-            >
-              <Icon size={14} />
-              {label}
-              {count > 0 ? (
-                <span className="min-w-4 rounded-full bg-[var(--wjn-surface-muted)] px-1 text-center text-[10px]">
-                  {count}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {surface === "progress" ? (
-          <ProgressSurface
-            view={view}
-            onChatAction={onChatAction}
-            onMissionTarget={onMissionTarget}
-          />
-        ) : null}
-        {surface === "review" ? (
-          <ReviewSurface
-            key={view.missionId}
-            view={view}
-            onMissionTarget={onMissionTarget}
-          />
-        ) : null}
-        {surface === "evidence" ? (
-          <EvidenceSurface key={view.missionId} view={view} />
-        ) : null}
-        {surface === "artifacts" ? (
-          <ArtifactSurface key={view.missionId} view={view} />
-        ) : null}
-        {surface === "trace" ? (
-          <TraceSurface key={view.missionId} view={view} />
-        ) : null}
+        <ProgressSurface
+          view={view}
+          onChatAction={onChatAction}
+          onMissionTarget={onMissionTarget}
+        />
+        <ReviewInlineSection view={view} onMissionTarget={onMissionTarget} />
+        <MaterialsFold view={view} />
+        <TraceFold view={view} />
       </div>
     </aside>
+  );
+}
+
+/**
+ * 待确认内容：有待处理项时自动展开的处理区，空了则收起为一行。
+ * 确认是「事件」而非「页面」。
+ */
+function ReviewInlineSection({
+  view,
+  onMissionTarget,
+}: {
+  view: MissionView;
+  onMissionTarget(missionId: string): Promise<boolean>;
+}) {
+  const pending = view.reviewSummary.pending + view.reviewSummary.needsMoreEvidence;
+  const handled = view.reviewSummary.accepted + view.reviewSummary.committed;
+  const [open, setOpen] = useState(pending > 0);
+  useEffect(() => {
+    if (pending > 0) setOpen(true);
+  }, [pending]);
+  if (pending === 0 && handled === 0) return null;
+  return (
+    <section
+      id="mission-review-section"
+      className="border-t border-[var(--wjn-line)] px-5 pb-3 pt-4"
+      data-testid="mission-review-inline"
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center gap-2 text-left text-xs font-semibold text-[var(--wjn-text)]"
+      >
+        <Check size={14} className={pending > 0 ? "text-[var(--wjn-review)]" : "text-[var(--wjn-text-muted)]"} />
+        确认与决定
+        {pending > 0 ? (
+          <span className="rounded-full bg-[var(--wjn-review-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--wjn-review)]">
+            {pending} 项待你确认
+          </span>
+        ) : (
+          <span className="text-[10px] font-normal text-[var(--wjn-text-muted)]">
+            已处理 {handled} 项
+          </span>
+        )}
+        <ChevronDown
+          size={14}
+          className={`ml-auto text-[var(--wjn-text-muted)] transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open ? (
+        <ReviewSurface key={view.missionId} view={view} onMissionTarget={onMissionTarget} />
+      ) : null}
+    </section>
+  );
+}
+
+/** 材料与成果：默认收起的排障视图，按需展开。 */
+function MaterialsFold({ view }: { view: MissionView }) {
+  const [open, setOpen] = useState(false);
+  const total = view.evidenceCount + view.artifactCount;
+  return (
+    <section
+      className="border-t border-[var(--wjn-line)] px-5 pb-4 pt-4"
+      data-testid="mission-materials-fold"
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center gap-2 text-left text-xs font-semibold text-[var(--wjn-text)]"
+      >
+        <BookOpen size={14} className="text-[var(--wjn-text-muted)]" />
+        材料与成果
+        <span className="text-[10px] font-normal text-[var(--wjn-text-muted)]">
+          来源 {view.evidenceCount} · 成果 {view.artifactCount}
+        </span>
+        <ChevronDown
+          size={14}
+          className={`ml-auto text-[var(--wjn-text-muted)] transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open ? (
+        total > 0 ? (
+          <div className="mt-2 space-y-6">
+            <div>
+              <div className="text-[11px] font-semibold text-[var(--wjn-text-muted)]">来源与结果</div>
+              <EvidenceSurface key={`${view.missionId}-evidence`} view={view} />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-[var(--wjn-text-muted)]">成果</div>
+              <ArtifactSurface key={`${view.missionId}-artifacts`} view={view} />
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-[var(--wjn-text-muted)]">
+            还没有沉淀材料；任务推进后，可查证的来源、数据、图表会汇总在这里。
+          </p>
+        )
+      ) : null}
+    </section>
+  );
+}
+
+/** 轨迹：低频审计视图，默认收起。 */
+function TraceFold({ view }: { view: MissionView }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section
+      className="border-t border-[var(--wjn-line)] px-5 pb-5 pt-4"
+      data-testid="mission-trace-fold"
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center gap-2 text-left text-xs font-semibold text-[var(--wjn-text)]"
+      >
+        <History size={14} className="text-[var(--wjn-text-muted)]" />
+        轨迹
+        <span className="text-[10px] font-normal text-[var(--wjn-text-muted)]">运行过程审计</span>
+        <ChevronDown
+          size={14}
+          className={`ml-auto text-[var(--wjn-text-muted)] transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open ? <TraceSurface key={view.missionId} view={view} /> : null}
+    </section>
   );
 }
 
@@ -598,14 +662,13 @@ function AttentionRequestCard({
   onMissionTarget(missionId: string): Promise<boolean>;
 }) {
   const request = view.attentionRequest;
-  const setSurface = useMissionUiStore((state) => state.setSurface);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!request) return null;
 
   const runAction = async (actionType: (typeof request.actions)[number]["actionType"]) => {
     if (actionType === "open_review") {
-      setSurface("review");
+      document.getElementById("mission-review-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (actionType === "upload_file") {
