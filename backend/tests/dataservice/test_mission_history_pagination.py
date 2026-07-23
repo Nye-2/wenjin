@@ -124,3 +124,29 @@ async def test_history_rejects_invalid_opaque_cursor(
             workspace_id="workspace-1",
             cursor="not-a-valid-cursor",
         )
+
+
+@pytest.mark.asyncio
+async def test_change_hints_are_narrow_and_filtered_by_user_in_the_query(
+    mission_history_session: AsyncSession,
+) -> None:
+    store = MissionStore(mission_history_session, autocommit=True)
+    owned_mission_id = await _create_run(
+        store,
+        index="owned",
+        user_id="user-1",
+    )
+    await _create_run(store, index="foreign", user_id="user-2")
+
+    hints = await store.list_runs_updated_after(
+        workspace_id="workspace-1",
+        user_id="user-1",
+        updated_at=datetime(1970, 1, 1, tzinfo=UTC),
+        mission_id="",
+    )
+
+    assert [hint.mission_id for hint in hints] == [owned_mission_id]
+    assert hints[0].user_id == "user-1"
+    assert hints[0].workspace_id == "workspace-1"
+    assert not hasattr(hints[0], "snapshot_json")
+    assert not hasattr(hints[0], "title")

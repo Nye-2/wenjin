@@ -455,15 +455,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
     setAttachments([]);
     setAttachmentError(null);
     setAttachmentUploading(false);
-    void store.loadHistory(workspaceId).then((tid) => {
+    void store.refreshHistory(workspaceId).then(async (tid) => {
       if (cancelled) return;
       setThreadId(tid);
       setHistoryHydration({ workspaceId, hydrated: true });
+      if (!tid) return;
+      const recovered = await useChatStoreV2
+        .getState()
+        .recoverActiveRun(workspaceId, tid);
+      if (
+        !cancelled &&
+        recovered?.status === "launched"
+      ) {
+        onMissionCreated?.(recovered.missionId);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [setActiveWorkspace, workspaceId]);
+  }, [onMissionCreated, setActiveWorkspace, workspaceId]);
 
   function handleSubmit() {
     const trimmed = inputValue.trim();

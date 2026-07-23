@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  getWorkspaceMissionSummary,
   getMissionView,
-  listWorkspaceMissions,
   subscribeMissionEvents,
 } from "@/lib/api/missions";
 import type { MissionView } from "@/lib/api/mission-types";
@@ -28,6 +28,10 @@ export function useMissionWorkspace(workspaceId: string) {
   const [error, setError] = useState<string | null>(null);
   const [switchingMissionId, setSwitchingMissionId] = useState<string | null>(null);
   const [pendingMissionId, setPendingMissionId] = useState<string | null>(null);
+  const [eventStreamBootstrap, setEventStreamBootstrap] = useState<{
+    workspaceId: string;
+    cursor: string | null;
+  } | null>(null);
   const viewRef = useRef<MissionView | null>(null);
   const workspaceEpochRef = useRef(0);
   const switchTokenRef = useRef(0);
@@ -170,22 +174,27 @@ export function useMissionWorkspace(workspaceId: string) {
     setError(null);
     setSwitchingMissionId(null);
     setPendingMissionId(null);
+    setEventStreamBootstrap(null);
     const initialSwitchToken = switchTokenRef.current;
 
     void (async () => {
       try {
-        const missionId = (await listWorkspaceMissions(workspaceId))[0]?.missionId ?? null;
-        if (
-          workspaceEpoch !== workspaceEpochRef.current ||
-          initialSwitchToken !== switchTokenRef.current
-        ) {
-          return;
-        }
+        const summary = await getWorkspaceMissionSummary(workspaceId);
+        const missionId = summary.latest?.missionId ?? null;
+        if (workspaceEpoch !== workspaceEpochRef.current) return;
+        setEventStreamBootstrap({
+          workspaceId,
+          cursor: summary.eventCursor,
+        });
+        // An explicit user/command switch that began while the summary was in
+        // flight owns Mission identity. The summary still safely bootstraps
+        // the workspace event cursor.
+        if (initialSwitchToken !== switchTokenRef.current) return;
         if (!missionId) {
           setLoading(false);
           return;
         }
-        await switchMission(missionId);
+        await switchMission(missionId, { retainOnFailure: true });
       } catch (reason) {
         if (
           workspaceEpoch === workspaceEpochRef.current &&
@@ -210,6 +219,7 @@ export function useMissionWorkspace(workspaceId: string) {
   }, [commitView, switchMission, workspaceId]);
 
   useEffect(() => {
+    if (eventStreamBootstrap?.workspaceId !== workspaceId) return;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let switchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -229,6 +239,7 @@ export function useMissionWorkspace(workspaceId: string) {
 
     const unsubscribe = subscribeMissionEvents({
       workspaceId,
+      cursor: eventStreamBootstrap.cursor ?? undefined,
       onEvent(event) {
         const current = viewRef.current;
         if (current?.missionId === event.missionId) {
@@ -267,7 +278,13 @@ export function useMissionWorkspace(workspaceId: string) {
       if (refreshTimer) clearTimeout(refreshTimer);
       if (switchTimer) clearTimeout(switchTimer);
     };
-  }, [markCurrentViewStale, refresh, switchMission, workspaceId]);
+  }, [
+    eventStreamBootstrap,
+    markCurrentViewStale,
+    refresh,
+    switchMission,
+    workspaceId,
+  ]);
 
   return {
     view,

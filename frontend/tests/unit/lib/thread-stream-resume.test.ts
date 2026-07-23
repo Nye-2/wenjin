@@ -9,7 +9,7 @@ vi.mock("@/lib/api/client", () => ({
   subscribeJsonEventStream: vi.fn(),
 }));
 
-import { streamThread } from "@/lib/api/streams";
+import { joinThreadRunStream, streamThread } from "@/lib/api/streams";
 
 function buildSseResponse(
   text: string,
@@ -256,5 +256,43 @@ describe("chat stream resume", () => {
     expect(errors).toEqual([]);
     expect(doneCount).toBe(1);
     expect(mockAuthorizedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("joins an existing active run with GET and resumes from its event id", async () => {
+    mockAuthorizedFetch
+      .mockResolvedValueOnce(buildSseResponse([
+        "id: evt-7",
+        'data: {"type":"content","content":"恢复中的内容"}',
+        "",
+      ].join("\n")))
+      .mockResolvedValueOnce(buildSseResponse([
+        "id: evt-8",
+        'data: {"type":"done"}',
+        "",
+      ].join("\n")));
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(
+      ((fn: (...args: unknown[]) => void) => {
+        fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+    );
+
+    const chunks: string[] = [];
+    const outcome = await joinThreadRunStream(
+      "thread/1",
+      "run/1",
+      { onContent: (content) => chunks.push(content) },
+    ).completion;
+
+    expect(outcome).toEqual({ status: "completed" });
+    expect(chunks).toEqual(["恢复中的内容"]);
+    expect(mockAuthorizedFetch.mock.calls[0]?.[0]).toBe(
+      "/api/threads/thread%2F1/runs/run%2F1/stream",
+    );
+    expect(mockAuthorizedFetch.mock.calls[0]?.[1]).toMatchObject({
+      method: "GET",
+    });
+    const resumed = mockAuthorizedFetch.mock.calls[1]?.[1] as RequestInit;
+    expect(readHeaderValue(resumed.headers, "Last-Event-ID")).toBe("evt-7");
   });
 });

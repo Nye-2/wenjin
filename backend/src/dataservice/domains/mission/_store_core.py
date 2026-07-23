@@ -47,6 +47,7 @@ from src.dataservice.domains.mission.projection import (
 from src.dataservice.domains.mission.repository import (
     ArtifactProjectionRevisionRow,
     MissionRepository,
+    ReviewProjectionRevisionRow,
 )
 from src.dataservice.domains.pricing.contracts import (
     GlobalCreditPolicyConfig,
@@ -1002,25 +1003,26 @@ def _project_failure(
     )
 
 def _review_selection_revision(
-    records: list[MissionReviewItemRecord],
+    rows: list[ReviewProjectionRevisionRow],
     *,
     review_mode: str,
 ) -> str:
     selection = []
-    for record in sorted(records, key=lambda item: item.review_item_id):
+    pending_rows = (row for row in rows if row.review_status == "pending")
+    for row in sorted(pending_rows, key=lambda item: item.review_item_id):
         policy = project_review_policy(
             review_mode=review_mode,
-            target_kind=record.target_kind,
-            target_room=record.target_room,
-            target_ref=record.target_ref,
-            risk_level=record.risk_level,
+            target_kind=row.target_kind,
+            target_room=row.target_room,
+            target_ref=row.target_ref,
+            risk_level=row.risk_level,
         )
         selection.append(
             {
                 "batch_acceptable": policy.batch_acceptable,
                 "requires_explicit_review": policy.requires_explicit_review,
-                "review_item_id": record.review_item_id,
-                "status": record.status,
+                "review_item_id": row.review_item_id,
+                "status": row.review_status,
                 "suggested_selected": policy.suggested_selected,
             }
         )
@@ -1031,6 +1033,96 @@ def _review_selection_revision(
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def _review_projection_revision(
+    rows: list[ReviewProjectionRevisionRow],
+    *,
+    review_mode: str,
+    now: datetime,
+) -> str:
+    """Hash the complete ordered values that can change the review surface."""
+
+    normalized_now = _aware(now)
+    projection = []
+    for row in rows:
+        policy = project_review_policy(
+            review_mode=review_mode,
+            target_kind=row.target_kind,
+            target_room=row.target_room,
+            target_ref=row.target_ref,
+            risk_level=row.risk_level,
+        )
+        preview_expired = (
+            row.preview_expires_at is not None
+            and _aware(row.preview_expires_at) <= normalized_now
+        )
+        commit_attempt_active = (
+            row.commit_status == "applying"
+            and row.commit_attempt_expires_at is not None
+            and _aware(row.commit_attempt_expires_at) > normalized_now
+        )
+        if row.review_status != "accepted":
+            commit_block_reason = (
+                "already_committed"
+                if row.review_status == "committed"
+                else "review_item_not_accepted"
+            )
+        elif row.commit_status == "committed":
+            commit_block_reason = "already_committed"
+        elif row.commit_status == "cancelled":
+            commit_block_reason = "commit_cancelled"
+        elif commit_attempt_active:
+            commit_block_reason = "commit_in_progress"
+        elif not row.preview_hash:
+            commit_block_reason = "review_preview_unavailable"
+        elif preview_expired:
+            commit_block_reason = "review_preview_expired"
+        else:
+            commit_block_reason = None
+        projection.append(
+            {
+                "batch_acceptable": policy.batch_acceptable,
+                "commit_block_reason": commit_block_reason,
+                "commit_eligible": commit_block_reason is None,
+                "commit_error_code": str(
+                    row.commit_error_json.get("code") or ""
+                )
+                or None,
+                "commit_status": row.commit_status,
+                "committed_target_ref": (
+                    str(row.committed_targets_json.get("target_ref"))
+                    if row.committed_targets_json.get("target_ref") is not None
+                    else None
+                ),
+                "output_key": row.output_key,
+                "preview_expires_at": (
+                    _aware(row.preview_expires_at).isoformat()
+                    if row.preview_expires_at is not None
+                    else None
+                ),
+                "preview_hash": row.preview_hash,
+                "preview_ref": None if preview_expired else row.preview_ref,
+                "requires_explicit_review": policy.requires_explicit_review,
+                "review_item_id": row.review_item_id,
+                "review_required_reason": row.review_required_reason,
+                "risk_level": row.risk_level,
+                "source_item_seq": row.source_item_seq,
+                "status": row.review_status,
+                "suggested_selected": policy.suggested_selected,
+                "summary": row.summary,
+                "target_kind": row.target_kind,
+                "title": row.title,
+            }
+        )
+    encoded = json.dumps(
+        projection,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
 
 def _project_review_view_item(
     record: MissionReviewItemRecord,
@@ -1708,6 +1800,7 @@ __all__ = [
     '_text',
     '_project_activity',
     '_review_selection_revision',
+    '_review_projection_revision',
     '_project_review_view_item',
     '_commit_holds_review_preview',
     '_project_attention_request',

@@ -47,6 +47,7 @@ describe("workspaceChromeCountsFromSummary", () => {
       artifactCount: 4,
       latest: missionSummary("latest", "completed"),
       active: missionSummary("active", "waiting"),
+      eventCursor: "cursor-1",
     };
 
     expect(workspaceChromeCountsFromSummary(summary)).toEqual({
@@ -66,6 +67,7 @@ describe("workspaceChromeCountsFromSummary", () => {
       artifactCount: 0,
       latest: missionSummary("latest", "running"),
       active: null,
+      eventCursor: "cursor-2",
     };
 
     expect(workspaceChromeCountsFromSummary(summary)).toEqual({
@@ -94,6 +96,7 @@ describe("workspaceChromeCountsFromSummary", () => {
       artifactCount: 2,
       latest: missionSummary("active", "running"),
       active: missionSummary("active", "running"),
+      eventCursor: "cursor-3",
     };
     getWorkspaceMissionSummaryMock
       .mockResolvedValueOnce(summary)

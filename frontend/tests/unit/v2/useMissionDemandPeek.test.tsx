@@ -24,6 +24,7 @@ function missionView(overrides: Partial<MissionView> = {}): MissionView {
     evidenceCount: 0,
     artifactCount: 0,
     artifactRevision: "artifact-revision-1",
+    reviewRevision: "review-revision-1",
     reviewItems: [],
     reviewSummary: {
       pending: 0,

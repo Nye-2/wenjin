@@ -592,6 +592,17 @@ class MissionRunPayload(_StrictModel):
     completed_at: datetime | None = None
 
 
+class MissionChangeHintPayload(_StrictModel):
+    """Narrow invalidation record for the reconnectable Mission event stream."""
+
+    mission_id: str
+    workspace_id: str
+    user_id: str
+    state_version: int = Field(ge=0)
+    last_item_seq: int = Field(ge=0)
+    updated_at: datetime
+
+
 class MissionViewRunPayload(_StrictModel):
     """Public lifecycle fields allowed in the user-facing MissionView."""
 
@@ -1054,6 +1065,10 @@ class MissionCursorPagePayload(_StrictModel):
     next_cursor: str | None = None
 
 
+class MissionReviewProjectionPagePayload(MissionCursorPagePayload):
+    revision: str = Field(min_length=16, max_length=64)
+
+
 class MissionItemPagePayload(_StrictModel):
     items: list[MissionItemPayload] = Field(default_factory=list)
     page: MissionProjectionPagePayload
@@ -1066,7 +1081,7 @@ class MissionReviewPagePayload(_StrictModel):
 
 class MissionReviewViewPagePayload(_StrictModel):
     items: list[MissionReviewViewItemPayload] = Field(default_factory=list)
-    page: MissionCursorPagePayload
+    page: MissionReviewProjectionPagePayload
 
 
 class MissionCommitPagePayload(_StrictModel):
@@ -1094,7 +1109,7 @@ class MissionViewPayload(_StrictModel):
     review_summary: MissionReviewSummaryPayload
     commit_summary: MissionCommitSummaryPayload
     review_items: list[MissionReviewViewItemPayload] = Field(default_factory=list)
-    review_page: MissionCursorPagePayload
+    review_page: MissionReviewProjectionPagePayload
     required_stage_ids: list[str] = Field(default_factory=list)
     stage_summaries: list[MissionStageSummaryPayload] = Field(default_factory=list)
     team_summary: str | None = None

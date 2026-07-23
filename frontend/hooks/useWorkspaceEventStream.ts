@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { isTerminalEventStreamStatus } from "@/lib/api/client";
 import { subscribeWorkspaceEvents, type WorkspaceEvent } from "@/lib/api";
 import { useDashboardStore } from "@/stores/dashboard";
+import { useChatStoreV2 } from "@/stores/chat-store";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -24,8 +25,29 @@ function handleWorkspaceEvent(workspaceId: string, event: WorkspaceEvent) {
   if (event.type === "workspace.refresh") {
     refreshWorkspaceTargets(workspaceId, event.refresh_targets ?? []);
   }
+  if (event.type === "thread.updated") {
+    const chat = useChatStoreV2.getState();
+    if (
+      chat.getThreadId(workspaceId) === event.thread.id &&
+      chat.activeRequestWorkspaceId !== workspaceId
+    ) {
+      void chat.refreshHistory(workspaceId);
+    }
+  }
   // Mission events have their own hint stream. They are intentionally not
   // reduced here because MissionView is the only lifecycle projection.
+}
+
+function reconcileChatAfterWorkspaceReconnect(workspaceId: string) {
+  const chat = useChatStoreV2.getState();
+  const threadId = chat.getThreadId(workspaceId);
+  if (!threadId || chat.activeRequestWorkspaceId === workspaceId) return;
+  void chat.refreshHistory(workspaceId).then((refreshedThreadId) => {
+    if (!refreshedThreadId) return;
+    void useChatStoreV2
+      .getState()
+      .recoverActiveRun(workspaceId, refreshedThreadId);
+  });
 }
 
 export function useWorkspaceEventStream(workspaceId: string | null, enabled = true) {
@@ -50,6 +72,7 @@ export function useWorkspaceEventStream(workspaceId: string | null, enabled = tr
           }
           reconnectTimerRef.current = setTimeout(connect, 1200);
         },
+        () => reconcileChatAfterWorkspaceReconnect(workspaceId),
       );
     };
     connect();

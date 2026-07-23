@@ -237,6 +237,49 @@ async def test_latest_thread_mission_client_includes_terminal_context() -> None:
 
 
 @pytest.mark.asyncio
+async def test_workspace_change_client_uses_narrow_user_scoped_hints() -> None:
+    updated_at = datetime(2026, 7, 23, tzinfo=UTC)
+
+    async def request(method: str, path: str, **kwargs):
+        assert method == "GET"
+        assert path == "/internal/v1/workspaces/workspace-1/missions/changes"
+        assert kwargs["params"] == {
+            "updated_at": updated_at.isoformat(),
+            "user_id": "user-1",
+            "after_mission_id": "mission-0",
+            "limit": 25,
+        }
+        return {
+            "status": "ok",
+            "data": [{
+                "mission_id": "mission-1",
+                "workspace_id": "workspace-1",
+                "user_id": "user-1",
+                "state_version": 7,
+                "last_item_seq": 11,
+                "updated_at": updated_at.isoformat(),
+            }],
+        }
+
+    hints = await MissionDataServiceClient(request).list_workspace_changes(
+        workspace_id="workspace-1",
+        user_id="user-1",
+        updated_at=updated_at,
+        after_mission_id="mission-0",
+        limit=25,
+    )
+
+    assert [hint.model_dump(mode="json") for hint in hints] == [{
+        "mission_id": "mission-1",
+        "workspace_id": "workspace-1",
+        "user_id": "user-1",
+        "state_version": 7,
+        "last_item_seq": 11,
+        "updated_at": updated_at.isoformat().replace("+00:00", "Z"),
+    }]
+
+
+@pytest.mark.asyncio
 async def test_command_client_uses_mission_route_and_stable_command_id() -> None:
     async def request(method: str, path: str, **kwargs):
         assert method == "POST"

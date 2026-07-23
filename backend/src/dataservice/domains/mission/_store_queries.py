@@ -28,6 +28,7 @@ from src.dataservice.domains.mission._store_core import (
     _project_review_view_item,
     _project_stages,
     _project_subagents,
+    _review_projection_revision,
     _review_selection_revision,
 )
 from src.dataservice.domains.mission.projection import (
@@ -38,14 +39,15 @@ from src.dataservice.domains.mission.projection import (
 from src.dataservice_client.contracts.mission import (
     MissionArtifactPagePayload,
     MissionArtifactProjectionPagePayload,
+    MissionChangeHintPayload,
     MissionCommitSummaryPayload,
-    MissionCursorPagePayload,
     MissionEvidencePagePayload,
     MissionHistoryPagePayload,
     MissionItemPagePayload,
     MissionItemPayload,
     MissionProjectionPagePayload,
     MissionReviewPolicyPayload,
+    MissionReviewProjectionPagePayload,
     MissionReviewSummaryPayload,
     MissionReviewViewPagePayload,
     MissionRunPayload,
@@ -138,17 +140,29 @@ class MissionQueryOperations:
         self,
         *,
         workspace_id: str,
+        user_id: str,
         updated_at: datetime,
         mission_id: str,
         limit: int = 100,
-    ) -> list[MissionRunPayload]:
+    ) -> list[MissionChangeHintPayload]:
         records = await self.repository.list_runs_updated_after(
             workspace_id=workspace_id,
+            user_id=user_id,
             updated_at=updated_at,
             mission_id=mission_id,
             limit=limit,
         )
-        return [mission_run_to_payload(record) for record in records]
+        return [
+            MissionChangeHintPayload(
+                mission_id=record.mission_id,
+                workspace_id=record.workspace_id,
+                user_id=record.user_id,
+                state_version=record.state_version,
+                last_item_seq=record.last_item_seq,
+                updated_at=record.updated_at,
+            )
+            for record in records
+        ]
 
     async def get_workspace_summary(
         self,
@@ -156,30 +170,70 @@ class MissionQueryOperations:
         workspace_id: str,
         user_id: str | None = None,
     ) -> MissionWorkspaceSummaryPayload:
-        rows = await self.repository.aggregate_workspace_runs(
-            workspace_id=workspace_id,
-            user_id=user_id,
-        )
-        status_counts = {status: count for status, count, _, _, _ in rows}
-        latest_records = await self.repository.list_runs(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            limit=1,
-        )
-        active_records = await self.repository.list_runs(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            status=list(NONTERMINAL_MISSION_STATUSES),
-            limit=1,
-        )
-        return MissionWorkspaceSummaryPayload(
-            total=sum(status_counts.values()),
-            status_counts=status_counts,
-            pending_review_count=sum(row[2] for row in rows),
-            evidence_count=sum(row[3] for row in rows),
-            artifact_count=sum(row[4] for row in rows),
-            latest=(mission_run_to_view_payload(latest_records[0]) if latest_records else None),
-            active=(mission_run_to_view_payload(active_records[0]) if active_records else None),
+        def version_token(records) -> tuple[datetime, str, int] | None:
+            if not records:
+                return None
+            record = records[0]
+            return (
+                record.updated_at,
+                str(record.mission_id),
+                int(record.state_version),
+            )
+
+        for _attempt in range(_MISSION_VIEW_READ_ATTEMPTS):
+            latest_before = await self.repository.list_runs(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                limit=1,
+            )
+            before_token = version_token(latest_before)
+            rows = await self.repository.aggregate_workspace_runs(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            active_records = await self.repository.list_runs(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                status=list(NONTERMINAL_MISSION_STATUSES),
+                limit=1,
+            )
+            active_payload = (
+                mission_run_to_view_payload(active_records[0])
+                if active_records
+                else None
+            )
+            # ORM identity caching must not hide a committed update between the
+            # two fence reads.
+            self.session.expire_all()
+            latest_after = await self.repository.list_runs(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                limit=1,
+            )
+            if before_token == version_token(latest_after):
+                status_counts = {
+                    status: count for status, count, _, _, _ in rows
+                }
+                return MissionWorkspaceSummaryPayload(
+                    total=sum(status_counts.values()),
+                    status_counts=status_counts,
+                    pending_review_count=sum(row[2] for row in rows),
+                    evidence_count=sum(row[3] for row in rows),
+                    artifact_count=sum(row[4] for row in rows),
+                    latest=(
+                        mission_run_to_view_payload(latest_after[0])
+                        if latest_after
+                        else None
+                    ),
+                    active=active_payload,
+                )
+            self.session.expire_all()
+        raise MissionProjectionStaleError(
+            "Mission workspace summary changed repeatedly while it was being read",
+            detail={
+                "workspace_id": workspace_id,
+                "attempts": _MISSION_VIEW_READ_ATTEMPTS,
+            },
         )
 
     async def get_user_summary(
@@ -441,6 +495,16 @@ class MissionQueryOperations:
             str(record.review_item_id): record for record in commit_records
         }
         projection_now = datetime.now(UTC)
+        review_revision_rows = (
+            await self.repository.list_review_projection_revision_rows(
+                mission_id=mission_id,
+            )
+        )
+        review_revision = _review_projection_revision(
+            review_revision_rows,
+            review_mode=run.review_mode,
+            now=projection_now,
+        )
         artifact_revision_rows = (
             await self.repository.list_artifact_projection_revision_rows(
                 mission_id=mission_id,
@@ -473,10 +537,8 @@ class MissionQueryOperations:
                 )
                 for record in visible_review_records
             ],
-            review_page=MissionCursorPagePayload(
-                total=await self.repository.count_current_review_items(
-                    mission_id=mission_id
-                ),
+            review_page=MissionReviewProjectionPagePayload(
+                total=len(review_revision_rows),
                 returned=len(visible_review_records),
                 next_cursor=(
                     _encode_record_cursor(
@@ -488,6 +550,7 @@ class MissionQueryOperations:
                     and visible_review_records
                     else None
                 ),
+                revision=review_revision,
             ),
             required_stage_ids=required_stage_ids,
             stage_summaries=stage_summaries,
@@ -528,7 +591,7 @@ class MissionQueryOperations:
                 draft_outputs_may_be_automatic=run.review_mode != "review_all",
             ),
             review_selection_revision=_review_selection_revision(
-                visible_review_records,
+                review_revision_rows,
                 review_mode=run.review_mode,
             ),
             quality_highlights=_project_quality_highlights(run),
@@ -661,6 +724,42 @@ class MissionQueryOperations:
         cursor: str | None = None,
         limit: int = 50,
     ) -> MissionReviewViewPagePayload | None:
+        last_start_version: int | None = None
+        last_end_version: int | None = None
+        for _attempt in range(_MISSION_VIEW_READ_ATTEMPTS):
+            start_version = await self.repository.get_run_state_version(mission_id)
+            if start_version is None:
+                return None
+            page = await self._list_review_projection_page_once(
+                mission_id,
+                cursor=cursor,
+                limit=limit,
+            )
+            if page is None:
+                return None
+            end_version = await self.repository.get_run_state_version(mission_id)
+            if start_version == end_version:
+                return page
+            last_start_version = start_version
+            last_end_version = end_version
+            self.session.expire_all()
+        raise MissionProjectionStaleError(
+            "Mission review projection changed repeatedly while it was being read",
+            detail={
+                "mission_id": mission_id,
+                "attempts": _MISSION_VIEW_READ_ATTEMPTS,
+                "start_state_version": last_start_version,
+                "end_state_version": last_end_version,
+            },
+        )
+
+    async def _list_review_projection_page_once(
+        self,
+        mission_id: str,
+        *,
+        cursor: str | None,
+        limit: int,
+    ) -> MissionReviewViewPagePayload | None:
         run = await self.repository.get_run(mission_id)
         if run is None:
             return None
@@ -685,6 +784,9 @@ class MissionQueryOperations:
         commits_by_review_item = {
             str(record.review_item_id): record for record in commits
         }
+        revision_rows = await self.repository.list_review_projection_revision_rows(
+            mission_id=mission_id,
+        )
         now = datetime.now(UTC)
         return MissionReviewViewPagePayload(
             items=[
@@ -696,10 +798,8 @@ class MissionQueryOperations:
                 )
                 for record in page_records
             ],
-            page=MissionCursorPagePayload(
-                total=await self.repository.count_current_review_items(
-                    mission_id=mission_id
-                ),
+            page=MissionReviewProjectionPagePayload(
+                total=len(revision_rows),
                 returned=len(page_records),
                 next_cursor=(
                     _encode_record_cursor(
@@ -709,6 +809,11 @@ class MissionQueryOperations:
                     )
                     if len(records) > limit and page_records
                     else None
+                ),
+                revision=_review_projection_revision(
+                    revision_rows,
+                    review_mode=run.review_mode,
+                    now=now,
                 ),
             ),
         )

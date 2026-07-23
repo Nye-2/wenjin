@@ -3,15 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MissionEventHint, MissionView } from "@/lib/api/mission-types";
 
-const { getMissionViewMock, listWorkspaceMissionsMock, subscribeMissionEventsMock } = vi.hoisted(() => ({
+const { getMissionViewMock, getWorkspaceMissionSummaryMock, subscribeMissionEventsMock } = vi.hoisted(() => ({
   getMissionViewMock: vi.fn(),
-  listWorkspaceMissionsMock: vi.fn(),
+  getWorkspaceMissionSummaryMock: vi.fn(),
   subscribeMissionEventsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api/missions", () => ({
   getMissionView: getMissionViewMock,
-  listWorkspaceMissions: listWorkspaceMissionsMock,
+  getWorkspaceMissionSummary: getWorkspaceMissionSummaryMock,
   subscribeMissionEvents: subscribeMissionEventsMock,
 }));
 
@@ -39,6 +39,7 @@ function missionView(missionId: string, stateVersion = 1): MissionView {
     evidenceCount: 0,
     artifactCount: 0,
     artifactRevision: "artifact-revision-1",
+    reviewRevision: "review-revision-1",
     reviewItems: [],
     reviewSummary: { pending: 0, needsMoreEvidence: 0, accepted: 0, committed: 0 },
     reviewMode: "balanced_default",
@@ -64,7 +65,16 @@ function deferred<T>() {
 describe("useMissionWorkspace identity isolation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    listWorkspaceMissionsMock.mockResolvedValue([{ missionId: "mission-a" }]);
+    getWorkspaceMissionSummaryMock.mockResolvedValue({
+      total: 1,
+      statusCounts: { running: 1 },
+      pendingReviewCount: 0,
+      evidenceCount: 0,
+      artifactCount: 0,
+      latest: { missionId: "mission-a" },
+      active: { missionId: "mission-a" },
+      eventCursor: "bootstrap-cursor",
+    });
     getMissionViewMock.mockImplementation(async (missionId: string) => missionView(missionId));
     subscribeMissionEventsMock.mockReturnValue(() => undefined);
   });
@@ -79,6 +89,13 @@ describe("useMissionWorkspace identity isolation", () => {
     const { result } = renderHook(() => useMissionWorkspace("workspace-1"));
     await waitFor(() => expect(result.current.view?.missionId).toBe("mission-a"));
     expect(getMissionViewMock).toHaveBeenCalledTimes(1);
+    expect(getWorkspaceMissionSummaryMock).toHaveBeenCalledTimes(1);
+    expect(subscribeMissionEventsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        cursor: "bootstrap-cursor",
+      }),
+    );
 
     act(() => {
       onEvent?.({
@@ -95,9 +112,59 @@ describe("useMissionWorkspace identity isolation", () => {
     expect(result.current.view?.missionId).toBe("mission-a");
   });
 
+  it("keeps an explicit Mission switch while a stale bootstrap summary is in flight", async () => {
+    const summary = deferred<{
+      total: number;
+      statusCounts: Record<string, number>;
+      pendingReviewCount: number;
+      evidenceCount: number;
+      artifactCount: number;
+      latest: { missionId: string };
+      active: { missionId: string };
+      eventCursor: string;
+    }>();
+    getWorkspaceMissionSummaryMock.mockReturnValueOnce(summary.promise);
+    const { result } = renderHook(() => useMissionWorkspace("workspace-1"));
+
+    await act(async () => {
+      await result.current.switchMission("mission-b");
+    });
+    expect(result.current.view?.missionId).toBe("mission-b");
+
+    await act(async () => {
+      summary.resolve({
+        total: 1,
+        statusCounts: { running: 1 },
+        pendingReviewCount: 0,
+        evidenceCount: 0,
+        artifactCount: 0,
+        latest: { missionId: "mission-a" },
+        active: { missionId: "mission-a" },
+        eventCursor: "summary-cursor",
+      });
+      await summary.promise;
+    });
+
+    await waitFor(() => expect(subscribeMissionEventsMock).toHaveBeenCalled());
+    expect(result.current.view?.missionId).toBe("mission-b");
+    expect(getMissionViewMock).not.toHaveBeenCalledWith("mission-a");
+    expect(subscribeMissionEventsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: "summary-cursor" }),
+    );
+  });
+
   it("adopts the first Mission announced by SSE when the workspace is empty", async () => {
     let onEvent: ((event: MissionEventHint) => void) | undefined;
-    listWorkspaceMissionsMock.mockResolvedValueOnce([]);
+    getWorkspaceMissionSummaryMock.mockResolvedValueOnce({
+      total: 0,
+      statusCounts: {},
+      pendingReviewCount: 0,
+      evidenceCount: 0,
+      artifactCount: 0,
+      latest: null,
+      active: null,
+      eventCursor: null,
+    });
     subscribeMissionEventsMock.mockImplementation((options: { onEvent(event: MissionEventHint): void }) => {
       onEvent = options.onEvent;
       return () => undefined;

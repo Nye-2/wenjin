@@ -268,12 +268,14 @@ async def get_thread_latest_mission(
 async def list_workspace_mission_changes(
     workspace_id: str,
     updated_at: datetime,
+    user_id: str = Query(min_length=1, max_length=36),
     after_mission_id: str = "",
     limit: int = Query(default=100, ge=1, le=200),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     results = await _store(uow).list_runs_updated_after(
         workspace_id=workspace_id,
+        user_id=user_id,
         updated_at=updated_at,
         mission_id=after_mission_id,
         limit=limit,

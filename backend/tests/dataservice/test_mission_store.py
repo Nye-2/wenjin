@@ -26,8 +26,10 @@ from src.dataservice.common.errors import (
 )
 from src.dataservice.domains.mission._store_core import (
     _project_stage_instance_ids,
+    _review_projection_revision,
     _stage_projection_title,
 )
+from src.dataservice.domains.mission.repository import ReviewProjectionRevisionRow
 from src.dataservice.domains.mission.service import (
     MissionProjectionStaleError,
     MissionStore,
@@ -88,6 +90,48 @@ _ZERO_RESOURCE_USAGE = {
     "reasoning_tokens": 0,
     "total_tokens": 0,
 }
+
+
+def test_review_projection_revision_tracks_time_derived_eligibility() -> None:
+    now = datetime(2026, 7, 23, tzinfo=UTC)
+    row = ReviewProjectionRevisionRow(
+        review_item_id="review-time-bound",
+        source_item_seq=1,
+        output_key="output-time-bound",
+        target_kind="document",
+        target_room="documents",
+        target_ref="document-1",
+        title="待确认文稿",
+        summary=None,
+        risk_level="medium",
+        review_status="accepted",
+        review_required_reason=None,
+        preview_hash="a" * 64,
+        preview_ref="preview:1",
+        preview_expires_at=now + timedelta(seconds=10),
+        commit_status="applying",
+        commit_error_json={},
+        committed_targets_json={},
+        commit_attempt_expires_at=now + timedelta(seconds=5),
+    )
+
+    applying = _review_projection_revision(
+        [row],
+        review_mode="balanced_default",
+        now=now,
+    )
+    retryable = _review_projection_revision(
+        [row],
+        review_mode="balanced_default",
+        now=now + timedelta(seconds=6),
+    )
+    expired = _review_projection_revision(
+        [row],
+        review_mode="balanced_default",
+        now=now + timedelta(seconds=11),
+    )
+
+    assert len({applying, retryable, expired}) == 3
 
 
 def _model_call_started(
@@ -701,6 +745,60 @@ async def test_workspace_summary_aggregates_all_runs_without_history_page_limits
     assert summary.active is not None
     assert summary.active.mission_id == second.mission.mission_id
     assert summary.latest is not None
+
+
+@pytest.mark.asyncio
+async def test_workspace_summary_retries_when_its_cursor_fence_moves(
+    mission_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    created = await store.create_run(
+        _create_payload(
+            thread_id="thread-summary-fence",
+            idempotency_key="summary-fence",
+        )
+    )
+    initial_version = created.mission.state_version
+    real_aggregate = store.repository.aggregate_workspace_runs
+    aggregate_calls = 0
+
+    async def aggregate_with_one_drift(*, workspace_id: str, user_id: str | None):
+        nonlocal aggregate_calls
+        aggregate_calls += 1
+        rows = await real_aggregate(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        if aggregate_calls == 1:
+            await mission_session.execute(
+                update(MissionRunRecord)
+                .where(
+                    MissionRunRecord.mission_id
+                    == created.mission.mission_id
+                )
+                .values(
+                    state_version=MissionRunRecord.state_version + 1,
+                    updated_at=datetime.now(UTC) + timedelta(seconds=1),
+                )
+            )
+            await mission_session.flush()
+        return rows
+
+    monkeypatch.setattr(
+        store.repository,
+        "aggregate_workspace_runs",
+        aggregate_with_one_drift,
+    )
+
+    summary = await store.get_workspace_summary(
+        workspace_id="workspace-1",
+        user_id="user-1",
+    )
+
+    assert aggregate_calls == 2
+    assert summary.latest is not None
+    assert summary.latest.state_version == initial_version + 1
 
 
 @pytest.mark.asyncio
@@ -2394,6 +2492,36 @@ async def test_artifact_projection_retries_after_version_drift(
 
 
 @pytest.mark.asyncio
+async def test_review_projection_retries_after_version_drift(
+    mission_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MissionStore(mission_session, autocommit=True)
+    mission_id = await _created(store)
+    current = await store.load_run_snapshot(mission_id)
+    assert current is not None
+    expected_version = current.state_version
+    real_get_version = store.repository.get_run_state_version
+    observed_calls = 0
+
+    async def drifting_once(candidate_mission_id: str) -> int | None:
+        nonlocal observed_calls
+        observed_calls += 1
+        if observed_calls == 1:
+            return expected_version + 1
+        return await real_get_version(candidate_mission_id)
+
+    monkeypatch.setattr(store.repository, "get_run_state_version", drifting_once)
+
+    page = await store.list_review_projection_page(mission_id)
+
+    assert page is not None
+    assert page.items == []
+    assert len(page.page.revision) == 64
+    assert observed_calls == 4
+
+
+@pytest.mark.asyncio
 async def test_mission_view_fails_closed_after_repeated_projection_drift(
     mission_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -2985,8 +3113,40 @@ async def test_current_review_projection_pages_without_truncation_or_duplicates(
     assert view.review_page.total == 5
     assert view.review_page.next_cursor is not None
     assert first.page.total == second.page.total == third.page.total == 5
+    assert (
+        view.review_page.revision
+        == first.page.revision
+        == second.page.revision
+        == third.page.revision
+    )
     assert len(ids) == len(set(ids)) == 5
     assert third.page.next_cursor is None
+
+    original_revision = view.review_page.revision
+    await mission_session.execute(
+        update(MissionReviewItemRecord)
+        .where(MissionReviewItemRecord.review_item_id == "review-page-4")
+        .values(title="尾页内容已更新")
+    )
+    await mission_session.execute(
+        update(MissionRunRecord)
+        .where(MissionRunRecord.mission_id == mission_id)
+        .values(
+            state_version=MissionRunRecord.state_version + 1,
+            updated_at=datetime.now(UTC),
+        )
+    )
+    await mission_session.commit()
+
+    refreshed_view = await store.get_view(mission_id, projection_item_limit=2)
+    refreshed_tail = await store.list_review_projection_page(
+        mission_id,
+        cursor=first.page.next_cursor,
+        limit=2,
+    )
+    assert refreshed_view is not None and refreshed_tail is not None
+    assert refreshed_view.review_page.revision != original_revision
+    assert refreshed_tail.page.revision == refreshed_view.review_page.revision
 
 
 @pytest.mark.asyncio

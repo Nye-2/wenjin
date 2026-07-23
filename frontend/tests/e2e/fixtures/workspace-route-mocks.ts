@@ -269,6 +269,7 @@ export async function installWorkspaceRouteMocks(
         artifact_count: missions.reduce((sum, mission) => sum + Number(mission.artifact_count ?? 0), 0),
         latest: missions[0] ?? null,
         active,
+        event_cursor: null,
       }));
       return;
     }
@@ -517,6 +518,14 @@ export async function installWorkspaceRouteMocks(
         contentType: "text/event-stream",
         body: runStreamBody,
       });
+      return;
+    }
+
+    if (
+      pathname === `/api/threads/${thread.id}/runs` &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill(json([]));
       return;
     }
 

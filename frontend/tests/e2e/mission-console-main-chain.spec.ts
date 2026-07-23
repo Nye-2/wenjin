@@ -49,6 +49,12 @@ const view = {
     { review_item_id: "review-1", mission_id: MISSION_ID, title: "核心创新点", summary: "将异构性与自适应秩聚合联系起来", target_kind: "claim", risk_level: "high", status: "pending", review_required_reason: "涉及论文核心论断，需要逐项确认", preview_json: { claim: "异构性与自适应秩聚合存在可验证关联" }, preview_ref: null, requires_explicit_review: true, batch_acceptable: false, suggested_selected: false, commit_status: null, commit_eligible: false, commit_block_reason: "review_item_not_accepted" },
     { review_item_id: "review-2", mission_id: MISSION_ID, title: "文献脉络草稿", summary: "整理方法演进与主要基线", target_kind: "document", risk_level: "medium", status: "pending", review_required_reason: "保存前建议确认", preview_json: {}, preview_url: null, requires_explicit_review: false, batch_acceptable: true, suggested_selected: true, commit_status: null, commit_eligible: false, commit_block_reason: "review_item_not_accepted" },
   ],
+  review_page: {
+    total: 2,
+    returned: 2,
+    next_cursor: null,
+    revision: "review-revision-main-chain",
+  },
   required_stage_ids: ["scope", "literature", "position"],
   stage_summaries: [
     { stage_id: "scope", title: "收敛研究问题", status: "passed" },

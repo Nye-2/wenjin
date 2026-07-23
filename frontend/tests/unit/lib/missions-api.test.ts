@@ -75,6 +75,12 @@ function missionViewWire() {
       commit_eligible: false,
       commit_block_reason: "review_item_not_accepted",
     }],
+    review_page: {
+      total: 1,
+      returned: 1,
+      next_cursor: null,
+      revision: "review-revision-42",
+    },
     required_stage_ids: [],
     stage_summaries: [],
     team_summary: null,
@@ -140,6 +146,7 @@ describe("Mission projection API", () => {
     expect(view.reviewSelectionRevision).toBe("4e623f1e58e841dd80c8f16a39497f95");
     expect(view.reviewSelectionRevision).not.toBe(String(view.stateVersion));
     expect(view.artifactRevision).toBe("artifact-revision-42");
+    expect(view.reviewRevision).toBe("review-revision-42");
     expect(view.artifactCount).toBe(1);
     expect(view.evidenceCount).toBe(1);
     expect(view.reviewItems[0]).toMatchObject({
@@ -336,6 +343,7 @@ describe("Mission projection API", () => {
       artifact_count: 88,
       latest: run,
       active: run,
+      event_cursor: "summary-cursor",
     }));
 
     const summary = await getWorkspaceMissionSummary("workspace-1");
@@ -344,9 +352,37 @@ describe("Mission projection API", () => {
     expect(summary.statusCounts.running).toBe(12);
     expect(summary.pendingReviewCount).toBe(7);
     expect(summary.active?.missionId).toBe("mission-1");
+    expect(summary.eventCursor).toBe("summary-cursor");
     expect(authorizedFetchMock).toHaveBeenCalledWith(
       "/api/workspaces/workspace-1/missions/summary",
     );
+  });
+
+  it("deduplicates concurrent workspace summary reads without caching them", async () => {
+    const run = missionViewWire().mission;
+    authorizedFetchMock.mockImplementation(async () =>
+      jsonResponse({
+        total: 1,
+        status_counts: { running: 1 },
+        pending_review_count: 0,
+        evidence_count: 1,
+        artifact_count: 1,
+        latest: run,
+        active: run,
+        event_cursor: "summary-cursor",
+      }),
+    );
+
+    const [first, second] = await Promise.all([
+      getWorkspaceMissionSummary("workspace-1"),
+      getWorkspaceMissionSummary("workspace-1"),
+    ]);
+
+    expect(first).toEqual(second);
+    expect(authorizedFetchMock).toHaveBeenCalledTimes(1);
+
+    await getWorkspaceMissionSummary("workspace-1");
+    expect(authorizedFetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("stops the Mission SSE after a 401 response", async () => {

@@ -3,6 +3,7 @@
 from .mission import (
     MissionAppendPayload,
     MissionAppendResultPayload,
+    MissionChangeHintPayload,
     MissionCheckpointPayload,
     MissionCommitCreatePayload,
     MissionCommitCreateResultPayload,
@@ -39,6 +40,7 @@ __all__ = [
     "MissionCommitResultPayload",
     "MissionCommitStartPayload",
     "MissionCheckpointPayload",
+    "MissionChangeHintPayload",
     "MissionCreatePayload",
     "MissionCreateResultPayload",
     "MissionItemDraftPayload",

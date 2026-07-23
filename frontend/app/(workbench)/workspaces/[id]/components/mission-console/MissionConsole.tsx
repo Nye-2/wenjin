@@ -45,6 +45,7 @@ import type {
   MissionArtifactView,
   MissionEvidenceView,
   MissionItem,
+  MissionReviewItemView,
   MissionReviewMode,
   MissionView,
 } from "@/lib/api/mission-types";
@@ -77,6 +78,13 @@ const SURFACES = [
 ] as const;
 
 const EMPTY_REVIEW_SELECTION = new Set<string>();
+const MAX_REVIEW_REPLAY_PAGES = 100;
+
+function assertReviewRevision(actual: string, expected: string): void {
+  if (actual !== expected) {
+    throw new Error("待确认内容刚刚更新，正在同步最新状态");
+  }
+}
 
 export function MissionConsole({
   view,
@@ -702,8 +710,17 @@ function ReviewSurface({
   const [reviewItems, setReviewItems] = useState(view.reviewItems);
   const [nextReviewCursor, setNextReviewCursor] = useState(view.reviewNextCursor ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const reviewMissionRef = useRef(view.missionId);
-  const reviewPagesLoadedRef = useRef(false);
+  const reviewRequestEpochRef = useRef(0);
+  const reviewRequestInFlightRef = useRef(false);
+  const projectedReviewItemsRef = useRef(view.reviewItems);
+  const projectedReviewRevisionRef = useRef(view.reviewRevision);
+  const reviewFirstPageIdsRef = useRef(
+    new Set(view.reviewItems.map((item) => item.id)),
+  );
+  const loadedReviewPageCountRef = useRef(0);
+  const reviewFullyLoadedRef = useRef(
+    (view.reviewNextCursor ?? null) === null,
+  );
   const pending = reviewItems.filter((item) => item.status === "pending");
   const suggestedSelection = useMemo(
     () => suggestedReviewSelection({ ...view, reviewItems }),
@@ -732,12 +749,142 @@ function ReviewSurface({
     setProjectionPending(false);
   }, [view.missionId, view.stateVersion]);
 
+  const replayReviewTail = useCallback(async ({
+    expectedRevision,
+    initialCursor,
+    minimumPageCount,
+    throughEnd,
+  }: {
+    expectedRevision: string;
+    initialCursor: string;
+    minimumPageCount: number;
+    throughEnd: boolean;
+  }) => {
+    if (reviewRequestInFlightRef.current) return;
+    const requestEpoch = ++reviewRequestEpochRef.current;
+    reviewRequestInFlightRef.current = true;
+    setLoadingMore(true);
+    setError(null);
+    let cursor: string | null = initialCursor;
+    let loadedPageCount = 0;
+    let tailItems: MissionReviewItemView[] = [];
+    const seenCursors = new Set<string>();
+    try {
+      while (
+        cursor &&
+        loadedPageCount < MAX_REVIEW_REPLAY_PAGES &&
+        (loadedPageCount < minimumPageCount || throughEnd)
+      ) {
+        if (seenCursors.has(cursor)) {
+          throw new Error("待确认内容分页游标重复，已停止同步");
+        }
+        seenCursors.add(cursor);
+        const page = await listMissionReviews({
+          missionId: view.missionId,
+          cursor,
+        });
+        if (requestEpoch !== reviewRequestEpochRef.current) return;
+        assertReviewRevision(page.revision, expectedRevision);
+        tailItems = appendUnique(tailItems, page.items);
+        cursor = page.nextCursor;
+        loadedPageCount += 1;
+      }
+      if (requestEpoch !== reviewRequestEpochRef.current) return;
+      setReviewItems(
+        reconcileProjectedPage(projectedReviewItemsRef.current, tailItems),
+      );
+      setNextReviewCursor(cursor);
+      loadedReviewPageCountRef.current = loadedPageCount;
+      reviewFullyLoadedRef.current = cursor === null;
+      if (cursor && loadedPageCount >= MAX_REVIEW_REPLAY_PAGES) {
+        setError("待确认内容较多，已暂停自动同步，可继续手动加载。");
+      }
+    } catch (reason) {
+      if (requestEpoch !== reviewRequestEpochRef.current) return;
+      setReviewItems(projectedReviewItemsRef.current);
+      setNextReviewCursor(
+        projectedReviewItemsRef.current.length
+          ? view.reviewNextCursor ?? null
+          : null,
+      );
+      loadedReviewPageCountRef.current = 0;
+      reviewFullyLoadedRef.current =
+        (view.reviewNextCursor ?? null) === null;
+      setError(
+        reason instanceof Error ? reason.message : "待确认内容同步失败",
+      );
+    } finally {
+      if (requestEpoch === reviewRequestEpochRef.current) {
+        reviewRequestInFlightRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [view.missionId, view.reviewNextCursor]);
+
   useEffect(() => {
-    setReviewItems((current) => reconcileProjectedPage(view.reviewItems, current));
-    if (!reviewPagesLoadedRef.current) {
+    projectedReviewItemsRef.current = view.reviewItems;
+    const previousFirstPageIds = reviewFirstPageIdsRef.current;
+    reviewFirstPageIdsRef.current = new Set(
+      view.reviewItems.map((item) => item.id),
+    );
+    if (projectedReviewRevisionRef.current === view.reviewRevision) {
+      setReviewItems((current) =>
+        reconcileProjectedFirstPage(
+          view.reviewItems,
+          current,
+          previousFirstPageIds,
+        ),
+      );
+      if (loadedReviewPageCountRef.current === 0) {
+        setNextReviewCursor(view.reviewNextCursor ?? null);
+        reviewFullyLoadedRef.current =
+          (view.reviewNextCursor ?? null) === null;
+      }
+      return;
+    }
+
+    const previouslyLoadedPageCount = loadedReviewPageCountRef.current;
+    const previousTailWasComplete = reviewFullyLoadedRef.current;
+    projectedReviewRevisionRef.current = view.reviewRevision;
+    ++reviewRequestEpochRef.current;
+    reviewRequestInFlightRef.current = false;
+    loadedReviewPageCountRef.current = 0;
+    reviewFullyLoadedRef.current =
+      (view.reviewNextCursor ?? null) === null;
+    setReviewItems(view.reviewItems);
+    setNextReviewCursor(view.reviewNextCursor ?? null);
+    if (
+      previouslyLoadedPageCount > 0 &&
+      view.reviewNextCursor
+    ) {
+      void replayReviewTail({
+        expectedRevision: view.reviewRevision,
+        initialCursor: view.reviewNextCursor,
+        minimumPageCount: previouslyLoadedPageCount,
+        throughEnd: previousTailWasComplete,
+      });
+    }
+  }, [
+    replayReviewTail,
+    view.reviewItems,
+    view.reviewNextCursor,
+    view.reviewRevision,
+  ]);
+
+  useEffect(() => {
+    const requestEpoch = reviewRequestEpochRef;
+    const requestInFlight = reviewRequestInFlightRef;
+    return () => {
+      ++requestEpoch.current;
+      requestInFlight.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (loadedReviewPageCountRef.current === 0) {
       setNextReviewCursor(view.reviewNextCursor ?? null);
     }
-  }, [view.missionId, view.reviewItems, view.reviewNextCursor]);
+  }, [view.reviewNextCursor]);
 
   useEffect(() => {
     const expirations = reviewItems
@@ -749,10 +896,22 @@ function ReviewSurface({
       void onMissionTarget(view.missionId);
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [onMissionTarget, reviewItems, view.missionId]);
+  }, [
+    onMissionTarget,
+    reviewItems,
+    view.missionId,
+  ]);
 
   const loadMoreReviews = async () => {
-    if (!nextReviewCursor || loadingMore) return;
+    if (
+      !nextReviewCursor ||
+      loadingMore ||
+      reviewRequestInFlightRef.current
+    ) {
+      return;
+    }
+    const requestEpoch = ++reviewRequestEpochRef.current;
+    reviewRequestInFlightRef.current = true;
     setLoadingMore(true);
     setError(null);
     try {
@@ -760,14 +919,20 @@ function ReviewSurface({
         missionId: view.missionId,
         cursor: nextReviewCursor,
       });
-      if (reviewMissionRef.current !== view.missionId) return;
-      reviewPagesLoadedRef.current = true;
+      if (requestEpoch !== reviewRequestEpochRef.current) return;
+      assertReviewRevision(page.revision, view.reviewRevision);
       setReviewItems((current) => reconcileProjectedPage(current, page.items));
       setNextReviewCursor(page.nextCursor);
+      loadedReviewPageCountRef.current += 1;
+      reviewFullyLoadedRef.current = page.nextCursor === null;
     } catch (reason) {
+      if (requestEpoch !== reviewRequestEpochRef.current) return;
       setError(reason instanceof Error ? reason.message : "更多待确认内容加载失败");
     } finally {
-      setLoadingMore(false);
+      if (requestEpoch === reviewRequestEpochRef.current) {
+        reviewRequestInFlightRef.current = false;
+        setLoadingMore(false);
+      }
     }
   };
 

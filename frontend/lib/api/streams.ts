@@ -64,27 +64,29 @@ export type ThreadStreamHandle = {
   abort(): void;
 };
 
-export function streamThread(
-  data: RunRequest,
+interface ThreadStreamSession {
+  threadId: string;
+  initialUrl: string;
+  initialInit: RequestInit;
+  initialRunId?: string;
+}
+
+function createThreadStream(
+  session: ThreadStreamSession,
   handlers: ThreadStreamHandlers,
 ): ThreadStreamHandle {
   const controller = new AbortController();
-  const requestPayload: RunRequest = {
-    on_disconnect: "continue",
-    multitask_strategy: "interrupt",
-    ...data,
-  };
-  const requestBody = JSON.stringify(requestPayload);
-  const initialUrl = resolveThreadStreamUrl(data);
   const MAX_RECONNECT_ATTEMPTS = 3;
   const BASE_RECONNECT_DELAY_MS = 400;
 
   let finished = false;
   let failed = false;
   let reconnectAttempts = 0;
-  let resumeUrl: string | null = null;
+  let resumeUrl: string | null = session.initialRunId
+    ? `${API_BASE_URL}/threads/${encodeURIComponent(session.threadId)}/runs/${encodeURIComponent(session.initialRunId)}/stream`
+    : null;
   let lastEventId: string | null = null;
-  let activeRunId: string | null = null;
+  let activeRunId: string | null = session.initialRunId ?? null;
   let stopRequested = false;
   let settled = false;
   let resolveCompletion!: (outcome: ThreadStreamOutcome) => void;
@@ -95,6 +97,9 @@ export function streamThread(
   const runIdReady = new Promise<string>((resolve) => {
     resolveRunId = resolve;
   });
+  if (activeRunId) {
+    resolveRunId(activeRunId);
+  }
 
   const settle = (outcome: ThreadStreamOutcome) => {
     if (settled) return;
@@ -137,10 +142,7 @@ export function streamThread(
           setActiveRunId(json.run_id);
         }
         if (activeRunId && !resumeUrl) {
-          const threadId = requestPayload.thread_id?.trim();
-          if (threadId) {
-            resumeUrl = `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(activeRunId)}/stream`;
-          }
+          resumeUrl = `${API_BASE_URL}/threads/${encodeURIComponent(session.threadId)}/runs/${encodeURIComponent(activeRunId)}/stream`;
         }
       }
       switch (json.type) {
@@ -272,14 +274,8 @@ export function streamThread(
     });
 
   void (async () => {
-    let requestUrl = initialUrl;
-    let requestInit: RequestInit = {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: requestBody,
-    };
+    let requestUrl = session.initialUrl;
+    let requestInit: RequestInit = session.initialInit;
 
     while (!controller.signal.aborted && !finished && !failed) {
       try {
@@ -341,10 +337,9 @@ export function streamThread(
         runIdReady,
         completion.then(() => null),
       ]);
-      const threadId = requestPayload.thread_id?.trim();
-      if (threadId && runId) {
+      if (runId) {
         await authorizedFetch(
-          `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(runId)}/cancel?action=interrupt`,
+          `${API_BASE_URL}/threads/${encodeURIComponent(session.threadId)}/runs/${encodeURIComponent(runId)}/cancel?action=interrupt`,
           { method: "POST", keepalive: true },
         );
       }
@@ -359,6 +354,58 @@ export function streamThread(
   return { completion, stop, abort };
 }
 
+export function streamThread(
+  data: RunRequest,
+  handlers: ThreadStreamHandlers,
+): ThreadStreamHandle {
+  const requestPayload: RunRequest = {
+    on_disconnect: "continue",
+    multitask_strategy: "interrupt",
+    ...data,
+  };
+  const threadId =
+    typeof data.thread_id === "string" ? data.thread_id.trim() : "";
+  if (!threadId) {
+    throw new Error("thread_id is required for chat turn streaming");
+  }
+  return createThreadStream(
+    {
+      threadId,
+      initialUrl: resolveThreadStreamUrl(data),
+      initialInit: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestPayload),
+      },
+    },
+    handlers,
+  );
+}
+
+export function joinThreadRunStream(
+  threadId: string,
+  runId: string,
+  handlers: ThreadStreamHandlers,
+): ThreadStreamHandle {
+  const normalizedThreadId = threadId.trim();
+  const normalizedRunId = runId.trim();
+  if (!normalizedThreadId || !normalizedRunId) {
+    throw new Error("thread_id and run_id are required to recover a chat turn");
+  }
+  const streamUrl = `${API_BASE_URL}/threads/${encodeURIComponent(normalizedThreadId)}/runs/${encodeURIComponent(normalizedRunId)}/stream`;
+  return createThreadStream(
+    {
+      threadId: normalizedThreadId,
+      initialRunId: normalizedRunId,
+      initialUrl: streamUrl,
+      initialInit: { method: "GET" },
+    },
+    handlers,
+  );
+}
+
 export function subscribeWorkspaceEvents(
   workspaceId: string,
   onEvent: (event: WorkspaceEvent) => void,
@@ -366,7 +413,7 @@ export function subscribeWorkspaceEvents(
   onOpen?: () => void
 ): () => void {
   return subscribeJsonEventStream<WorkspaceEvent>({
-    url: `${API_BASE_URL}/workspaces/${workspaceId}/events`,
+    url: `${API_BASE_URL}/workspaces/${encodeURIComponent(workspaceId)}/events`,
     init: { method: "GET" },
     onPayload: onEvent,
     onOpen,

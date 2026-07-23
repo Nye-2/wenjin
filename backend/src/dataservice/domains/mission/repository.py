@@ -37,6 +37,38 @@ class ArtifactProjectionRevisionRow:
     commit_status: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class MissionChangeHintRow:
+    mission_id: str
+    workspace_id: str
+    user_id: str
+    state_version: int
+    last_item_seq: int
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewProjectionRevisionRow:
+    review_item_id: str
+    source_item_seq: int | None
+    output_key: str
+    target_kind: str
+    target_room: str | None
+    target_ref: str | None
+    title: str
+    summary: str | None
+    risk_level: str
+    review_status: str
+    review_required_reason: str | None
+    preview_hash: str | None
+    preview_ref: str | None
+    preview_expires_at: datetime | None
+    commit_status: str | None
+    commit_error_json: dict[str, Any]
+    committed_targets_json: dict[str, Any]
+    commit_attempt_expires_at: datetime | None
+
+
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
@@ -278,14 +310,23 @@ class MissionRepository:
         self,
         *,
         workspace_id: str,
+        user_id: str,
         updated_at: datetime,
         mission_id: str,
         limit: int = 100,
-    ) -> list[MissionRunRecord]:
+    ) -> list[MissionChangeHintRow]:
         result = await self.session.execute(
-            select(MissionRunRecord)
+            select(
+                MissionRunRecord.mission_id,
+                MissionRunRecord.workspace_id,
+                MissionRunRecord.user_id,
+                MissionRunRecord.state_version,
+                MissionRunRecord.last_item_seq,
+                MissionRunRecord.updated_at,
+            )
             .where(
                 MissionRunRecord.workspace_id == workspace_id,
+                MissionRunRecord.user_id == user_id,
                 or_(
                     MissionRunRecord.updated_at > updated_at,
                     and_(
@@ -297,7 +338,17 @@ class MissionRepository:
             .order_by(MissionRunRecord.updated_at.asc(), MissionRunRecord.mission_id.asc())
             .limit(limit)
         )
-        return list(result.scalars())
+        return [
+            MissionChangeHintRow(
+                mission_id=str(row.mission_id),
+                workspace_id=str(row.workspace_id),
+                user_id=str(row.user_id),
+                state_version=int(row.state_version),
+                last_item_seq=int(row.last_item_seq),
+                updated_at=_aware(row.updated_at),
+            )
+            for row in result.all()
+        ]
 
     async def aggregate_workspace_runs(
         self,
@@ -1141,6 +1192,101 @@ class MissionRepository:
         )
         return int(result.scalar_one())
 
+    async def list_review_projection_revision_rows(
+        self,
+        *,
+        mission_id: str,
+    ) -> list[ReviewProjectionRevisionRow]:
+        """Return compact ordered inputs defining the complete public review view."""
+
+        current = _current_review_rows(mission_id)
+        result = await self.session.execute(
+            select(
+                MissionReviewItemRecord.review_item_id,
+                MissionReviewItemRecord.source_item_seq,
+                MissionReviewItemRecord.output_key,
+                MissionReviewItemRecord.target_kind,
+                MissionReviewItemRecord.target_room,
+                MissionReviewItemRecord.target_ref,
+                MissionReviewItemRecord.title,
+                MissionReviewItemRecord.summary,
+                MissionReviewItemRecord.risk_level,
+                MissionReviewItemRecord.status.label("review_status"),
+                MissionReviewItemRecord.review_required_reason,
+                MissionReviewItemRecord.preview_hash,
+                MissionReviewItemRecord.preview_ref,
+                MissionReviewItemRecord.preview_expires_at,
+                MissionCommitRecord.status.label("commit_status"),
+                MissionCommitRecord.error_json.label("commit_error_json"),
+                MissionCommitRecord.targets_json.label("committed_targets_json"),
+                MissionCommitRecord.attempt_expires_at.label(
+                    "commit_attempt_expires_at"
+                ),
+            )
+            .join(
+                current,
+                current.c.review_item_id
+                == MissionReviewItemRecord.review_item_id,
+            )
+            .outerjoin(
+                MissionCommitRecord,
+                and_(
+                    MissionCommitRecord.mission_id
+                    == MissionReviewItemRecord.mission_id,
+                    MissionCommitRecord.review_item_id
+                    == MissionReviewItemRecord.review_item_id,
+                ),
+            )
+            .where(current.c.review_rank == 1)
+            .order_by(
+                MissionReviewItemRecord.created_at.asc(),
+                MissionReviewItemRecord.review_item_id.asc(),
+            )
+        )
+        return [
+            ReviewProjectionRevisionRow(
+                review_item_id=str(row.review_item_id),
+                source_item_seq=(
+                    int(row.source_item_seq)
+                    if row.source_item_seq is not None
+                    else None
+                ),
+                output_key=str(row.output_key),
+                target_kind=str(row.target_kind),
+                target_room=(
+                    str(row.target_room) if row.target_room is not None else None
+                ),
+                target_ref=(
+                    str(row.target_ref) if row.target_ref is not None else None
+                ),
+                title=str(row.title),
+                summary=str(row.summary) if row.summary is not None else None,
+                risk_level=str(row.risk_level),
+                review_status=str(row.review_status),
+                review_required_reason=(
+                    str(row.review_required_reason)
+                    if row.review_required_reason is not None
+                    else None
+                ),
+                preview_hash=(
+                    str(row.preview_hash) if row.preview_hash is not None else None
+                ),
+                preview_ref=(
+                    str(row.preview_ref) if row.preview_ref is not None else None
+                ),
+                preview_expires_at=row.preview_expires_at,
+                commit_status=(
+                    str(row.commit_status)
+                    if row.commit_status is not None
+                    else None
+                ),
+                commit_error_json=dict(row.commit_error_json or {}),
+                committed_targets_json=dict(row.committed_targets_json or {}),
+                commit_attempt_expires_at=row.commit_attempt_expires_at,
+            )
+            for row in result.all()
+        ]
+
     async def aggregate_current_review_statuses(
         self,
         *,
@@ -1477,6 +1623,8 @@ class MissionRepository:
 
 __all__ = [
     "ArtifactProjectionRevisionRow",
+    "MissionChangeHintRow",
     "MissionRepository",
     "NONTERMINAL_MISSION_STATUSES",
+    "ReviewProjectionRevisionRow",
 ]

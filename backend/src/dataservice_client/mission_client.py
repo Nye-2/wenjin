@@ -13,6 +13,7 @@ from src.dataservice_client.contracts.mission import (
     MissionAppendResultPayload,
     MissionApplyCommandsPayload,
     MissionArtifactPagePayload,
+    MissionChangeHintPayload,
     MissionCheckpointPayload,
     MissionCommitCreatePayload,
     MissionCommitCreateResultPayload,
@@ -320,20 +321,25 @@ class MissionDataServiceClient:
         self,
         *,
         workspace_id: str,
+        user_id: str,
         updated_at: datetime,
         after_mission_id: str = "",
         limit: int = 100,
-    ) -> list[MissionRunPayload]:
+    ) -> list[MissionChangeHintPayload]:
         response = await self._request(
             "GET",
             f"/internal/v1/workspaces/{workspace_id}/missions/changes",
             params={
                 "updated_at": updated_at.isoformat(),
+                "user_id": user_id,
                 "after_mission_id": after_mission_id,
                 "limit": limit,
             },
         )
-        return [MissionRunPayload.model_validate(item) for item in response["data"]]
+        return [
+            MissionChangeHintPayload.model_validate(item)
+            for item in response["data"]
+        ]
 
     async def aggregate_stats(
         self,

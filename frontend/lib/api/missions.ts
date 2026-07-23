@@ -22,6 +22,10 @@ import type {
 
 const API = "/api";
 type Json = Record<string, unknown>;
+const workspaceMissionSummaryRequests = new Map<
+  string,
+  Promise<MissionWorkspaceSummary>
+>();
 
 export interface MissionMutationResult {
   targetMissionId: string;
@@ -151,7 +155,12 @@ interface MissionViewWire {
     failed: number;
   };
   review_items: MissionReviewWire[];
-  review_page?: { total: number; returned: number; next_cursor?: string | null };
+  review_page: {
+    total: number;
+    returned: number;
+    next_cursor?: string | null;
+    revision: string;
+  };
   required_stage_ids: string[];
   stage_summaries: Array<{ stage_id: string; title: string; status: MissionStageView["status"]; summary?: string | null }>;
   team_summary?: string | null;
@@ -388,10 +397,11 @@ function projectView(wire: MissionViewWire): MissionView {
     evidenceNextCursor: wire.evidence_page.next_cursor,
     artifactNextCursor: wire.artifact_page.next_cursor,
     artifactNextTiebreaker: wire.artifact_page.next_tiebreaker,
-    reviewNextCursor: wire.review_page?.next_cursor,
+    reviewNextCursor: wire.review_page.next_cursor,
     evidenceCount: wire.evidence_page.total,
     artifactCount: wire.artifact_page.total,
     artifactRevision: wire.artifact_page.revision,
+    reviewRevision: wire.review_page.revision,
     reviewItems,
     reviewSummary: { pending: wire.review_summary.pending, needsMoreEvidence: wire.review_summary.needs_more_evidence, accepted: wire.review_summary.accepted, committed: wire.review_summary.committed },
     reviewMode: run.review_mode,
@@ -448,28 +458,46 @@ function missionSummary(run: MissionRunWire): MissionSummary {
   };
 }
 
-export async function getWorkspaceMissionSummary(workspaceId: string): Promise<MissionWorkspaceSummary> {
-  const response = await authorizedFetch(
-    `${API}/workspaces/${encodeURIComponent(workspaceId)}/missions/summary`,
-  );
-  const payload = await readJson<{
-    total: number;
-    status_counts: Record<string, number>;
-    pending_review_count: number;
-    evidence_count: number;
-    artifact_count: number;
-    latest: MissionRunWire | null;
-    active: MissionRunWire | null;
-  }>(response, "研究任务概览加载失败");
-  return {
-    total: payload.total,
-    statusCounts: payload.status_counts,
-    pendingReviewCount: payload.pending_review_count,
-    evidenceCount: payload.evidence_count,
-    artifactCount: payload.artifact_count,
-    latest: payload.latest ? missionSummary(payload.latest) : null,
-    active: payload.active ? missionSummary(payload.active) : null,
+export function getWorkspaceMissionSummary(
+  workspaceId: string,
+): Promise<MissionWorkspaceSummary> {
+  const workspaceKey = workspaceId.trim();
+  const existing = workspaceMissionSummaryRequests.get(workspaceKey);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const response = await authorizedFetch(
+      `${API}/workspaces/${encodeURIComponent(workspaceId)}/missions/summary`,
+    );
+    const payload = await readJson<{
+      total: number;
+      status_counts: Record<string, number>;
+      pending_review_count: number;
+      evidence_count: number;
+      artifact_count: number;
+      latest: MissionRunWire | null;
+      active: MissionRunWire | null;
+      event_cursor: string | null;
+    }>(response, "研究任务概览加载失败");
+    return {
+      total: payload.total,
+      statusCounts: payload.status_counts,
+      pendingReviewCount: payload.pending_review_count,
+      evidenceCount: payload.evidence_count,
+      artifactCount: payload.artifact_count,
+      latest: payload.latest ? missionSummary(payload.latest) : null,
+      active: payload.active ? missionSummary(payload.active) : null,
+      eventCursor: payload.event_cursor,
+    };
+  })();
+  workspaceMissionSummaryRequests.set(workspaceKey, request);
+  const clearRequest = () => {
+    if (workspaceMissionSummaryRequests.get(workspaceKey) === request) {
+      workspaceMissionSummaryRequests.delete(workspaceKey);
+    }
   };
+  void request.then(clearRequest, clearRequest);
+  return request;
 }
 
 export async function getMissionView(missionId: string): Promise<MissionView> {
@@ -526,7 +554,9 @@ export async function listMissionReviews(options: {
   missionId: string;
   cursor: string;
   limit?: number;
-}): Promise<MissionProjectionPage<MissionReviewItemView, string>> {
+}): Promise<
+  MissionProjectionPage<MissionReviewItemView, string> & { revision: string }
+> {
   const params = new URLSearchParams({
     cursor: options.cursor,
     limit: String(options.limit ?? 50),
@@ -536,12 +566,18 @@ export async function listMissionReviews(options: {
   );
   const payload = await readJson<{
     items: MissionReviewWire[];
-    page: { total: number; returned: number; next_cursor?: string | null };
+    page: {
+      total: number;
+      returned: number;
+      next_cursor?: string | null;
+      revision: string;
+    };
   }>(response, "待确认内容加载失败");
   return {
     items: payload.items.map(missionReviewItem),
     nextCursor: payload.page.next_cursor ?? null,
     total: payload.page.total,
+    revision: payload.page.revision,
   };
 }
 

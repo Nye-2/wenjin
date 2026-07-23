@@ -12,11 +12,13 @@ from fastapi.testclient import TestClient
 from src.contracts.reasoning import ReasoningEffort
 from src.contracts.review_policy import ReviewMode
 from src.dataservice_client.contracts.mission import (
+    MissionChangeHintPayload,
     MissionHistoryPagePayload,
     MissionItemPhase,
     MissionRunPayload,
     MissionStatus,
     MissionViewRunPayload,
+    MissionWorkspaceSummaryPayload,
 )
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps.core import get_dataservice_client
@@ -147,6 +149,14 @@ def _run(
 
 def _dataservice(run: MissionRunPayload) -> SimpleNamespace:
     view_run = MissionViewRunPayload.model_validate({field: getattr(run, field) for field in MissionViewRunPayload.model_fields})
+    change_hint = MissionChangeHintPayload(
+        mission_id=run.mission_id,
+        workspace_id=run.workspace_id,
+        user_id=run.user_id,
+        state_version=run.state_version,
+        last_item_seq=run.last_item_seq,
+        updated_at=run.updated_at,
+    )
     return SimpleNamespace(
         missions=SimpleNamespace(
             get=AsyncMock(return_value=run),
@@ -157,7 +167,7 @@ def _dataservice(run: MissionRunPayload) -> SimpleNamespace:
                     next_cursor="next-history-cursor",
                 )
             ),
-            list_workspace_changes=AsyncMock(return_value=[run]),
+            list_workspace_changes=AsyncMock(return_value=[change_hint]),
             list_items=AsyncMock(return_value=[]),
         ),
         workspace_has_active_membership=AsyncMock(return_value=True),
@@ -197,6 +207,42 @@ def test_mission_history_gateway_passes_opaque_cursor_and_returns_page() -> None
         user_id="user-1",
         limit=25,
         cursor="opaque-history-cursor",
+    )
+
+
+def test_mission_summary_returns_a_user_scoped_event_cursor() -> None:
+    run = _run()
+    view_run = MissionViewRunPayload.model_validate(
+        {
+            field: getattr(run, field)
+            for field in MissionViewRunPayload.model_fields
+        }
+    )
+    dataservice = _dataservice(run)
+    dataservice.missions.get_workspace_summary = AsyncMock(
+        return_value=MissionWorkspaceSummaryPayload(
+            total=1,
+            status_counts={"running": 1},
+            pending_review_count=0,
+            evidence_count=2,
+            artifact_count=1,
+            latest=view_run,
+            active=view_run,
+        )
+    )
+    client = _client(run=run, runtime=SimpleNamespace(), dataservice=dataservice)
+
+    response = client.get("/workspaces/workspace-1/missions/summary")
+
+    assert response.status_code == 200
+    cursor = response.json()["event_cursor"]
+    assert missions._decode_cursor(cursor) == missions.MissionStreamCursor(
+        watermark=run.updated_at,
+        after_mission_id=run.mission_id,
+    )
+    dataservice.missions.get_workspace_summary.assert_awaited_once_with(
+        workspace_id="workspace-1",
+        user_id="user-1",
     )
 
 
@@ -406,6 +452,13 @@ async def test_mission_event_stream_projects_constant_size_invalidation_hint() -
     assert missions._decode_cursor(encoded_cursor) == missions.MissionStreamCursor(
         watermark=run.updated_at,
         after_mission_id=run.mission_id,
+    )
+    dataservice.missions.list_workspace_changes.assert_awaited_once_with(
+        workspace_id=run.workspace_id,
+        user_id=run.user_id,
+        updated_at=datetime(2026, 7, 10, tzinfo=UTC),
+        after_mission_id="",
+        limit=100,
     )
 
 

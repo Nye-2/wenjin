@@ -250,6 +250,7 @@ export interface MissionView {
   evidenceCount: number;
   artifactCount: number;
   artifactRevision: string;
+  reviewRevision: string;
   reviewItems: MissionReviewItemView[];
   reviewSummary: MissionReviewSummary;
   reviewMode: MissionReviewMode;
@@ -287,6 +288,7 @@ export interface MissionWorkspaceSummary {
   artifactCount: number;
   latest: MissionSummary | null;
   active: MissionSummary | null;
+  eventCursor: string | null;
 }
 
 export interface MissionItem {

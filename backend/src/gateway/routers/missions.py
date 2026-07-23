@@ -327,6 +327,7 @@ async def _mission_event_stream(
     while not await request.is_disconnected():
         runs = await dataservice.missions.list_workspace_changes(
             workspace_id=workspace_id,
+            user_id=user_id,
             updated_at=cursor.watermark,
             after_mission_id=cursor.after_mission_id,
             limit=100,
@@ -335,8 +336,6 @@ async def _mission_event_stream(
         for run in runs:
             cursor.watermark = run.updated_at
             cursor.after_mission_id = run.mission_id
-            if run.user_id != user_id:
-                continue
             emitted = True
             token = _encode_cursor(cursor)
             yield _event_frame(
@@ -554,7 +553,19 @@ async def get_workspace_mission_summary(
         workspace_id=workspace_id,
         user_id=user_id,
     )
-    return summary.model_dump(mode="json")
+    payload = summary.model_dump(mode="json")
+    latest = summary.latest
+    payload["event_cursor"] = (
+        _encode_cursor(
+            MissionStreamCursor(
+                watermark=latest.updated_at,
+                after_mission_id=latest.mission_id,
+            )
+        )
+        if latest is not None
+        else None
+    )
+    return payload
 
 
 @router.get("/workspaces/{workspace_id}/missions/events")

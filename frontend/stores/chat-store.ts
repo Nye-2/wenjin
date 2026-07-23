@@ -10,14 +10,22 @@ import {
 } from "@/lib/api/client";
 import type { AgentBlock } from "@/lib/api/blocks";
 import { normalizeChatBlock } from "@/lib/api/blocks";
-import { streamThread, type ThreadStreamHandle } from "@/lib/api/streams";
-import type { RunRequest, ThreadAttachment } from "@/lib/api/types";
+import {
+  joinThreadRunStream,
+  streamThread,
+  type ThreadStreamHandle,
+} from "@/lib/api/streams";
+import type { RunRequest, RunResponse, ThreadAttachment } from "@/lib/api/types";
 import type { ReasoningEffort } from "@/lib/reasoning-effort";
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
 const DEFAULT_WORKSPACE_KEY = "__default__";
 const EMPTY_MESSAGES: Message[] = [];
+const historyRequestEpochs = new Map<string, number>();
+const workspaceActivityEpochs = new Map<string, number>();
+const recoveringWorkspaces = new Set<string>();
+const historyRefreshRequests = new Map<string, Promise<string | null>>();
 
 export type Block = AgentBlock;
 
@@ -82,7 +90,15 @@ interface ChatState {
   getWorkspaceMessages(workspaceId: string): Message[];
   getThreadId(workspaceId: string): string | null;
   handleEvent(event: ChatEvent, workspaceId?: string): void;
-  loadHistory(workspaceId: string): Promise<string | null>;
+  loadHistory(
+    workspaceId: string,
+    options?: { force?: boolean },
+  ): Promise<string | null>;
+  refreshHistory(workspaceId: string): Promise<string | null>;
+  recoverActiveRun(
+    workspaceId: string,
+    threadId?: string | null,
+  ): Promise<SendMessageResult | null>;
   sendMessage(
     workspaceId: string,
     content: string,
@@ -163,6 +179,12 @@ function isAbortError(error: unknown): boolean {
 function normalizeWorkspaceKey(workspaceId: string | null | undefined): string {
   const trimmed = typeof workspaceId === "string" ? workspaceId.trim() : "";
   return trimmed || DEFAULT_WORKSPACE_KEY;
+}
+
+function bumpWorkspaceActivityEpoch(workspaceKey: string): number {
+  const next = (workspaceActivityEpochs.get(workspaceKey) ?? 0) + 1;
+  workspaceActivityEpochs.set(workspaceKey, next);
+  return next;
 }
 
 function hasWorkspaceMessages(
@@ -410,6 +432,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   reset() {
     get().activeAbortController?.abort();
     get().activeStream?.abort();
+    historyRequestEpochs.clear();
+    workspaceActivityEpochs.clear();
+    recoveringWorkspaces.clear();
+    historyRefreshRequests.clear();
     set({
       activeWorkspaceId: null,
       messagesByWorkspace: {},
@@ -425,23 +451,32 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     });
   },
 
-  async loadHistory(workspaceId: string): Promise<string | null> {
+  async loadHistory(
+    workspaceId: string,
+    options: { force?: boolean } = {},
+  ): Promise<string | null> {
     const workspaceKey = normalizeWorkspaceKey(workspaceId);
     const state = get();
     const cachedThreadId = state.threadIdsByWorkspace[workspaceKey];
-    if (cachedThreadId) return cachedThreadId;
+    if (cachedThreadId && !options.force) return cachedThreadId;
     const shouldHydrateMessages =
-      readWorkspaceMessages(state, workspaceId).length === 0;
+      options.force || readWorkspaceMessages(state, workspaceId).length === 0;
+    const activityEpoch = workspaceActivityEpochs.get(workspaceKey) ?? 0;
+    const requestEpoch = (historyRequestEpochs.get(workspaceKey) ?? 0) + 1;
+    historyRequestEpochs.set(workspaceKey, requestEpoch);
 
     try {
       const res = await authorizedFetch(
-        `/api/workspaces/${workspaceId}/thread`,
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/thread`,
         { method: "POST", headers: { "Content-Type": "application/json" } },
       );
       if (!res.ok) return null;
       const thread = await res.json();
       const threadId = typeof thread.id === "string" ? thread.id : "";
       if (!threadId) return null;
+      if (historyRequestEpochs.get(workspaceKey) !== requestEpoch) {
+        return get().threadIdsByWorkspace[workspaceKey] ?? threadId;
+      }
       const loaded = shouldHydrateMessages
         ? deserializeThreadMessages(thread.messages)
         : null;
@@ -450,7 +485,11 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           ...current.threadIdsByWorkspace,
           [workspaceKey]: threadId,
         };
-        if (loaded === null) return { threadIdsByWorkspace };
+        const canHydrate =
+          loaded !== null &&
+          (workspaceActivityEpochs.get(workspaceKey) ?? 0) === activityEpoch &&
+          current.activeRequestWorkspaceId !== workspaceId;
+        if (!canHydrate) return { threadIdsByWorkspace };
         const messagesByWorkspace = {
           ...current.messagesByWorkspace,
           [workspaceKey]: loaded,
@@ -464,6 +503,8 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             messages: loaded,
             messagesByWorkspace,
             threadIdsByWorkspace,
+            currentAssistantId: null,
+            finalizedMessageIds: new Set<string>(),
           };
         }
         return { messagesByWorkspace, threadIdsByWorkspace };
@@ -471,6 +512,167 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       return threadId;
     } catch {
       return null;
+    }
+  },
+
+  async refreshHistory(workspaceId: string): Promise<string | null> {
+    const workspaceKey = normalizeWorkspaceKey(workspaceId);
+    const existing = historyRefreshRequests.get(workspaceKey);
+    if (existing) return existing;
+    const request = get().loadHistory(workspaceId, { force: true });
+    historyRefreshRequests.set(workspaceKey, request);
+    const clearRequest = () => {
+      if (historyRefreshRequests.get(workspaceKey) === request) {
+        historyRefreshRequests.delete(workspaceKey);
+      }
+    };
+    void request.then(clearRequest, clearRequest);
+    return request;
+  },
+
+  async recoverActiveRun(
+    workspaceId: string,
+    providedThreadId?: string | null,
+  ): Promise<SendMessageResult | null> {
+    const workspaceKey = normalizeWorkspaceKey(workspaceId);
+    if (recoveringWorkspaces.has(workspaceKey)) return null;
+    recoveringWorkspaces.add(workspaceKey);
+    let recoveryRequestId: string | null = null;
+    let assistantMessageId: string | null = null;
+    let stream: ThreadStreamHandle | null = null;
+    let launchedResult: SendMessageResult | null = null;
+
+    try {
+      const initial = get();
+      if (
+        initial.activeWorkspaceId !== workspaceId ||
+        initial.isSending
+      ) {
+        return null;
+      }
+      const threadId = (
+        providedThreadId ??
+        initial.threadIdsByWorkspace[workspaceKey] ??
+        ""
+      ).trim();
+      if (!threadId) return null;
+
+      const response = await authorizedFetch(
+        `/api/threads/${encodeURIComponent(threadId)}/runs`,
+      );
+      if (!response.ok) return null;
+      const runs = await response.json() as RunResponse[];
+      const activeRun = runs
+        .filter((run) => run.status === "pending" || run.status === "running")
+        .sort((left, right) =>
+          String(right.updated_at ?? right.created_at ?? "").localeCompare(
+            String(left.updated_at ?? left.created_at ?? ""),
+          ),
+        )[0];
+      if (!activeRun) return null;
+
+      const current = get();
+      if (
+        current.activeWorkspaceId !== workspaceId ||
+        current.isSending
+      ) {
+        return null;
+      }
+
+      recoveryRequestId = `recovery:${activeRun.run_id}`;
+      assistantMessageId = `${recoveryRequestId}:assistant`;
+      bumpWorkspaceActivityEpoch(workspaceKey);
+      set({
+        isSending: true,
+        activeRequestId: recoveryRequestId,
+        activeRequestWorkspaceId: workspaceId,
+        currentAssistantId: null,
+      });
+      get().handleEvent({
+        type: "chat.assistant.start",
+        data: { message_id: assistantMessageId },
+      });
+
+      const isCurrentRecovery = () => {
+        const state = get();
+        return (
+          state.activeWorkspaceId === workspaceId &&
+          state.activeRequestId === recoveryRequestId
+        );
+      };
+      stream = joinThreadRunStream(threadId, activeRun.run_id, {
+        onContent(delta) {
+          if (!isCurrentRecovery()) return;
+          get().handleEvent({
+            type: "chat.assistant.block",
+            block: { kind: "text", content: delta },
+          });
+        },
+        onBlock({ block: rawBlock }) {
+          if (!isCurrentRecovery()) return;
+          const block = normalizeStoreBlock(rawBlock);
+          get().handleEvent({
+            type: "chat.assistant.finalize_block",
+            block,
+          });
+          if (
+            block.kind === "status_line" &&
+            block.action === "start_mission" &&
+            block.run_id.trim()
+          ) {
+            launchedResult = {
+              missionId: block.run_id.trim(),
+              status: "launched",
+            };
+          }
+        },
+      });
+      if (!isCurrentRecovery()) {
+        stream.abort();
+        return null;
+      }
+      set({ activeStream: stream });
+      const outcome = await stream.completion;
+      if (!isCurrentRecovery()) return null;
+
+      set({
+        isSending: false,
+        activeRequestId: null,
+        activeRequestWorkspaceId: null,
+        activeStream: null,
+        currentAssistantId: null,
+      });
+      await get().refreshHistory(workspaceId);
+      if (outcome.status === "completed") {
+        return launchedResult ?? { status: "completed" };
+      }
+      if (outcome.status === "failed") {
+        return { status: "failed", error: outcome.error };
+      }
+      return { status: "cancelled" };
+    } catch {
+      if (
+        recoveryRequestId &&
+        get().activeRequestId === recoveryRequestId
+      ) {
+        set((state) => {
+          const messages = assistantMessageId
+            ? state.messages.filter((message) => message.id !== assistantMessageId)
+            : state.messages;
+          return {
+            ...syncActiveMessages(state, messages),
+            isSending: false,
+            activeRequestId: null,
+            activeRequestWorkspaceId: null,
+            activeStream: null,
+            currentAssistantId: null,
+          };
+        });
+      }
+      await get().refreshHistory(workspaceId);
+      return null;
+    } finally {
+      recoveringWorkspaces.delete(workspaceKey);
     }
   },
 
@@ -495,6 +697,8 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     get().setActiveWorkspace(workspaceId);
     const requestId = crypto.randomUUID();
     const abortController = new AbortController();
+    const workspaceKey = normalizeWorkspaceKey(workspaceId);
+    bumpWorkspaceActivityEpoch(workspaceKey);
     const hadWorkspaceMessages =
       get().getWorkspaceMessages(workspaceId).length > 0;
     set({
@@ -539,7 +743,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
       // Ensure thread exists
       const threadRes = await authorizedFetch(
-        `/api/workspaces/${workspaceId}/thread`,
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/thread`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -557,7 +761,6 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       if (!isCurrentRequest()) return { status: "cancelled" };
       const threadId = typeof thread.id === "string" ? thread.id : "";
       if (!threadId) throw new Error("对话线程无效，请稍后重试");
-      const workspaceKey = normalizeWorkspaceKey(workspaceId);
       set((state) => ({
         threadIdsByWorkspace: {
           ...state.threadIdsByWorkspace,

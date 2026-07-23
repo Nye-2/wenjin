@@ -71,7 +71,7 @@ function makeView(missionId = "mission-1"): MissionView {
         createdAt: "2026-07-11T00:00:30Z",
       }],
     }],
-    evidenceItems: [], artifactItems: [], evidenceCount: 0, artifactCount: 0, artifactRevision: "artifact-revision-1",
+    evidenceItems: [], artifactItems: [], evidenceCount: 0, artifactCount: 0, artifactRevision: "artifact-revision-1", reviewRevision: "review-revision-1",
     reviewItems: [{ id: "r-1", title: "可写创新点", targetKind: "claim", riskLevel: "high", status: "pending", suggestedSelected: false, batchAcceptable: false, requiresExplicitReview: true, previewAvailable: false, commitEligible: false, reasonLabel: "涉及核心论断，需要逐项确认", preview: { claim: "异构性与自适应秩聚合存在可验证关联" } }],
     reviewSummary: { pending: 1, needsMoreEvidence: 0, accepted: 0, committed: 0 }, reviewMode: "balanced_default", reviewPolicy: { protectedOutputsRequireConfirmation: true, draftOutputsMayBeAutomatic: true }, reviewSelectionRevision: "review-selection-revision-1",
     commitSummary: { pending: 0, applying: 0, committed: 0, failed: 0 }, qualityHighlights: [], lastItemSeq: 4, stateVersion: 2,
@@ -119,6 +119,7 @@ describe("MissionConsole", () => {
       items: [{ id: "r-2", title: "完整研究稿", targetKind: "document", riskLevel: "medium", status: "accepted", suggestedSelected: false, batchAcceptable: true, requiresExplicitReview: false, previewAvailable: false, commitEligible: true }],
       nextCursor: null,
       total: 2,
+      revision: "review-revision-1",
     });
   });
 
@@ -158,6 +159,66 @@ describe("MissionConsole", () => {
       missionId: "mission-1",
       cursor: "review-page-2",
     });
+  });
+
+  it("replays the loaded review tail when its full projection revision changes", async () => {
+    listMissionReviewsMock
+      .mockResolvedValueOnce({
+        items: [{ id: "r-old", title: "旧版尾页内容", targetKind: "document", riskLevel: "medium", status: "accepted", suggestedSelected: false, batchAcceptable: true, requiresExplicitReview: false, previewAvailable: false, commitEligible: true }],
+        nextCursor: null,
+        total: 2,
+        revision: "review-revision-1",
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: "r-new", title: "更新后的尾页内容", targetKind: "document", riskLevel: "medium", status: "accepted", suggestedSelected: false, batchAcceptable: true, requiresExplicitReview: false, previewAvailable: false, commitEligible: true }],
+        nextCursor: null,
+        total: 2,
+        revision: "review-revision-2",
+      });
+    const first = makeView();
+    first.reviewNextCursor = "review-page-2";
+    const { rerender } = render(
+      <MissionConsole view={first} onClose={() => undefined} />,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多待确认内容/ }));
+    expect(await screen.findByText("旧版尾页内容")).toBeInTheDocument();
+
+    rerender(
+      <MissionConsole
+        view={{
+          ...first,
+          reviewRevision: "review-revision-2",
+          stateVersion: 3,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText("更新后的尾页内容")).toBeInTheDocument();
+    expect(screen.queryByText("旧版尾页内容")).not.toBeInTheDocument();
+    expect(listMissionReviewsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not replay review pages for an unrelated state-only refresh", async () => {
+    const first = makeView();
+    first.reviewNextCursor = "review-page-2";
+    const { rerender } = render(
+      <MissionConsole view={first} onClose={() => undefined} />,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /确认/ }));
+    fireEvent.click(screen.getByRole("button", { name: /加载更多待确认内容/ }));
+    expect(await screen.findByText("完整研究稿")).toBeInTheDocument();
+
+    rerender(
+      <MissionConsole
+        view={{ ...first, stateVersion: 3 }}
+        onClose={() => undefined}
+      />,
+    );
+    await act(async () => Promise.resolve());
+
+    expect(listMissionReviewsMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows the live operation, authoritative input count, and passed-stage semantics", () => {
